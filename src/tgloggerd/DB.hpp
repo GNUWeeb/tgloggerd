@@ -42,6 +42,10 @@ public:
 
 private:
 	void syncUsernames(mysql::Transaction &tx, const models::User &u);
+	void trackNameChange(mysql::Transaction &tx, const models::User &u);
+	void trackPhoneChange(mysql::Transaction &tx, const models::User &u);
+	void trackProfilePhotoChange(mysql::Transaction &tx,
+				     int64_t user_id, uint64_t file_id);
 
 	mysql::Database db_;
 };

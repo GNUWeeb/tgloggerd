@@ -1,0 +1,69 @@
+-- History of user name changes.
+-- A new row is inserted every time tgloggerd observes a user's
+-- first_name or last_name change.
+
+CREATE TABLE user_hist_name (
+	-- Surrogate primary key.
+	id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	-- The user whose name changed.
+	user_id    BIGINT          NOT NULL COMMENT 'FK to users.id.',
+	-- Snapshot of the name at the time of the change.
+	first_name VARCHAR(255)    NOT NULL DEFAULT '' COMMENT 'User first name.',
+	last_name  VARCHAR(255)    NOT NULL DEFAULT '' COMMENT 'User last name.',
+	-- When this snapshot was recorded.
+	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+
+	PRIMARY KEY (id),
+	KEY idx_user_hist_name_user_id (user_id),
+	CONSTRAINT fk_user_hist_name_user
+		FOREIGN KEY (user_id) REFERENCES users (id)
+		ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='History of user name changes (first_name, last_name).';
+
+-- History of user profile photo changes.
+-- A new row is inserted every time tgloggerd observes a user's
+-- profile_photo_file_id change.
+
+CREATE TABLE user_hist_profile_photo (
+	-- Surrogate primary key.
+	id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	-- The user whose profile photo changed.
+	user_id    BIGINT          NOT NULL COMMENT 'FK to users.id.',
+	-- The file that was the profile photo at the time of the change.
+	file_id    BIGINT UNSIGNED NULL COMMENT 'FK to files.id; NULL if photo was removed.',
+	-- When this snapshot was recorded.
+	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+
+	PRIMARY KEY (id),
+	KEY idx_user_hist_profile_photo_user_id (user_id),
+	CONSTRAINT fk_user_hist_profile_photo_user
+		FOREIGN KEY (user_id) REFERENCES users (id)
+		ON DELETE CASCADE ON UPDATE CASCADE,
+	CONSTRAINT fk_user_hist_profile_photo_file
+		FOREIGN KEY (file_id) REFERENCES files (id)
+		ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='History of user profile photo changes.';
+
+-- History of user phone number changes.
+-- A new row is inserted every time tgloggerd observes a user's
+-- phone_number change.
+
+CREATE TABLE user_hist_phone_num (
+	-- Surrogate primary key.
+	id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	-- The user whose phone number changed.
+	user_id      BIGINT          NOT NULL COMMENT 'FK to users.id.',
+	-- Snapshot of the phone number at the time of the change.
+	phone_number VARCHAR(32)     NOT NULL DEFAULT '' COMMENT 'User phone number.',
+	-- When this snapshot was recorded.
+	created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+
+	PRIMARY KEY (id),
+	KEY idx_user_hist_phone_num_user_id (user_id),
+	CONSTRAINT fk_user_hist_phone_num_user
+		FOREIGN KEY (user_id) REFERENCES users (id)
+		ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='History of user phone number changes.';
