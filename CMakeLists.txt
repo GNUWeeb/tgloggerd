@@ -20,8 +20,28 @@ endif()
 # Build TDLib from the submodule.
 add_subdirectory(submodules/td EXCLUDE_FROM_ALL)
 
+# Build MySQL Connector/C++ from the submodule. Only the legacy JDBC API
+# (connector-jdbc, classic protocol) is needed; it wraps libmysqlclient.
+set(WITH_JDBC ON CACHE BOOL "Build the Connector/C++ legacy JDBC API" FORCE)
+set(WITH_SSL system CACHE STRING "Use the system OpenSSL for Connector/C++" FORCE)
+add_subdirectory(submodules/mysql-connector-cpp EXCLUDE_FROM_ALL)
+
+# When consumed via add_subdirectory (rather than an install), the JDBC
+# public headers are not staged, so expose the in-tree header locations
+# (both the source headers and the generated cppconn headers) to anything
+# that links connector-jdbc.
+target_include_directories(connector-jdbc INTERFACE
+	"${MySQL_CONCPP_SOURCE_DIR}/jdbc"
+	"${MySQL_CONCPP_SOURCE_DIR}/jdbc/driver"
+	"${MySQL_CONCPP_BINARY_DIR}/jdbc"
+	"${MySQL_CONCPP_BINARY_DIR}/jdbc/cppconn")
+
 add_executable(tgloggerd
 	src/main.c
+	src/mysql/ConnectionPool.cpp
+	src/mysql/ConnectionPool.hpp
+	src/mysql/Database.cpp
+	src/mysql/Database.hpp
 	src/tgloggerd/helpers/common.c
 	src/tgloggerd/helpers/common.h
 	src/tgloggerd/helpers/log.c
@@ -41,5 +61,6 @@ target_compile_options(tgloggerd PRIVATE
 
 # Link against the static TDLib C++ client interface (td::ClientManager).
 # This also propagates the TDLib include directories so its interface
-# headers can be included from TDLib.cpp.
-target_link_libraries(tgloggerd PRIVATE Td::TdStatic)
+# headers can be included from TDLib.cpp. connector-jdbc is the MySQL
+# Connector/C++ legacy JDBC library.
+target_link_libraries(tgloggerd PRIVATE Td::TdStatic connector-jdbc)
