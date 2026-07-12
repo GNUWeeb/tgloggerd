@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 Ammar Faizi <ammarfaizi2@gnuweeb.org>
+ */
+#ifndef TGLOGGERD__DB_HPP
+#define TGLOGGERD__DB_HPP
+
+#include <mysql/Database.hpp>
+#include <tgloggerd/models/User.hpp>
+
+namespace tgloggerd {
+
+/*
+ * tgloggerd::DB is the tgloggerd-specific database facade. It maps the
+ * tgloggerd models onto SQL statements executed through the generic
+ * mysql::Database, so the rest of tgloggerd never writes SQL directly.
+ */
+class DB {
+public:
+	explicit DB(const mysql::Config &cfg);
+	~DB(void);
+
+	/* Verify connectivity; throws std::runtime_error on failure. */
+	void ping(void);
+
+	/*
+	 * Insert or update a user and its usernames and bot info. Does not
+	 * touch users.profile_photo_file_id, which is managed separately
+	 * once the profile photo has been downloaded.
+	 */
+	void upsertUser(const models::User &u);
+
+private:
+	void syncUsernames(const models::User &u);
+	void syncBotInfo(const models::User &u);
+
+	mysql::Database db_;
+};
+
+} /* namespace tgloggerd */
+
+#endif /* #ifndef TGLOGGERD__DB_HPP */

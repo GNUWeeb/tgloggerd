@@ -10,6 +10,8 @@
 #include <memory>
 #include <functional>
 
+#include <tgloggerd/models/User.hpp>
+
 namespace tgloggerd {
 
 /*
@@ -46,6 +48,12 @@ public:
 	 * Set the callback invoked for every incoming text message.
 	 */
 	void setMessageHandler(std::function<void(const TextMessage &)> cb);
+
+	/*
+	 * Set the callback invoked whenever a user's information is received
+	 * or updated (td_api::updateUser).
+	 */
+	void setUserHandler(std::function<void(const models::User &)> cb);
 
 	/*
 	 * Process a single batch of TDLib events, waiting up to @timeout

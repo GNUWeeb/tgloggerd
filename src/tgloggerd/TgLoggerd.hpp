@@ -9,6 +9,7 @@
 #include <memory>
 #include "helpers/log.h"
 #include "TDLib.hpp"
+#include "DB.hpp"
 
 namespace tgloggerd {
 
@@ -30,6 +31,7 @@ private:
 	char data_dir_[512];
 	log_hd_t *l_ = nullptr;
 	std::unique_ptr<TDLib> tdlib_;
+	std::unique_ptr<DB> db_;
 };
 
 } /* namespace tgloggerd */

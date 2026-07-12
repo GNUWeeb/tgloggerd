@@ -48,6 +48,98 @@ static auto overloaded(F... f)
 	return overload<F...>(f...);
 }
 
+models::User map_user(const td_api::user &u)
+{
+	models::User m;
+
+	m.id = u.id_;
+	m.first_name = u.first_name_;
+	m.last_name = u.last_name_;
+	m.phone_number = u.phone_number_;
+	m.language_code = u.language_code_;
+
+	m.accent_color_id = u.accent_color_id_;
+	m.background_custom_emoji_id = u.background_custom_emoji_id_;
+	m.profile_accent_color_id = u.profile_accent_color_id_;
+	m.profile_background_custom_emoji_id = u.profile_background_custom_emoji_id_;
+
+	m.is_contact = u.is_contact_;
+	m.is_mutual_contact = u.is_mutual_contact_;
+	m.is_close_friend = u.is_close_friend_;
+	m.is_premium = u.is_premium_;
+	m.is_support = u.is_support_;
+	m.restricts_new_chats = u.restricts_new_chats_;
+	m.paid_message_star_count = u.paid_message_star_count_;
+	m.have_access = u.have_access_;
+	m.added_to_attachment_menu = u.added_to_attachment_menu_;
+
+	if (u.verification_status_) {
+		m.is_verified = u.verification_status_->is_verified_;
+		m.is_scam = u.verification_status_->is_scam_;
+		m.is_fake = u.verification_status_->is_fake_;
+	}
+
+	if (u.restriction_info_) {
+		m.restriction_reason = u.restriction_info_->restriction_reason_;
+		m.has_sensitive_content = u.restriction_info_->has_sensitive_content_;
+	}
+
+	if (u.emoji_status_ && u.emoji_status_->type_ &&
+	    u.emoji_status_->type_->get_id() ==
+		    td_api::emojiStatusTypeCustomEmoji::ID) {
+		auto &t = static_cast<const td_api::emojiStatusTypeCustomEmoji &>(
+			*u.emoji_status_->type_);
+		m.emoji_status_custom_emoji_id = t.custom_emoji_id_;
+		m.emoji_status_expiration_date = u.emoji_status_->expiration_date_;
+	}
+
+	if (u.usernames_) {
+		m.active_usernames = u.usernames_->active_usernames_;
+		m.disabled_usernames = u.usernames_->disabled_usernames_;
+		m.editable_username = u.usernames_->editable_username_;
+		m.collectible_usernames = u.usernames_->collectible_usernames_;
+	}
+
+	m.type = models::UserType::Unknown;
+	if (u.type_) {
+		switch (u.type_->get_id()) {
+		case td_api::userTypeRegular::ID:
+			m.type = models::UserType::Regular;
+			break;
+		case td_api::userTypeDeleted::ID:
+			m.type = models::UserType::Deleted;
+			break;
+		case td_api::userTypeBot::ID: {
+			m.type = models::UserType::Bot;
+			auto &t = static_cast<const td_api::userTypeBot &>(*u.type_);
+			models::BotInfo bi;
+			bi.can_be_edited = t.can_be_edited_;
+			bi.can_join_groups = t.can_join_groups_;
+			bi.can_read_all_group_messages = t.can_read_all_group_messages_;
+			bi.has_main_web_app = t.has_main_web_app_;
+			bi.has_topics = t.has_topics_;
+			bi.allows_users_to_create_topics = t.allows_users_to_create_topics_;
+			bi.can_manage_bots = t.can_manage_bots_;
+			bi.is_inline = t.is_inline_;
+			bi.inline_query_placeholder = t.inline_query_placeholder_;
+			bi.supports_guest_queries = t.supports_guest_queries_;
+			bi.is_guard = t.is_guard_;
+			bi.need_location = t.need_location_;
+			bi.can_connect_to_business = t.can_connect_to_business_;
+			bi.can_be_added_to_attachment_menu = t.can_be_added_to_attachment_menu_;
+			bi.active_user_count = t.active_user_count_;
+			m.bot = bi;
+			break;
+		}
+		default:
+			m.type = models::UserType::Unknown;
+			break;
+		}
+	}
+
+	return m;
+}
+
 } /* namespace */
 
 
@@ -63,6 +155,7 @@ struct TDLib::Impl {
 	std::uint64_t	current_query_id_ = 0;
 
 	std::function<void(const TextMessage &)>	msg_handler_;
+	std::function<void(const models::User &)>	user_handler_;
 
 	std::unique_ptr<td::ClientManager>		client_manager_;
 	td_api::object_ptr<td_api::AuthorizationState>	authorization_state_;
@@ -143,6 +236,8 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				on_authorization_state_update();
 			},
 			[this](td_api::updateUser &u) {
+				if (user_handler_ && u.user_)
+					user_handler_(map_user(*u.user_));
 				users_[u.user_->id_] = std::move(u.user_);
 			},
 			[this](td_api::updateNewMessage &u) {
@@ -318,6 +413,11 @@ TDLib::~TDLib(void) = default;
 void TDLib::setMessageHandler(std::function<void(const TextMessage &)> cb)
 {
 	impl_->msg_handler_ = std::move(cb);
+}
+
+void TDLib::setUserHandler(std::function<void(const models::User &)> cb)
+{
+	impl_->user_handler_ = std::move(cb);
 }
 
 void TDLib::loop(int timeout)

@@ -5,6 +5,7 @@
 #include <tgloggerd/helpers/common.h>
 #include <tgloggerd/TgLoggerd.hpp>
 #include <stdexcept>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 
@@ -71,11 +72,42 @@ int TgLoggerd::start(void)
 	pr_debug(l_, "api_hash: %s", this->api_hash_);
 	pr_debug(l_, "data_dir: %s", this->data_dir_);
 
+	auto env = [](const char *key, const char *def) -> std::string {
+		const char *v = getenv(key);
+		return (v && *v) ? std::string(v) : std::string(def);
+	};
+
+	mysql::Config db_cfg;
+	db_cfg.host = env("TG_DB_HOST", "127.0.0.1");
+	db_cfg.port = (uint16_t)atoi(env("TG_DB_PORT", "3306").c_str());
+	db_cfg.user = env("TG_DB_USER", "tgloggerd");
+	db_cfg.password = env("TG_DB_PASSWORD", "tgloggerd");
+	db_cfg.database = env("TG_DB_NAME", "tgloggerd");
+
+	pr_debug(l_, "db: %s@%s:%u/%s", db_cfg.user.c_str(), db_cfg.host.c_str(),
+		 db_cfg.port, db_cfg.database.c_str());
+
+	db_ = std::make_unique<DB>(db_cfg);
+	try {
+		db_->ping();
+	} catch (const std::exception &e) {
+		pr_error(l_, "Failed to connect to the database: %s", e.what());
+		return -1;
+	}
+
 	char tdlib_path[sizeof(this->data_dir_) + 32];
 	snprintf(tdlib_path, sizeof(tdlib_path), "%s/tdlib", this->data_dir_);
 
 	tdlib_ = std::make_unique<TDLib>(this->api_id_, this->api_hash_,
 					 tdlib_path);
+	tdlib_->setUserHandler([this](const models::User &u) {
+		try {
+			db_->upsertUser(u);
+		} catch (const std::exception &e) {
+			pr_error(l_, "Failed to store user %lld: %s",
+				 (long long)u.id, e.what());
+		}
+	});
 	tdlib_->setMessageHandler([this](const TextMessage &msg) {
 		pr_info(l_, "New message | sender_id=%lld name=\"%s\" "
 			    "username=\"%s\" msg_id=%lld text=\"%s\"",

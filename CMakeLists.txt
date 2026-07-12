@@ -42,6 +42,9 @@ add_executable(tgloggerd
 	src/mysql/ConnectionPool.hpp
 	src/mysql/Database.cpp
 	src/mysql/Database.hpp
+	src/tgloggerd/DB.cpp
+	src/tgloggerd/DB.hpp
+	src/tgloggerd/models/User.hpp
 	src/tgloggerd/helpers/common.c
 	src/tgloggerd/helpers/common.h
 	src/tgloggerd/helpers/log.c
