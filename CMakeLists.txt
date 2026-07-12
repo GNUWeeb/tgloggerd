@@ -17,7 +17,7 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
 endif()
 
-# Build TDLib from the submodule as a shared library.
+# Build TDLib from the submodule.
 add_subdirectory(submodules/td EXCLUDE_FROM_ALL)
 
 add_executable(tgloggerd
@@ -39,6 +39,7 @@ target_compile_options(tgloggerd PRIVATE
 	-Wall
 	-Wextra)
 
-# Link against the shared TDLib JSON interface. This also propagates the
-# TDLib include directories so its interface headers can be included.
-target_link_libraries(tgloggerd PRIVATE Td::TdJson)
+# Link against the static TDLib C++ client interface (td::ClientManager).
+# This also propagates the TDLib include directories so its interface
+# headers can be included from TDLib.cpp.
+target_link_libraries(tgloggerd PRIVATE Td::TdStatic)
