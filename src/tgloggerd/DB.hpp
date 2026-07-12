@@ -25,9 +25,9 @@ public:
 	void ping(void);
 
 	/*
-	 * Insert or update a user and its usernames and bot info. Does not
-	 * touch users.profile_photo_file_id, which is managed separately
-	 * once the profile photo has been downloaded.
+	 * Insert or update a user together with its usernames, atomically.
+	 * Does not touch users.profile_photo_file_id, which is managed
+	 * separately once the profile photo has been downloaded.
 	 */
 	void upsertUser(const models::User &u);
 
@@ -41,7 +41,7 @@ public:
 	void setUserProfilePhoto(int64_t user_id, uint64_t file_id);
 
 private:
-	void syncUsernames(const models::User &u);
+	void syncUsernames(mysql::Transaction &tx, const models::User &u);
 
 	mysql::Database db_;
 };

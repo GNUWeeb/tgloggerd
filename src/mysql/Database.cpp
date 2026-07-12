@@ -57,22 +57,12 @@ private:
 	std::unique_ptr<sql::Connection> conn_;
 };
 
-} /* namespace */
-
-Database::Database(const Config &cfg)
-	: pool_(cfg)
+uint64_t do_execute(sql::Connection *conn, const std::string &sql,
+		    const std::vector<Param> &params)
 {
-}
-
-Database::~Database(void) = default;
-
-uint64_t Database::execute(const std::string &sql,
-			   const std::vector<Param> &params)
-{
-	ScopedConnection conn(pool_);
 	try {
 		std::unique_ptr<sql::PreparedStatement> ps(
-			conn.get()->prepareStatement(sql));
+			conn->prepareStatement(sql));
 		for (size_t i = 0; i < params.size(); i++)
 			bind_param(ps.get(), (unsigned)(i + 1), params[i]);
 		return (uint64_t)ps->executeUpdate();
@@ -82,18 +72,17 @@ uint64_t Database::execute(const std::string &sql,
 	}
 }
 
-uint64_t Database::insert(const std::string &sql,
-			  const std::vector<Param> &params)
+uint64_t do_insert(sql::Connection *conn, const std::string &sql,
+		   const std::vector<Param> &params)
 {
-	ScopedConnection conn(pool_);
 	try {
 		std::unique_ptr<sql::PreparedStatement> ps(
-			conn.get()->prepareStatement(sql));
+			conn->prepareStatement(sql));
 		for (size_t i = 0; i < params.size(); i++)
 			bind_param(ps.get(), (unsigned)(i + 1), params[i]);
 		ps->executeUpdate();
 
-		std::unique_ptr<sql::Statement> st(conn.get()->createStatement());
+		std::unique_ptr<sql::Statement> st(conn->createStatement());
 		std::unique_ptr<sql::ResultSet> rs(
 			st->executeQuery("SELECT LAST_INSERT_ID()"));
 		if (rs->next())
@@ -105,13 +94,12 @@ uint64_t Database::insert(const std::string &sql,
 	}
 }
 
-std::vector<Row> Database::query(const std::string &sql,
-				 const std::vector<Param> &params)
+std::vector<Row> do_query(sql::Connection *conn, const std::string &sql,
+			  const std::vector<Param> &params)
 {
-	ScopedConnection conn(pool_);
 	try {
 		std::unique_ptr<sql::PreparedStatement> ps(
-			conn.get()->prepareStatement(sql));
+			conn->prepareStatement(sql));
 		for (size_t i = 0; i < params.size(); i++)
 			bind_param(ps.get(), (unsigned)(i + 1), params[i]);
 
@@ -135,6 +123,85 @@ std::vector<Row> Database::query(const std::string &sql,
 		throw std::runtime_error(std::string("MySQL query failed: ") +
 					 e.what());
 	}
+}
+
+} /* namespace */
+
+Database::Database(const Config &cfg)
+	: pool_(cfg)
+{
+}
+
+Database::~Database(void) = default;
+
+uint64_t Database::execute(const std::string &sql,
+			   const std::vector<Param> &params)
+{
+	ScopedConnection conn(pool_);
+	return do_execute(conn.get(), sql, params);
+}
+
+uint64_t Database::insert(const std::string &sql,
+			  const std::vector<Param> &params)
+{
+	ScopedConnection conn(pool_);
+	return do_insert(conn.get(), sql, params);
+}
+
+std::vector<Row> Database::query(const std::string &sql,
+				 const std::vector<Param> &params)
+{
+	ScopedConnection conn(pool_);
+	return do_query(conn.get(), sql, params);
+}
+
+void Database::transaction(const std::function<void(Transaction &)> &fn)
+{
+	ScopedConnection conn(pool_);
+	sql::Connection *c = conn.get();
+
+	try {
+		c->setAutoCommit(false);
+		Transaction txn(c);
+		fn(txn);
+		c->commit();
+		c->setAutoCommit(true);
+	} catch (sql::SQLException &e) {
+		try {
+			c->rollback();
+			c->setAutoCommit(true);
+		} catch (...) {
+			/* Best effort; report the original failure below. */
+		}
+		throw std::runtime_error(
+			std::string("MySQL transaction failed: ") + e.what());
+	} catch (...) {
+		try {
+			c->rollback();
+			c->setAutoCommit(true);
+		} catch (...) {
+			/* Best effort; rethrow the original exception. */
+		}
+		throw;
+	}
+}
+
+uint64_t Transaction::execute(const std::string &sql,
+			      const std::vector<Param> &params)
+{
+	return do_execute(conn_, sql, params);
+}
+
+uint64_t Transaction::insert(const std::string &sql,
+			     const std::vector<Param> &params)
+{
+	return do_insert(conn_, sql, params);
+}
+
+std::vector<Row> Transaction::query(const std::string &sql,
+				    const std::vector<Param> &params)
+{
+	return do_query(conn_, sql, params);
 }
 
 } /* namespace mysql */

@@ -12,6 +12,11 @@
 #include <cstdint>
 #include <variant>
 #include <optional>
+#include <functional>
+
+namespace sql {
+class Connection;
+} /* namespace sql */
 
 namespace mysql {
 
@@ -26,6 +31,28 @@ using Param = std::variant<std::monostate, int64_t, uint64_t, double, std::strin
  * the textual values to the types they expect.
  */
 using Row = std::vector<std::optional<std::string>>;
+
+/*
+ * A handle to statements running inside a single transaction, on one
+ * connection. Obtained through Database::transaction(). The methods
+ * mirror Database's, but all run on the transaction's connection so a
+ * group of dependent statements is atomic.
+ */
+class Transaction {
+public:
+	uint64_t execute(const std::string &sql,
+			 const std::vector<Param> &params = {});
+	uint64_t insert(const std::string &sql,
+			const std::vector<Param> &params = {});
+	std::vector<Row> query(const std::string &sql,
+			       const std::vector<Param> &params = {});
+
+private:
+	friend class Database;
+	explicit Transaction(sql::Connection *conn) : conn_(conn) {}
+
+	sql::Connection *conn_;
+};
 
 /*
  * Executes SQL statements against a MySQL server using a ConnectionPool.
@@ -54,6 +81,14 @@ public:
 	/* Run a SELECT; returns all rows. */
 	std::vector<Row> query(const std::string &sql,
 			       const std::vector<Param> &params = {});
+
+	/*
+	 * Run a group of dependent statements atomically. fn receives a
+	 * Transaction bound to a single connection; the transaction is
+	 * committed if fn returns normally and rolled back (and the error
+	 * rethrown) if fn throws.
+	 */
+	void transaction(const std::function<void(Transaction &)> &fn);
 
 private:
 	ConnectionPool pool_;

@@ -87,30 +87,32 @@ void DB::upsertUser(const models::User &u)
 	if (u.emoji_status_expiration_date.has_value())
 		emoji_exp = (int64_t)*u.emoji_status_expiration_date;
 
-	db_.execute(sql, {
-		(int64_t)u.id,
-		u.first_name,
-		u.last_name,
-		u.phone_number,
-		std::string(user_type_to_string(u.type)),
-		(int64_t)u.accent_color_id,
-		(int64_t)u.background_custom_emoji_id,
-		(int64_t)u.profile_accent_color_id,
-		(int64_t)u.profile_background_custom_emoji_id,
-		emoji_id,
-		emoji_exp,
-		b(u.is_verified),
-		b(u.is_scam),
-		b(u.is_fake),
-		b(u.is_premium),
-		b(u.is_support),
-		u.restriction_reason,
-		b(u.has_sensitive_content),
-		b(u.restricts_new_chats),
-		(int64_t)u.paid_message_star_count,
-	});
+	db_.transaction([&](mysql::Transaction &tx) {
+		tx.execute(sql, {
+			(int64_t)u.id,
+			u.first_name,
+			u.last_name,
+			u.phone_number,
+			std::string(user_type_to_string(u.type)),
+			(int64_t)u.accent_color_id,
+			(int64_t)u.background_custom_emoji_id,
+			(int64_t)u.profile_accent_color_id,
+			(int64_t)u.profile_background_custom_emoji_id,
+			emoji_id,
+			emoji_exp,
+			b(u.is_verified),
+			b(u.is_scam),
+			b(u.is_fake),
+			b(u.is_premium),
+			b(u.is_support),
+			u.restriction_reason,
+			b(u.has_sensitive_content),
+			b(u.restricts_new_chats),
+			(int64_t)u.paid_message_star_count,
+		});
 
-	syncUsernames(u);
+		syncUsernames(tx, u);
+	});
 }
 
 uint64_t DB::upsertFile(const models::File &f)
@@ -118,30 +120,36 @@ uint64_t DB::upsertFile(const models::File &f)
 	/*
 	 * De-duplicate by content: the SHA-256 is stored as BINARY(32), so
 	 * bind the hex digest and let the server decode it with UNHEX().
+	 * The lookup and the insert/update run in one transaction.
 	 */
-	auto rows = db_.query("SELECT id FROM files WHERE sha256 = UNHEX(?)",
-			      { f.sha256_hex });
-	if (!rows.empty() && rows[0][0].has_value()) {
-		uint64_t id = std::stoull(*rows[0][0]);
-		db_.execute("UPDATE files SET hit_count = hit_count + 1"
-			    " WHERE id = ?", { (int64_t)id });
-		return id;
-	}
+	uint64_t id = 0;
+	db_.transaction([&](mysql::Transaction &tx) {
+		auto rows = tx.query(
+			"SELECT id FROM files WHERE sha256 = UNHEX(?)",
+			{ f.sha256_hex });
+		if (!rows.empty() && rows[0][0].has_value()) {
+			id = std::stoull(*rows[0][0]);
+			tx.execute("UPDATE files SET hit_count = hit_count + 1"
+				   " WHERE id = ?", { (int64_t)id });
+			return;
+		}
 
-	mysql::Param ext = std::monostate{};
-	if (f.file_ext.has_value())
-		ext = *f.file_ext;
+		mysql::Param ext = std::monostate{};
+		if (f.file_ext.has_value())
+			ext = *f.file_ext;
 
-	return db_.insert(
-		"INSERT INTO files (tg_file_id, file_type, file_size, sha256,"
-		" file_ext) VALUES (?, ?, ?, UNHEX(?), ?)",
-		{
-			f.tg_file_id,
-			f.file_type,
-			(int64_t)f.file_size,
-			f.sha256_hex,
-			ext,
-		});
+		id = tx.insert(
+			"INSERT INTO files (tg_file_id, file_type, file_size,"
+			" sha256, file_ext) VALUES (?, ?, ?, UNHEX(?), ?)",
+			{
+				f.tg_file_id,
+				f.file_type,
+				(int64_t)f.file_size,
+				f.sha256_hex,
+				ext,
+			});
+	});
+	return id;
 }
 
 void DB::setUserProfilePhoto(int64_t user_id, uint64_t file_id)
@@ -150,10 +158,10 @@ void DB::setUserProfilePhoto(int64_t user_id, uint64_t file_id)
 		    { (int64_t)file_id, (int64_t)user_id });
 }
 
-void DB::syncUsernames(const models::User &u)
+void DB::syncUsernames(mysql::Transaction &tx, const models::User &u)
 {
-	db_.execute("DELETE FROM user_usernames WHERE user_id = ?",
-		    { (int64_t)u.id });
+	tx.execute("DELETE FROM user_usernames WHERE user_id = ?",
+		   { (int64_t)u.id });
 
 	static const char *ins =
 		"INSERT INTO user_usernames (user_id, username, kind, position)"
@@ -162,7 +170,7 @@ void DB::syncUsernames(const models::User &u)
 	auto insert_list = [&](const std::vector<std::string> &names,
 			       const char *kind) {
 		for (size_t i = 0; i < names.size(); i++) {
-			db_.execute(ins, {
+			tx.execute(ins, {
 				(int64_t)u.id,
 				names[i],
 				std::string(kind),
