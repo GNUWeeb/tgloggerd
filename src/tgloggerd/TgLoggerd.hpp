@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <optional>
 #include "helpers/log.h"
 #include "TDLib.hpp"
 #include "DB.hpp"
@@ -26,7 +27,12 @@ public:
 private:
 	inline int initDataDir(void);
 	inline int initDataDirC(const char *dir);
+	std::optional<uint64_t> storeDownloadedFile(const std::string &local_path,
+						    const std::string &tg_file_id,
+						    int64_t file_size,
+						    const char *file_type);
 	void onProfilePhoto(const ProfilePhoto &p);
+	void onGroupPhoto(const GroupPhoto &p);
 
 	uint32_t api_id_;
 	char api_hash_[64];

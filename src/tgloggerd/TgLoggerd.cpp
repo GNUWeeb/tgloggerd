@@ -180,6 +180,22 @@ int TgLoggerd::start(void)
 				 " %lld: %s", (long long)p.user_id, e.what());
 		}
 	});
+	tdlib_->setGroupHandler([this](const models::Group &g) {
+		try {
+			db_->upsertGroup(g);
+		} catch (const std::exception &e) {
+			pr_error(l_, "Failed to store group %lld: %s",
+				 (long long)g.id, e.what());
+		}
+	});
+	tdlib_->setGroupPhotoHandler([this](const GroupPhoto &p) {
+		try {
+			onGroupPhoto(p);
+		} catch (const std::exception &e) {
+			pr_error(l_, "Failed to store group photo for group"
+				 " %lld: %s", (long long)p.group_id, e.what());
+		}
+	});
 	tdlib_->setMessageHandler([this](const TextMessage &msg) {
 		pr_info(l_, "New message | sender_id=%lld name=\"%s\" "
 			    "username=\"%s\" msg_id=%lld text=\"%s\"",
@@ -205,15 +221,41 @@ int TgLoggerd::stop(void)
 
 void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
 {
-	auto hex = sha256_file_hex(p.local_path);
-	if (!hex.has_value()) {
-		pr_error(l_, "Failed to hash profile photo: %s",
-			 p.local_path.c_str());
+	auto file_id = storeDownloadedFile(p.local_path, p.tg_file_id,
+					   p.file_size, "photo");
+	if (!file_id.has_value())
 		return;
+
+	db_->setUserProfilePhoto(p.user_id, *file_id);
+	pr_info(l_, "Stored profile photo | user_id=%lld file_id=%llu",
+		(long long)p.user_id, (unsigned long long)*file_id);
+}
+
+void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
+{
+	auto file_id = storeDownloadedFile(p.local_path, p.tg_file_id,
+					   p.file_size, "photo");
+	if (!file_id.has_value())
+		return;
+
+	db_->setGroupPhoto(p.group_id, *file_id);
+	pr_info(l_, "Stored group photo | group_id=%lld file_id=%llu",
+		(long long)p.group_id, (unsigned long long)*file_id);
+}
+
+std::optional<uint64_t>
+TgLoggerd::storeDownloadedFile(const std::string &local_path,
+			       const std::string &tg_file_id,
+			       int64_t file_size, const char *file_type)
+{
+	auto hex = sha256_file_hex(local_path);
+	if (!hex.has_value()) {
+		pr_error(l_, "Failed to hash file: %s", local_path.c_str());
+		return std::nullopt;
 	}
 
 	/* Content-addressed destination name: <sha256>[.ext]. */
-	std::string ext = fs::path(p.local_path).extension().string();
+	std::string ext = fs::path(local_path).extension().string();
 	if (!ext.empty() && ext[0] == '.')
 		ext.erase(0, 1);
 	std::transform(ext.begin(), ext.end(), ext.begin(),
@@ -238,30 +280,25 @@ void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
 	if (ec) {
 		pr_error(l_, "Failed to create storage directory %s: %s",
 			 dir.c_str(), ec.message().c_str());
-		return;
+		return std::nullopt;
 	}
 	if (!fs::exists(dest, ec))
-		fs::copy_file(p.local_path, dest, ec);
+		fs::copy_file(local_path, dest, ec);
 	if (ec) {
-		pr_error(l_, "Failed to copy profile photo to %s: %s",
+		pr_error(l_, "Failed to copy file to %s: %s",
 			 dest.c_str(), ec.message().c_str());
-		return;
+		return std::nullopt;
 	}
 
 	models::File f;
-	f.tg_file_id = p.tg_file_id;
-	f.file_type = "photo";
-	f.file_size = (uint64_t)(p.file_size < 0 ? 0 : p.file_size);
+	f.tg_file_id = tg_file_id;
+	f.file_type = file_type;
+	f.file_size = (uint64_t)(file_size < 0 ? 0 : file_size);
 	f.sha256_hex = *hex;
 	if (!ext.empty())
 		f.file_ext = ext;
 
-	uint64_t file_id = db_->upsertFile(f);
-	db_->setUserProfilePhoto(p.user_id, file_id);
-
-	pr_info(l_, "Stored profile photo | user_id=%lld file_id=%llu sha256=%s",
-		(long long)p.user_id, (unsigned long long)file_id,
-		hex->c_str());
+	return db_->upsertFile(f);
 }
 
 void TgLoggerd::setLogger(log_hd_t *h) noexcept

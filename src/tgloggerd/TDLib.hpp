@@ -11,6 +11,7 @@
 #include <functional>
 
 #include <tgloggerd/models/User.hpp>
+#include <tgloggerd/models/Group.hpp>
 
 namespace tgloggerd {
 
@@ -33,6 +34,16 @@ struct TextMessage {
  */
 struct ProfilePhoto {
 	int64_t		user_id;
+	std::string	local_path;
+	std::string	tg_file_id;
+	int64_t		file_size;
+};
+
+/*
+ * A group photo whose download has completed, ready to be stored.
+ */
+struct GroupPhoto {
+	int64_t		group_id;
 	std::string	local_path;
 	std::string	tg_file_id;
 	int64_t		file_size;
@@ -70,6 +81,19 @@ public:
 	 * finished downloading.
 	 */
 	void setProfilePhotoHandler(std::function<void(const ProfilePhoto &)> cb);
+
+	/*
+	 * Set the callback invoked whenever a group's information is received
+	 * or updated (assembled from the chat, supergroup/basicGroup and
+	 * full-info objects).
+	 */
+	void setGroupHandler(std::function<void(const models::Group &)> cb);
+
+	/*
+	 * Set the callback invoked when a group's (big) photo has finished
+	 * downloading.
+	 */
+	void setGroupPhotoHandler(std::function<void(const GroupPhoto &)> cb);
 
 	/*
 	 * Process a single batch of TDLib events, waiting up to @timeout

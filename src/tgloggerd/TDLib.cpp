@@ -10,6 +10,7 @@
 
 #include <string>
 #include <memory>
+#include <vector>
 #include <cstdint>
 #include <iostream>
 #include <functional>
@@ -131,6 +132,8 @@ struct TDLib::Impl {
 	std::function<void(const TextMessage &)>	msg_handler_;
 	std::function<void(const models::User &)>	user_handler_;
 	std::function<void(const ProfilePhoto &)>	photo_handler_;
+	std::function<void(const models::Group &)>	group_handler_;
+	std::function<void(const GroupPhoto &)>		group_photo_handler_;
 
 	std::unique_ptr<td::ClientManager>		client_manager_;
 	td_api::object_ptr<td_api::AuthorizationState>	authorization_state_;
@@ -138,6 +141,31 @@ struct TDLib::Impl {
 	std::unordered_map<std::uint64_t, std::function<void(Object)>>	handlers_;
 	std::unordered_map<int64_t, td_api::object_ptr<td_api::user>>	users_;
 	std::unordered_map<int32_t, int64_t>				pending_photo_;
+
+	/* Cached supergroup fields, awaiting the chat to assemble a group. */
+	struct SgInfo {
+		std::vector<std::string>	active;
+		std::vector<std::string>	disabled;
+		std::vector<std::string>	collectible;
+		bool				is_channel = false;
+	};
+
+	/* Assembled group state, merged from the chat/supergroup/full info. */
+	struct GroupState {
+		models::GroupType		type = models::GroupType::BasicGroup;
+		int64_t				chat_id = 0;
+		std::string			title;
+		std::string			description;
+		std::vector<std::string>	active_usernames;
+		std::vector<std::string>	disabled_usernames;
+		std::vector<std::string>	collectible_usernames;
+		bool				chat_seen = false;
+	};
+
+	std::unordered_map<int64_t, SgInfo>		supergroups_;
+	std::unordered_map<int64_t, GroupState>		group_state_;
+	std::unordered_map<int64_t, int64_t>		chat_to_group_;
+	std::unordered_map<int32_t, int64_t>		pending_group_photo_;
 
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
 
@@ -154,6 +182,11 @@ struct TDLib::Impl {
 	void maybe_download_profile_photo(const td_api::user &u);
 	void handle_file_update(const td_api::file &f);
 	void emit_photo(int64_t user_id, const td_api::file &f);
+	void handle_new_chat(const td_api::chat &chat);
+	void maybe_download_group_photo(int64_t group_id,
+					const td_api::chatPhotoInfo *photo);
+	void emit_group(int64_t group_id);
+	void emit_group_photo(int64_t group_id, const td_api::file &f);
 };
 
 
@@ -224,6 +257,66 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 			[this](td_api::updateFile &u) {
 				if (u.file_)
 					handle_file_update(*u.file_);
+			},
+			[this](td_api::updateNewChat &u) {
+				if (u.chat_)
+					handle_new_chat(*u.chat_);
+			},
+			[this](td_api::updateChatTitle &u) {
+				auto it = chat_to_group_.find(u.chat_id_);
+				if (it == chat_to_group_.end())
+					return;
+				group_state_[it->second].title = u.title_;
+				emit_group(it->second);
+			},
+			[this](td_api::updateChatPhoto &u) {
+				auto it = chat_to_group_.find(u.chat_id_);
+				if (it == chat_to_group_.end())
+					return;
+				maybe_download_group_photo(it->second,
+							   u.photo_.get());
+			},
+			[this](td_api::updateSupergroup &u) {
+				if (!u.supergroup_)
+					return;
+				const auto &sg = *u.supergroup_;
+				SgInfo info;
+				if (sg.usernames_) {
+					info.active = sg.usernames_->active_usernames_;
+					info.disabled = sg.usernames_->disabled_usernames_;
+					info.collectible = sg.usernames_->collectible_usernames_;
+				}
+				info.is_channel = sg.is_channel_;
+				supergroups_[sg.id_] = info;
+
+				auto it = group_state_.find(sg.id_);
+				if (it == group_state_.end())
+					return;
+				it->second.active_usernames = info.active;
+				it->second.disabled_usernames = info.disabled;
+				it->second.collectible_usernames = info.collectible;
+				it->second.type = info.is_channel ?
+					models::GroupType::Channel :
+					models::GroupType::Supergroup;
+				emit_group(sg.id_);
+			},
+			[this](td_api::updateSupergroupFullInfo &u) {
+				if (!u.supergroup_full_info_)
+					return;
+				auto &st = group_state_[u.supergroup_id_];
+				st.description =
+					u.supergroup_full_info_->description_;
+				if (st.chat_seen)
+					emit_group(u.supergroup_id_);
+			},
+			[this](td_api::updateBasicGroupFullInfo &u) {
+				if (!u.basic_group_full_info_)
+					return;
+				auto &st = group_state_[u.basic_group_id_];
+				st.description =
+					u.basic_group_full_info_->description_;
+				if (st.chat_seen)
+					emit_group(u.basic_group_id_);
 			},
 			[this](td_api::updateNewMessage &u) {
 				handle_new_message(*u.message_);
@@ -408,15 +501,24 @@ void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
 
 void TDLib::Impl::handle_file_update(const td_api::file &f)
 {
-	auto it = pending_photo_.find(f.id_);
-	if (it == pending_photo_.end())
-		return;
 	if (!f.local_ || !f.local_->is_downloading_completed_)
 		return;
 
-	int64_t user_id = it->second;
-	pending_photo_.erase(it);
-	emit_photo(user_id, f);
+	auto it = pending_photo_.find(f.id_);
+	if (it != pending_photo_.end()) {
+		int64_t user_id = it->second;
+		pending_photo_.erase(it);
+		emit_photo(user_id, f);
+		return;
+	}
+
+	auto git = pending_group_photo_.find(f.id_);
+	if (git != pending_group_photo_.end()) {
+		int64_t group_id = git->second;
+		pending_group_photo_.erase(git);
+		emit_group_photo(group_id, f);
+		return;
+	}
 }
 
 void TDLib::Impl::emit_photo(int64_t user_id, const td_api::file &f)
@@ -431,6 +533,115 @@ void TDLib::Impl::emit_photo(int64_t user_id, const td_api::file &f)
 	p.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
 	p.file_size = f.size_;
 	photo_handler_(p);
+}
+
+void TDLib::Impl::handle_new_chat(const td_api::chat &chat)
+{
+	if (!chat.type_)
+		return;
+
+	int64_t group_id = 0;
+	models::GroupType type = models::GroupType::BasicGroup;
+
+	switch (chat.type_->get_id()) {
+	case td_api::chatTypeBasicGroup::ID: {
+		auto &t = static_cast<const td_api::chatTypeBasicGroup &>(
+			*chat.type_);
+		group_id = t.basic_group_id_;
+		type = models::GroupType::BasicGroup;
+		break;
+	}
+	case td_api::chatTypeSupergroup::ID: {
+		auto &t = static_cast<const td_api::chatTypeSupergroup &>(
+			*chat.type_);
+		group_id = t.supergroup_id_;
+		type = t.is_channel_ ? models::GroupType::Channel :
+				       models::GroupType::Supergroup;
+		break;
+	}
+	default:
+		/* Private and secret chats are not groups. */
+		return;
+	}
+
+	GroupState &st = group_state_[group_id];
+	st.type = type;
+	st.chat_id = chat.id_;
+	st.title = chat.title_;
+	st.chat_seen = true;
+	chat_to_group_[chat.id_] = group_id;
+
+	/* Merge usernames already received via updateSupergroup. */
+	auto sg = supergroups_.find(group_id);
+	if (sg != supergroups_.end()) {
+		st.active_usernames = sg->second.active;
+		st.disabled_usernames = sg->second.disabled;
+		st.collectible_usernames = sg->second.collectible;
+		if (sg->second.is_channel)
+			st.type = models::GroupType::Channel;
+	}
+
+	emit_group(group_id);
+
+	/* Request full info so the description arrives via its update. */
+	if (type == models::GroupType::BasicGroup)
+		send_query(td_api::make_object<td_api::getBasicGroupFullInfo>(
+				   group_id), {});
+	else
+		send_query(td_api::make_object<td_api::getSupergroupFullInfo>(
+				   group_id), {});
+
+	maybe_download_group_photo(group_id, chat.photo_.get());
+}
+
+void TDLib::Impl::maybe_download_group_photo(int64_t group_id,
+					     const td_api::chatPhotoInfo *photo)
+{
+	if (!group_photo_handler_ || !photo || !photo->big_)
+		return;
+
+	const td_api::file &big = *photo->big_;
+	if (big.local_ && big.local_->is_downloading_completed_) {
+		emit_group_photo(group_id, big);
+		return;
+	}
+
+	pending_group_photo_[big.id_] = group_id;
+	send_query(td_api::make_object<td_api::downloadFile>(
+			   big.id_, 1, 0, 0, false), {});
+}
+
+void TDLib::Impl::emit_group(int64_t group_id)
+{
+	auto it = group_state_.find(group_id);
+	if (it == group_state_.end() || !it->second.chat_seen ||
+	    !group_handler_)
+		return;
+
+	const GroupState &st = it->second;
+	models::Group g;
+	g.id = group_id;
+	g.type = st.type;
+	g.title = st.title;
+	g.description = st.description;
+	g.active_usernames = st.active_usernames;
+	g.disabled_usernames = st.disabled_usernames;
+	g.collectible_usernames = st.collectible_usernames;
+	group_handler_(g);
+}
+
+void TDLib::Impl::emit_group_photo(int64_t group_id, const td_api::file &f)
+{
+	if (!group_photo_handler_ || !f.local_ ||
+	    !f.local_->is_downloading_completed_)
+		return;
+
+	GroupPhoto p;
+	p.group_id = group_id;
+	p.local_path = f.local_->path_;
+	p.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
+	p.file_size = f.size_;
+	group_photo_handler_(p);
 }
 
 
@@ -454,6 +665,16 @@ void TDLib::setUserHandler(std::function<void(const models::User &)> cb)
 void TDLib::setProfilePhotoHandler(std::function<void(const ProfilePhoto &)> cb)
 {
 	impl_->photo_handler_ = std::move(cb);
+}
+
+void TDLib::setGroupHandler(std::function<void(const models::Group &)> cb)
+{
+	impl_->group_handler_ = std::move(cb);
+}
+
+void TDLib::setGroupPhotoHandler(std::function<void(const GroupPhoto &)> cb)
+{
+	impl_->group_photo_handler_ = std::move(cb);
 }
 
 void TDLib::loop(int timeout)
