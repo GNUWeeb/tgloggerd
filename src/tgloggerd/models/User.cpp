@@ -5,6 +5,9 @@
 #include <tgloggerd/DB.hpp>
 
 #include <string>
+#include <vector>
+#include <utility>
+#include <unordered_map>
 
 namespace tgloggerd {
 
@@ -160,33 +163,96 @@ void DB::setUserProfilePhoto(int64_t user_id, uint64_t file_id)
 
 void DB::syncUsernames(mysql::Transaction &tx, const models::User &u)
 {
-	/*
-	 * Release old usernames by nullifying user_id rather than
-	 * deleting them, so the table preserves a history of username
-	 * ownership.
-	 */
-	tx.execute("UPDATE user_usernames SET user_id = NULL WHERE user_id = ?",
-		   { (int64_t)u.id });
-
-	static const char *ins =
-		"INSERT INTO user_usernames (user_id, username, kind, position)"
-		" VALUES (?, ?, ?, ?)";
-
-	auto insert_list = [&](const std::vector<std::string> &names,
-			       const char *kind) {
-		for (size_t i = 0; i < names.size(); i++) {
-			tx.execute(ins, {
-				(int64_t)u.id,
-				names[i],
-				std::string(kind),
-				(int64_t)i,
-			});
-		}
+	struct Entry {
+		std::string	kind;
+		int		position = 0;
 	};
 
-	insert_list(u.active_usernames, "active");
-	insert_list(u.disabled_usernames, "disabled");
-	insert_list(u.collectible_usernames, "collectible");
+	/*
+	 * Load the usernames this user currently owns, so the new set can
+	 * be diffed against them to record the individual changes.
+	 */
+	auto old_rows = tx.query(
+		"SELECT username, kind, position FROM user_usernames"
+		" WHERE user_id = ?",
+		{ (int64_t)u.id });
+
+	std::unordered_map<std::string, Entry> old_map;
+	for (auto &r : old_rows) {
+		if (!r[0].has_value())
+			continue;
+		old_map.emplace(*r[0], Entry{
+			r[1].value_or(""),
+			r[2].has_value() ? std::stoi(*r[2]) : 0,
+		});
+	}
+
+	/* Build the new set from the model, preserving list order. */
+	std::vector<std::pair<std::string, Entry>> new_list;
+	std::unordered_map<std::string, Entry> new_map;
+	auto collect = [&](const std::vector<std::string> &names,
+			   const char *kind) {
+		for (size_t i = 0; i < names.size(); i++) {
+			Entry e{ kind, (int)i };
+			new_list.emplace_back(names[i], e);
+			new_map[names[i]] = e;
+		}
+	};
+	collect(u.active_usernames, "active");
+	collect(u.disabled_usernames, "disabled");
+	collect(u.collectible_usernames, "collectible");
+
+	static const char *ev =
+		"INSERT INTO user_hist_usernames_events"
+		" (user_id, username, action, kind, position)"
+		" VALUES (?, ?, ?, ?, ?)";
+
+	/* Additions, kind changes and reorders. */
+	for (auto &n : new_list) {
+		const std::string &uname = n.first;
+		const Entry &ne = n.second;
+		auto it = old_map.find(uname);
+		if (it == old_map.end()) {
+			tx.execute(ev, { (int64_t)u.id, uname,
+					 std::string("added"), ne.kind,
+					 (int64_t)ne.position });
+		} else if (it->second.kind != ne.kind) {
+			tx.execute(ev, { (int64_t)u.id, uname,
+					 std::string("kind_changed"), ne.kind,
+					 (int64_t)ne.position });
+		} else if (it->second.position != ne.position) {
+			tx.execute(ev, { (int64_t)u.id, uname,
+					 std::string("reordered"), ne.kind,
+					 (int64_t)ne.position });
+		}
+	}
+
+	/* Removals: usernames the user no longer owns are released. */
+	for (auto &o : old_map) {
+		if (new_map.find(o.first) != new_map.end())
+			continue;
+		tx.execute(ev, { (int64_t)u.id, o.first,
+				 std::string("removed"), std::monostate{},
+				 std::monostate{} });
+		tx.execute("UPDATE user_usernames SET user_id = NULL"
+			   " WHERE user_id = ? AND username = ?",
+			   { (int64_t)u.id, o.first });
+	}
+
+	/*
+	 * Upsert the current usernames. The UNIQUE key on username lets a
+	 * single statement claim a new username, transfer ownership of an
+	 * existing one, and update its kind and position.
+	 */
+	static const char *ins =
+		"INSERT INTO user_usernames (user_id, username, kind, position)"
+		" VALUES (?, ?, ?, ?) AS new ON DUPLICATE KEY UPDATE"
+		" user_id = new.user_id, kind = new.kind,"
+		" position = new.position";
+	for (auto &n : new_list) {
+		tx.execute(ins, { (int64_t)u.id, n.first, n.second.kind,
+				  (int64_t)n.second.position });
+	}
 }
 
 void DB::trackProfilePhotoChange(mysql::Transaction &tx,

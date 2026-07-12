@@ -1,8 +1,11 @@
--- Normalized usernames for each user (td_api::usernames).
--- A user may hold several usernames of different kinds. When a user's
--- username set changes, old rows have their user_id set to NULL
--- (releasing the username) and new rows are inserted, so the table
--- preserves a history of username ownership.
+-- Normalized usernames (td_api::usernames). Telegram enforces a global
+-- username namespace: at most one user holds a given username at a time.
+-- Each username therefore has at most one row (UNIQUE), and ownership is
+-- tracked by user_id, which points at the current owner or is NULL once
+-- the username has been released. tgloggerd upserts rows with
+-- INSERT ... ON DUPLICATE KEY UPDATE so claiming, ownership transfer,
+-- reordering and kind changes happen in place; the individual changes
+-- are recorded in user_hist_usernames_events.
 
 CREATE TABLE user_usernames (
 	-- Surrogate primary key.
@@ -20,8 +23,8 @@ CREATE TABLE user_usernames (
 	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
+	UNIQUE KEY uq_user_usernames_username (username),
 	KEY idx_user_usernames_user_id (user_id),
-	KEY idx_user_usernames_username (username),
 	CONSTRAINT fk_user_usernames_user
 		FOREIGN KEY (user_id) REFERENCES users (id)
 		ON DELETE SET NULL ON UPDATE CASCADE

@@ -67,3 +67,33 @@ CREATE TABLE user_hist_phone_num (
 		ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='History of user phone number changes.';
+
+-- Audit log of username changes: additions, removals, reordering within
+-- a list, and kind changes. tgloggerd computes these by diffing a user's
+-- new username set against the previous state.
+
+CREATE TABLE user_hist_usernames_events (
+	-- Surrogate primary key.
+	id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	-- The user whose username set changed.
+	user_id    BIGINT          NOT NULL COMMENT 'FK to users.id.',
+	-- The username that was modified.
+	username   VARCHAR(32)     NOT NULL COMMENT 'The username that was modified.',
+	-- What triggered this history log.
+	action     ENUM('added', 'removed', 'reordered', 'kind_changed') NOT NULL
+	                           COMMENT 'What triggered this history log.',
+	-- State after the change; NULL when the action is 'removed'.
+	kind       ENUM('active', 'disabled', 'collectible') NULL
+	                           COMMENT 'Kind after the change; NULL if removed.',
+	position   INT             NULL COMMENT 'New position (0-based); NULL if removed.',
+	-- When this change was recorded.
+	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+
+	PRIMARY KEY (id),
+	KEY idx_user_hist_usernames_events_user_id (user_id),
+	KEY idx_user_hist_usernames_events_username (username),
+	CONSTRAINT fk_user_hist_usernames_events_user
+		FOREIGN KEY (user_id) REFERENCES users (id)
+		ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='Event log of additions, removals, and position changes to usernames.';
