@@ -1,27 +1,86 @@
 # tgloggerd
 
-A Telegram logger daemon using a user account. Its core library is
-TDLib, and its database is MySQL 9. It logs user messages, message edit
-history, and user history such as username, name, and photo changes.
+tgloggerd is a Telegram logger daemon that runs on a regular user
+account. It is built on top of TDLib and keeps its data in MySQL 9. It
+records user messages, message edit history, and profile changes such
+as usernames, names, and photos.
 
-# Project Structure
+# Project structure
 
-src/ - main tgloggerd source code directory
-submodules/ - submodules directory, currently containing only TDLib.
+    src/           Main tgloggerd source code.
+    submodules/    Third-party dependencies vendored as git submodules:
+                   TDLib (td) and MySQL Connector/C++
+                   (mysql-connector-cpp).
+    migrations/    golang-migrate SQL migrations for the MySQL schema.
 
 # Interaction with TDLib
 
-Keep interaction with TDLib via tgloggerd to a minimum because TDLib
-has very large headers, which slow tgloggerd's compilation.
+TDLib ships very large headers that noticeably slow tgloggerd's
+compilation, so the code that touches TDLib is kept to a minimum. All
+direct TDLib usage lives in src/tgloggerd/TDLib.cpp, which exposes a
+small wrapper (tgloggerd::TDLib) through TDLib.hpp.
 
-The main interaction with TDLib is in these files:
+# Prerequisites
 
-	src/tgloggerd/TDLib.cpp
-	src/tgloggerd/TDLib.hpp
+Install the following before building:
 
-TDLib header files are expected.cpp only. TDLib functions are exposed
-via the tgloggerd::TDLib class.
+  - git (with submodule support).
+  - A C/C++ toolchain (gcc/g++ or clang) with C11 and C++17 support.
+  - CMake 3.16 or newer.
+  - TDLib build dependencies: OpenSSL, zlib, and gperf.
+  - Docker with the Docker Compose plugin to run MySQL 9, or an
+    existing MySQL 9 server.
+  - golang-migrate to apply the database migrations.
 
-Other tgloggerd sources that need TDLib functions should include
-TDLib.hpp rather than the TDLib headers directly, and use the
-tgloggerd::TDLib class.
+On Debian/Ubuntu the build dependencies can be installed with:
+
+    sudo apt install git build-essential cmake gperf libssl-dev zlib1g-dev
+
+Install golang-migrate with the Go toolchain (the "mysql" build tag
+enables the MySQL driver):
+
+    go install -tags 'mysql' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+Prebuilt golang-migrate binaries are also available at
+https://github.com/golang-migrate/migrate/releases.
+
+# Building
+
+Fetch the submodules (TDLib and MySQL Connector/C++), then configure and
+build:
+
+    git submodule update --init --recursive
+    cmake -B build
+    cmake --build build -j"$(nproc)"
+
+The first build compiles TDLib from source and may take a while.
+
+# Running
+
+1. Start MySQL. Copy the example Compose file, adjust the credentials if
+   needed, and bring the service up:
+
+       cp docker-compose.example.yml docker-compose.yml
+       docker compose up -d mysql
+
+2. Apply the database migrations. Point golang-migrate at the running
+   MySQL instance, matching the host, port, and credentials in your
+   docker-compose.yml:
+
+       migrate -path migrations \
+           -database "mysql://tgloggerd:tgloggerd@tcp(10.0.88.3:3306)/tgloggerd" up
+
+3. Copy the example run script to run.sh and edit it with your own
+   credentials. run.sh is intentionally not committed because it holds
+   your API credentials:
+
+       cp run.example.sh run.sh
+       # edit run.sh: set TG_API_ID and TG_API_HASH (from
+       # https://my.telegram.org) and adjust TG_DATA_DIR as needed
+
+   Then run it:
+
+       ./run.sh
+
+On the first run, tgloggerd prompts on stdin for your phone number, the
+login code, and your password (if two-step verification is enabled).
