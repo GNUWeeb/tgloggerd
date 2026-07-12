@@ -17,11 +17,11 @@ as usernames, names, and photos.
       tgloggerd/               The tgloggerd application code:
         TgLoggerd.{hpp,cpp}       Main class; wires TDLib to the database.
         TDLib.{hpp,cpp}           Thin wrapper around TDLib (see below).
-        DB.{hpp,cpp}              Maps models to SQL via mysql::Database.
+        DB.{hpp,cpp}              DB class lifecycle and facade interface.
         tgloggerd_extern.{h,cpp}  C ABI used by main.c.
         helpers/                  C helpers (logging, filesystem).
-        models/                   Plain data models mirroring the tables
-                                  (User, File, ...).
+        models/                   Data models (.hpp) and their SQL query
+                                  implementations (.cpp) (User, File, ...).
     migrations/                golang-migrate SQL migrations for the schema.
     submodules/                Third-party dependencies vendored as git
                                submodules: TDLib (td) and MySQL
