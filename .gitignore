@@ -1,2 +1,8 @@
 /build/
 /run.sh
+/task.md
+*.so
+*.o
+*.swp
+*.tmp
+*.log
