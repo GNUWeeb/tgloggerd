@@ -42,7 +42,6 @@ public:
 
 private:
 	void syncUsernames(const models::User &u);
-	void syncBotInfo(const models::User &u);
 
 	mysql::Database db_;
 };

@@ -11,8 +11,8 @@ CREATE TABLE user_usernames (
 	-- The username text without the leading '@'.
 	username   VARCHAR(32)     NOT NULL COMMENT 'Username without the leading @.',
 	-- Which td_api::usernames list this username came from.
-	kind       ENUM('active', 'disabled', 'editable', 'collectible') NOT NULL
-	                           COMMENT 'Source list: active/disabled/editable/collectible.',
+	kind       ENUM('active', 'disabled', 'collectible') NOT NULL
+	                           COMMENT 'Source list: active/disabled/collectible.',
 	-- Preserves order within the active/collectible lists (0-based).
 	position   INT             NOT NULL DEFAULT 0 COMMENT 'Order within its list (0-based).',
 	-- Row creation time.

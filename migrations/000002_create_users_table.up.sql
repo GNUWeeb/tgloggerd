@@ -15,9 +15,7 @@ CREATE TABLE users (
 
 	-- td_api::UserType
 	type                               ENUM('regular', 'deleted', 'bot', 'unknown')
-	                                                   NOT NULL DEFAULT 'unknown' COMMENT 'Kind of user; bot details live in user_bot_info.',
-	-- IETF language tag; only available for bots.
-	language_code                      VARCHAR(35)     NOT NULL DEFAULT '' COMMENT 'IETF language tag; only available for bots.',
+	                                                   NOT NULL DEFAULT 'unknown' COMMENT 'Kind of user.',
 
 	-- Profile photo; references the shared files table.
 	profile_photo_file_id              BIGINT UNSIGNED NULL COMMENT 'FK to files.id for the current profile photo.',
@@ -31,11 +29,6 @@ CREATE TABLE users (
 	-- td_api::emojiStatus
 	emoji_status_custom_emoji_id       BIGINT          NULL COMMENT 'Custom emoji id shown as emoji status; NULL if none.',
 	emoji_status_expiration_date       INT             NULL COMMENT 'Unix time when the emoji status expires; NULL if none.',
-
-	-- Relationship flags
-	is_contact                         TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'User is in the account contact list.',
-	is_mutual_contact                  TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'User is a mutual contact.',
-	is_close_friend                    TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'User is marked as a close friend.',
 
 	-- td_api::verificationStatus
 	is_verified                        TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'User is verified by Telegram.',
@@ -51,8 +44,6 @@ CREATE TABLE users (
 
 	restricts_new_chats                TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'User may restrict new chats from non-contacts.',
 	paid_message_star_count            BIGINT          NOT NULL DEFAULT 0 COMMENT 'Telegram Stars required to message the user.',
-	have_access                        TINYINT(1)      NOT NULL DEFAULT 1 COMMENT 'False if the user is inaccessible.',
-	added_to_attachment_menu           TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Bot added to the attachment menu; bots only.',
 
 	-- Bookkeeping
 	created_at                         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
