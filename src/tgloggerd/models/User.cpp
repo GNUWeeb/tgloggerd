@@ -111,7 +111,12 @@ void DB::setUserProfilePhoto(int64_t user_id, uint64_t file_id)
 
 void DB::syncUsernames(mysql::Transaction &tx, const models::User &u)
 {
-	tx.execute("DELETE FROM user_usernames WHERE user_id = ?",
+	/*
+	 * Release old usernames by nullifying user_id rather than
+	 * deleting them, so the table preserves a history of username
+	 * ownership.
+	 */
+	tx.execute("UPDATE user_usernames SET user_id = NULL WHERE user_id = ?",
 		   { (int64_t)u.id });
 
 	static const char *ins =
