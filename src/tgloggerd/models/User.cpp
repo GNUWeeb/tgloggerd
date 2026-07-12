@@ -76,8 +76,15 @@ void DB::upsertUser(const models::User &u)
 		emoji_exp = (int64_t)*u.emoji_status_expiration_date;
 
 	db_.transaction([&](mysql::Transaction &tx) {
-		trackNameChange(tx, u);
-		trackPhoneChange(tx, u);
+		/*
+		 * Fetch the current name and phone number in one query
+		 * so we can detect changes (existing user) or record
+		 * first-seen values (new user).
+		 */
+		auto old = tx.query(
+			"SELECT first_name, last_name, phone_number"
+			" FROM users WHERE id = ?",
+			{ (int64_t)u.id });
 
 		tx.execute(sql, {
 			(int64_t)u.id,
@@ -101,6 +108,41 @@ void DB::upsertUser(const models::User &u)
 			b(u.restricts_new_chats),
 			(int64_t)u.paid_message_star_count,
 		});
+
+		if (old.empty()) {
+			/*
+			 * First time seeing this user - record initial
+			 * values. Runs after the UPSERT so the FK exists.
+			 */
+			tx.insert("INSERT INTO user_hist_name"
+				  " (user_id, first_name, last_name)"
+				  " VALUES (?, ?, ?)",
+				  { (int64_t)u.id, u.first_name,
+				    u.last_name });
+			tx.insert("INSERT INTO user_hist_phone_num"
+				  " (user_id, phone_number)"
+				  " VALUES (?, ?)",
+				  { (int64_t)u.id, u.phone_number });
+		} else {
+			auto &r = old[0];
+			std::string of = r[0].value_or("");
+			std::string ol = r[1].value_or("");
+			if (of != u.first_name || ol != u.last_name) {
+				tx.insert("INSERT INTO user_hist_name"
+					  " (user_id, first_name,"
+					  " last_name)"
+					  " VALUES (?, ?, ?)",
+					  { (int64_t)u.id, of, ol });
+			}
+
+			std::string op = r[2].value_or("");
+			if (op != u.phone_number) {
+				tx.insert("INSERT INTO user_hist_phone_num"
+					  " (user_id, phone_number)"
+					  " VALUES (?, ?)",
+					  { (int64_t)u.id, op });
+			}
+		}
 
 		syncUsernames(tx, u);
 	});
@@ -147,45 +189,6 @@ void DB::syncUsernames(mysql::Transaction &tx, const models::User &u)
 	insert_list(u.collectible_usernames, "collectible");
 }
 
-void DB::trackNameChange(mysql::Transaction &tx, const models::User &u)
-{
-	auto rows = tx.query(
-		"SELECT first_name, last_name FROM users WHERE id = ?",
-		{ (int64_t)u.id });
-	if (rows.empty())
-		return;
-
-	auto &row = rows[0];
-	std::string old_first = row[0].value_or("");
-	std::string old_last = row[1].value_or("");
-
-	if (old_first == u.first_name && old_last == u.last_name)
-		return;
-
-	tx.insert("INSERT INTO user_hist_name"
-		  " (user_id, first_name, last_name)"
-		  " VALUES (?, ?, ?)",
-		  { (int64_t)u.id, old_first, old_last });
-}
-
-void DB::trackPhoneChange(mysql::Transaction &tx, const models::User &u)
-{
-	auto rows = tx.query(
-		"SELECT phone_number FROM users WHERE id = ?",
-		{ (int64_t)u.id });
-	if (rows.empty())
-		return;
-
-	std::string old_phone = rows[0][0].value_or("");
-
-	if (old_phone == u.phone_number)
-		return;
-
-	tx.insert("INSERT INTO user_hist_phone_num"
-		  " (user_id, phone_number) VALUES (?, ?)",
-		  { (int64_t)u.id, old_phone });
-}
-
 void DB::trackProfilePhotoChange(mysql::Transaction &tx,
 				 int64_t user_id, uint64_t file_id)
 {
@@ -195,23 +198,22 @@ void DB::trackProfilePhotoChange(mysql::Transaction &tx,
 	if (rows.empty())
 		return;
 
-	/*
-	 * old_file_id is NULL when the user has never had a profile photo.
-	 * Treat NULL -> new_id as the first photo, not a "change" worth
-	 * logging.
-	 */
 	auto &val = rows[0][0];
-	if (!val.has_value())
+	if (!val.has_value()) {
+		/* First profile photo — record it. */
+		tx.insert("INSERT INTO user_hist_profile_photo"
+			  " (user_id, file_id) VALUES (?, ?)",
+			  { user_id, (int64_t)file_id });
 		return;
+	}
 
 	uint64_t old_id = std::stoull(*val);
 	if (old_id == file_id)
 		return;
 
-	mysql::Param old_param = (int64_t)old_id;
 	tx.insert("INSERT INTO user_hist_profile_photo"
 		  " (user_id, file_id) VALUES (?, ?)",
-		  { user_id, old_param });
+		  { user_id, (int64_t)old_id });
 }
 
 } /* namespace tgloggerd */
