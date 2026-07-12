@@ -222,9 +222,24 @@ void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
 	std::string name = *hex;
 	if (!ext.empty())
 		name += "." + ext;
-	fs::path dest = fs::path(storage_dir_) / name;
+
+	/*
+	 * Fan out into 5 levels of two-hex-digit directories based on the
+	 * first 5 octets of the digest, e.g. for 0a533d97ed... the file is
+	 * stored as 0a/53/3d/97/ed/<sha256>[.ext].
+	 */
+	fs::path dir = storage_dir_;
+	for (int i = 0; i < 5; i++)
+		dir /= hex->substr((size_t)i * 2, 2);
+	fs::path dest = dir / name;
 
 	std::error_code ec;
+	fs::create_directories(dir, ec);
+	if (ec) {
+		pr_error(l_, "Failed to create storage directory %s: %s",
+			 dir.c_str(), ec.message().c_str());
+		return;
+	}
 	if (!fs::exists(dest, ec))
 		fs::copy_file(p.local_path, dest, ec);
 	if (ec) {
