@@ -1,0 +1,27 @@
+# tgloggerd
+
+A Telegram logger daemon using a user account. Its core library is
+TDLib, and its database is MySQL 9. It logs user messages, message edit
+history, and user history such as username, name, and photo changes.
+
+# Project Structure
+
+src/ - main tgloggerd source code directory
+submodules/ - submodules directory, currently containing only TDLib.
+
+# Interaction with TDLib
+
+Keep interaction with TDLib via tgloggerd to a minimum because TDLib
+has very large headers, which slow tgloggerd's compilation.
+
+The main interaction with TDLib is in these files:
+
+	src/tgloggerd/TDLib.cpp
+	src/tgloggerd/TDLib.hpp
+
+TDLib header files are expected.cpp only. TDLib functions are exposed
+via the tgloggerd::TDLib class.
+
+Other tgloggerd sources that need TDLib functions should include
+TDLib.hpp rather than the TDLib headers directly, and use the
+tgloggerd::TDLib class.
