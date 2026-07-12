@@ -8,6 +8,7 @@
 #include <mysql/Database.hpp>
 #include <tgloggerd/models/User.hpp>
 #include <tgloggerd/models/File.hpp>
+#include <tgloggerd/models/Group.hpp>
 
 namespace tgloggerd {
 
@@ -40,10 +41,24 @@ public:
 	/* Point a user's profile_photo_file_id at a files row. */
 	void setUserProfilePhoto(int64_t user_id, uint64_t file_id);
 
+	/*
+	 * Insert or update a group together with its usernames, atomically,
+	 * recording title/description/username changes in the history
+	 * tables. Does not touch groups.photo_file_id, which is managed by
+	 * setGroupPhoto.
+	 */
+	void upsertGroup(const models::Group &g);
+
+	/* Point a group's photo_file_id at a files row. */
+	void setGroupPhoto(int64_t group_id, uint64_t file_id);
+
 private:
 	void syncUsernames(mysql::Transaction &tx, const models::User &u);
 	void trackProfilePhotoChange(mysql::Transaction &tx,
 				     int64_t user_id, uint64_t file_id);
+	void syncGroupUsernames(mysql::Transaction &tx, const models::Group &g);
+	void trackGroupPhotoChange(mysql::Transaction &tx,
+				   int64_t group_id, uint64_t file_id);
 
 	mysql::Database db_;
 };
