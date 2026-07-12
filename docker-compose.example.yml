@@ -1,0 +1,29 @@
+networks:
+  tg-loggerd:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: 10.0.88.0/24
+        gateway: 10.0.88.1
+    driver_opts:
+      com.docker.network.bridge.name: tg-loggerd
+
+services:
+  mysql:
+    image: mysql:9.0.0
+    container_name: tgloggerd-mysql
+    restart: unless-stopped
+    hostname: tgloggerd-mysql
+    mem_reservation: 1024m
+    mem_limit: 4096m
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: tgloggerd
+      MYSQL_USER: tgloggerd
+      MYSQL_PASSWORD: tgloggerd
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      tg-loggerd:
+        ipv4_address: 10.0.88.3

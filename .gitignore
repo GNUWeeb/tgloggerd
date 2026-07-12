@@ -7,3 +7,4 @@
 *.swp
 *.tmp
 *.log
+/docker-compose.yml
