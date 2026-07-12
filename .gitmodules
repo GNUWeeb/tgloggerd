@@ -1,3 +1,6 @@
 [submodule "submodules/td"]
 	path = submodules/td
 	url = https://github.com/tdlib/td.git
+[submodule "submodules/mysql-connector-cpp"]
+	path = submodules/mysql-connector-cpp
+	url = https://github.com/mysql/mysql-connector-cpp.git
