@@ -29,6 +29,16 @@ struct TextMessage {
 };
 
 /*
+ * A profile photo whose download has completed, ready to be stored.
+ */
+struct ProfilePhoto {
+	int64_t		user_id;
+	std::string	local_path;
+	std::string	tg_file_id;
+	int64_t		file_size;
+};
+
+/*
  * tgloggerd::TDLib is a wrapper class for TDLib.
  *
  * Since TDLib contains very heavy header files, keep tgloggerd
@@ -54,6 +64,12 @@ public:
 	 * or updated (td_api::updateUser).
 	 */
 	void setUserHandler(std::function<void(const models::User &)> cb);
+
+	/*
+	 * Set the callback invoked when a user's (big) profile photo has
+	 * finished downloading.
+	 */
+	void setProfilePhotoHandler(std::function<void(const ProfilePhoto &)> cb);
 
 	/*
 	 * Process a single batch of TDLib events, waiting up to @timeout

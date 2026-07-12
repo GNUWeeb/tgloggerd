@@ -7,6 +7,7 @@
 
 #include <mysql/Database.hpp>
 #include <tgloggerd/models/User.hpp>
+#include <tgloggerd/models/File.hpp>
 
 namespace tgloggerd {
 
@@ -29,6 +30,15 @@ public:
 	 * once the profile photo has been downloaded.
 	 */
 	void upsertUser(const models::User &u);
+
+	/*
+	 * Insert a file, or, if a row with the same SHA-256 already exists,
+	 * bump its hit_count. Returns the files.id in both cases.
+	 */
+	uint64_t upsertFile(const models::File &f);
+
+	/* Point a user's profile_photo_file_id at a files row. */
+	void setUserProfilePhoto(int64_t user_id, uint64_t file_id);
 
 private:
 	void syncUsernames(const models::User &u);

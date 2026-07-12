@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include "helpers/log.h"
 #include "TDLib.hpp"
 #include "DB.hpp"
@@ -25,10 +26,12 @@ public:
 private:
 	inline int initDataDir(void);
 	inline int initDataDirC(const char *dir);
+	void onProfilePhoto(const ProfilePhoto &p);
 
 	uint32_t api_id_;
 	char api_hash_[64];
 	char data_dir_[512];
+	std::string storage_dir_;
 	log_hd_t *l_ = nullptr;
 	std::unique_ptr<TDLib> tdlib_;
 	std::unique_ptr<DB> db_;

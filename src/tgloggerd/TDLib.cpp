@@ -156,12 +156,14 @@ struct TDLib::Impl {
 
 	std::function<void(const TextMessage &)>	msg_handler_;
 	std::function<void(const models::User &)>	user_handler_;
+	std::function<void(const ProfilePhoto &)>	photo_handler_;
 
 	std::unique_ptr<td::ClientManager>		client_manager_;
 	td_api::object_ptr<td_api::AuthorizationState>	authorization_state_;
 
 	std::unordered_map<std::uint64_t, std::function<void(Object)>>	handlers_;
 	std::unordered_map<int64_t, td_api::object_ptr<td_api::user>>	users_;
+	std::unordered_map<int32_t, int64_t>				pending_photo_;
 
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
 
@@ -175,6 +177,9 @@ struct TDLib::Impl {
 	void check_authentication_error(Object object);
 	std::function<void(Object)> create_authentication_query_handler(void);
 	void handle_new_message(td_api::message &message);
+	void maybe_download_profile_photo(const td_api::user &u);
+	void handle_file_update(const td_api::file &f);
+	void emit_photo(int64_t user_id, const td_api::file &f);
 };
 
 
@@ -238,7 +243,13 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 			[this](td_api::updateUser &u) {
 				if (user_handler_ && u.user_)
 					user_handler_(map_user(*u.user_));
+				if (u.user_)
+					maybe_download_profile_photo(*u.user_);
 				users_[u.user_->id_] = std::move(u.user_);
+			},
+			[this](td_api::updateFile &u) {
+				if (u.file_)
+					handle_file_update(*u.file_);
 			},
 			[this](td_api::updateNewMessage &u) {
 				handle_new_message(*u.message_);
@@ -402,6 +413,52 @@ void TDLib::Impl::handle_new_message(td_api::message &message)
 	msg_handler_(msg);
 }
 
+void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
+{
+	if (!photo_handler_ || !u.profile_photo_ || !u.profile_photo_->big_)
+		return;
+
+	const td_api::file &big = *u.profile_photo_->big_;
+
+	/* Already downloaded: emit immediately. */
+	if (big.local_ && big.local_->is_downloading_completed_) {
+		emit_photo(u.id_, big);
+		return;
+	}
+
+	/* Otherwise request the download and remember which user it is for. */
+	pending_photo_[big.id_] = u.id_;
+	send_query(td_api::make_object<td_api::downloadFile>(
+			   big.id_, 1, 0, 0, false), {});
+}
+
+void TDLib::Impl::handle_file_update(const td_api::file &f)
+{
+	auto it = pending_photo_.find(f.id_);
+	if (it == pending_photo_.end())
+		return;
+	if (!f.local_ || !f.local_->is_downloading_completed_)
+		return;
+
+	int64_t user_id = it->second;
+	pending_photo_.erase(it);
+	emit_photo(user_id, f);
+}
+
+void TDLib::Impl::emit_photo(int64_t user_id, const td_api::file &f)
+{
+	if (!photo_handler_ || !f.local_ ||
+	    !f.local_->is_downloading_completed_)
+		return;
+
+	ProfilePhoto p;
+	p.user_id = user_id;
+	p.local_path = f.local_->path_;
+	p.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
+	p.file_size = f.size_;
+	photo_handler_(p);
+}
+
 
 TDLib::TDLib(uint32_t api_id, const char *api_hash, const char *data_dir)
 	: impl_(std::make_unique<Impl>(api_id, api_hash, data_dir))
@@ -418,6 +475,11 @@ void TDLib::setMessageHandler(std::function<void(const TextMessage &)> cb)
 void TDLib::setUserHandler(std::function<void(const models::User &)> cb)
 {
 	impl_->user_handler_ = std::move(cb);
+}
+
+void TDLib::setProfilePhotoHandler(std::function<void(const ProfilePhoto &)> cb)
+{
+	impl_->photo_handler_ = std::move(cb);
 }
 
 void TDLib::loop(int timeout)

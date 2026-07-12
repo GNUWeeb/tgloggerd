@@ -8,8 +8,62 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
+#include <cctype>
+#include <fstream>
+#include <algorithm>
+#include <filesystem>
+
+#include <openssl/evp.h>
+
+namespace fs = std::filesystem;
 
 namespace tgloggerd {
+
+namespace {
+
+/* Compute the lowercase hex SHA-256 digest of a file's contents. */
+std::optional<std::string> sha256_file_hex(const std::string &path)
+{
+	std::ifstream f(path, std::ios::binary);
+	if (!f)
+		return std::nullopt;
+
+	EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+	if (!ctx)
+		return std::nullopt;
+
+	if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1) {
+		EVP_MD_CTX_free(ctx);
+		return std::nullopt;
+	}
+
+	char buf[65536];
+	while (f) {
+		f.read(buf, sizeof(buf));
+		std::streamsize n = f.gcount();
+		if (n > 0)
+			EVP_DigestUpdate(ctx, buf, (size_t)n);
+	}
+
+	unsigned char digest[EVP_MAX_MD_SIZE];
+	unsigned int len = 0;
+	if (EVP_DigestFinal_ex(ctx, digest, &len) != 1 || len != 32) {
+		EVP_MD_CTX_free(ctx);
+		return std::nullopt;
+	}
+	EVP_MD_CTX_free(ctx);
+
+	static const char hex[] = "0123456789abcdef";
+	std::string out;
+	out.reserve(64);
+	for (unsigned int i = 0; i < len; i++) {
+		out.push_back(hex[digest[i] >> 4]);
+		out.push_back(hex[digest[i] & 0x0f]);
+	}
+	return out;
+}
+
+} /* namespace */
 
 TgLoggerd::TgLoggerd(uint32_t api_id, const char *api_hash, const char *data_dir) noexcept
 {
@@ -95,6 +149,16 @@ int TgLoggerd::start(void)
 		return -1;
 	}
 
+	storage_dir_ = env("TG_STORAGE_DIR", "./data/storage/files");
+	try {
+		fs::create_directories(storage_dir_);
+	} catch (const std::exception &e) {
+		pr_error(l_, "Failed to create storage directory %s: %s",
+			 storage_dir_.c_str(), e.what());
+		return -1;
+	}
+	pr_debug(l_, "storage_dir: %s", storage_dir_.c_str());
+
 	char tdlib_path[sizeof(this->data_dir_) + 32];
 	snprintf(tdlib_path, sizeof(tdlib_path), "%s/tdlib", this->data_dir_);
 
@@ -106,6 +170,14 @@ int TgLoggerd::start(void)
 		} catch (const std::exception &e) {
 			pr_error(l_, "Failed to store user %lld: %s",
 				 (long long)u.id, e.what());
+		}
+	});
+	tdlib_->setProfilePhotoHandler([this](const ProfilePhoto &p) {
+		try {
+			onProfilePhoto(p);
+		} catch (const std::exception &e) {
+			pr_error(l_, "Failed to store profile photo for user"
+				 " %lld: %s", (long long)p.user_id, e.what());
 		}
 	});
 	tdlib_->setMessageHandler([this](const TextMessage &msg) {
@@ -129,6 +201,52 @@ int TgLoggerd::stop(void)
 	if (tdlib_)
 		tdlib_->close();
 	return 0;
+}
+
+void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
+{
+	auto hex = sha256_file_hex(p.local_path);
+	if (!hex.has_value()) {
+		pr_error(l_, "Failed to hash profile photo: %s",
+			 p.local_path.c_str());
+		return;
+	}
+
+	/* Content-addressed destination name: <sha256>[.ext]. */
+	std::string ext = fs::path(p.local_path).extension().string();
+	if (!ext.empty() && ext[0] == '.')
+		ext.erase(0, 1);
+	std::transform(ext.begin(), ext.end(), ext.begin(),
+		       [](unsigned char c) { return (char)std::tolower(c); });
+
+	std::string name = *hex;
+	if (!ext.empty())
+		name += "." + ext;
+	fs::path dest = fs::path(storage_dir_) / name;
+
+	std::error_code ec;
+	if (!fs::exists(dest, ec))
+		fs::copy_file(p.local_path, dest, ec);
+	if (ec) {
+		pr_error(l_, "Failed to copy profile photo to %s: %s",
+			 dest.c_str(), ec.message().c_str());
+		return;
+	}
+
+	models::File f;
+	f.tg_file_id = p.tg_file_id;
+	f.file_type = "photo";
+	f.file_size = (uint64_t)(p.file_size < 0 ? 0 : p.file_size);
+	f.sha256_hex = *hex;
+	if (!ext.empty())
+		f.file_ext = ext;
+
+	uint64_t file_id = db_->upsertFile(f);
+	db_->setUserProfilePhoto(p.user_id, file_id);
+
+	pr_info(l_, "Stored profile photo | user_id=%lld file_id=%llu sha256=%s",
+		(long long)p.user_id, (unsigned long long)file_id,
+		hex->c_str());
 }
 
 void TgLoggerd::setLogger(log_hd_t *h) noexcept
