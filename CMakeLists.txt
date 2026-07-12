@@ -46,6 +46,7 @@ add_executable(tgloggerd
 	src/tgloggerd/models/User.hpp
 	src/tgloggerd/models/User.cpp
 	src/tgloggerd/models/File.hpp
+	src/tgloggerd/models/File.cpp
 	src/tgloggerd/helpers/common.c
 	src/tgloggerd/helpers/common.h
 	src/tgloggerd/helpers/log.c
