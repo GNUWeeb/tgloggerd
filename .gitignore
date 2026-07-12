@@ -1,6 +1,7 @@
 /build/
 /run.sh
 /task.md
+/Td/
 *.so
 *.o
 *.swp
