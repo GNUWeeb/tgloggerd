@@ -6,7 +6,9 @@
 #define TGLOGGERD__TGLOGGERD_HPP
 
 #include <cstdint>
+#include <memory>
 #include "helpers/log.h"
+#include "TDLib.hpp"
 
 namespace tgloggerd {
 
@@ -27,6 +29,7 @@ private:
 	char api_hash_[64];
 	char data_dir_[512];
 	log_hd_t *l_ = nullptr;
+	std::unique_ptr<TDLib> tdlib_;
 };
 
 } /* namespace tgloggerd */

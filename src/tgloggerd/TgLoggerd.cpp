@@ -70,12 +70,32 @@ int TgLoggerd::start(void)
 	pr_debug(l_, "api_id: %u", this->api_id_);
 	pr_debug(l_, "api_hash: %s", this->api_hash_);
 	pr_debug(l_, "data_dir: %s", this->data_dir_);
+
+	char tdlib_path[sizeof(this->data_dir_) + 32];
+	snprintf(tdlib_path, sizeof(tdlib_path), "%s/tdlib", this->data_dir_);
+
+	tdlib_ = std::make_unique<TDLib>(this->api_id_, this->api_hash_,
+					 tdlib_path);
+	tdlib_->setMessageHandler([this](const TextMessage &msg) {
+		pr_info(l_, "New message | sender_id=%lld name=\"%s\" "
+			    "username=\"%s\" msg_id=%lld text=\"%s\"",
+			(long long)msg.sender_id, msg.sender_name.c_str(),
+			msg.sender_username.c_str(), (long long)msg.message_id,
+			msg.text.c_str());
+	});
+
+	pr_info(l_, "Listening for incoming messages...");
+	while (!tdlib_->isStopped())
+		tdlib_->loop(10);
+
 	return 0;
 }
 
 int TgLoggerd::stop(void)
 {
 	pr_info(l_, "Stopping tgloggerd...");
+	if (tdlib_)
+		tdlib_->close();
 	return 0;
 }
 
