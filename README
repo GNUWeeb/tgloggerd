@@ -7,11 +7,31 @@ as usernames, names, and photos.
 
 # Project structure
 
-    src/           Main tgloggerd source code.
-    submodules/    Third-party dependencies vendored as git submodules:
-                   TDLib (td) and MySQL Connector/C++
-                   (mysql-connector-cpp).
-    migrations/    golang-migrate SQL migrations for the MySQL schema.
+    src/                       Main tgloggerd source code.
+      main.c                   Entry point; reads configuration from the
+                               environment and starts the daemon.
+      log.c, log.h             Small logging helper (pr_info, pr_err, ...).
+      mysql/                   Generic MySQL layer (no tgloggerd specifics):
+        ConnectionPool.{hpp,cpp}  Thread-safe pool of JDBC connections.
+        Database.{hpp,cpp}        Prepared-statement executor over the pool.
+      tgloggerd/               The tgloggerd application code:
+        TgLoggerd.{hpp,cpp}       Main class; wires TDLib to the database.
+        TDLib.{hpp,cpp}           Thin wrapper around TDLib (see below).
+        DB.{hpp,cpp}              Maps models to SQL via mysql::Database.
+        tgloggerd_extern.{h,cpp}  C ABI used by main.c.
+        helpers/                  C helpers (logging, filesystem).
+        models/                   Plain data models mirroring the tables
+                                  (User, File, ...).
+    migrations/                golang-migrate SQL migrations for the schema.
+    submodules/                Third-party dependencies vendored as git
+                               submodules: TDLib (td) and MySQL
+                               Connector/C++ (mysql-connector-cpp).
+    data/                      Runtime data (git-ignored contents):
+      users/                     Per-account TDLib data directories.
+      mysql/                     MySQL server data (docker volume).
+      storage/files/             Downloaded files, named by SHA-256.
+    docker-compose.example.yml Example MySQL service definition.
+    run.example.sh             Example run script; copy to run.sh.
 
 # Interaction with TDLib
 
