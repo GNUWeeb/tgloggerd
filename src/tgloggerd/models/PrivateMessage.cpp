@@ -32,13 +32,19 @@ mysql::Param b(bool v)
  */
 void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 {
+	/*
+	 * file_id is intentionally omitted: media files are downloaded
+	 * asynchronously and linked later via setPrivateMessageFile, so the
+	 * content upsert must never touch it (a rebuild on edit would
+	 * otherwise reset the link to NULL).
+	 */
 	static const char *upsert_sql =
 		"INSERT INTO private_messages ("
 		" chat_id, message_id, sender_id, is_outgoing, date,"
-		" edit_date, content_type, text, file_id, is_deleted,"
+		" edit_date, content_type, text, is_deleted,"
 		" is_forwarded"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_id = new.sender_id,"
 		" is_outgoing = new.is_outgoing,"
@@ -46,7 +52,6 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		" edit_date = new.edit_date,"
 		" content_type = new.content_type,"
 		" text = new.text,"
-		" file_id = new.file_id,"
 		" is_deleted = new.is_deleted,"
 		" is_forwarded = new.is_forwarded";
 
@@ -68,10 +73,6 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		mysql::Param text_param = std::monostate{};
 		if (msg.content.text.has_value())
 			text_param = *msg.content.text;
-
-		mysql::Param file_param = std::monostate{};
-		if (msg.content.file_id.has_value())
-			file_param = (int64_t)*msg.content.file_id;
 
 		std::string new_ct = models::to_string(msg.content.content_type);
 
@@ -96,7 +97,6 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 				(int64_t)msg.edit_date,
 				new_ct,
 				text_param,
-				file_param,
 				b(msg.is_deleted),
 				b(msg.forward_info.has_value()),
 			});
@@ -171,7 +171,6 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			(int64_t)msg.edit_date,
 			new_ct,
 			text_param,
-			file_param,
 			b(msg.is_deleted),
 			b(msg.forward_info.has_value()),
 		});
@@ -184,6 +183,14 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 					  "private_message_id", pm_id,
 					  *msg.forward_info);
 	});
+}
+
+void DB::setPrivateMessageFile(int64_t chat_id, int64_t message_id,
+			       uint64_t file_id)
+{
+	db_.execute("UPDATE private_messages SET file_id = ?"
+		    " WHERE chat_id = ? AND message_id = ?",
+		    { (int64_t)file_id, (int64_t)chat_id, (int64_t)message_id });
 }
 
 } /* namespace tgloggerd */

@@ -71,6 +71,16 @@ public:
 	 */
 	void upsertGroupMessage(const models::GroupMessage &msg);
 
+	/*
+	 * Point a message's file_id at a files row, once its media
+	 * attachment has been downloaded. Managed separately from the
+	 * content upsert so an edit rebuild never clears the link.
+	 */
+	void setPrivateMessageFile(int64_t chat_id, int64_t message_id,
+				   uint64_t file_id);
+	void setGroupMessageFile(int64_t chat_id, int64_t message_id,
+				 uint64_t file_id);
+
 private:
 	void syncUsernames(mysql::Transaction &tx, const models::User &u);
 	void trackProfilePhotoChange(mysql::Transaction &tx,

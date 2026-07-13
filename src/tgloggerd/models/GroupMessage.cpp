@@ -28,14 +28,20 @@ mysql::Param b(bool v)
  */
 void DB::upsertGroupMessage(const models::GroupMessage &msg)
 {
+	/*
+	 * file_id is intentionally omitted: media files are downloaded
+	 * asynchronously and linked later via setGroupMessageFile, so the
+	 * content upsert must never touch it (a rebuild on edit would
+	 * otherwise reset the link to NULL).
+	 */
 	static const char *upsert_sql =
 		"INSERT INTO group_messages ("
 		" chat_id, message_id, sender_user_id, sender_chat_id,"
 		" is_outgoing, is_channel_post, author_signature, date,"
-		" edit_date, content_type, text, file_id, is_deleted,"
+		" edit_date, content_type, text, is_deleted,"
 		" is_forwarded"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_user_id = new.sender_user_id,"
 		" sender_chat_id = new.sender_chat_id,"
@@ -46,7 +52,6 @@ void DB::upsertGroupMessage(const models::GroupMessage &msg)
 		" edit_date = new.edit_date,"
 		" content_type = new.content_type,"
 		" text = new.text,"
-		" file_id = new.file_id,"
 		" is_deleted = new.is_deleted,"
 		" is_forwarded = new.is_forwarded";
 
@@ -74,10 +79,6 @@ void DB::upsertGroupMessage(const models::GroupMessage &msg)
 		if (msg.content.text.has_value())
 			text_param = *msg.content.text;
 
-		mysql::Param file_param = std::monostate{};
-		if (msg.content.file_id.has_value())
-			file_param = (int64_t)*msg.content.file_id;
-
 		std::string new_ct = models::to_string(msg.content.content_type);
 
 		auto bind_all = [&]() -> std::vector<mysql::Param> {
@@ -93,7 +94,6 @@ void DB::upsertGroupMessage(const models::GroupMessage &msg)
 				(int64_t)msg.edit_date,
 				new_ct,
 				text_param,
-				file_param,
 				b(msg.is_deleted),
 				b(msg.forward_info.has_value()),
 			};
@@ -164,6 +164,14 @@ void DB::upsertGroupMessage(const models::GroupMessage &msg)
 					  "group_message_id", gm_id,
 					  *msg.forward_info);
 	});
+}
+
+void DB::setGroupMessageFile(int64_t chat_id, int64_t message_id,
+			     uint64_t file_id)
+{
+	db_.execute("UPDATE group_messages SET file_id = ?"
+		    " WHERE chat_id = ? AND message_id = ?",
+		    { (int64_t)file_id, (int64_t)chat_id, (int64_t)message_id });
 }
 
 } /* namespace tgloggerd */

@@ -76,9 +76,14 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 	 */
 	if (new_edit_date <= old_edit_date)
 		return false;
+	/*
+	 * file_id is deliberately excluded from the comparison: media files
+	 * are linked asynchronously after the row is written, so new_content
+	 * never carries one at build time. Comparing it would flag every
+	 * media message as edited. The old file_id is still snapshotted.
+	 */
 	if (old_content.content_type == new_content.content_type &&
-	    old_content.text == new_content.text &&
-	    old_content.file_id == new_content.file_id)
+	    old_content.text == new_content.text)
 		return false;
 
 	mysql::Param text_param = std::monostate{};
