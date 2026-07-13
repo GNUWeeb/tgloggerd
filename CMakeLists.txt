@@ -59,6 +59,8 @@ add_executable(tgloggerd
 	src/tgloggerd/helpers/common.h
 	src/tgloggerd/helpers/log.c
 	src/tgloggerd/helpers/log.h
+	src/tgloggerd/ThreadPool.cpp
+	src/tgloggerd/ThreadPool.hpp
 	src/tgloggerd/TDLib.cpp
 	src/tgloggerd/TDLib.hpp
 	src/tgloggerd/tgloggerd_extern.cpp
@@ -78,4 +80,8 @@ target_compile_options(tgloggerd PRIVATE
 # Connector/C++ legacy JDBC library. OpenSSL::Crypto provides SHA-256 for
 # hashing downloaded files.
 find_package(OpenSSL REQUIRED)
-target_link_libraries(tgloggerd PRIVATE Td::TdStatic connector-jdbc OpenSSL::Crypto)
+# std::thread in the background worker/file pools needs the platform threads
+# library explicitly, rather than relying on it arriving transitively.
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+target_link_libraries(tgloggerd PRIVATE Td::TdStatic connector-jdbc OpenSSL::Crypto Threads::Threads)
