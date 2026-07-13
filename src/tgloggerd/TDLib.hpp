@@ -170,6 +170,13 @@ public:
 		std::function<void(const models::GroupAdminList &)> cb);
 
 	/*
+	 * Configure periodic admin polling: refresh interval in seconds
+	 * (<= 0 disables polling) and how many groups to refresh per tick.
+	 * Must be called before the client authorizes.
+	 */
+	void setAdminPollConfig(double interval_seconds, int batch);
+
+	/*
 	 * Process a single batch of TDLib events, waiting up to @timeout
 	 * seconds for one to arrive. Drives authentication and message
 	 * delivery. Call it repeatedly until isStopped() returns true.

@@ -331,6 +331,16 @@ int TgLoggerd::start(void)
 		});
 	});
 
+	/*
+	 * Periodic group-admin polling. Interval <= 0 disables it. Set before
+	 * the loop so it is in place when the client authorizes.
+	 */
+	double admin_interval = atof(env("TG_ADMIN_POLL_INTERVAL", "300").c_str());
+	int admin_batch = atoi(env("TG_ADMIN_POLL_BATCH", "4").c_str());
+	tdlib_->setAdminPollConfig(admin_interval, admin_batch);
+	pr_debug(l_, "admin poll: interval=%.0fs batch=%d", admin_interval,
+		 admin_batch);
+
 	pr_info(l_, "Listening for incoming messages...");
 	while (!tdlib_->isStopped() && !g_tgld_stop)
 		tdlib_->loop(10);

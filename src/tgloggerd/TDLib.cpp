@@ -402,6 +402,10 @@ const td_api::file *message_content_file(const td_api::MessageContent &content,
 constexpr int kMaxReplyDepth = 128;
 constexpr size_t kReplyDedupCap = 1000000;
 
+/* Drop a group from admin polling after this many consecutive permission
+ * errors (e.g. we left it or lost visibility). */
+constexpr int kAdminPollMaxMiss = 3;
+
 /*
  * The (chat_id, message_id) of the message @m replies to, written to
  * @chat_id / @msg_id. Returns false for a non-reply or a story reply. The
@@ -496,6 +500,11 @@ struct TDLib::Impl {
 	 * for periodic refresh. Populated on first sight of a member group. */
 	std::unordered_set<int64_t>			admin_poll_set_;
 	std::deque<int64_t>				admin_poll_queue_;
+	std::unordered_map<int64_t, int>		admin_poll_miss_;
+	bool						admin_poll_started_ = false;
+	bool						closing_ = false;
+	double						admin_poll_interval_ = 300.0;
+	int						admin_poll_batch_ = 4;
 
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
 
@@ -538,6 +547,9 @@ struct TDLib::Impl {
 	void fetch_group_admins(int64_t supergroup_id, int64_t chat_id);
 	void emit_basic_group_admins(int64_t chat_id,
 				     const td_api::basicGroupFullInfo &fi);
+	void arm_admin_alarm(void);
+	void on_admin_alarm(void);
+	void poll_admin_batch(void);
 	void maybe_download_group_photo(int64_t group_id,
 					const td_api::chatPhotoInfo *photo);
 	void emit_group(int64_t group_id);
@@ -814,6 +826,17 @@ void TDLib::Impl::on_authorization_state_update(void)
 							td_api::user>(obj);
 						user_id_ = u->id_;
 					});
+				/*
+				 * Start the periodic admin poll once. Guarded
+				 * so a re-login does not spawn a second alarm
+				 * chain; disabled when the interval is <= 0.
+				 */
+				if (!admin_poll_started_ &&
+				    admin_poll_interval_ > 0.0 &&
+				    group_admins_handler_) {
+					admin_poll_started_ = true;
+					arm_admin_alarm();
+				}
 			},
 			[this](td_api::authorizationStateLoggingOut &) {
 				is_authorized_ = false;
@@ -1459,9 +1482,21 @@ void TDLib::Impl::fetch_group_admins(int64_t supergroup_id, int64_t chat_id)
 			 * Data-loss guard: sync only on a real member list. An
 			 * error (permission denied, FLOOD_WAIT, ...) must never
 			 * be treated as "no admins" — that would remove them all.
+			 * On a permission error (400/403, e.g. we left the group)
+			 * count a miss and stop polling it after a few; transient
+			 * errors (FLOOD_WAIT, server) don't count.
 			 */
-			if (obj->get_id() != td_api::chatMembers::ID)
+			if (obj->get_id() != td_api::chatMembers::ID) {
+				if (obj->get_id() == td_api::error::ID) {
+					auto &e = static_cast<td_api::error &>(*obj);
+					if ((e.code_ == 400 || e.code_ == 403) &&
+					    ++admin_poll_miss_[chat_id] >=
+						    kAdminPollMaxMiss)
+						admin_poll_set_.erase(chat_id);
+				}
 				return;
+			}
+			admin_poll_miss_.erase(chat_id);
 			auto members =
 				td::move_tl_object_as<td_api::chatMembers>(obj);
 
@@ -1504,6 +1539,71 @@ void TDLib::Impl::emit_basic_group_admins(int64_t chat_id,
 
 	if (!list.admins.empty())
 		group_admins_handler_(list);
+}
+
+void TDLib::Impl::arm_admin_alarm(void)
+{
+	/*
+	 * setAlarm's Ok response is delivered on this (the loop) thread, so
+	 * the whole poll cycle runs where all TDLib state safely lives.
+	 */
+	send_query(td_api::make_object<td_api::setAlarm>(admin_poll_interval_),
+		   [this](Object) { on_admin_alarm(); });
+}
+
+void TDLib::Impl::on_admin_alarm(void)
+{
+	/* Dying: let the alarm chain end (no re-arm). */
+	if (stopped_ || closing_)
+		return;
+
+	/* Do work only while usable, but ALWAYS re-arm so a transient
+	 * de-auth does not permanently kill the heartbeat. Exactly one alarm
+	 * is in flight at any time. */
+	if (is_authorized_ && group_admins_handler_)
+		poll_admin_batch();
+
+	arm_admin_alarm();
+}
+
+void TDLib::Impl::poll_admin_batch(void)
+{
+	/*
+	 * Refresh up to admin_poll_batch_ tracked groups, round-robin: pop
+	 * from the front, re-fetch, push to the rear. Scan at most the
+	 * queue's current length so freshly re-pushed groups are not polled
+	 * twice in one cycle; evicted groups (not in admin_poll_set_) are
+	 * dropped instead of re-queued.
+	 */
+	int polled = 0;
+	size_t scan = admin_poll_queue_.size();
+	while (polled < admin_poll_batch_ && scan > 0 &&
+	       !admin_poll_queue_.empty()) {
+		int64_t chat_id = admin_poll_queue_.front();
+		admin_poll_queue_.pop_front();
+		scan--;
+
+		if (!admin_poll_set_.count(chat_id))
+			continue;	/* evicted: drop */
+
+		admin_poll_queue_.push_back(chat_id);
+
+		auto cit = chat_to_group_.find(chat_id);
+		if (cit == chat_to_group_.end())
+			continue;
+		auto git = group_state_.find(cit->second);
+		if (git == group_state_.end())
+			continue;
+
+		if (git->second.type == models::GroupType::BasicGroup)
+			/* Admins arrive via the resulting updateBasicGroupFullInfo. */
+			send_query(td_api::make_object<
+					td_api::getBasicGroupFullInfo>(
+					cit->second), {});
+		else
+			fetch_group_admins(cit->second, chat_id);
+		polled++;
+	}
 }
 
 void TDLib::Impl::maybe_download_group_photo(int64_t group_id,
@@ -1623,6 +1723,12 @@ void TDLib::setGroupAdminsHandler(
 	impl_->group_admins_handler_ = std::move(cb);
 }
 
+void TDLib::setAdminPollConfig(double interval_seconds, int batch)
+{
+	impl_->admin_poll_interval_ = interval_seconds;
+	impl_->admin_poll_batch_ = batch > 0 ? batch : 1;
+}
+
 void TDLib::loop(int timeout)
 {
 	impl_->process_response(impl_->client_manager_->receive(timeout));
@@ -1635,6 +1741,8 @@ bool TDLib::isStopped(void) const
 
 void TDLib::close(void)
 {
+	/* Stop re-arming the admin-poll alarm while TDLib shuts down. */
+	impl_->closing_ = true;
 	impl_->send_query(td_api::make_object<td_api::close>(), {});
 }
 
