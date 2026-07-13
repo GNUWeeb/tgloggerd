@@ -315,6 +315,9 @@ struct TDLib::Impl {
 				   models::PrivateMessage &out);
 	void build_group_message(const td_api::message &message,
 				 models::GroupMessage &out);
+	void resolve_forward_origin(const models::ForwardInfo &info);
+	void ensure_user_saved(int64_t user_id);
+	void ensure_chat_saved(int64_t chat_id);
 	void maybe_download_profile_photo(const td_api::user &u);
 	void handle_file_update(const td_api::file &f);
 	void emit_photo(int64_t user_id, const td_api::file &f);
@@ -672,6 +675,8 @@ void TDLib::Impl::handle_message_for_private_chat(td_api::message &message)
 
 	models::PrivateMessage pm;
 	build_private_message(message, pm);
+	if (pm.forward_info.has_value())
+		resolve_forward_origin(*pm.forward_info);
 	private_msg_handler_(pm);
 }
 
@@ -682,6 +687,8 @@ void TDLib::Impl::handle_message_for_group_chat(td_api::message &message)
 
 	models::GroupMessage gm;
 	build_group_message(message, gm);
+	if (gm.forward_info.has_value())
+		resolve_forward_origin(*gm.forward_info);
 	group_msg_handler_(gm);
 }
 
@@ -815,6 +822,79 @@ void TDLib::Impl::build_group_message(const td_api::message &message,
 
 	extract_message_content(message, out.content);
 	out.forward_info = extract_forward_info(message);
+}
+
+void TDLib::Impl::resolve_forward_origin(const models::ForwardInfo &info)
+{
+	/*
+	 * A forwarded message may reference an entity we have not stored
+	 * yet: the original sender (a user) or the original chat/channel.
+	 * Memorize it so the *_message_fwd_info references point at real
+	 * users/groups rows. Known entities are re-emitted (idempotent, and
+	 * it satisfies the origin_sender_user_id foreign key before the
+	 * message row is written); unknown ones are fetched from TDLib.
+	 */
+	if (info.origin_sender_user_id.has_value())
+		ensure_user_saved(*info.origin_sender_user_id);
+	if (info.origin_chat_id.has_value())
+		ensure_chat_saved(*info.origin_chat_id);
+}
+
+void TDLib::Impl::ensure_user_saved(int64_t user_id)
+{
+	if (user_id == 0 || !user_handler_)
+		return;
+
+	auto it = users_.find(user_id);
+	if (it != users_.end() && it->second) {
+		/*
+		 * Already known: persist synchronously so the forward-info FK
+		 * to users.id resolves before the message row is written.
+		 */
+		user_handler_(map_user(*it->second));
+		return;
+	}
+
+	/* Unknown: fetch it, then persist and cache when it arrives. */
+	send_query(td_api::make_object<td_api::getUser>(user_id),
+		[this](Object obj) {
+			if (obj->get_id() != td_api::user::ID)
+				return;
+			auto u = td::move_tl_object_as<td_api::user>(obj);
+			if (user_handler_)
+				user_handler_(map_user(*u));
+			maybe_download_profile_photo(*u);
+			users_[u->id_] = std::move(u);
+		});
+}
+
+void TDLib::Impl::ensure_chat_saved(int64_t chat_id)
+{
+	if (chat_id == 0 || !group_handler_)
+		return;
+
+	/*
+	 * Only group, supergroup and channel chats (negative ids) map to a
+	 * groups row; a private chat's peer is handled via the user path.
+	 */
+	if (is_private_chat(chat_id))
+		return;
+
+	auto it = chat_to_group_.find(chat_id);
+	if (it != chat_to_group_.end()) {
+		/* Already known: re-emit so the group is persisted. */
+		emit_group(it->second);
+		return;
+	}
+
+	/* Unknown: fetch the chat; handle_new_chat persists it. */
+	send_query(td_api::make_object<td_api::getChat>(chat_id),
+		[this](Object obj) {
+			if (obj->get_id() != td_api::chat::ID)
+				return;
+			auto c = td::move_tl_object_as<td_api::chat>(obj);
+			handle_new_chat(*c);
+		});
 }
 
 void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
