@@ -46,8 +46,8 @@ CREATE TABLE users (
 	paid_message_star_count            BIGINT          NOT NULL DEFAULT 0 COMMENT 'Telegram Stars required to message the user.',
 
 	-- Bookkeeping
-	created_at                         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
-	updated_at                         TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at                         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	updated_at                         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
 	                                                   ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last time the row was updated.',
 
 	PRIMARY KEY (id),

@@ -16,8 +16,8 @@ CREATE TABLE `groups` (
 	-- Current group photo; references the shared files table.
 	photo_file_id BIGINT UNSIGNED NULL COMMENT 'FK to files.id for the current group photo.',
 
-	created_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
-	updated_at    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	updated_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
 	                              ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last time the row was updated.',
 
 	PRIMARY KEY (id),
@@ -40,7 +40,7 @@ CREATE TABLE group_usernames (
 	kind       ENUM('active', 'disabled', 'collectible') NOT NULL
 	                           COMMENT 'Source list: active/disabled/collectible.',
 	position   INT             NOT NULL DEFAULT 0 COMMENT 'Order within its list (0-based).',
-	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	UNIQUE KEY uq_group_usernames_username (username),
@@ -57,7 +57,7 @@ CREATE TABLE group_hist_title (
 	id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 	group_id   BIGINT          NOT NULL COMMENT 'FK to groups.id.',
 	title      VARCHAR(255)    NOT NULL DEFAULT '' COMMENT 'Group title snapshot.',
-	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	KEY idx_group_hist_title_group_id (group_id),
@@ -73,7 +73,7 @@ CREATE TABLE group_hist_description (
 	id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 	group_id    BIGINT          NOT NULL COMMENT 'FK to groups.id.',
 	description VARCHAR(255)    NOT NULL DEFAULT '' COMMENT 'Group description snapshot.',
-	created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	KEY idx_group_hist_description_group_id (group_id),
@@ -89,7 +89,7 @@ CREATE TABLE group_hist_photo (
 	id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 	group_id   BIGINT          NOT NULL COMMENT 'FK to groups.id.',
 	file_id    BIGINT UNSIGNED NULL COMMENT 'FK to files.id; NULL if photo was removed.',
-	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	KEY idx_group_hist_photo_group_id (group_id),
@@ -114,7 +114,7 @@ CREATE TABLE group_hist_usernames_events (
 	kind       ENUM('active', 'disabled', 'collectible') NULL
 	                           COMMENT 'Kind after the change; NULL if removed.',
 	position   INT             NULL COMMENT 'New position (0-based); NULL if removed.',
-	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	KEY idx_group_hist_usernames_events_group_id (group_id),

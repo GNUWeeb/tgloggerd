@@ -29,10 +29,10 @@ CREATE TABLE files (
 	hit_count   INT UNSIGNED    NOT NULL DEFAULT 1,
 
 	-- Row creation time.
-	created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	-- Last time the row was updated (e.g. when hit_count was bumped);
 	-- NULL until the row is first updated.
-	updated_at  TIMESTAMP       NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+	updated_at  DATETIME        NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
 
 	PRIMARY KEY (id),
 	UNIQUE KEY uq_files_tg_file_id (tg_file_id),

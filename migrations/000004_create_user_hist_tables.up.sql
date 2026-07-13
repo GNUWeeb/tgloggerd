@@ -11,7 +11,7 @@ CREATE TABLE user_hist_name (
 	first_name VARCHAR(255)    NOT NULL DEFAULT '' COMMENT 'User first name.',
 	last_name  VARCHAR(255)    NOT NULL DEFAULT '' COMMENT 'User last name.',
 	-- When this snapshot was recorded.
-	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	KEY idx_user_hist_name_user_id (user_id),
@@ -33,7 +33,7 @@ CREATE TABLE user_hist_profile_photo (
 	-- The file that was the profile photo at the time of the change.
 	file_id    BIGINT UNSIGNED NULL COMMENT 'FK to files.id; NULL if photo was removed.',
 	-- When this snapshot was recorded.
-	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	KEY idx_user_hist_profile_photo_user_id (user_id),
@@ -58,7 +58,7 @@ CREATE TABLE user_hist_phone_num (
 	-- Snapshot of the phone number at the time of the change.
 	phone_number VARCHAR(32)     NOT NULL DEFAULT '' COMMENT 'User phone number.',
 	-- When this snapshot was recorded.
-	created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	KEY idx_user_hist_phone_num_user_id (user_id),
@@ -87,7 +87,7 @@ CREATE TABLE user_hist_usernames_events (
 	                           COMMENT 'Kind after the change; NULL if removed.',
 	position   INT             NULL COMMENT 'New position (0-based); NULL if removed.',
 	-- When this change was recorded.
-	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	KEY idx_user_hist_usernames_events_user_id (user_id),

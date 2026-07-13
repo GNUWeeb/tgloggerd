@@ -40,8 +40,8 @@ CREATE TABLE private_messages (
 	is_deleted   TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Soft-delete flag for message deletion.',
 
 	-- Bookkeeping.
-	created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
-	updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	updated_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
 	                             ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last time the row was updated.',
 
 	PRIMARY KEY (id),
@@ -85,7 +85,7 @@ CREATE TABLE private_message_edits (
 	edit_date         INT             NOT NULL COMMENT 'The edit_date value that triggered this snapshot.',
 
 	-- Bookkeeping.
-	created_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	KEY idx_private_message_edits_private_message_id (private_message_id),
@@ -131,7 +131,7 @@ CREATE TABLE private_message_fwd_info (
 	origin_date            INT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original message.',
 
 	-- Bookkeeping.
-	created_at            TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at            DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	UNIQUE KEY uq_private_message_fwd_info_msg (private_message_id),

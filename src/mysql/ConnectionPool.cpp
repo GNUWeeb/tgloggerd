@@ -30,6 +30,7 @@ std::unique_ptr<sql::Connection> ConnectionPool::create(void)
 
 	std::unique_ptr<sql::Statement> stmt(conn->createStatement());
 	stmt->execute("SET NAMES utf8mb4");
+	stmt->execute("SET time_zone = '+00:00'");
 	return conn;
 }
 

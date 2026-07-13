@@ -20,7 +20,7 @@ CREATE TABLE user_usernames (
 	-- Preserves order within the active/collectible lists (0-based).
 	position   INT             NOT NULL DEFAULT 0 COMMENT 'Order within its list (0-based).',
 	-- Row creation time.
-	created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
 	PRIMARY KEY (id),
 	UNIQUE KEY uq_user_usernames_username (username),
