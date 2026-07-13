@@ -1,0 +1,140 @@
+-- Private messages for one-to-one chats (not groups).
+-- Each Telegram message is keyed by (chat_id, message_id).
+-- Soft-deleted messages keep their row with is_deleted = 1.
+-- Edits are tracked in private_message_edits (append-only).
+
+CREATE TABLE private_messages (
+	-- Surrogate primary key referenced by edits and fwd_info.
+	id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+	-- Telegram chat_id; for private chats this equals the peer user's id.
+	chat_id      BIGINT          NOT NULL COMMENT 'Telegram chat_id (peer user id for private chats).',
+
+	-- Telegram message identifier (unique per chat).
+	message_id   BIGINT          NOT NULL COMMENT 'td_api::message.id_.',
+
+	-- Who sent the message (user id); 0 for the logged-in account.
+	sender_id    BIGINT          NOT NULL DEFAULT 0 COMMENT 'Sender user id; 0 = own account.',
+
+	-- Whether the message was sent by the logged-in user.
+	is_outgoing  TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Message was sent by the logged-in account.',
+
+	-- Unix timestamp of the original send.
+	date         INT             NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original send.',
+
+	-- Unix timestamp of the last edit; 0 if never edited.
+	edit_date    INT             NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the last edit; 0 = never edited.',
+
+	-- Coarse content type for routing and filtering.
+	content_type ENUM('text', 'photo', 'video', 'document', 'audio',
+	                  'voice', 'sticker', 'animation', 'unknown')
+	                             NOT NULL DEFAULT 'unknown' COMMENT 'Coarse message content category.',
+
+	-- Message text; NULL for non-text messages. MEDIUMTEXT for long messages.
+	text         MEDIUMTEXT      NULL COMMENT 'Message text; NULL for non-text messages.',
+
+	-- For media messages: FK to files.id for the attached file.
+	file_id      BIGINT UNSIGNED NULL COMMENT 'FK to files.id for media attachments.',
+
+	-- Soft-delete flag. Deleted messages keep their row.
+	is_deleted   TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Soft-delete flag for message deletion.',
+
+	-- Bookkeeping.
+	created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+	updated_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
+	                             ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last time the row was updated.',
+
+	PRIMARY KEY (id),
+	UNIQUE KEY uq_private_messages_chat_msg (chat_id, message_id),
+	KEY idx_private_messages_sender_id (sender_id),
+	KEY idx_private_messages_date (date),
+	KEY idx_private_messages_is_deleted (is_deleted),
+	CONSTRAINT fk_private_messages_file
+		FOREIGN KEY (file_id) REFERENCES files (id)
+		ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='Private chat messages (one-to-one chats only). Soft-deleted rows persist.';
+
+-- Append-only edit history. A row is inserted only when an edit is
+-- detected. The current state is always in private_messages; this
+-- table records snapshots of the message content *before* each edit.
+-- Never updated; only inserted.
+
+CREATE TABLE private_message_edits (
+	-- Surrogate primary key.
+	id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+	-- FK to private_messages.id for the message being edited.
+	private_message_id BIGINT UNSIGNED NOT NULL COMMENT 'FK to private_messages.id.',
+
+	-- Content captured before the edit was applied.
+	content_type      ENUM('text', 'photo', 'video', 'document', 'audio',
+	                       'voice', 'sticker', 'animation', 'unknown')
+	                                  NOT NULL DEFAULT 'unknown' COMMENT 'Content type before the edit.',
+	text              MEDIUMTEXT      NULL COMMENT 'Text before the edit; NULL for non-text.',
+	file_id           BIGINT UNSIGNED NULL COMMENT 'FK to files.id before the edit.',
+
+	-- The edit_date value that triggered this snapshot (equals the
+	-- new edit_date in private_messages after the update).
+	edit_date         INT             NOT NULL COMMENT 'The edit_date value that triggered this snapshot.',
+
+	-- Bookkeeping.
+	created_at        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+
+	PRIMARY KEY (id),
+	KEY idx_private_message_edits_private_message_id (private_message_id),
+	KEY idx_private_message_edits_edit_date (edit_date),
+	CONSTRAINT fk_private_message_edits_message
+		FOREIGN KEY (private_message_id) REFERENCES private_messages (id)
+		ON DELETE CASCADE ON UPDATE CASCADE,
+	CONSTRAINT fk_private_message_edits_file
+		FOREIGN KEY (file_id) REFERENCES files (id)
+		ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='Append-only edit history: snapshot of message content before each edit.';
+
+-- Forward information for forwarded messages. One row per forwarded
+-- message; NULL forward info means the message is not forwarded.
+-- The origin_* columns capture the original source; the
+-- sender_name/sender_username help identify users we may not have
+-- seen before.
+
+CREATE TABLE private_message_fwd_info (
+	-- Surrogate primary key.
+	id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+	-- FK to private_messages.id for the forwarded message.
+	private_message_id   BIGINT UNSIGNED NOT NULL COMMENT 'FK to private_messages.id.',
+
+	-- td_api::MessageOrigin discriminator.
+	origin_type         ENUM('user', 'hidden_user', 'chat', 'channel')
+	                                    NOT NULL COMMENT 'Kind of message origin.',
+
+	-- Origin sender user id (messageOriginUser).
+	origin_sender_user_id  BIGINT       NULL COMMENT 'Original sender user id (messageOriginUser).',
+
+	-- Origin sender name when the sender is hidden (messageOriginHiddenUser)
+	-- or author_signature from messageOriginChat/messageOriginChannel.
+	origin_sender_name     VARCHAR(255) NULL COMMENT 'Original sender name or author signature.',
+
+	-- Origin chat/channel id (messageOriginChat, messageOriginChannel).
+	origin_chat_id         BIGINT       NULL COMMENT 'Original chat/channel id.',
+
+	-- Original message id within the origin chat (messageOriginChannel).
+	origin_message_id      BIGINT       NULL COMMENT 'Original message id (messageOriginChannel).',
+
+	-- Date of the original message (from messageForwardInfo.date_).
+	origin_date            INT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original message.',
+
+	-- Bookkeeping.
+	created_at            TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+
+	PRIMARY KEY (id),
+	UNIQUE KEY uq_private_message_fwd_info_msg (private_message_id),
+	KEY idx_private_message_fwd_info_origin_sender_user_id (origin_sender_user_id),
+	KEY idx_private_message_fwd_info_origin_chat_id (origin_chat_id),
+	CONSTRAINT fk_private_message_fwd_info_message
+		FOREIGN KEY (private_message_id) REFERENCES private_messages (id)
+		ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='Forward information for forwarded private messages.';
