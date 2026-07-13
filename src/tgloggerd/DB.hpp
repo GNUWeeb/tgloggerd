@@ -11,6 +11,7 @@
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
 #include <tgloggerd/models/GroupMessage.hpp>
+#include <tgloggerd/models/GroupAdmin.hpp>
 
 namespace tgloggerd {
 
@@ -60,6 +61,15 @@ public:
 
 	/* Point a group's photo_file_id at a files row. */
 	void setGroupPhoto(int64_t group_id, uint64_t file_id);
+
+	/*
+	 * Replace a group's stored administrator set with a freshly fetched
+	 * one, recording added/removed/privilege-change events in
+	 * group_admin_hist. Only call with a genuinely fetched list: an empty
+	 * list removes all stored admins, so an errored fetch must not reach
+	 * here.
+	 */
+	void syncGroupAdmins(const models::GroupAdminList &list);
 
 	/*
 	 * Insert or update a private-chat message. Handles:
