@@ -223,6 +223,16 @@ int TgLoggerd::start(void)
 				 (long long)gm.message_id, e.what());
 		}
 	});
+	tdlib_->setMessageFileHandler([this](const MessageFile &mf) {
+		try {
+			onMessageFile(mf);
+		} catch (const std::exception &e) {
+			pr_error(l_, "Failed to store message file"
+				 " chat_id=%lld msg_id=%lld: %s",
+				 (long long)mf.chat_id,
+				 (long long)mf.message_id, e.what());
+		}
+	});
 
 	pr_info(l_, "Listening for incoming messages...");
 	while (!tdlib_->isStopped())
@@ -261,6 +271,24 @@ void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
 	db_->setGroupPhoto(p.group_id, *file_id);
 	pr_info(l_, "Stored group photo | group_id=%lld file_id=%llu",
 		(long long)p.group_id, (unsigned long long)*file_id);
+}
+
+void TgLoggerd::onMessageFile(const MessageFile &m)
+{
+	auto file_id = storeDownloadedFile(m.local_path, m.tg_file_id,
+					   m.file_size, m.content_type.c_str());
+	if (!file_id.has_value())
+		return;
+
+	if (m.is_group)
+		db_->setGroupMessageFile(m.chat_id, m.message_id, *file_id);
+	else
+		db_->setPrivateMessageFile(m.chat_id, m.message_id, *file_id);
+
+	pr_info(l_, "Stored message file | %s chat_id=%lld msg_id=%lld"
+		" file_id=%llu",
+		m.is_group ? "group" : "private", (long long)m.chat_id,
+		(long long)m.message_id, (unsigned long long)*file_id);
 }
 
 std::optional<uint64_t>

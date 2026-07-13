@@ -33,6 +33,7 @@ private:
 						    const char *file_type);
 	void onProfilePhoto(const ProfilePhoto &p);
 	void onGroupPhoto(const GroupPhoto &p);
+	void onMessageFile(const MessageFile &m);
 
 	uint32_t api_id_;
 	char api_hash_[64];

@@ -238,6 +238,68 @@ extract_forward_info(const td_api::message &message)
 	return fi;
 }
 
+/*
+ * Return the primary downloadable file of a message's content, or nullptr
+ * if the content carries no file. On success, *category is set to the
+ * matching files.file_type value. For photos, the largest size is chosen.
+ */
+const td_api::file *message_content_file(const td_api::MessageContent &content,
+					 const char **category)
+{
+	switch (content.get_id()) {
+	case td_api::messagePhoto::ID: {
+		auto &c = static_cast<const td_api::messagePhoto &>(content);
+		*category = "photo";
+		if (!c.photo_)
+			return nullptr;
+		const td_api::file *best = nullptr;
+		int64_t best_px = -1;
+		for (const auto &sz : c.photo_->sizes_) {
+			if (!sz || !sz->photo_)
+				continue;
+			int64_t px = (int64_t)sz->width_ * sz->height_;
+			if (px > best_px) {
+				best_px = px;
+				best = sz->photo_.get();
+			}
+		}
+		return best;
+	}
+	case td_api::messageVideo::ID: {
+		auto &c = static_cast<const td_api::messageVideo &>(content);
+		*category = "video";
+		return c.video_ ? c.video_->video_.get() : nullptr;
+	}
+	case td_api::messageDocument::ID: {
+		auto &c = static_cast<const td_api::messageDocument &>(content);
+		*category = "document";
+		return c.document_ ? c.document_->document_.get() : nullptr;
+	}
+	case td_api::messageAudio::ID: {
+		auto &c = static_cast<const td_api::messageAudio &>(content);
+		*category = "audio";
+		return c.audio_ ? c.audio_->audio_.get() : nullptr;
+	}
+	case td_api::messageVoiceNote::ID: {
+		auto &c = static_cast<const td_api::messageVoiceNote &>(content);
+		*category = "voice";
+		return c.voice_note_ ? c.voice_note_->voice_.get() : nullptr;
+	}
+	case td_api::messageSticker::ID: {
+		auto &c = static_cast<const td_api::messageSticker &>(content);
+		*category = "sticker";
+		return c.sticker_ ? c.sticker_->sticker_.get() : nullptr;
+	}
+	case td_api::messageAnimation::ID: {
+		auto &c = static_cast<const td_api::messageAnimation &>(content);
+		*category = "animation";
+		return c.animation_ ? c.animation_->animation_.get() : nullptr;
+	}
+	default:
+		return nullptr;
+	}
+}
+
 } /* namespace */
 
 
@@ -255,6 +317,7 @@ struct TDLib::Impl {
 	std::function<void(const TextMessage &)>	msg_handler_;
 	std::function<void(const models::PrivateMessage &)> private_msg_handler_;
 	std::function<void(const models::GroupMessage &)> group_msg_handler_;
+	std::function<void(const MessageFile &)>	message_file_handler_;
 	std::function<void(const models::User &)>	user_handler_;
 	std::function<void(const ProfilePhoto &)>	photo_handler_;
 	std::function<void(const models::Group &)>	group_handler_;
@@ -292,6 +355,15 @@ struct TDLib::Impl {
 	std::unordered_map<int64_t, int64_t>		chat_to_group_;
 	std::unordered_map<int32_t, int64_t>		pending_group_photo_;
 
+	/* In-flight message media downloads, keyed by TDLib file id. */
+	struct PendingMsgFile {
+		int64_t		chat_id;
+		int64_t		message_id;
+		bool		is_group;
+		std::string	content_type;
+	};
+	std::unordered_map<int32_t, PendingMsgFile>	pending_message_file_;
+
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
 
 	std::uint64_t next_query_id(void) { return ++current_query_id_; }
@@ -318,6 +390,9 @@ struct TDLib::Impl {
 	void resolve_forward_origin(const models::ForwardInfo &info);
 	void ensure_user_saved(int64_t user_id);
 	void ensure_chat_saved(int64_t chat_id);
+	void maybe_download_message_file(const td_api::message &message,
+					 bool is_group);
+	void emit_message_file(const PendingMsgFile &ref, const td_api::file &f);
 	void maybe_download_profile_photo(const td_api::user &u);
 	void handle_file_update(const td_api::file &f);
 	void emit_photo(int64_t user_id, const td_api::file &f);
@@ -678,6 +753,9 @@ void TDLib::Impl::handle_message_for_private_chat(td_api::message &message)
 	if (pm.forward_info.has_value())
 		resolve_forward_origin(*pm.forward_info);
 	private_msg_handler_(pm);
+
+	/* Row now exists; download and link any media attachment. */
+	maybe_download_message_file(message, false);
 }
 
 void TDLib::Impl::handle_message_for_group_chat(td_api::message &message)
@@ -690,6 +768,9 @@ void TDLib::Impl::handle_message_for_group_chat(td_api::message &message)
 	if (gm.forward_info.has_value())
 		resolve_forward_origin(*gm.forward_info);
 	group_msg_handler_(gm);
+
+	/* Row now exists; download and link any media attachment. */
+	maybe_download_message_file(message, true);
 }
 
 void TDLib::Impl::handle_update_message_content(int64_t chat_id,
@@ -897,6 +978,51 @@ void TDLib::Impl::ensure_chat_saved(int64_t chat_id)
 		});
 }
 
+void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
+					      bool is_group)
+{
+	if (!message_file_handler_ || !message.content_)
+		return;
+
+	const char *category = "unknown";
+	const td_api::file *f =
+		message_content_file(*message.content_, &category);
+	if (!f)
+		return;
+
+	PendingMsgFile ref{ message.chat_id_, message.id_, is_group,
+			    category };
+
+	/* Already downloaded: link it immediately. */
+	if (f->local_ && f->local_->is_downloading_completed_) {
+		emit_message_file(ref, *f);
+		return;
+	}
+
+	/* Otherwise request the download and remember the message for it. */
+	pending_message_file_[f->id_] = std::move(ref);
+	send_query(td_api::make_object<td_api::downloadFile>(
+			   f->id_, 1, 0, 0, false), {});
+}
+
+void TDLib::Impl::emit_message_file(const PendingMsgFile &ref,
+				    const td_api::file &f)
+{
+	if (!message_file_handler_ || !f.local_ ||
+	    !f.local_->is_downloading_completed_)
+		return;
+
+	MessageFile mf;
+	mf.chat_id = ref.chat_id;
+	mf.message_id = ref.message_id;
+	mf.is_group = ref.is_group;
+	mf.local_path = f.local_->path_;
+	mf.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
+	mf.file_size = f.size_;
+	mf.content_type = ref.content_type;
+	message_file_handler_(mf);
+}
+
 void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
 {
 	if (!photo_handler_ || !u.profile_photo_ || !u.profile_photo_->big_)
@@ -934,6 +1060,14 @@ void TDLib::Impl::handle_file_update(const td_api::file &f)
 		int64_t group_id = git->second;
 		pending_group_photo_.erase(git);
 		emit_group_photo(group_id, f);
+		return;
+	}
+
+	auto mit = pending_message_file_.find(f.id_);
+	if (mit != pending_message_file_.end()) {
+		PendingMsgFile ref = mit->second;
+		pending_message_file_.erase(mit);
+		emit_message_file(ref, f);
 		return;
 	}
 }
@@ -1084,6 +1218,11 @@ void TDLib::setGroupMessageHandler(
 	std::function<void(const models::GroupMessage &)> cb)
 {
 	impl_->group_msg_handler_ = std::move(cb);
+}
+
+void TDLib::setMessageFileHandler(std::function<void(const MessageFile &)> cb)
+{
+	impl_->message_file_handler_ = std::move(cb);
 }
 
 void TDLib::setUserHandler(std::function<void(const models::User &)> cb)

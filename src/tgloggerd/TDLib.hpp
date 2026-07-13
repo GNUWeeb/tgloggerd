@@ -52,6 +52,21 @@ struct GroupPhoto {
 };
 
 /*
+ * A message's media attachment whose download has completed, ready to be
+ * stored and linked to its message row. is_group selects the target
+ * table (group_messages vs private_messages).
+ */
+struct MessageFile {
+	int64_t		chat_id;
+	int64_t		message_id;
+	bool		is_group;
+	std::string	local_path;
+	std::string	tg_file_id;
+	int64_t		file_size;
+	std::string	content_type;	/* files.file_type: "photo", ... */
+};
+
+/*
  * tgloggerd::TDLib is a wrapper class for TDLib.
  *
  * Since TDLib contains very heavy header files, keep tgloggerd
@@ -86,6 +101,12 @@ public:
 	 */
 	void setGroupMessageHandler(
 		std::function<void(const models::GroupMessage &)> cb);
+
+	/*
+	 * Set the callback invoked when a message's media attachment has
+	 * finished downloading, so it can be stored and linked.
+	 */
+	void setMessageFileHandler(std::function<void(const MessageFile &)> cb);
 
 	/*
 	 * Set the callback invoked whenever a user's information is received
