@@ -50,6 +50,10 @@ CREATE TABLE group_messages (
 	-- Soft-delete flag. Deleted messages keep their row.
 	is_deleted     TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Soft-delete flag for message deletion.',
 
+	-- Whether the message is forwarded. Denormalized from the presence
+	-- of forward info (a group_message_fwd_info row) for quick filtering.
+	is_forwarded   TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Message is a forwarded message.',
+
 	-- Bookkeeping.
 	created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 	updated_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP

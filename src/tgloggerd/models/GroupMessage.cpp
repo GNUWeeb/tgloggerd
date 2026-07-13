@@ -32,9 +32,10 @@ void DB::upsertGroupMessage(const models::GroupMessage &msg)
 		"INSERT INTO group_messages ("
 		" chat_id, message_id, sender_user_id, sender_chat_id,"
 		" is_outgoing, is_channel_post, author_signature, date,"
-		" edit_date, content_type, text, file_id, is_deleted"
+		" edit_date, content_type, text, file_id, is_deleted,"
+		" is_forwarded"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_user_id = new.sender_user_id,"
 		" sender_chat_id = new.sender_chat_id,"
@@ -46,7 +47,8 @@ void DB::upsertGroupMessage(const models::GroupMessage &msg)
 		" content_type = new.content_type,"
 		" text = new.text,"
 		" file_id = new.file_id,"
-		" is_deleted = new.is_deleted";
+		" is_deleted = new.is_deleted,"
+		" is_forwarded = new.is_forwarded";
 
 	db_.transaction([&](mysql::Transaction &tx) {
 		auto old_rows = tx.query(
@@ -93,6 +95,7 @@ void DB::upsertGroupMessage(const models::GroupMessage &msg)
 				text_param,
 				file_param,
 				b(msg.is_deleted),
+				b(msg.forward_info.has_value()),
 			};
 		};
 

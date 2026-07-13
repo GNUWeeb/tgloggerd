@@ -35,9 +35,10 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 	static const char *upsert_sql =
 		"INSERT INTO private_messages ("
 		" chat_id, message_id, sender_id, is_outgoing, date,"
-		" edit_date, content_type, text, file_id, is_deleted"
+		" edit_date, content_type, text, file_id, is_deleted,"
+		" is_forwarded"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_id = new.sender_id,"
 		" is_outgoing = new.is_outgoing,"
@@ -46,7 +47,8 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		" content_type = new.content_type,"
 		" text = new.text,"
 		" file_id = new.file_id,"
-		" is_deleted = new.is_deleted";
+		" is_deleted = new.is_deleted,"
+		" is_forwarded = new.is_forwarded";
 
 	db_.transaction([&](mysql::Transaction &tx) {
 		/*
@@ -170,6 +172,7 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			text_param,
 			file_param,
 			b(msg.is_deleted),
+			b(msg.forward_info.has_value()),
 		});
 
 		/*
