@@ -54,10 +54,14 @@ CREATE TABLE group_messages (
 	-- of forward info (a group_message_fwd_info row) for quick filtering.
 	is_forwarded   TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Message is a forwarded message.',
 
-	-- Surrogate id of the message this one replies to; NULL if not a
-	-- reply. message_id is unique only per chat, so the reference is by
-	-- the surrogate id, resolved in setGroupMessageReply.
-	reply_to_id    BIGINT UNSIGNED NULL COMMENT 'FK to group_messages.id of the replied message; NULL if none.',
+	-- The message this one replies to. reply_to_chat_id/reply_to_msg_id
+	-- identify it universally (works across chats and tables, e.g. a reply
+	-- to a private message). reply_to_id is the surrogate-id FK, set only
+	-- when the replied message is in this same table. All NULL if not a
+	-- reply. Resolved in setGroupMessageReply.
+	reply_to_chat_id BIGINT      NULL COMMENT 'Replied message chat_id; may differ from chat_id (cross-chat).',
+	reply_to_msg_id  BIGINT      NULL COMMENT 'Replied message message_id.',
+	reply_to_id    BIGINT UNSIGNED NULL COMMENT 'FK to group_messages.id of the replied message (same table only); NULL otherwise.',
 
 	-- Bookkeeping.
 	created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
@@ -71,6 +75,7 @@ CREATE TABLE group_messages (
 	KEY idx_group_messages_date (date),
 	KEY idx_group_messages_is_deleted (is_deleted),
 	KEY idx_group_messages_reply (reply_to_id),
+	KEY idx_group_messages_reply_target (reply_to_chat_id, reply_to_msg_id),
 	CONSTRAINT fk_group_messages_chat_group
 		FOREIGN KEY (chat_id) REFERENCES `groups` (id)
 		ON DELETE CASCADE ON UPDATE CASCADE,
