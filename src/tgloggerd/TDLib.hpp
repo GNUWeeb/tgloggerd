@@ -13,6 +13,7 @@
 #include <tgloggerd/models/User.hpp>
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
+#include <tgloggerd/models/GroupMessage.hpp>
 
 namespace tgloggerd {
 
@@ -78,6 +79,13 @@ public:
 	 */
 	void setPrivateMessageHandler(
 		std::function<void(const models::PrivateMessage &)> cb);
+
+	/*
+	 * Set the callback invoked for every group-chat message (basic
+	 * group, supergroup or channel), whether new, edited, or deleted.
+	 */
+	void setGroupMessageHandler(
+		std::function<void(const models::GroupMessage &)> cb);
 
 	/*
 	 * Set the callback invoked whenever a user's information is received

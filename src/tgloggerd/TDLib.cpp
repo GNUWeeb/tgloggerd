@@ -254,6 +254,7 @@ struct TDLib::Impl {
 
 	std::function<void(const TextMessage &)>	msg_handler_;
 	std::function<void(const models::PrivateMessage &)> private_msg_handler_;
+	std::function<void(const models::GroupMessage &)> group_msg_handler_;
 	std::function<void(const models::User &)>	user_handler_;
 	std::function<void(const ProfilePhoto &)>	photo_handler_;
 	std::function<void(const models::Group &)>	group_handler_;
@@ -304,6 +305,7 @@ struct TDLib::Impl {
 	std::function<void(Object)> create_authentication_query_handler(void);
 	void handle_new_message(td_api::message &message);
 	void handle_message_for_private_chat(td_api::message &message);
+	void handle_message_for_group_chat(td_api::message &message);
 	void handle_update_message_content(int64_t chat_id, int64_t message_id,
 					   const td_api::MessageContent *content);
 	void handle_delete_messages(int64_t chat_id,
@@ -311,6 +313,8 @@ struct TDLib::Impl {
 				    bool is_permanent);
 	void build_private_message(const td_api::message &message,
 				   models::PrivateMessage &out);
+	void build_group_message(const td_api::message &message,
+				 models::GroupMessage &out);
 	void maybe_download_profile_photo(const td_api::user &u);
 	void handle_file_update(const td_api::file &f);
 	void emit_photo(int64_t user_id, const td_api::file &f);
@@ -462,10 +466,10 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				 * updateMessageEdited fires with edit_date
 				 * but not the content. Request the full
 				 * message; when it arrives we rebuild and
-				 * upsert it as if it were a new message.
+				 * upsert it as if it were a new message,
+				 * routing to the private or group path by
+				 * chat kind.
 				 */
-				if (!is_private_chat(u.chat_id_))
-					return;
 				send_query(
 					td_api::make_object<td_api::getMessage>(
 						u.chat_id_, u.message_id_),
@@ -476,8 +480,12 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 						auto msg =
 							td::move_tl_object_as<
 								td_api::message>(obj);
-						handle_message_for_private_chat(
-							*msg);
+						if (is_private_chat(msg->chat_id_))
+							handle_message_for_private_chat(
+								*msg);
+						else
+							handle_message_for_group_chat(
+								*msg);
 					});
 			},
 			[this](td_api::updateDeleteMessages &u) {
@@ -596,13 +604,15 @@ std::function<void(Object)> TDLib::Impl::create_authentication_query_handler(voi
 void TDLib::Impl::handle_new_message(td_api::message &message)
 {
 	/*
-	 * Only private (one-to-one) chats are logged to the database.
-	 * Group, supergroup and channel messages carry negative chat ids
-	 * that are not valid users.id values and would violate the
-	 * private_messages.chat_id foreign key.
+	 * Route by chat kind: private (positive) chat ids go to
+	 * private_messages (chat_id is a users.id); group, supergroup and
+	 * channel chats (negative ids) go to group_messages (chat_id is a
+	 * groups.id).
 	 */
 	if (is_private_chat(message.chat_id_))
 		handle_message_for_private_chat(message);
+	else
+		handle_message_for_group_chat(message);
 
 	/* Legacy text-only handler path. */
 	if (!msg_handler_)
@@ -665,6 +675,16 @@ void TDLib::Impl::handle_message_for_private_chat(td_api::message &message)
 	private_msg_handler_(pm);
 }
 
+void TDLib::Impl::handle_message_for_group_chat(td_api::message &message)
+{
+	if (!group_msg_handler_)
+		return;
+
+	models::GroupMessage gm;
+	build_group_message(message, gm);
+	group_msg_handler_(gm);
+}
+
 void TDLib::Impl::handle_update_message_content(int64_t chat_id,
 						int64_t message_id,
 						const td_api::MessageContent *content)
@@ -706,22 +726,27 @@ void TDLib::Impl::handle_delete_messages(int64_t chat_id,
 					 const td_api::array<td_api::int53> &message_ids,
 					 bool /* is_permanent */)
 {
-	if (!private_msg_handler_)
+	/* Route deletions to the same table the messages were stored in. */
+	bool priv = is_private_chat(chat_id);
+	if (priv && !private_msg_handler_)
 		return;
-
-	/*
-	 * Deletions are tracked only for private chats, matching the
-	 * messages stored in handle_new_message.
-	 */
-	if (!is_private_chat(chat_id))
+	if (!priv && !group_msg_handler_)
 		return;
 
 	for (auto msg_id : message_ids) {
-		models::PrivateMessage pm;
-		pm.chat_id = chat_id;
-		pm.message_id = msg_id;
-		pm.is_deleted = true;
-		private_msg_handler_(pm);
+		if (priv) {
+			models::PrivateMessage pm;
+			pm.chat_id = chat_id;
+			pm.message_id = msg_id;
+			pm.is_deleted = true;
+			private_msg_handler_(pm);
+		} else {
+			models::GroupMessage gm;
+			gm.chat_id = chat_id;
+			gm.message_id = msg_id;
+			gm.is_deleted = true;
+			group_msg_handler_(gm);
+		}
 	}
 }
 
@@ -747,6 +772,45 @@ void TDLib::Impl::build_private_message(const td_api::message &message,
 		auto &s = static_cast<const td_api::messageSenderUser &>(
 			*message.sender_id_);
 		out.sender_id = s.user_id_;
+	}
+
+	extract_message_content(message, out.content);
+	out.forward_info = extract_forward_info(message);
+}
+
+void TDLib::Impl::build_group_message(const td_api::message &message,
+				      models::GroupMessage &out)
+{
+	out.chat_id = message.chat_id_;
+	out.message_id = message.id_;
+	out.is_outgoing = message.is_outgoing_;
+	out.is_channel_post = message.is_channel_post_;
+	out.date = message.date_;
+	out.edit_date = message.edit_date_;
+	out.is_deleted = false;
+
+	if (!message.author_signature_.empty())
+		out.author_signature = message.author_signature_;
+
+	/*
+	 * A group message's sender may be a user or a chat/channel (channel
+	 * posts, anonymous admins). Record whichever applies; the schema
+	 * keeps them in separate foreign-key columns. Unlike private
+	 * messages, the own account's sender is recorded too (is_outgoing
+	 * still marks it), since a group has many participants.
+	 */
+	if (message.sender_id_) {
+		if (message.sender_id_->get_id() ==
+		    td_api::messageSenderUser::ID) {
+			auto &s = static_cast<const td_api::messageSenderUser &>(
+				*message.sender_id_);
+			out.sender_user_id = s.user_id_;
+		} else if (message.sender_id_->get_id() ==
+			   td_api::messageSenderChat::ID) {
+			auto &s = static_cast<const td_api::messageSenderChat &>(
+				*message.sender_id_);
+			out.sender_chat_id = s.chat_id_;
+		}
 	}
 
 	extract_message_content(message, out.content);
@@ -934,6 +998,12 @@ void TDLib::setPrivateMessageHandler(
 	std::function<void(const models::PrivateMessage &)> cb)
 {
 	impl_->private_msg_handler_ = std::move(cb);
+}
+
+void TDLib::setGroupMessageHandler(
+	std::function<void(const models::GroupMessage &)> cb)
+{
+	impl_->group_msg_handler_ = std::move(cb);
 }
 
 void TDLib::setUserHandler(std::function<void(const models::User &)> cb)

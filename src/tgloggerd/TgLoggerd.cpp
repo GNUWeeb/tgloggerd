@@ -213,6 +213,16 @@ int TgLoggerd::start(void)
 				 (long long)pm.message_id, e.what());
 		}
 	});
+	tdlib_->setGroupMessageHandler([this](const models::GroupMessage &gm) {
+		try {
+			db_->upsertGroupMessage(gm);
+		} catch (const std::exception &e) {
+			pr_error(l_, "Failed to store group message"
+				 " chat_id=%lld msg_id=%lld: %s",
+				 (long long)gm.chat_id,
+				 (long long)gm.message_id, e.what());
+		}
+	});
 
 	pr_info(l_, "Listening for incoming messages...");
 	while (!tdlib_->isStopped())
