@@ -110,6 +110,14 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 
 		if (old_rows.empty()) {
 			/*
+			 * A deletion for a message we never stored has no
+			 * content to preserve; skip it rather than inserting a
+			 * contentless tombstone.
+			 */
+			if (msg.is_deleted)
+				return;
+
+			/*
 			 * First time seeing this message: insert new row.
 			 */
 			tx.execute(upsert_sql, {
