@@ -67,6 +67,18 @@ struct MessageFile {
 };
 
 /*
+ * A reply relationship: message (chat_id, message_id) replies to
+ * message reply_to_msg_id in the same chat. is_group selects the table.
+ * Emitted only after the replied message has been saved.
+ */
+struct MessageReply {
+	int64_t		chat_id;
+	int64_t		message_id;
+	int64_t		reply_to_msg_id;	/* replied message's message_id */
+	bool		is_group;
+};
+
+/*
  * tgloggerd::TDLib is a wrapper class for TDLib.
  *
  * Since TDLib contains very heavy header files, keep tgloggerd
@@ -107,6 +119,12 @@ public:
 	 * finished downloading, so it can be stored and linked.
 	 */
 	void setMessageFileHandler(std::function<void(const MessageFile &)> cb);
+
+	/*
+	 * Set the callback invoked to link a message to the one it replies
+	 * to, after the replied message has been fetched and saved.
+	 */
+	void setMessageReplyHandler(std::function<void(const MessageReply &)> cb);
 
 	/*
 	 * Set the callback invoked whenever a user's information is received

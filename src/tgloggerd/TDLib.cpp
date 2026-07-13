@@ -327,6 +327,23 @@ const td_api::file *message_content_file(const td_api::MessageContent &content,
 	}
 }
 
+/*
+ * The message_id that @m replies to, when the reply targets a message in
+ * the same chat (so it maps to a row in the same table); 0 otherwise (no
+ * reply, a story reply, or a cross-chat reply).
+ */
+int64_t same_chat_reply_id(const td_api::message &m)
+{
+	if (!m.reply_to_ ||
+	    m.reply_to_->get_id() != td_api::messageReplyToMessage::ID)
+		return 0;
+
+	auto &r = static_cast<const td_api::messageReplyToMessage &>(*m.reply_to_);
+	if (r.message_id_ == 0 || r.chat_id_ != m.chat_id_)
+		return 0;
+	return r.message_id_;
+}
+
 } /* namespace */
 
 
@@ -345,6 +362,7 @@ struct TDLib::Impl {
 	std::function<void(const models::PrivateMessage &)> private_msg_handler_;
 	std::function<void(const models::GroupMessage &)> group_msg_handler_;
 	std::function<void(const MessageFile &)>	message_file_handler_;
+	std::function<void(const MessageReply &)>	message_reply_handler_;
 	std::function<void(const models::User &)>	user_handler_;
 	std::function<void(const models::UserFullInfo &)> user_full_info_handler_;
 	std::function<void(const ProfilePhoto &)>	photo_handler_;
@@ -404,8 +422,11 @@ struct TDLib::Impl {
 	void check_authentication_error(Object object);
 	std::function<void(Object)> create_authentication_query_handler(void);
 	void handle_new_message(td_api::message &message);
-	void handle_message_for_private_chat(td_api::message &message);
-	void handle_message_for_group_chat(td_api::message &message);
+	void handle_message_for_private_chat(td_api::message &message,
+					     bool resolve_reply);
+	void handle_message_for_group_chat(td_api::message &message,
+					   bool resolve_reply);
+	void resolve_reply_message(const td_api::message &message, bool is_group);
 	void handle_update_message_content(int64_t chat_id, int64_t message_id,
 					   const td_api::MessageContent *content);
 	void handle_delete_messages(int64_t chat_id,
@@ -608,10 +629,10 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 								td_api::message>(obj);
 						if (is_private_chat(msg->chat_id_))
 							handle_message_for_private_chat(
-								*msg);
+								*msg, true);
 						else
 							handle_message_for_group_chat(
-								*msg);
+								*msg, true);
 					});
 			},
 			[this](td_api::updateDeleteMessages &u) {
@@ -736,9 +757,9 @@ void TDLib::Impl::handle_new_message(td_api::message &message)
 	 * groups.id).
 	 */
 	if (is_private_chat(message.chat_id_))
-		handle_message_for_private_chat(message);
+		handle_message_for_private_chat(message, true);
 	else
-		handle_message_for_group_chat(message);
+		handle_message_for_group_chat(message, true);
 
 	/* Legacy text-only handler path. */
 	if (!msg_handler_)
@@ -791,7 +812,8 @@ void TDLib::Impl::handle_new_message(td_api::message &message)
 	msg_handler_(msg);
 }
 
-void TDLib::Impl::handle_message_for_private_chat(td_api::message &message)
+void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,
+						  bool resolve_reply)
 {
 	if (!private_msg_handler_)
 		return;
@@ -804,9 +826,13 @@ void TDLib::Impl::handle_message_for_private_chat(td_api::message &message)
 
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, false);
+
+	if (resolve_reply)
+		resolve_reply_message(message, false);
 }
 
-void TDLib::Impl::handle_message_for_group_chat(td_api::message &message)
+void TDLib::Impl::handle_message_for_group_chat(td_api::message &message,
+						bool resolve_reply)
 {
 	if (!group_msg_handler_)
 		return;
@@ -819,6 +845,47 @@ void TDLib::Impl::handle_message_for_group_chat(td_api::message &message)
 
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, true);
+
+	if (resolve_reply)
+		resolve_reply_message(message, true);
+}
+
+void TDLib::Impl::resolve_reply_message(const td_api::message &message,
+					bool is_group)
+{
+	if (!message_reply_handler_)
+		return;
+
+	int64_t reply_id = same_chat_reply_id(message);
+	if (reply_id == 0)
+		return;
+
+	int64_t chat_id = message.chat_id_;
+	int64_t message_id = message.id_;
+
+	/*
+	 * Fetch the replied message and save it first, then link this message
+	 * to it. The replied message is saved without chasing its own reply
+	 * (resolve_reply = false) to bound the fetching to one level. If it
+	 * cannot be fetched, the link is left unset (reply_to_id NULL).
+	 */
+	send_query(td_api::make_object<td_api::getMessage>(chat_id, reply_id),
+		[this, chat_id, message_id, reply_id, is_group](Object obj) {
+			if (obj->get_id() != td_api::message::ID)
+				return;
+			auto r = td::move_tl_object_as<td_api::message>(obj);
+			if (is_group)
+				handle_message_for_group_chat(*r, false);
+			else
+				handle_message_for_private_chat(*r, false);
+
+			MessageReply mr;
+			mr.chat_id = chat_id;
+			mr.message_id = message_id;
+			mr.reply_to_msg_id = reply_id;
+			mr.is_group = is_group;
+			message_reply_handler_(mr);
+		});
 }
 
 void TDLib::Impl::handle_update_message_content(int64_t chat_id,
@@ -1287,6 +1354,11 @@ void TDLib::setGroupMessageHandler(
 void TDLib::setMessageFileHandler(std::function<void(const MessageFile &)> cb)
 {
 	impl_->message_file_handler_ = std::move(cb);
+}
+
+void TDLib::setMessageReplyHandler(std::function<void(const MessageReply &)> cb)
+{
+	impl_->message_reply_handler_ = std::move(cb);
 }
 
 void TDLib::setUserHandler(std::function<void(const models::User &)> cb)

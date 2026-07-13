@@ -299,6 +299,24 @@ int TgLoggerd::start(void)
 			}
 		});
 	});
+	tdlib_->setMessageReplyHandler([this](const MessageReply &mr) {
+		serial_->post([this, mr] {
+			try {
+				if (mr.is_group)
+					db_->setGroupMessageReply(mr.chat_id,
+						mr.message_id,
+						mr.reply_to_msg_id);
+				else
+					db_->setPrivateMessageReply(mr.chat_id,
+						mr.message_id,
+						mr.reply_to_msg_id);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to link reply chat_id=%lld"
+					 " msg_id=%lld: %s", (long long)mr.chat_id,
+					 (long long)mr.message_id, e.what());
+			}
+		});
+	});
 
 	pr_info(l_, "Listening for incoming messages...");
 	while (!tdlib_->isStopped() && !g_tgld_stop)
