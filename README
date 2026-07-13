@@ -3,7 +3,11 @@
 tgloggerd is a Telegram logger daemon that runs on a regular user
 account. It is built on top of TDLib and keeps its data in MySQL 9. It
 records user messages, message edit history, and profile changes such
-as usernames, names, and photos.
+as usernames, names, and photos. For groups it also tracks the
+administrator list and each admin's privileges, keeping a history of
+admin changes. Since a regular user account is not pushed admin changes,
+the admin list is fetched when a group is first seen and refreshed by
+periodic polling (see TG_ADMIN_POLL_INTERVAL in run.example.sh).
 
 # Project structure
 

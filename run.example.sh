@@ -11,5 +11,7 @@ export TG_DB_USER="tgloggerd";                         # MySQL user
 export TG_DB_PASSWORD="tgloggerd";                     # MySQL password
 export TG_DB_NAME="tgloggerd";                         # MySQL database name
 export TG_STORAGE_DIR="./data/storage/files";          # where downloaded files are stored
+export TG_ADMIN_POLL_INTERVAL="300";                   # group-admin refresh interval (s); 0 disables
+export TG_ADMIN_POLL_BATCH="4";                        # groups refreshed per poll tick
 chrt --idle 0 nice -n 19 ionice -c 3 bash -c "cmake -B build && cmake --build build -j$(nproc)";
 exec build/tgloggerd;
