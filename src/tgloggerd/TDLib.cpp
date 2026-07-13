@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <iostream>
 #include <functional>
+#include <ctime>
 #include <unordered_map>
 
 namespace tgloggerd {
@@ -130,6 +131,7 @@ struct TDLib::Impl {
 	std::uint64_t	current_query_id_ = 0;
 
 	std::function<void(const TextMessage &)>	msg_handler_;
+	std::function<void(const models::PrivateMessage &)> private_msg_handler_;
 	std::function<void(const models::User &)>	user_handler_;
 	std::function<void(const ProfilePhoto &)>	photo_handler_;
 	std::function<void(const models::Group &)>	group_handler_;
@@ -179,6 +181,14 @@ struct TDLib::Impl {
 	void check_authentication_error(Object object);
 	std::function<void(Object)> create_authentication_query_handler(void);
 	void handle_new_message(td_api::message &message);
+	void handle_message_for_private_chat(td_api::message &message);
+	void handle_update_message_content(int64_t chat_id, int64_t message_id,
+					   const td_api::MessageContent *content);
+	void handle_delete_messages(int64_t chat_id,
+				    const td_api::array<td_api::int53> &message_ids,
+				    bool is_permanent);
+	void build_private_message(const td_api::message &message,
+				   models::PrivateMessage &out);
 	void maybe_download_profile_photo(const td_api::user &u);
 	void handle_file_update(const td_api::file &f);
 	void emit_photo(int64_t user_id, const td_api::file &f);
@@ -321,6 +331,37 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 			[this](td_api::updateNewMessage &u) {
 				handle_new_message(*u.message_);
 			},
+			[this](td_api::updateMessageContent &u) {
+				handle_update_message_content(u.chat_id_,
+					u.message_id_, u.new_content_.get());
+			},
+			[this](td_api::updateMessageEdited &u) {
+				/*
+				 * updateMessageEdited fires with edit_date
+				 * but not the content. Request the full
+				 * message; when it arrives we rebuild and
+				 * upsert it as if it were a new message.
+				 */
+				send_query(
+					td_api::make_object<td_api::getMessage>(
+						u.chat_id_, u.message_id_),
+					[this](Object obj) {
+						if (obj->get_id() !=
+						    td_api::message::ID)
+							return;
+						auto msg =
+							td::move_tl_object_as<
+								td_api::message>(obj);
+						handle_message_for_private_chat(
+							*msg);
+					});
+			},
+			[this](td_api::updateDeleteMessages &u) {
+				handle_delete_messages(
+					u.chat_id_,
+					u.message_ids_,
+					u.is_permanent_);
+			},
 			[](auto &) {}
 		)
 	);
@@ -430,6 +471,13 @@ std::function<void(Object)> TDLib::Impl::create_authentication_query_handler(voi
 
 void TDLib::Impl::handle_new_message(td_api::message &message)
 {
+	/*
+	 * Route to the private message handler if registered.
+	 * This handles all content types, not just text.
+	 */
+	handle_message_for_private_chat(message);
+
+	/* Legacy text-only handler path. */
 	if (!msg_handler_)
 		return;
 
@@ -478,6 +526,202 @@ void TDLib::Impl::handle_new_message(td_api::message &message)
 	}
 
 	msg_handler_(msg);
+}
+
+void TDLib::Impl::handle_message_for_private_chat(td_api::message &message)
+{
+	if (!private_msg_handler_)
+		return;
+
+	models::PrivateMessage pm;
+	build_private_message(message, pm);
+	private_msg_handler_(pm);
+}
+
+void TDLib::Impl::handle_update_message_content(int64_t chat_id,
+						int64_t message_id,
+						const td_api::MessageContent *content)
+{
+	if (!private_msg_handler_)
+		return;
+
+	/*
+	 * For message edits we need the full message object to get
+	 * edit_date and sender. TDLib sends a separate updateMessageEdited
+	 * or we can request getMessage. However, updateMessageContent
+	 * only has chat_id, message_id, and new_content.
+	 *
+	 * For now, we send a getMessage query to fetch the full message
+	 * so we can determine edit_date. But this adds latency and
+	 * complexity. Simpler: just record the content update as a
+	 * potential edit. We check private_messages for the existing
+	 * row and compare content.
+	 *
+	 * Actually, the simplest approach for now: we know the message
+	 * already exists in private_messages. We can just update the
+	 * content fields. But we need edit_date. Let's use a simpler
+	 * strategy: request getMessage to get the full object.
+	 *
+	 * For now, skip updateMessageContent handling; content changes
+	 * that TDLib delivers via updateMessageContent without a
+	 * corresponding edit_date are initial loads. Real edits come
+	 * via updateMessageEdited which we'll handle below, or via
+	 * updateNewMessage with an edit_date > 0.
+	 *
+	 * TODO: implement getMessage-based edit tracking.
+	 */
+	(void)chat_id;
+	(void)message_id;
+	(void)content;
+}
+
+void TDLib::Impl::handle_delete_messages(int64_t chat_id,
+					 const td_api::array<td_api::int53> &message_ids,
+					 bool /* is_permanent */)
+{
+	if (!private_msg_handler_)
+		return;
+
+	for (auto msg_id : message_ids) {
+		models::PrivateMessage pm;
+		pm.chat_id = chat_id;
+		pm.message_id = msg_id;
+		pm.is_deleted = true;
+		pm.edit_date = (int32_t)std::time(nullptr);
+		pm.content_type = models::PrivateMessageContentType::Unknown;
+		private_msg_handler_(pm);
+	}
+}
+
+void TDLib::Impl::build_private_message(const td_api::message &message,
+					models::PrivateMessage &out)
+{
+	out.chat_id = message.chat_id_;
+	out.message_id = message.id_;
+	out.is_outgoing = message.is_outgoing_;
+	out.date = message.date_;
+	out.edit_date = message.edit_date_;
+	out.is_deleted = false;
+
+	/* Resolve sender id. */
+	if (message.sender_id_) {
+		if (message.sender_id_->get_id() ==
+		    td_api::messageSenderUser::ID) {
+			auto &s = static_cast<const td_api::messageSenderUser &>(
+				*message.sender_id_);
+			out.sender_id = s.user_id_;
+		} else if (message.sender_id_->get_id() ==
+			   td_api::messageSenderChat::ID) {
+			auto &s = static_cast<const td_api::messageSenderChat &>(
+				*message.sender_id_);
+			out.sender_id = s.chat_id_;
+		}
+	}
+
+	/* Content type and text. */
+	if (message.content_) {
+		switch (message.content_->get_id()) {
+		case td_api::messageText::ID: {
+			auto &c = static_cast<const td_api::messageText &>(
+				*message.content_);
+			out.content_type =
+				models::PrivateMessageContentType::Text;
+			if (c.text_)
+				out.text = c.text_->text_;
+			break;
+		}
+		case td_api::messagePhoto::ID:
+			out.content_type =
+				models::PrivateMessageContentType::Photo;
+			break;
+		case td_api::messageVideo::ID:
+			out.content_type =
+				models::PrivateMessageContentType::Video;
+			break;
+		case td_api::messageDocument::ID:
+			out.content_type =
+				models::PrivateMessageContentType::Document;
+			break;
+		case td_api::messageAudio::ID:
+			out.content_type =
+				models::PrivateMessageContentType::Audio;
+			break;
+		case td_api::messageVoiceNote::ID:
+			out.content_type =
+				models::PrivateMessageContentType::Voice;
+			break;
+		case td_api::messageSticker::ID:
+			out.content_type =
+				models::PrivateMessageContentType::Sticker;
+			break;
+		case td_api::messageAnimation::ID:
+			out.content_type =
+				models::PrivateMessageContentType::Animation;
+			break;
+		default:
+			out.content_type =
+				models::PrivateMessageContentType::Unknown;
+			break;
+		}
+	}
+
+	/* Forward info. */
+	if (message.forward_info_) {
+		models::ForwardInfo fi;
+		fi.origin_date = message.forward_info_->date_;
+
+		if (message.forward_info_->origin_) {
+			switch (message.forward_info_->origin_->get_id()) {
+			case td_api::messageOriginUser::ID: {
+				auto &o = static_cast<
+					const td_api::messageOriginUser &>(
+					*message.forward_info_->origin_);
+				fi.origin_type =
+					models::ForwardOriginType::User;
+				fi.origin_sender_user_id = o.sender_user_id_;
+				break;
+			}
+			case td_api::messageOriginHiddenUser::ID: {
+				auto &o = static_cast<
+					const td_api::messageOriginHiddenUser &>(
+					*message.forward_info_->origin_);
+				fi.origin_type =
+					models::ForwardOriginType::HiddenUser;
+				fi.origin_sender_name = o.sender_name_;
+				break;
+			}
+			case td_api::messageOriginChat::ID: {
+				auto &o = static_cast<
+					const td_api::messageOriginChat &>(
+					*message.forward_info_->origin_);
+				fi.origin_type =
+					models::ForwardOriginType::Chat;
+				fi.origin_chat_id = o.sender_chat_id_;
+				if (!o.author_signature_.empty())
+					fi.origin_sender_name =
+						o.author_signature_;
+				break;
+			}
+			case td_api::messageOriginChannel::ID: {
+				auto &o = static_cast<
+					const td_api::messageOriginChannel &>(
+					*message.forward_info_->origin_);
+				fi.origin_type =
+					models::ForwardOriginType::Channel;
+				fi.origin_chat_id = o.chat_id_;
+				fi.origin_message_id = o.message_id_;
+				if (!o.author_signature_.empty())
+					fi.origin_sender_name =
+						o.author_signature_;
+				break;
+			}
+			default:
+				break;
+			}
+		}
+
+		out.forward_info = std::move(fi);
+	}
 }
 
 void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
@@ -655,6 +899,12 @@ TDLib::~TDLib(void) = default;
 void TDLib::setMessageHandler(std::function<void(const TextMessage &)> cb)
 {
 	impl_->msg_handler_ = std::move(cb);
+}
+
+void TDLib::setPrivateMessageHandler(
+	std::function<void(const models::PrivateMessage &)> cb)
+{
+	impl_->private_msg_handler_ = std::move(cb);
 }
 
 void TDLib::setUserHandler(std::function<void(const models::User &)> cb)
