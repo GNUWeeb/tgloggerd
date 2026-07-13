@@ -173,9 +173,9 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		 */
 		if (msg.is_deleted && !old_deleted) {
 			tx.execute(
-				"UPDATE private_messages SET is_deleted = 1,"
-				" edit_date = ? WHERE id = ?",
-				{ (int64_t)msg.edit_date, (int64_t)pm_id });
+				"UPDATE private_messages SET is_deleted = 1"
+				" WHERE id = ?",
+				{ (int64_t)pm_id });
 			return;
 		}
 
