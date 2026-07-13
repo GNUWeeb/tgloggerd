@@ -203,6 +203,16 @@ int TgLoggerd::start(void)
 			msg.sender_username.c_str(), (long long)msg.message_id,
 			msg.text.c_str());
 	});
+	tdlib_->setPrivateMessageHandler([this](const models::PrivateMessage &pm) {
+		try {
+			db_->upsertPrivateMessage(pm);
+		} catch (const std::exception &e) {
+			pr_error(l_, "Failed to store private message"
+				 " chat_id=%lld msg_id=%lld: %s",
+				 (long long)pm.chat_id,
+				 (long long)pm.message_id, e.what());
+		}
+	});
 
 	pr_info(l_, "Listening for incoming messages...");
 	while (!tdlib_->isStopped())
