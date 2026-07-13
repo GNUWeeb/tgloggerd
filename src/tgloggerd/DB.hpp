@@ -71,8 +71,23 @@ private:
 	void syncGroupUsernames(mysql::Transaction &tx, const models::Group &g);
 	void trackGroupPhotoChange(mysql::Transaction &tx,
 				   int64_t group_id, uint64_t file_id);
-	void insertForwardInfo(mysql::Transaction &tx,
-			       uint64_t private_message_id,
+
+	/*
+	 * Shared message-upsert helpers, parameterized by table and
+	 * foreign-key column so the identical private/group logic is not
+	 * duplicated. The table and column arguments are compile-time
+	 * literals, never user input.
+	 */
+	bool snapshotMessageEditIfChanged(mysql::Transaction &tx,
+					  const char *edits_table,
+					  const char *fk_column,
+					  uint64_t message_row_id,
+					  const models::MessageContent &old_content,
+					  int32_t old_edit_date,
+					  const models::MessageContent &new_content,
+					  int32_t new_edit_date);
+	void insertForwardInfo(mysql::Transaction &tx, const char *table,
+			       const char *fk_column, uint64_t message_row_id,
 			       const models::ForwardInfo &info);
 
 	mysql::Database db_;

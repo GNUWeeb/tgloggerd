@@ -49,6 +49,8 @@ add_executable(tgloggerd
 	src/tgloggerd/models/File.cpp
 	src/tgloggerd/models/Group.hpp
 	src/tgloggerd/models/Group.cpp
+	src/tgloggerd/models/Message.hpp
+	src/tgloggerd/models/Message.cpp
 	src/tgloggerd/models/PrivateMessage.hpp
 	src/tgloggerd/models/PrivateMessage.cpp
 	src/tgloggerd/helpers/common.c

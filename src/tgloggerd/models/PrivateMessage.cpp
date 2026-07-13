@@ -11,33 +11,6 @@ namespace tgloggerd {
 
 namespace {
 
-const char *content_type_to_string(models::PrivateMessageContentType t)
-{
-	switch (t) {
-	case models::PrivateMessageContentType::Text:	return "text";
-	case models::PrivateMessageContentType::Photo:	return "photo";
-	case models::PrivateMessageContentType::Video:	return "video";
-	case models::PrivateMessageContentType::Document:return "document";
-	case models::PrivateMessageContentType::Audio:	return "audio";
-	case models::PrivateMessageContentType::Voice:	return "voice";
-	case models::PrivateMessageContentType::Sticker:return "sticker";
-	case models::PrivateMessageContentType::Animation:return "animation";
-	case models::PrivateMessageContentType::Unknown:return "unknown";
-	}
-	return "unknown";
-}
-
-const char *origin_type_to_string(models::ForwardOriginType t)
-{
-	switch (t) {
-	case models::ForwardOriginType::User:		return "user";
-	case models::ForwardOriginType::HiddenUser:	return "hidden_user";
-	case models::ForwardOriginType::Chat:		return "chat";
-	case models::ForwardOriginType::Channel:	return "channel";
-	}
-	return "user";
-}
-
 mysql::Param b(bool v)
 {
 	return (int64_t)(v ? 1 : 0);
@@ -52,11 +25,10 @@ mysql::Param b(bool v)
  * info is present, inserts into private_message_fwd_info.
  *
  * On update (same chat_id + message_id):
- *   - If edit_date increased and content differs, copy the old row
+ *   - If edit_date increased and content differs, copy the old content
  *     into private_message_edits before updating private_messages.
  *   - If is_deleted changed to true, only set is_deleted = 1.
- *   - If forward_info is present and we haven't recorded it yet,
- *     insert into private_message_fwd_info.
+ *   - If forward_info is present and not already recorded, insert it.
  */
 void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 {
@@ -76,15 +48,6 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		" file_id = new.file_id,"
 		" is_deleted = new.is_deleted";
 
-	static const char *edit_insert_sql =
-		"INSERT INTO private_message_edits"
-		" (private_message_id, content_type, text, file_id, edit_date)"
-		" VALUES (?, ?, ?, ?, ?)";
-
-	static const char *fwd_exists_sql =
-		"SELECT 1 FROM private_message_fwd_info"
-		" WHERE private_message_id = ?";
-
 	db_.transaction([&](mysql::Transaction &tx) {
 		/*
 		 * Fetch the current row (if any) to detect edits.
@@ -101,12 +64,14 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			sender_param = (int64_t)*msg.sender_id;
 
 		mysql::Param text_param = std::monostate{};
-		if (msg.text.has_value())
-			text_param = *msg.text;
+		if (msg.content.text.has_value())
+			text_param = *msg.content.text;
 
 		mysql::Param file_param = std::monostate{};
-		if (msg.file_id.has_value())
-			file_param = (int64_t)*msg.file_id;
+		if (msg.content.file_id.has_value())
+			file_param = (int64_t)*msg.content.file_id;
+
+		std::string new_ct = models::to_string(msg.content.content_type);
 
 		if (old_rows.empty()) {
 			/*
@@ -127,7 +92,7 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 				b(msg.is_outgoing),
 				(int64_t)msg.date,
 				(int64_t)msg.edit_date,
-				std::string(content_type_to_string(msg.content_type)),
+				new_ct,
 				text_param,
 				file_param,
 				b(msg.is_deleted),
@@ -143,9 +108,10 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 				  (int64_t)msg.message_id });
 			if (!new_rows.empty() && new_rows[0][0].has_value() &&
 			    msg.forward_info.has_value()) {
-				uint64_t pm_id =
-					std::stoull(*new_rows[0][0]);
-				insertForwardInfo(tx, pm_id, *msg.forward_info);
+				uint64_t pm_id = std::stoull(*new_rows[0][0]);
+				insertForwardInfo(tx, "private_message_fwd_info",
+						  "private_message_id", pm_id,
+						  *msg.forward_info);
 			}
 			return;
 		}
@@ -157,19 +123,12 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		uint64_t pm_id = std::stoull(*old[0]);
 		int32_t old_edit_date = old[1].has_value() ?
 			std::stoi(*old[1]) : 0;
-		std::string old_ct = old[2].value_or("unknown");
-		std::optional<std::string> old_text;
-		if (old[3].has_value())
-			old_text = *old[3];
-		std::optional<uint64_t> old_file_id;
-		if (old[4].has_value())
-			old_file_id = std::stoull(*old[4]);
-		bool old_deleted = old[5].has_value() &&
-			*old[5] == "1";
+		bool old_deleted = old[5].has_value() && *old[5] == "1";
 
 		/*
-		 * If the message is now deleted and wasn't before,
-		 * only update is_deleted.
+		 * If the message is now deleted and wasn't before, only update
+		 * is_deleted. edit_date is left untouched so it keeps
+		 * reflecting the last real content edit.
 		 */
 		if (msg.is_deleted && !old_deleted) {
 			tx.execute(
@@ -180,31 +139,22 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		}
 
 		/*
-		 * If the edit_date increased and content changed, copy
-		 * the old content into private_message_edits first.
+		 * If the edit_date increased and content changed, copy the old
+		 * content into private_message_edits first.
 		 */
-		std::string new_ct = content_type_to_string(msg.content_type);
-		if (msg.edit_date > old_edit_date &&
-		    (old_ct != new_ct ||
-		     old_text != msg.text ||
-		     old_file_id != msg.file_id)) {
+		models::MessageContent old_content;
+		old_content.content_type =
+			models::message_content_type_from_string(
+				old[2].value_or("unknown"));
+		if (old[3].has_value())
+			old_content.text = *old[3];
+		if (old[4].has_value())
+			old_content.file_id = std::stoull(*old[4]);
 
-			mysql::Param etxt = std::monostate{};
-			if (old_text.has_value())
-				etxt = *old_text;
-
-			mysql::Param efid = std::monostate{};
-			if (old_file_id.has_value())
-				efid = (int64_t)*old_file_id;
-
-			tx.execute(edit_insert_sql, {
-				(int64_t)pm_id,
-				old_ct,
-				etxt,
-				efid,
-				(int64_t)msg.edit_date,
-			});
-		}
+		snapshotMessageEditIfChanged(tx, "private_message_edits",
+					     "private_message_id", pm_id,
+					     old_content, old_edit_date,
+					     msg.content, msg.edit_date);
 
 		/*
 		 * Update the private_messages row.
@@ -225,50 +175,11 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		/*
 		 * Insert forward info if present and not already recorded.
 		 */
-		if (msg.forward_info.has_value()) {
-			auto fwd = tx.query(fwd_exists_sql,
-				{ (int64_t)pm_id });
-			if (fwd.empty())
-				insertForwardInfo(tx, pm_id,
-						  *msg.forward_info);
-		}
+		if (msg.forward_info.has_value())
+			insertForwardInfo(tx, "private_message_fwd_info",
+					  "private_message_id", pm_id,
+					  *msg.forward_info);
 	});
-}
-
-void DB::insertForwardInfo(mysql::Transaction &tx, uint64_t private_message_id,
-			   const models::ForwardInfo &info)
-{
-	mysql::Param sender_id = std::monostate{};
-	if (info.origin_sender_user_id.has_value())
-		sender_id = (int64_t)*info.origin_sender_user_id;
-
-	mysql::Param sender_name = std::monostate{};
-	if (info.origin_sender_name.has_value())
-		sender_name = *info.origin_sender_name;
-
-	mysql::Param chat_id_param = std::monostate{};
-	if (info.origin_chat_id.has_value())
-		chat_id_param = (int64_t)*info.origin_chat_id;
-
-	mysql::Param msg_id_param = std::monostate{};
-	if (info.origin_message_id.has_value())
-		msg_id_param = (int64_t)*info.origin_message_id;
-
-	tx.execute(
-		"INSERT INTO private_message_fwd_info"
-		" (private_message_id, origin_type, origin_sender_user_id,"
-		"  origin_sender_name, origin_chat_id, origin_message_id,"
-		"  origin_date)"
-		" VALUES (?, ?, ?, ?, ?, ?, ?)",
-		{
-			(int64_t)private_message_id,
-			std::string(origin_type_to_string(info.origin_type)),
-			sender_id,
-			sender_name,
-			chat_id_param,
-			msg_id_param,
-			(int64_t)info.origin_date,
-		});
 }
 
 } /* namespace tgloggerd */

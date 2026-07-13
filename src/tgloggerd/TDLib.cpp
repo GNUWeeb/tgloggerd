@@ -132,6 +132,112 @@ bool is_private_chat(int64_t chat_id)
 	return chat_id > 0;
 }
 
+/*
+ * Map a td_api::message's content to the coarse MessageContent used by
+ * both private and group messages. Media files are not linked here; only
+ * the content type (and text, for text messages) is captured.
+ */
+void extract_message_content(const td_api::message &message,
+			     models::MessageContent &out)
+{
+	if (!message.content_)
+		return;
+
+	switch (message.content_->get_id()) {
+	case td_api::messageText::ID: {
+		auto &c = static_cast<const td_api::messageText &>(
+			*message.content_);
+		out.content_type = models::MessageContentType::Text;
+		if (c.text_)
+			out.text = c.text_->text_;
+		break;
+	}
+	case td_api::messagePhoto::ID:
+		out.content_type = models::MessageContentType::Photo;
+		break;
+	case td_api::messageVideo::ID:
+		out.content_type = models::MessageContentType::Video;
+		break;
+	case td_api::messageDocument::ID:
+		out.content_type = models::MessageContentType::Document;
+		break;
+	case td_api::messageAudio::ID:
+		out.content_type = models::MessageContentType::Audio;
+		break;
+	case td_api::messageVoiceNote::ID:
+		out.content_type = models::MessageContentType::Voice;
+		break;
+	case td_api::messageSticker::ID:
+		out.content_type = models::MessageContentType::Sticker;
+		break;
+	case td_api::messageAnimation::ID:
+		out.content_type = models::MessageContentType::Animation;
+		break;
+	default:
+		out.content_type = models::MessageContentType::Unknown;
+		break;
+	}
+}
+
+/*
+ * Extract forwarded-message origin info from a td_api::message. Returns
+ * nullopt for non-forwarded messages. Shared by private and group
+ * messages, whose *_fwd_info tables are identical.
+ */
+std::optional<models::ForwardInfo>
+extract_forward_info(const td_api::message &message)
+{
+	if (!message.forward_info_)
+		return std::nullopt;
+
+	models::ForwardInfo fi;
+	fi.origin_date = message.forward_info_->date_;
+
+	if (message.forward_info_->origin_) {
+		switch (message.forward_info_->origin_->get_id()) {
+		case td_api::messageOriginUser::ID: {
+			auto &o = static_cast<const td_api::messageOriginUser &>(
+				*message.forward_info_->origin_);
+			fi.origin_type = models::ForwardOriginType::User;
+			fi.origin_sender_user_id = o.sender_user_id_;
+			break;
+		}
+		case td_api::messageOriginHiddenUser::ID: {
+			auto &o = static_cast<
+				const td_api::messageOriginHiddenUser &>(
+				*message.forward_info_->origin_);
+			fi.origin_type = models::ForwardOriginType::HiddenUser;
+			fi.origin_sender_name = o.sender_name_;
+			break;
+		}
+		case td_api::messageOriginChat::ID: {
+			auto &o = static_cast<const td_api::messageOriginChat &>(
+				*message.forward_info_->origin_);
+			fi.origin_type = models::ForwardOriginType::Chat;
+			fi.origin_chat_id = o.sender_chat_id_;
+			if (!o.author_signature_.empty())
+				fi.origin_sender_name = o.author_signature_;
+			break;
+		}
+		case td_api::messageOriginChannel::ID: {
+			auto &o = static_cast<
+				const td_api::messageOriginChannel &>(
+				*message.forward_info_->origin_);
+			fi.origin_type = models::ForwardOriginType::Channel;
+			fi.origin_chat_id = o.chat_id_;
+			fi.origin_message_id = o.message_id_;
+			if (!o.author_signature_.empty())
+				fi.origin_sender_name = o.author_signature_;
+			break;
+		}
+		default:
+			break;
+		}
+	}
+
+	return fi;
+}
+
 } /* namespace */
 
 
@@ -615,8 +721,6 @@ void TDLib::Impl::handle_delete_messages(int64_t chat_id,
 		pm.chat_id = chat_id;
 		pm.message_id = msg_id;
 		pm.is_deleted = true;
-		pm.edit_date = (int32_t)std::time(nullptr);
-		pm.content_type = models::PrivateMessageContentType::Unknown;
 		private_msg_handler_(pm);
 	}
 }
@@ -645,110 +749,8 @@ void TDLib::Impl::build_private_message(const td_api::message &message,
 		out.sender_id = s.user_id_;
 	}
 
-	/* Content type and text. */
-	if (message.content_) {
-		switch (message.content_->get_id()) {
-		case td_api::messageText::ID: {
-			auto &c = static_cast<const td_api::messageText &>(
-				*message.content_);
-			out.content_type =
-				models::PrivateMessageContentType::Text;
-			if (c.text_)
-				out.text = c.text_->text_;
-			break;
-		}
-		case td_api::messagePhoto::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Photo;
-			break;
-		case td_api::messageVideo::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Video;
-			break;
-		case td_api::messageDocument::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Document;
-			break;
-		case td_api::messageAudio::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Audio;
-			break;
-		case td_api::messageVoiceNote::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Voice;
-			break;
-		case td_api::messageSticker::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Sticker;
-			break;
-		case td_api::messageAnimation::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Animation;
-			break;
-		default:
-			out.content_type =
-				models::PrivateMessageContentType::Unknown;
-			break;
-		}
-	}
-
-	/* Forward info. */
-	if (message.forward_info_) {
-		models::ForwardInfo fi;
-		fi.origin_date = message.forward_info_->date_;
-
-		if (message.forward_info_->origin_) {
-			switch (message.forward_info_->origin_->get_id()) {
-			case td_api::messageOriginUser::ID: {
-				auto &o = static_cast<
-					const td_api::messageOriginUser &>(
-					*message.forward_info_->origin_);
-				fi.origin_type =
-					models::ForwardOriginType::User;
-				fi.origin_sender_user_id = o.sender_user_id_;
-				break;
-			}
-			case td_api::messageOriginHiddenUser::ID: {
-				auto &o = static_cast<
-					const td_api::messageOriginHiddenUser &>(
-					*message.forward_info_->origin_);
-				fi.origin_type =
-					models::ForwardOriginType::HiddenUser;
-				fi.origin_sender_name = o.sender_name_;
-				break;
-			}
-			case td_api::messageOriginChat::ID: {
-				auto &o = static_cast<
-					const td_api::messageOriginChat &>(
-					*message.forward_info_->origin_);
-				fi.origin_type =
-					models::ForwardOriginType::Chat;
-				fi.origin_chat_id = o.sender_chat_id_;
-				if (!o.author_signature_.empty())
-					fi.origin_sender_name =
-						o.author_signature_;
-				break;
-			}
-			case td_api::messageOriginChannel::ID: {
-				auto &o = static_cast<
-					const td_api::messageOriginChannel &>(
-					*message.forward_info_->origin_);
-				fi.origin_type =
-					models::ForwardOriginType::Channel;
-				fi.origin_chat_id = o.chat_id_;
-				fi.origin_message_id = o.message_id_;
-				if (!o.author_signature_.empty())
-					fi.origin_sender_name =
-						o.author_signature_;
-				break;
-			}
-			default:
-				break;
-			}
-		}
-
-		out.forward_info = std::move(fi);
-	}
+	extract_message_content(message, out.content);
+	out.forward_info = extract_forward_info(message);
 }
 
 void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
