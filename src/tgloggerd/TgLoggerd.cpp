@@ -138,8 +138,26 @@ int TgLoggerd::start(void)
 	db_cfg.password = env("TG_DB_PASSWORD", "tgloggerd");
 	db_cfg.database = env("TG_DB_NAME", "tgloggerd");
 
-	pr_debug(l_, "db: %s@%s:%u/%s", db_cfg.user.c_str(), db_cfg.host.c_str(),
-		 db_cfg.port, db_cfg.database.c_str());
+	/*
+	 * Worker sizing. The file pool and the serial worker each write to
+	 * the DB, so the connection pool must have at least file_threads + 1
+	 * connections or those writers would serialize on acquire().
+	 */
+	size_t file_threads = (size_t)atoi(env("TG_FILE_THREADS", "4").c_str());
+	if (file_threads < 1)
+		file_threads = 1;
+	std::string db_pool_def = std::to_string(file_threads + 2);
+	size_t db_pool = (size_t)atoi(env("TG_DB_POOL", db_pool_def.c_str()).c_str());
+	if (db_pool < file_threads + 1)
+		db_pool = file_threads + 1;
+	db_cfg.pool_size = db_pool;
+
+	size_t queue_max = (size_t)strtoull(
+		env("TG_QUEUE_MAX", "10000").c_str(), nullptr, 10);
+
+	pr_debug(l_, "db: %s@%s:%u/%s pool=%zu", db_cfg.user.c_str(),
+		 db_cfg.host.c_str(), db_cfg.port, db_cfg.database.c_str(),
+		 db_cfg.pool_size);
 
 	db_ = std::make_unique<DB>(db_cfg);
 	try {
@@ -159,42 +177,69 @@ int TgLoggerd::start(void)
 	}
 	pr_debug(l_, "storage_dir: %s", storage_dir_.c_str());
 
+	/*
+	 * Construct the workers only past the early-return points above, so a
+	 * failed startup never leaves threads to join. serial_ = 1 thread
+	 * (strict FIFO); files_ = file_threads.
+	 */
+	serial_ = std::make_unique<ThreadPool>(1, queue_max, l_);
+	files_ = std::make_unique<ThreadPool>(file_threads, queue_max, l_);
+	pr_debug(l_, "workers: serial=1 files=%zu queue_max=%zu",
+		 file_threads, queue_max);
+
 	char tdlib_path[sizeof(this->data_dir_) + 32];
 	snprintf(tdlib_path, sizeof(tdlib_path), "%s/tdlib", this->data_dir_);
 
 	tdlib_ = std::make_unique<TDLib>(this->api_id_, this->api_hash_,
 					 tdlib_path);
+	/*
+	 * Handlers run on the event loop, where the models are already built
+	 * from td_api objects. They only enqueue the persistence work: DB
+	 * upserts go to serial_ (order preserved); media hashing goes to
+	 * files_, which posts the row->file link back to serial_. Each model
+	 * is captured by value so the job is self-contained.
+	 */
 	tdlib_->setUserHandler([this](const models::User &u) {
-		try {
-			db_->upsertUser(u);
-		} catch (const std::exception &e) {
-			pr_error(l_, "Failed to store user %lld: %s",
-				 (long long)u.id, e.what());
-		}
+		serial_->post([this, u] {
+			try {
+				db_->upsertUser(u);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to store user %lld: %s",
+					 (long long)u.id, e.what());
+			}
+		});
 	});
 	tdlib_->setProfilePhotoHandler([this](const ProfilePhoto &p) {
-		try {
-			onProfilePhoto(p);
-		} catch (const std::exception &e) {
-			pr_error(l_, "Failed to store profile photo for user"
-				 " %lld: %s", (long long)p.user_id, e.what());
-		}
+		files_->post([this, p] {
+			try {
+				onProfilePhoto(p);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to store profile photo for"
+					 " user %lld: %s", (long long)p.user_id,
+					 e.what());
+			}
+		});
 	});
 	tdlib_->setGroupHandler([this](const models::Group &g) {
-		try {
-			db_->upsertGroup(g);
-		} catch (const std::exception &e) {
-			pr_error(l_, "Failed to store group %lld: %s",
-				 (long long)g.id, e.what());
-		}
+		serial_->post([this, g] {
+			try {
+				db_->upsertGroup(g);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to store group %lld: %s",
+					 (long long)g.id, e.what());
+			}
+		});
 	});
 	tdlib_->setGroupPhotoHandler([this](const GroupPhoto &p) {
-		try {
-			onGroupPhoto(p);
-		} catch (const std::exception &e) {
-			pr_error(l_, "Failed to store group photo for group"
-				 " %lld: %s", (long long)p.group_id, e.what());
-		}
+		files_->post([this, p] {
+			try {
+				onGroupPhoto(p);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to store group photo for"
+					 " group %lld: %s", (long long)p.group_id,
+					 e.what());
+			}
+		});
 	});
 	tdlib_->setMessageHandler([this](const TextMessage &msg) {
 		pr_info(l_, "New message | sender_id=%lld name=\"%s\" "
@@ -204,39 +249,53 @@ int TgLoggerd::start(void)
 			msg.text.c_str());
 	});
 	tdlib_->setPrivateMessageHandler([this](const models::PrivateMessage &pm) {
-		try {
-			db_->upsertPrivateMessage(pm);
-		} catch (const std::exception &e) {
-			pr_error(l_, "Failed to store private message"
-				 " chat_id=%lld msg_id=%lld: %s",
-				 (long long)pm.chat_id,
-				 (long long)pm.message_id, e.what());
-		}
+		serial_->post([this, pm] {
+			try {
+				db_->upsertPrivateMessage(pm);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to store private message"
+					 " chat_id=%lld msg_id=%lld: %s",
+					 (long long)pm.chat_id,
+					 (long long)pm.message_id, e.what());
+			}
+		});
 	});
 	tdlib_->setGroupMessageHandler([this](const models::GroupMessage &gm) {
-		try {
-			db_->upsertGroupMessage(gm);
-		} catch (const std::exception &e) {
-			pr_error(l_, "Failed to store group message"
-				 " chat_id=%lld msg_id=%lld: %s",
-				 (long long)gm.chat_id,
-				 (long long)gm.message_id, e.what());
-		}
+		serial_->post([this, gm] {
+			try {
+				db_->upsertGroupMessage(gm);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to store group message"
+					 " chat_id=%lld msg_id=%lld: %s",
+					 (long long)gm.chat_id,
+					 (long long)gm.message_id, e.what());
+			}
+		});
 	});
 	tdlib_->setMessageFileHandler([this](const MessageFile &mf) {
-		try {
-			onMessageFile(mf);
-		} catch (const std::exception &e) {
-			pr_error(l_, "Failed to store message file"
-				 " chat_id=%lld msg_id=%lld: %s",
-				 (long long)mf.chat_id,
-				 (long long)mf.message_id, e.what());
-		}
+		files_->post([this, mf] {
+			try {
+				onMessageFile(mf);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to store message file"
+					 " chat_id=%lld msg_id=%lld: %s",
+					 (long long)mf.chat_id,
+					 (long long)mf.message_id, e.what());
+			}
+		});
 	});
 
 	pr_info(l_, "Listening for incoming messages...");
 	while (!tdlib_->isStopped())
 		tdlib_->loop(10);
+
+	/*
+	 * Drain before returning, while db_ and l_ are still alive (the
+	 * destructor frees l_ before members are destroyed). files_ first so
+	 * its pending link jobs land in serial_, then serial_ drains fully.
+	 */
+	files_->shutdown();
+	serial_->shutdown();
 
 	return 0;
 }
@@ -249,6 +308,12 @@ int TgLoggerd::stop(void)
 	return 0;
 }
 
+/*
+ * onProfilePhoto/onGroupPhoto/onMessageFile run on a files_ worker: the
+ * hash+copy+upsertFile happens there (in parallel), then only the row->file
+ * link update is posted to serial_ so it is ordered after the entity/message
+ * row was written and serialized against other DB writes.
+ */
 void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
 {
 	auto file_id = storeDownloadedFile(p.local_path, p.tg_file_id,
@@ -256,9 +321,19 @@ void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
 	if (!file_id.has_value())
 		return;
 
-	db_->setUserProfilePhoto(p.user_id, *file_id);
-	pr_info(l_, "Stored profile photo | user_id=%lld file_id=%llu",
-		(long long)p.user_id, (unsigned long long)*file_id);
+	int64_t user_id = p.user_id;
+	uint64_t fid = *file_id;
+	serial_->post([this, user_id, fid] {
+		try {
+			db_->setUserProfilePhoto(user_id, fid);
+			pr_info(l_, "Stored profile photo | user_id=%lld"
+				" file_id=%llu", (long long)user_id,
+				(unsigned long long)fid);
+		} catch (const std::exception &e) {
+			pr_error(l_, "Failed to link profile photo for user"
+				 " %lld: %s", (long long)user_id, e.what());
+		}
+	});
 }
 
 void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
@@ -268,9 +343,19 @@ void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
 	if (!file_id.has_value())
 		return;
 
-	db_->setGroupPhoto(p.group_id, *file_id);
-	pr_info(l_, "Stored group photo | group_id=%lld file_id=%llu",
-		(long long)p.group_id, (unsigned long long)*file_id);
+	int64_t group_id = p.group_id;
+	uint64_t fid = *file_id;
+	serial_->post([this, group_id, fid] {
+		try {
+			db_->setGroupPhoto(group_id, fid);
+			pr_info(l_, "Stored group photo | group_id=%lld"
+				" file_id=%llu", (long long)group_id,
+				(unsigned long long)fid);
+		} catch (const std::exception &e) {
+			pr_error(l_, "Failed to link group photo for group"
+				 " %lld: %s", (long long)group_id, e.what());
+		}
+	});
 }
 
 void TgLoggerd::onMessageFile(const MessageFile &m)
@@ -280,15 +365,29 @@ void TgLoggerd::onMessageFile(const MessageFile &m)
 	if (!file_id.has_value())
 		return;
 
-	if (m.is_group)
-		db_->setGroupMessageFile(m.chat_id, m.message_id, *file_id);
-	else
-		db_->setPrivateMessageFile(m.chat_id, m.message_id, *file_id);
-
-	pr_info(l_, "Stored message file | %s chat_id=%lld msg_id=%lld"
-		" file_id=%llu",
-		m.is_group ? "group" : "private", (long long)m.chat_id,
-		(long long)m.message_id, (unsigned long long)*file_id);
+	int64_t chat_id = m.chat_id;
+	int64_t message_id = m.message_id;
+	bool is_group = m.is_group;
+	uint64_t fid = *file_id;
+	serial_->post([this, chat_id, message_id, is_group, fid] {
+		try {
+			if (is_group)
+				db_->setGroupMessageFile(chat_id, message_id,
+							 fid);
+			else
+				db_->setPrivateMessageFile(chat_id, message_id,
+							   fid);
+			pr_info(l_, "Stored message file | %s chat_id=%lld"
+				" msg_id=%lld file_id=%llu",
+				is_group ? "group" : "private",
+				(long long)chat_id, (long long)message_id,
+				(unsigned long long)fid);
+		} catch (const std::exception &e) {
+			pr_error(l_, "Failed to link message file chat_id=%lld"
+				 " msg_id=%lld: %s", (long long)chat_id,
+				 (long long)message_id, e.what());
+		}
+	});
 }
 
 std::optional<uint64_t>
@@ -330,8 +429,12 @@ TgLoggerd::storeDownloadedFile(const std::string &local_path,
 			 dir.c_str(), ec.message().c_str());
 		return std::nullopt;
 	}
-	if (!fs::exists(dest, ec))
-		fs::copy_file(local_path, dest, ec);
+	/*
+	 * skip_existing makes the copy a no-op (no error) when the
+	 * content-addressed destination is already present, which also makes
+	 * concurrent file-pool workers copying identical content race-free.
+	 */
+	fs::copy_file(local_path, dest, fs::copy_options::skip_existing, ec);
 	if (ec) {
 		pr_error(l_, "Failed to copy file to %s: %s",
 			 dest.c_str(), ec.message().c_str());
