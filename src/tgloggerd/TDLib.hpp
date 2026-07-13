@@ -115,6 +115,13 @@ public:
 	void setUserHandler(std::function<void(const models::User &)> cb);
 
 	/*
+	 * Set the callback invoked when a user's td_api::userFullInfo is
+	 * received (fetched on first sight, or via updateUserFullInfo).
+	 */
+	void setUserFullInfoHandler(
+		std::function<void(const models::UserFullInfo &)> cb);
+
+	/*
 	 * Set the callback invoked when a user's (big) profile photo has
 	 * finished downloading.
 	 */

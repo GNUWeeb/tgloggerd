@@ -213,6 +213,17 @@ int TgLoggerd::start(void)
 			}
 		});
 	});
+	tdlib_->setUserFullInfoHandler([this](const models::UserFullInfo &fi) {
+		serial_->post([this, fi] {
+			try {
+				db_->upsertUserFullInfo(fi);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to store user full info"
+					 " %lld: %s", (long long)fi.user_id,
+					 e.what());
+			}
+		});
+	});
 	tdlib_->setProfilePhotoHandler([this](const ProfilePhoto &p) {
 		files_->post([this, p] {
 			try {

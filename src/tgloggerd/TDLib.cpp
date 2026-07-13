@@ -122,6 +122,27 @@ models::User map_user(const td_api::user &u)
 	return m;
 }
 
+models::UserFullInfo map_user_full_info(const td_api::userFullInfo &fi,
+					int64_t user_id)
+{
+	models::UserFullInfo m;
+	m.user_id = user_id;
+
+	if (fi.bio_)
+		m.bio = fi.bio_->text_;
+
+	if (fi.birthdate_) {
+		m.birthday_day = fi.birthdate_->day_;
+		m.birthday_month = fi.birthdate_->month_;
+		/* year_ is 0 when the user hides or omits the year. */
+		if (fi.birthdate_->year_ != 0)
+			m.birthday_year = fi.birthdate_->year_;
+	}
+
+	m.personal_chat_id = fi.personal_chat_id_;
+	return m;
+}
+
 /*
  * Whether a chat id refers to a private (one-to-one) chat.
  *
@@ -325,6 +346,7 @@ struct TDLib::Impl {
 	std::function<void(const models::GroupMessage &)> group_msg_handler_;
 	std::function<void(const MessageFile &)>	message_file_handler_;
 	std::function<void(const models::User &)>	user_handler_;
+	std::function<void(const models::UserFullInfo &)> user_full_info_handler_;
 	std::function<void(const ProfilePhoto &)>	photo_handler_;
 	std::function<void(const models::Group &)>	group_handler_;
 	std::function<void(const GroupPhoto &)>		group_photo_handler_;
@@ -400,6 +422,7 @@ struct TDLib::Impl {
 					 bool is_group);
 	void emit_message_file(const PendingMsgFile &ref, const td_api::file &f);
 	void maybe_download_profile_photo(const td_api::user &u);
+	void request_user_full_info(int64_t user_id);
 	void handle_file_update(const td_api::file &f);
 	void emit_photo(int64_t user_id, const td_api::file &f);
 	void handle_new_chat(const td_api::chat &chat);
@@ -468,11 +491,30 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				on_authorization_state_update();
 			},
 			[this](td_api::updateUser &u) {
-				if (user_handler_ && u.user_)
+				if (!u.user_)
+					return;
+				int64_t uid = u.user_->id_;
+				bool first_seen =
+					users_.find(uid) == users_.end();
+				if (user_handler_)
 					user_handler_(map_user(*u.user_));
-				if (u.user_)
-					maybe_download_profile_photo(*u.user_);
-				users_[u.user_->id_] = std::move(u.user_);
+				maybe_download_profile_photo(*u.user_);
+				users_[uid] = std::move(u.user_);
+				/*
+				 * Bio and other full-info fields are not in the
+				 * user object; fetch them once, when the user is
+				 * first seen.
+				 */
+				if (first_seen)
+					request_user_full_info(uid);
+			},
+			[this](td_api::updateUserFullInfo &u) {
+				if (user_full_info_handler_ &&
+				    u.user_full_info_)
+					user_full_info_handler_(
+						map_user_full_info(
+							*u.user_full_info_,
+							u.user_id_));
 			},
 			[this](td_api::updateFile &u) {
 				if (u.file_)
@@ -1029,6 +1071,22 @@ void TDLib::Impl::emit_message_file(const PendingMsgFile &ref,
 	message_file_handler_(mf);
 }
 
+void TDLib::Impl::request_user_full_info(int64_t user_id)
+{
+	if (!user_full_info_handler_)
+		return;
+
+	send_query(td_api::make_object<td_api::getUserFullInfo>(user_id),
+		[this, user_id](Object obj) {
+			if (obj->get_id() != td_api::userFullInfo::ID)
+				return;
+			auto fi = td::move_tl_object_as<td_api::userFullInfo>(
+				obj);
+			user_full_info_handler_(
+				map_user_full_info(*fi, user_id));
+		});
+}
+
 void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
 {
 	if (!photo_handler_ || !u.profile_photo_ || !u.profile_photo_->big_)
@@ -1234,6 +1292,12 @@ void TDLib::setMessageFileHandler(std::function<void(const MessageFile &)> cb)
 void TDLib::setUserHandler(std::function<void(const models::User &)> cb)
 {
 	impl_->user_handler_ = std::move(cb);
+}
+
+void TDLib::setUserFullInfoHandler(
+	std::function<void(const models::UserFullInfo &)> cb)
+{
+	impl_->user_full_info_handler_ = std::move(cb);
 }
 
 void TDLib::setProfilePhotoHandler(std::function<void(const ProfilePhoto &)> cb)
