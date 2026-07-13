@@ -54,6 +54,11 @@ CREATE TABLE group_messages (
 	-- of forward info (a group_message_fwd_info row) for quick filtering.
 	is_forwarded   TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Message is a forwarded message.',
 
+	-- Surrogate id of the message this one replies to; NULL if not a
+	-- reply. message_id is unique only per chat, so the reference is by
+	-- the surrogate id, resolved in setGroupMessageReply.
+	reply_to_id    BIGINT UNSIGNED NULL COMMENT 'FK to group_messages.id of the replied message; NULL if none.',
+
 	-- Bookkeeping.
 	created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 	updated_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -65,6 +70,7 @@ CREATE TABLE group_messages (
 	KEY idx_group_messages_sender_chat_id (sender_chat_id),
 	KEY idx_group_messages_date (date),
 	KEY idx_group_messages_is_deleted (is_deleted),
+	KEY idx_group_messages_reply (reply_to_id),
 	CONSTRAINT fk_group_messages_chat_group
 		FOREIGN KEY (chat_id) REFERENCES `groups` (id)
 		ON DELETE CASCADE ON UPDATE CASCADE,
@@ -76,6 +82,10 @@ CREATE TABLE group_messages (
 		ON DELETE SET NULL ON UPDATE CASCADE,
 	CONSTRAINT fk_group_messages_file
 		FOREIGN KEY (file_id) REFERENCES files (id)
+		ON DELETE SET NULL ON UPDATE CASCADE,
+	-- Self-reference to the replied message by surrogate id.
+	CONSTRAINT fk_group_messages_reply
+		FOREIGN KEY (reply_to_id) REFERENCES group_messages (id)
 		ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='Group/supergroup/channel messages. Soft-deleted rows persist.';
