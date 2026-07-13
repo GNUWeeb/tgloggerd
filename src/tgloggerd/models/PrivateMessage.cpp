@@ -98,6 +98,7 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 				text_param,
 				file_param,
 				b(msg.is_deleted),
+				b(msg.forward_info.has_value()),
 			});
 
 			/*
