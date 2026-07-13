@@ -67,7 +67,10 @@ struct ForwardInfo {
 struct PrivateMessage {
 	int64_t		chat_id = 0;
 	int64_t		message_id = 0;
-	int64_t		sender_id = 0;
+
+	/* Sender user id; nullopt for messages sent by the own account. */
+	std::optional<int64_t>	sender_id;
+
 	bool		is_outgoing = false;
 	int32_t		date = 0;
 	int32_t		edit_date = 0;

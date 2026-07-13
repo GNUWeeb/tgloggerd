@@ -631,19 +631,18 @@ void TDLib::Impl::build_private_message(const td_api::message &message,
 	out.edit_date = message.edit_date_;
 	out.is_deleted = false;
 
-	/* Resolve sender id. */
-	if (message.sender_id_) {
-		if (message.sender_id_->get_id() ==
-		    td_api::messageSenderUser::ID) {
-			auto &s = static_cast<const td_api::messageSenderUser &>(
-				*message.sender_id_);
-			out.sender_id = s.user_id_;
-		} else if (message.sender_id_->get_id() ==
-			   td_api::messageSenderChat::ID) {
-			auto &s = static_cast<const td_api::messageSenderChat &>(
-				*message.sender_id_);
-			out.sender_id = s.chat_id_;
-		}
+	/*
+	 * Resolve the sender. Messages sent by the logged-in account are
+	 * recorded with a NULL sender_id, as the private_messages schema
+	 * prescribes. Incoming private-chat messages are always sent by the
+	 * peer user; a messageSenderChat is not expected here and is ignored
+	 * (its chat id is not a valid users.id).
+	 */
+	if (!message.is_outgoing_ && message.sender_id_ &&
+	    message.sender_id_->get_id() == td_api::messageSenderUser::ID) {
+		auto &s = static_cast<const td_api::messageSenderUser &>(
+			*message.sender_id_);
+		out.sender_id = s.user_id_;
 	}
 
 	/* Content type and text. */

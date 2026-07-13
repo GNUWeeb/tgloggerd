@@ -96,6 +96,10 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			" WHERE chat_id = ? AND message_id = ?",
 			{ (int64_t)msg.chat_id, (int64_t)msg.message_id });
 
+		mysql::Param sender_param = std::monostate{};
+		if (msg.sender_id.has_value())
+			sender_param = (int64_t)*msg.sender_id;
+
 		mysql::Param text_param = std::monostate{};
 		if (msg.text.has_value())
 			text_param = *msg.text;
@@ -111,7 +115,7 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			tx.execute(upsert_sql, {
 				(int64_t)msg.chat_id,
 				(int64_t)msg.message_id,
-				(int64_t)msg.sender_id,
+				sender_param,
 				b(msg.is_outgoing),
 				(int64_t)msg.date,
 				(int64_t)msg.edit_date,
@@ -200,7 +204,7 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		tx.execute(upsert_sql, {
 			(int64_t)msg.chat_id,
 			(int64_t)msg.message_id,
-			(int64_t)msg.sender_id,
+			sender_param,
 			b(msg.is_outgoing),
 			(int64_t)msg.date,
 			(int64_t)msg.edit_date,
