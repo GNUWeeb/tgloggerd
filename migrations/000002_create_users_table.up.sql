@@ -45,6 +45,15 @@ CREATE TABLE users (
 	restricts_new_chats                TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'User may restrict new chats from non-contacts.',
 	paid_message_star_count            BIGINT          NOT NULL DEFAULT 0 COMMENT 'Telegram Stars required to message the user.',
 
+	-- Relationship to the logged-in account (td_api::user).
+	is_contact                         TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'User is in the account contacts.',
+	is_mutual_contact                  TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'User is a mutual contact.',
+	is_close_friend                    TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'User is marked as a close friend.',
+	have_access                        TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'The account can use the user object.',
+
+	-- IETF BCP-47 language tag of the user, if known.
+	language_code                      VARCHAR(35)     NOT NULL DEFAULT '' COMMENT 'User language code.',
+
 	-- Bookkeeping
 	created_at                         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 	updated_at                         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP

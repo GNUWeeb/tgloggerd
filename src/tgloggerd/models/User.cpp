@@ -46,9 +46,11 @@ void DB::upsertUser(const models::User &u)
 		" emoji_status_custom_emoji_id, emoji_status_expiration_date,"
 		" is_verified, is_scam, is_fake, is_premium, is_support,"
 		" restriction_reason, has_sensitive_content, restricts_new_chats,"
-		" paid_message_star_count"
+		" paid_message_star_count, is_contact, is_mutual_contact,"
+		" is_close_friend, have_access, language_code"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+		" ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" first_name = new.first_name,"
 		" last_name = new.last_name,"
@@ -68,7 +70,12 @@ void DB::upsertUser(const models::User &u)
 		" restriction_reason = new.restriction_reason,"
 		" has_sensitive_content = new.has_sensitive_content,"
 		" restricts_new_chats = new.restricts_new_chats,"
-		" paid_message_star_count = new.paid_message_star_count";
+		" paid_message_star_count = new.paid_message_star_count,"
+		" is_contact = new.is_contact,"
+		" is_mutual_contact = new.is_mutual_contact,"
+		" is_close_friend = new.is_close_friend,"
+		" have_access = new.have_access,"
+		" language_code = new.language_code";
 
 	mysql::Param emoji_id = std::monostate{};
 	if (u.emoji_status_custom_emoji_id.has_value())
@@ -110,6 +117,11 @@ void DB::upsertUser(const models::User &u)
 			b(u.has_sensitive_content),
 			b(u.restricts_new_chats),
 			(int64_t)u.paid_message_star_count,
+			b(u.is_contact),
+			b(u.is_mutual_contact),
+			b(u.is_close_friend),
+			b(u.have_access),
+			u.language_code,
 		});
 
 		if (old.empty()) {

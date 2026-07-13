@@ -69,6 +69,12 @@ models::User map_user(const td_api::user &u)
 	m.restricts_new_chats = u.restricts_new_chats_;
 	m.paid_message_star_count = u.paid_message_star_count_;
 
+	m.is_contact = u.is_contact_;
+	m.is_mutual_contact = u.is_mutual_contact_;
+	m.is_close_friend = u.is_close_friend_;
+	m.have_access = u.have_access_;
+	m.language_code = u.language_code_;
+
 	if (u.verification_status_) {
 		m.is_verified = u.verification_status_->is_verified_;
 		m.is_scam = u.verification_status_->is_scam_;
