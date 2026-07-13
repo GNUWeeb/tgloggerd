@@ -14,6 +14,7 @@
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
 #include <tgloggerd/models/GroupMessage.hpp>
+#include <tgloggerd/models/GroupAdmin.hpp>
 
 namespace tgloggerd {
 
@@ -160,6 +161,13 @@ public:
 	 * downloading.
 	 */
 	void setGroupPhotoHandler(std::function<void(const GroupPhoto &)> cb);
+
+	/*
+	 * Set the callback invoked with a group's full administrator set
+	 * (fetched on first sight and refreshed by periodic polling).
+	 */
+	void setGroupAdminsHandler(
+		std::function<void(const models::GroupAdminList &)> cb);
 
 	/*
 	 * Process a single batch of TDLib events, waiting up to @timeout

@@ -16,8 +16,10 @@
 #include <functional>
 #include <ctime>
 #include <set>
+#include <deque>
 #include <utility>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace tgloggerd {
 
@@ -143,6 +145,73 @@ models::UserFullInfo map_user_full_info(const td_api::userFullInfo &fi,
 
 	m.personal_chat_id = fi.personal_chat_id_;
 	return m;
+}
+
+/*
+ * Map a td_api::chatMember to a GroupAdmin. Returns false (skip) unless the
+ * member is a user (member_id is messageSenderUser) whose status is creator
+ * or administrator. A creator's rights are synthesized to all-true, since
+ * the owner implicitly holds every privilege.
+ */
+bool map_admin(const td_api::chatMember &m, models::GroupAdmin &out)
+{
+	if (!m.member_id_ ||
+	    m.member_id_->get_id() != td_api::messageSenderUser::ID)
+		return false;
+	out.user_id = static_cast<const td_api::messageSenderUser &>(
+		*m.member_id_).user_id_;
+	out.custom_title = m.tag_;
+	out.inviter_user_id = m.inviter_user_id_;
+	out.joined_date = m.joined_chat_date_;
+
+	if (!m.status_)
+		return false;
+
+	switch (m.status_->get_id()) {
+	case td_api::chatMemberStatusCreator::ID: {
+		auto &s = static_cast<const td_api::chatMemberStatusCreator &>(
+			*m.status_);
+		out.is_owner = true;
+		out.can_manage_chat = out.can_change_info = out.can_post_messages =
+		out.can_edit_messages = out.can_delete_messages =
+		out.can_invite_users = out.can_restrict_members =
+		out.can_pin_messages = out.can_manage_topics =
+		out.can_promote_members = out.can_manage_video_chats =
+		out.can_post_stories = out.can_edit_stories =
+		out.can_delete_stories = out.can_manage_direct_messages =
+		out.can_manage_tags = true;
+		out.is_anonymous = s.is_anonymous_;
+		return true;
+	}
+	case td_api::chatMemberStatusAdministrator::ID: {
+		auto &s = static_cast<const td_api::chatMemberStatusAdministrator &>(
+			*m.status_);
+		if (!s.rights_)
+			return true;
+		const auto &r = *s.rights_;
+		out.can_manage_chat = r.can_manage_chat_;
+		out.can_change_info = r.can_change_info_;
+		out.can_post_messages = r.can_post_messages_;
+		out.can_edit_messages = r.can_edit_messages_;
+		out.can_delete_messages = r.can_delete_messages_;
+		out.can_invite_users = r.can_invite_users_;
+		out.can_restrict_members = r.can_restrict_members_;
+		out.can_pin_messages = r.can_pin_messages_;
+		out.can_manage_topics = r.can_manage_topics_;
+		out.can_promote_members = r.can_promote_members_;
+		out.can_manage_video_chats = r.can_manage_video_chats_;
+		out.can_post_stories = r.can_post_stories_;
+		out.can_edit_stories = r.can_edit_stories_;
+		out.can_delete_stories = r.can_delete_stories_;
+		out.can_manage_direct_messages = r.can_manage_direct_messages_;
+		out.can_manage_tags = r.can_manage_tags_;
+		out.is_anonymous = r.is_anonymous_;
+		return true;
+	}
+	default:
+		/* restricted / member / left / banned: not an admin. */
+		return false;
+	}
 }
 
 /*
@@ -377,6 +446,7 @@ struct TDLib::Impl {
 	std::function<void(const ProfilePhoto &)>	photo_handler_;
 	std::function<void(const models::Group &)>	group_handler_;
 	std::function<void(const GroupPhoto &)>		group_photo_handler_;
+	std::function<void(const models::GroupAdminList &)> group_admins_handler_;
 
 	std::unique_ptr<td::ClientManager>		client_manager_;
 	td_api::object_ptr<td_api::AuthorizationState>	authorization_state_;
@@ -422,6 +492,11 @@ struct TDLib::Impl {
 	/* Reply targets already fetched, so a chain is not re-walked. */
 	std::set<std::pair<int64_t, int64_t>>		resolved_reply_targets_;
 
+	/* Groups whose admins we track (chat_ids), and a round-robin queue
+	 * for periodic refresh. Populated on first sight of a member group. */
+	std::unordered_set<int64_t>			admin_poll_set_;
+	std::deque<int64_t>				admin_poll_queue_;
+
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
 
 	std::uint64_t next_query_id(void) { return ++current_query_id_; }
@@ -459,7 +534,10 @@ struct TDLib::Impl {
 	void request_user_full_info(int64_t user_id);
 	void handle_file_update(const td_api::file &f);
 	void emit_photo(int64_t user_id, const td_api::file &f);
-	void handle_new_chat(const td_api::chat &chat);
+	void handle_new_chat(const td_api::chat &chat, bool from_chat_list);
+	void fetch_group_admins(int64_t supergroup_id, int64_t chat_id);
+	void emit_basic_group_admins(int64_t chat_id,
+				     const td_api::basicGroupFullInfo &fi);
 	void maybe_download_group_photo(int64_t group_id,
 					const td_api::chatPhotoInfo *photo);
 	void emit_group(int64_t group_id);
@@ -556,7 +634,7 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 			},
 			[this](td_api::updateNewChat &u) {
 				if (u.chat_)
-					handle_new_chat(*u.chat_);
+					handle_new_chat(*u.chat_, true);
 			},
 			[this](td_api::updateChatTitle &u) {
 				auto it = chat_to_group_.find(u.chat_id_);
@@ -611,8 +689,16 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				auto &st = group_state_[u.basic_group_id_];
 				st.description =
 					u.basic_group_full_info_->description_;
-				if (st.chat_seen)
-					emit_group(u.basic_group_id_);
+				if (!st.chat_seen)
+					return;
+				emit_group(u.basic_group_id_);
+				/*
+				 * Basic-group admins ride along in the full
+				 * info; sync them for groups we track.
+				 */
+				if (admin_poll_set_.count(st.chat_id))
+					emit_basic_group_admins(st.chat_id,
+						*u.basic_group_full_info_);
 			},
 			[this](td_api::updateNewMessage &u) {
 				handle_new_message(*u.message_);
@@ -1154,7 +1240,7 @@ void TDLib::Impl::ensure_chat_saved(int64_t chat_id)
 			if (obj->get_id() != td_api::chat::ID)
 				return;
 			auto c = td::move_tl_object_as<td_api::chat>(obj);
-			handle_new_chat(*c);
+			handle_new_chat(*c, false);
 		});
 }
 
@@ -1282,7 +1368,7 @@ void TDLib::Impl::emit_photo(int64_t user_id, const td_api::file &f)
 	photo_handler_(p);
 }
 
-void TDLib::Impl::handle_new_chat(const td_api::chat &chat)
+void TDLib::Impl::handle_new_chat(const td_api::chat &chat, bool from_chat_list)
 {
 	if (!chat.type_)
 		return;
@@ -1310,6 +1396,8 @@ void TDLib::Impl::handle_new_chat(const td_api::chat &chat)
 		/* Private and secret chats are not groups. */
 		return;
 	}
+
+	bool first_sight = group_state_.find(group_id) == group_state_.end();
 
 	GroupState &st = group_state_[group_id];
 	st.type = type;
@@ -1339,6 +1427,83 @@ void TDLib::Impl::handle_new_chat(const td_api::chat &chat)
 				   group_id), {});
 
 	maybe_download_group_photo(chat.id_, chat.photo_.get());
+
+	/*
+	 * Track administrators only for groups in our own chat list (not for
+	 * chats merely referenced by a forward/reply). On first sight, start
+	 * tracking and fetch the admin list now; supergroups/channels use
+	 * getSupergroupMembers, basic groups get theirs from the
+	 * basicGroupFullInfo requested above (see updateBasicGroupFullInfo).
+	 */
+	if (from_chat_list && first_sight &&
+	    admin_poll_set_.find(chat.id_) == admin_poll_set_.end()) {
+		admin_poll_set_.insert(chat.id_);
+		admin_poll_queue_.push_back(chat.id_);
+		if (type != models::GroupType::BasicGroup)
+			fetch_group_admins(group_id, chat.id_);
+	}
+}
+
+void TDLib::Impl::fetch_group_admins(int64_t supergroup_id, int64_t chat_id)
+{
+	if (!group_admins_handler_)
+		return;
+
+	send_query(td_api::make_object<td_api::getSupergroupMembers>(
+			supergroup_id,
+			td_api::make_object<
+				td_api::supergroupMembersFilterAdministrators>(),
+			0, 200),
+		[this, chat_id](Object obj) {
+			/*
+			 * Data-loss guard: sync only on a real member list. An
+			 * error (permission denied, FLOOD_WAIT, ...) must never
+			 * be treated as "no admins" — that would remove them all.
+			 */
+			if (obj->get_id() != td_api::chatMembers::ID)
+				return;
+			auto members =
+				td::move_tl_object_as<td_api::chatMembers>(obj);
+
+			models::GroupAdminList list;
+			list.group_id = chat_id;
+			for (const auto &m : members->members_) {
+				if (!m)
+					continue;
+				models::GroupAdmin ga;
+				if (!map_admin(*m, ga))
+					continue;
+				ensure_user_saved(ga.user_id);
+				list.admins.push_back(std::move(ga));
+			}
+
+			/* A group always has at least a creator; an empty set
+			 * means nothing usable was returned, so skip. */
+			if (!list.admins.empty())
+				group_admins_handler_(list);
+		});
+}
+
+void TDLib::Impl::emit_basic_group_admins(int64_t chat_id,
+					  const td_api::basicGroupFullInfo &fi)
+{
+	if (!group_admins_handler_)
+		return;
+
+	models::GroupAdminList list;
+	list.group_id = chat_id;
+	for (const auto &m : fi.members_) {
+		if (!m)
+			continue;
+		models::GroupAdmin ga;
+		if (!map_admin(*m, ga))
+			continue;
+		ensure_user_saved(ga.user_id);
+		list.admins.push_back(std::move(ga));
+	}
+
+	if (!list.admins.empty())
+		group_admins_handler_(list);
 }
 
 void TDLib::Impl::maybe_download_group_photo(int64_t group_id,
@@ -1450,6 +1615,12 @@ void TDLib::setGroupHandler(std::function<void(const models::Group &)> cb)
 void TDLib::setGroupPhotoHandler(std::function<void(const GroupPhoto &)> cb)
 {
 	impl_->group_photo_handler_ = std::move(cb);
+}
+
+void TDLib::setGroupAdminsHandler(
+	std::function<void(const models::GroupAdminList &)> cb)
+{
+	impl_->group_admins_handler_ = std::move(cb);
 }
 
 void TDLib::loop(int timeout)

@@ -245,6 +245,17 @@ int TgLoggerd::start(void)
 			}
 		});
 	});
+	tdlib_->setGroupAdminsHandler([this](const models::GroupAdminList &al) {
+		serial_->post([this, al] {
+			try {
+				db_->syncGroupAdmins(al);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to sync group admins for"
+					 " %lld: %s", (long long)al.group_id,
+					 e.what());
+			}
+		});
+	});
 	tdlib_->setGroupPhotoHandler([this](const GroupPhoto &p) {
 		files_->post([this, p] {
 			try {
