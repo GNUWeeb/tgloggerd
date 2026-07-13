@@ -10,6 +10,7 @@
 #include <tgloggerd/models/File.hpp>
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
+#include <tgloggerd/models/GroupMessage.hpp>
 
 namespace tgloggerd {
 
@@ -63,6 +64,12 @@ public:
 	 *    present and not already recorded).
 	 */
 	void upsertPrivateMessage(const models::PrivateMessage &msg);
+
+	/*
+	 * Insert or update a group-chat message. Same semantics as
+	 * upsertPrivateMessage, targeting the group_messages tables.
+	 */
+	void upsertGroupMessage(const models::GroupMessage &msg);
 
 private:
 	void syncUsernames(mysql::Transaction &tx, const models::User &u);

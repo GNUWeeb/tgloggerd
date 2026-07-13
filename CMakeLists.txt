@@ -53,6 +53,8 @@ add_executable(tgloggerd
 	src/tgloggerd/models/Message.cpp
 	src/tgloggerd/models/PrivateMessage.hpp
 	src/tgloggerd/models/PrivateMessage.cpp
+	src/tgloggerd/models/GroupMessage.hpp
+	src/tgloggerd/models/GroupMessage.cpp
 	src/tgloggerd/helpers/common.c
 	src/tgloggerd/helpers/common.h
 	src/tgloggerd/helpers/log.c
