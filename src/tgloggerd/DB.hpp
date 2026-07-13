@@ -88,6 +88,17 @@ public:
 	void setGroupMessageFile(int64_t chat_id, int64_t message_id,
 				 uint64_t file_id);
 
+	/*
+	 * Link a message to the one it replies to, resolving the replied
+	 * message's surrogate id from (chat_id, reply_to_message_id). A no-op
+	 * if either the message or the replied message is absent, so the
+	 * replied message must be saved first.
+	 */
+	void setPrivateMessageReply(int64_t chat_id, int64_t message_id,
+				    int64_t reply_to_message_id);
+	void setGroupMessageReply(int64_t chat_id, int64_t message_id,
+				  int64_t reply_to_message_id);
+
 private:
 	void syncUsernames(mysql::Transaction &tx, const models::User &u);
 	void trackProfilePhotoChange(mysql::Transaction &tx,
