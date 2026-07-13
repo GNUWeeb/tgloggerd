@@ -31,7 +31,8 @@ private:
 	std::optional<uint64_t> storeDownloadedFile(const std::string &local_path,
 						    const std::string &tg_file_id,
 						    int64_t file_size,
-						    const char *file_type);
+						    const char *file_type,
+						    const std::string &orig_file_name = std::string());
 	void onProfilePhoto(const ProfilePhoto &p);
 	void onGroupPhoto(const GroupPhoto &p);
 	void onMessageFile(const MessageFile &m);

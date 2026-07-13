@@ -22,8 +22,15 @@ uint64_t DB::upsertFile(const models::File &f)
 			{ f.sha256_hex });
 		if (!rows.empty() && rows[0][0].has_value()) {
 			id = std::stoull(*rows[0][0]);
-			tx.execute("UPDATE files SET hit_count = hit_count + 1"
-				   " WHERE id = ?", { (int64_t)id });
+			/*
+			 * Bump the hit count, and fill in the original file
+			 * name if we did not have one yet (the same content may
+			 * first be seen without a name, then later with one).
+			 */
+			tx.execute("UPDATE files SET hit_count = hit_count + 1,"
+				   " orig_file_name = IF(orig_file_name = '',"
+				   " ?, orig_file_name) WHERE id = ?",
+				   { f.orig_file_name, (int64_t)id });
 			return;
 		}
 
@@ -33,13 +40,15 @@ uint64_t DB::upsertFile(const models::File &f)
 
 		id = tx.insert(
 			"INSERT INTO files (tg_file_id, file_type, file_size,"
-			" sha256, file_ext) VALUES (?, ?, ?, UNHEX(?), ?)",
+			" sha256, file_ext, orig_file_name)"
+			" VALUES (?, ?, ?, UNHEX(?), ?, ?)",
 			{
 				f.tg_file_id,
 				f.file_type,
 				(int64_t)f.file_size,
 				f.sha256_hex,
 				ext,
+				f.orig_file_name,
 			});
 	});
 	return id;
