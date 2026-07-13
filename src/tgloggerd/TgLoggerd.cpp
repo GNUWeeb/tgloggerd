@@ -419,7 +419,8 @@ void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
 void TgLoggerd::onMessageFile(const MessageFile &m)
 {
 	auto file_id = storeDownloadedFile(m.local_path, m.tg_file_id,
-					   m.file_size, m.content_type.c_str());
+					   m.file_size, m.content_type.c_str(),
+					   m.orig_file_name);
 	if (!file_id.has_value())
 		return;
 
