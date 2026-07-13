@@ -14,8 +14,12 @@
 #include <filesystem>
 
 #include <openssl/evp.h>
+#include <csignal>
 
 namespace fs = std::filesystem;
+
+/* Defined in main.c; set by the SIGINT/SIGTERM handler to stop the loop. */
+extern "C" volatile sig_atomic_t g_tgld_stop;
 
 namespace tgloggerd {
 
@@ -286,8 +290,10 @@ int TgLoggerd::start(void)
 	});
 
 	pr_info(l_, "Listening for incoming messages...");
-	while (!tdlib_->isStopped())
+	while (!tdlib_->isStopped() && !g_tgld_stop)
 		tdlib_->loop(10);
+	if (g_tgld_stop)
+		pr_info(l_, "Shutdown requested; draining pending writes...");
 
 	/*
 	 * Drain before returning, while db_ and l_ are still alive (the

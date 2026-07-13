@@ -6,6 +6,34 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
+
+/*
+ * Set by the SIGINT/SIGTERM handler to request a graceful shutdown. The
+ * event loop in TgLoggerd::start() polls it, exits, and drains the
+ * background workers before returning. The handler only touches this
+ * flag, which is async-signal-safe.
+ */
+volatile sig_atomic_t g_tgld_stop = 0;
+
+static void tgld_signal_handler(int sig)
+{
+	(void)sig;
+	g_tgld_stop = 1;
+}
+
+static void tgld_install_signal_handlers(void)
+{
+	struct sigaction sa;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = tgld_signal_handler;
+	sigemptyset(&sa.sa_mask);
+	/* No SA_RESTART: the loop re-checks the flag each receive() tick. */
+	sa.sa_flags = 0;
+	sigaction(SIGINT, &sa, NULL);
+	sigaction(SIGTERM, &sa, NULL);
+}
 
 int main(void)
 {
@@ -75,6 +103,7 @@ int main(void)
 	}
 
 	tgld_set_logger(tgld, h);
+	tgld_install_signal_handlers();
 	tgld_start(tgld);
 	tgld_stop(tgld);
 	tgld_free(tgld);
