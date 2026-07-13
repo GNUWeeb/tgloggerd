@@ -116,6 +116,22 @@ models::User map_user(const td_api::user &u)
 	return m;
 }
 
+/*
+ * Whether a chat id refers to a private (one-to-one) chat.
+ *
+ * In TDLib a private chat's id equals the peer user id and is always
+ * positive, whereas basic groups, supergroups and channels use negative
+ * ids. Secret chats are disabled (use_secret_chats_ = false), so a
+ * positive id is unambiguously a private chat. Only private chats are
+ * logged to private_messages, whose chat_id foreign key references
+ * users.id; routing group/channel messages there (negative chat ids) is
+ * what violates that constraint.
+ */
+bool is_private_chat(int64_t chat_id)
+{
+	return chat_id > 0;
+}
+
 } /* namespace */
 
 
@@ -342,6 +358,8 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				 * message; when it arrives we rebuild and
 				 * upsert it as if it were a new message.
 				 */
+				if (!is_private_chat(u.chat_id_))
+					return;
 				send_query(
 					td_api::make_object<td_api::getMessage>(
 						u.chat_id_, u.message_id_),
@@ -472,10 +490,13 @@ std::function<void(Object)> TDLib::Impl::create_authentication_query_handler(voi
 void TDLib::Impl::handle_new_message(td_api::message &message)
 {
 	/*
-	 * Route to the private message handler if registered.
-	 * This handles all content types, not just text.
+	 * Only private (one-to-one) chats are logged to the database.
+	 * Group, supergroup and channel messages carry negative chat ids
+	 * that are not valid users.id values and would violate the
+	 * private_messages.chat_id foreign key.
 	 */
-	handle_message_for_private_chat(message);
+	if (is_private_chat(message.chat_id_))
+		handle_message_for_private_chat(message);
 
 	/* Legacy text-only handler path. */
 	if (!msg_handler_)
@@ -580,6 +601,13 @@ void TDLib::Impl::handle_delete_messages(int64_t chat_id,
 					 bool /* is_permanent */)
 {
 	if (!private_msg_handler_)
+		return;
+
+	/*
+	 * Deletions are tracked only for private chats, matching the
+	 * messages stored in handle_new_message.
+	 */
+	if (!is_private_chat(chat_id))
 		return;
 
 	for (auto msg_id : message_ids) {
