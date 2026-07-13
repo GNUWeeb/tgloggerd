@@ -273,7 +273,7 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				auto it = chat_to_group_.find(u.chat_id_);
 				if (it == chat_to_group_.end())
 					return;
-				maybe_download_group_photo(it->second,
+				maybe_download_group_photo(u.chat_id_,
 							   u.photo_.get());
 			},
 			[this](td_api::updateSupergroup &u) {
@@ -591,7 +591,7 @@ void TDLib::Impl::handle_new_chat(const td_api::chat &chat)
 		send_query(td_api::make_object<td_api::getSupergroupFullInfo>(
 				   group_id), {});
 
-	maybe_download_group_photo(group_id, chat.photo_.get());
+	maybe_download_group_photo(chat.id_, chat.photo_.get());
 }
 
 void TDLib::Impl::maybe_download_group_photo(int64_t group_id,
@@ -620,7 +620,7 @@ void TDLib::Impl::emit_group(int64_t group_id)
 
 	const GroupState &st = it->second;
 	models::Group g;
-	g.id = group_id;
+	g.id = st.chat_id;
 	g.type = st.type;
 	g.title = st.title;
 	g.description = st.description;

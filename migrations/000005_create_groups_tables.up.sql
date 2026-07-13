@@ -1,10 +1,10 @@
 -- Telegram group chats: basic groups, supergroups and broadcast
 -- channels. The data is assembled from several TDLib objects (chat,
--- supergroup/basicGroup and their full info). Keyed by the raw
--- supergroup_id/basic_group_id.
+-- supergroup/basicGroup and their full info). Keyed by the Telegram
+-- chat_id, which is globally unique across all chats.
 
 CREATE TABLE `groups` (
-	-- Raw td_api supergroup_id or basic_group_id.
+	-- Telegram chat_id (globally unique across all chats).
 	id            BIGINT          NOT NULL,
 	-- Kind of group chat.
 	type          ENUM('basic_group', 'supergroup', 'channel')
