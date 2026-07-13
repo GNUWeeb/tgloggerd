@@ -27,8 +27,8 @@ struct PrivateMessage {
 	std::optional<int64_t>	sender_id;
 
 	bool		is_outgoing = false;
-	int32_t		date = 0;
-	int32_t		edit_date = 0;
+	int64_t		date = 0;
+	int64_t		edit_date = 0;
 
 	/* Content that an edit can change (type, text, file). */
 	MessageContent	content;

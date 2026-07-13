@@ -45,7 +45,7 @@ struct User {
 	int64_t		profile_background_custom_emoji_id = 0;
 
 	std::optional<int64_t>	emoji_status_custom_emoji_id;
-	std::optional<int32_t>	emoji_status_expiration_date;
+	std::optional<int64_t>	emoji_status_expiration_date;
 
 	bool		is_verified = false;
 	bool		is_scam = false;

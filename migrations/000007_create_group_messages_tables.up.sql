@@ -31,10 +31,10 @@ CREATE TABLE group_messages (
 	author_signature VARCHAR(255)  NULL COMMENT 'td_api::message.author_signature_; NULL if none.',
 
 	-- Unix timestamp of the original send.
-	date           INT             NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original send.',
+	date           BIGINT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original send.',
 
 	-- Unix timestamp of the last edit; 0 if never edited.
-	edit_date      INT             NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the last edit; 0 = never edited.',
+	edit_date      BIGINT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the last edit; 0 = never edited.',
 
 	-- Coarse content type for routing and filtering.
 	content_type   ENUM('text', 'photo', 'video', 'document', 'audio',
@@ -113,7 +113,7 @@ CREATE TABLE group_message_edits (
 
 	-- The edit_date that triggered this snapshot (the new edit_date in
 	-- group_messages after the update).
-	edit_date        INT             NOT NULL COMMENT 'The edit_date value that triggered this snapshot.',
+	edit_date        BIGINT          NOT NULL COMMENT 'The edit_date value that triggered this snapshot.',
 
 	created_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 
@@ -155,7 +155,7 @@ CREATE TABLE group_message_fwd_info (
 	origin_message_id     BIGINT          NULL COMMENT 'Original message id (messageOriginChannel).',
 
 	-- Date of the original message (from messageForwardInfo.date_).
-	origin_date           INT             NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original message.',
+	origin_date           BIGINT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original message.',
 
 	created_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 

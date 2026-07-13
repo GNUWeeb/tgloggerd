@@ -20,10 +20,10 @@ CREATE TABLE private_messages (
 	is_outgoing  TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Message was sent by the logged-in account.',
 
 	-- Unix timestamp of the original send.
-	date         INT             NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original send.',
+	date         BIGINT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original send.',
 
 	-- Unix timestamp of the last edit; 0 if never edited.
-	edit_date    INT             NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the last edit; 0 = never edited.',
+	edit_date    BIGINT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the last edit; 0 = never edited.',
 
 	-- Coarse content type for routing and filtering.
 	content_type ENUM('text', 'photo', 'video', 'document', 'audio',
@@ -101,7 +101,7 @@ CREATE TABLE private_message_edits (
 
 	-- The edit_date value that triggered this snapshot (equals the
 	-- new edit_date in private_messages after the update).
-	edit_date         INT             NOT NULL COMMENT 'The edit_date value that triggered this snapshot.',
+	edit_date         BIGINT          NOT NULL COMMENT 'The edit_date value that triggered this snapshot.',
 
 	-- Bookkeeping.
 	created_at        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
@@ -147,7 +147,7 @@ CREATE TABLE private_message_fwd_info (
 	origin_message_id      BIGINT       NULL COMMENT 'Original message id (messageOriginChannel).',
 
 	-- Date of the original message (from messageForwardInfo.date_).
-	origin_date            INT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original message.',
+	origin_date            BIGINT       NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original message.',
 
 	-- Bookkeeping.
 	created_at            DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',

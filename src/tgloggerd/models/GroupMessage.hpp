@@ -39,8 +39,8 @@ struct GroupMessage {
 	/* Author signature for channel posts / anonymous admins. */
 	std::optional<std::string>	author_signature;
 
-	int32_t		date = 0;
-	int32_t		edit_date = 0;
+	int64_t		date = 0;
+	int64_t		edit_date = 0;
 
 	/* Content that an edit can change (type, text, file). */
 	MessageContent	content;

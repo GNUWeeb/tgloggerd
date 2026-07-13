@@ -28,7 +28,7 @@ CREATE TABLE users (
 
 	-- td_api::emojiStatus
 	emoji_status_custom_emoji_id       BIGINT          NULL COMMENT 'Custom emoji id shown as emoji status; NULL if none.',
-	emoji_status_expiration_date       INT             NULL COMMENT 'Unix time when the emoji status expires; NULL if none.',
+	emoji_status_expiration_date       BIGINT          NULL COMMENT 'Unix time when the emoji status expires; NULL if none.',
 
 	-- td_api::verificationStatus
 	is_verified                        TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'User is verified by Telegram.',

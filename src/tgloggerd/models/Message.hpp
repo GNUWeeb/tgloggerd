@@ -60,7 +60,7 @@ struct ForwardInfo {
 	std::optional<int64_t>	origin_message_id;
 
 	/* Unix timestamp from messageForwardInfo.date_. */
-	int32_t			origin_date = 0;
+	int64_t			origin_date = 0;
 };
 
 /*

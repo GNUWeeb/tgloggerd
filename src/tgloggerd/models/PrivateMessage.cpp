@@ -124,8 +124,8 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		 */
 		auto &old = old_rows[0];
 		uint64_t pm_id = std::stoull(*old[0]);
-		int32_t old_edit_date = old[1].has_value() ?
-			std::stoi(*old[1]) : 0;
+		int64_t old_edit_date = old[1].has_value() ?
+			std::stoll(*old[1]) : 0;
 		bool old_deleted = old[5].has_value() && *old[5] == "1";
 
 		/*

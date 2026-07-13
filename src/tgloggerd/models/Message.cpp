@@ -65,9 +65,9 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 				      const char *fk_column,
 				      uint64_t message_row_id,
 				      const models::MessageContent &old_content,
-				      int32_t old_edit_date,
+				      int64_t old_edit_date,
 				      const models::MessageContent &new_content,
-				      int32_t new_edit_date)
+				      int64_t new_edit_date)
 {
 	/*
 	 * Only a genuine edit (edit_date advanced) that actually changed the
