@@ -35,6 +35,13 @@ public:
 	void upsertUser(const models::User &u);
 
 	/*
+	 * Apply td_api::userFullInfo fields (bio, birthdate, personal chat)
+	 * onto an existing users row, recording the previous bio in
+	 * user_hist_bio when it changes. No-op if the user row is absent.
+	 */
+	void upsertUserFullInfo(const models::UserFullInfo &fi);
+
+	/*
 	 * Insert a file, or, if a row with the same SHA-256 already exists,
 	 * bump its hit_count. Returns the files.id in both cases.
 	 */

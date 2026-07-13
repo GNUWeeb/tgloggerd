@@ -68,6 +68,29 @@ CREATE TABLE user_hist_phone_num (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='History of user phone number changes.';
 
+-- History of user bio changes.
+-- The bio lives in td_api::userFullInfo, fetched separately from the user
+-- object. A new row records the previous bio each time tgloggerd observes
+-- the bio change.
+
+CREATE TABLE user_hist_bio (
+	-- Surrogate primary key.
+	id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	-- The user whose bio changed.
+	user_id    BIGINT          NOT NULL COMMENT 'FK to users.id.',
+	-- Snapshot of the bio before the change.
+	bio        VARCHAR(255)    NOT NULL DEFAULT '' COMMENT 'User bio snapshot.',
+	-- When this snapshot was recorded.
+	created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
+
+	PRIMARY KEY (id),
+	KEY idx_user_hist_bio_user_id (user_id),
+	CONSTRAINT fk_user_hist_bio_user
+		FOREIGN KEY (user_id) REFERENCES users (id)
+		ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  COMMENT='History of user bio changes.';
+
 -- Audit log of username changes: additions, removals, reordering within
 -- a list, and kind changes. tgloggerd computes these by diffing a user's
 -- new username set against the previous state.

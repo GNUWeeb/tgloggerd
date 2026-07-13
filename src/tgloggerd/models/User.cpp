@@ -294,4 +294,48 @@ void DB::trackProfilePhotoChange(mysql::Transaction &tx,
 		  { user_id, (int64_t)old_id });
 }
 
+void DB::upsertUserFullInfo(const models::UserFullInfo &fi)
+{
+	db_.transaction([&](mysql::Transaction &tx) {
+		/*
+		 * The user row is created from the user object (upsertUser)
+		 * before full info is fetched. If it is somehow not present
+		 * yet, skip rather than create a partial row.
+		 */
+		auto old = tx.query("SELECT bio FROM users WHERE id = ?",
+				    { (int64_t)fi.user_id });
+		if (old.empty())
+			return;
+
+		/* Record the previous bio when it changes. */
+		std::string old_bio = old[0][0].value_or("");
+		if (old_bio != fi.bio) {
+			tx.insert("INSERT INTO user_hist_bio (user_id, bio)"
+				  " VALUES (?, ?)",
+				  { (int64_t)fi.user_id, old_bio });
+		}
+
+		mysql::Param bday = std::monostate{};
+		if (fi.birthday_day.has_value())
+			bday = (int64_t)*fi.birthday_day;
+		mysql::Param bmon = std::monostate{};
+		if (fi.birthday_month.has_value())
+			bmon = (int64_t)*fi.birthday_month;
+		mysql::Param byear = std::monostate{};
+		if (fi.birthday_year.has_value())
+			byear = (int64_t)*fi.birthday_year;
+
+		tx.execute(
+			"UPDATE users SET bio = ?, personal_chat_id = ?,"
+			" birthday_day = ?, birthday_month = ?,"
+			" birthday_year = ? WHERE id = ?",
+			{
+				fi.bio,
+				(int64_t)fi.personal_chat_id,
+				bday, bmon, byear,
+				(int64_t)fi.user_id,
+			});
+	});
+}
+
 } /* namespace tgloggerd */

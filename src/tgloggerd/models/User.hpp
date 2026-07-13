@@ -73,6 +73,24 @@ struct User {
 	std::vector<std::string>	collectible_usernames;
 };
 
+/*
+ * Extra user attributes from td_api::userFullInfo, which is fetched
+ * separately from the user object. Applied onto the existing users row;
+ * bio changes are tracked in user_hist_bio.
+ */
+struct UserFullInfo {
+	int64_t		user_id = 0;
+	std::string	bio;
+
+	/* td_api::birthdate; nullopt components when unset/hidden. */
+	std::optional<int32_t>	birthday_day;
+	std::optional<int32_t>	birthday_month;
+	std::optional<int32_t>	birthday_year;
+
+	/* Linked personal chat id; 0 if none. */
+	int64_t		personal_chat_id = 0;
+};
+
 } /* namespace models */
 } /* namespace tgloggerd */
 

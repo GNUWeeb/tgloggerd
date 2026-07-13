@@ -54,6 +54,14 @@ CREATE TABLE users (
 	-- IETF BCP-47 language tag of the user, if known.
 	language_code                      VARCHAR(35)     NOT NULL DEFAULT '' COMMENT 'User language code.',
 
+	-- td_api::userFullInfo fields, fetched separately from the user object
+	-- (see user_hist_bio for bio history).
+	bio                                VARCHAR(255)    NOT NULL DEFAULT '' COMMENT 'User bio/about text.',
+	personal_chat_id                   BIGINT          NOT NULL DEFAULT 0 COMMENT 'Linked personal chat id; 0 if none.',
+	birthday_day                       TINYINT UNSIGNED NULL COMMENT 'Birthday day (1-31); NULL if unset.',
+	birthday_month                     TINYINT UNSIGNED NULL COMMENT 'Birthday month (1-12); NULL if unset.',
+	birthday_year                      SMALLINT UNSIGNED NULL COMMENT 'Birthday year; NULL if unset or hidden.',
+
 	-- Bookkeeping
 	created_at                         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 	updated_at                         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
