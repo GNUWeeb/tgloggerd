@@ -15,6 +15,8 @@
 #include <iostream>
 #include <functional>
 #include <ctime>
+#include <set>
+#include <utility>
 #include <unordered_map>
 
 namespace tgloggerd {
@@ -327,21 +329,28 @@ const td_api::file *message_content_file(const td_api::MessageContent &content,
 	}
 }
 
+/* Bound the reply-chain walk and the dedup set of fetched reply targets. */
+constexpr int kMaxReplyDepth = 128;
+constexpr size_t kReplyDedupCap = 1000000;
+
 /*
- * The message_id that @m replies to, when the reply targets a message in
- * the same chat (so it maps to a row in the same table); 0 otherwise (no
- * reply, a story reply, or a cross-chat reply).
+ * The (chat_id, message_id) of the message @m replies to, written to
+ * @chat_id / @msg_id. Returns false for a non-reply or a story reply. The
+ * replied message may be in another chat (cross-chat reply); a zero
+ * chat_id in the reply info means the same chat as @m.
  */
-int64_t same_chat_reply_id(const td_api::message &m)
+bool reply_target(const td_api::message &m, int64_t &chat_id, int64_t &msg_id)
 {
 	if (!m.reply_to_ ||
 	    m.reply_to_->get_id() != td_api::messageReplyToMessage::ID)
-		return 0;
+		return false;
 
 	auto &r = static_cast<const td_api::messageReplyToMessage &>(*m.reply_to_);
-	if (r.message_id_ == 0 || r.chat_id_ != m.chat_id_)
-		return 0;
-	return r.message_id_;
+	if (r.message_id_ == 0)
+		return false;
+	chat_id = (r.chat_id_ != 0) ? r.chat_id_ : m.chat_id_;
+	msg_id = r.message_id_;
+	return true;
 }
 
 } /* namespace */
@@ -410,6 +419,9 @@ struct TDLib::Impl {
 	};
 	std::unordered_map<int32_t, PendingMsgFile>	pending_message_file_;
 
+	/* Reply targets already fetched, so a chain is not re-walked. */
+	std::set<std::pair<int64_t, int64_t>>		resolved_reply_targets_;
+
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
 
 	std::uint64_t next_query_id(void) { return ++current_query_id_; }
@@ -422,11 +434,12 @@ struct TDLib::Impl {
 	void check_authentication_error(Object object);
 	std::function<void(Object)> create_authentication_query_handler(void);
 	void handle_new_message(td_api::message &message);
-	void handle_message_for_private_chat(td_api::message &message,
-					     bool resolve_reply);
-	void handle_message_for_group_chat(td_api::message &message,
-					   bool resolve_reply);
-	void resolve_reply_message(const td_api::message &message, bool is_group);
+	void handle_message_for_private_chat(td_api::message &message, int depth);
+	void handle_message_for_group_chat(td_api::message &message, int depth);
+	void resolve_reply_message(const td_api::message &message, bool is_group,
+				   int depth);
+	void ensure_message_entities(const td_api::message &message);
+	void mark_reply_resolved(int64_t chat_id, int64_t msg_id);
 	void handle_update_message_content(int64_t chat_id, int64_t message_id,
 					   const td_api::MessageContent *content);
 	void handle_delete_messages(int64_t chat_id,
@@ -629,10 +642,10 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 								td_api::message>(obj);
 						if (is_private_chat(msg->chat_id_))
 							handle_message_for_private_chat(
-								*msg, true);
+								*msg, 0);
 						else
 							handle_message_for_group_chat(
-								*msg, true);
+								*msg, 0);
 					});
 			},
 			[this](td_api::updateDeleteMessages &u) {
@@ -757,9 +770,9 @@ void TDLib::Impl::handle_new_message(td_api::message &message)
 	 * groups.id).
 	 */
 	if (is_private_chat(message.chat_id_))
-		handle_message_for_private_chat(message, true);
+		handle_message_for_private_chat(message, 0);
 	else
-		handle_message_for_group_chat(message, true);
+		handle_message_for_group_chat(message, 0);
 
 	/* Legacy text-only handler path. */
 	if (!msg_handler_)
@@ -813,7 +826,7 @@ void TDLib::Impl::handle_new_message(td_api::message &message)
 }
 
 void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,
-						  bool resolve_reply)
+						  int depth)
 {
 	if (!private_msg_handler_)
 		return;
@@ -827,12 +840,11 @@ void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, false);
 
-	if (resolve_reply)
-		resolve_reply_message(message, false);
+	resolve_reply_message(message, false, depth);
 }
 
 void TDLib::Impl::handle_message_for_group_chat(td_api::message &message,
-						bool resolve_reply)
+						int depth)
 {
 	if (!group_msg_handler_)
 		return;
@@ -846,45 +858,98 @@ void TDLib::Impl::handle_message_for_group_chat(td_api::message &message,
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, true);
 
-	if (resolve_reply)
-		resolve_reply_message(message, true);
+	resolve_reply_message(message, true, depth);
+}
+
+void TDLib::Impl::mark_reply_resolved(int64_t chat_id, int64_t msg_id)
+{
+	/* Bound memory: drop the dedup set if it grows too large. */
+	if (resolved_reply_targets_.size() >= kReplyDedupCap)
+		resolved_reply_targets_.clear();
+	resolved_reply_targets_.insert({ chat_id, msg_id });
+}
+
+void TDLib::Impl::ensure_message_entities(const td_api::message &message)
+{
+	/*
+	 * A replied message may live in a chat we have never seen (cross-chat
+	 * reply). Make sure the chat's own entity and the sender exist, so
+	 * the message row's foreign keys resolve. Uses the same
+	 * fetch-if-unknown helpers as forward-origin resolution.
+	 */
+	if (is_private_chat(message.chat_id_))
+		ensure_user_saved(message.chat_id_);
+	else
+		ensure_chat_saved(message.chat_id_);
+
+	if (message.sender_id_) {
+		if (message.sender_id_->get_id() ==
+		    td_api::messageSenderUser::ID) {
+			auto &s = static_cast<const td_api::messageSenderUser &>(
+				*message.sender_id_);
+			ensure_user_saved(s.user_id_);
+		} else if (message.sender_id_->get_id() ==
+			   td_api::messageSenderChat::ID) {
+			auto &s = static_cast<const td_api::messageSenderChat &>(
+				*message.sender_id_);
+			ensure_chat_saved(s.chat_id_);
+		}
+	}
 }
 
 void TDLib::Impl::resolve_reply_message(const td_api::message &message,
-					bool is_group)
+					bool is_group, int depth)
 {
 	if (!message_reply_handler_)
 		return;
 
-	int64_t reply_id = same_chat_reply_id(message);
-	if (reply_id == 0)
+	int64_t reply_chat_id, reply_msg_id;
+	if (!reply_target(message, reply_chat_id, reply_msg_id))
 		return;
 
 	int64_t chat_id = message.chat_id_;
 	int64_t message_id = message.id_;
 
-	/*
-	 * Fetch the replied message and save it first, then link this message
-	 * to it. The replied message is saved without chasing its own reply
-	 * (resolve_reply = false) to bound the fetching to one level. If it
-	 * cannot be fetched, the link is left unset (reply_to_id NULL).
-	 */
-	send_query(td_api::make_object<td_api::getMessage>(chat_id, reply_id),
-		[this, chat_id, message_id, reply_id, is_group](Object obj) {
-			if (obj->get_id() != td_api::message::ID)
-				return;
-			auto r = td::move_tl_object_as<td_api::message>(obj);
-			if (is_group)
-				handle_message_for_group_chat(*r, false);
-			else
-				handle_message_for_private_chat(*r, false);
+	auto emit = [this, chat_id, message_id, reply_chat_id, reply_msg_id,
+		     is_group]() {
+		MessageReply mr;
+		mr.chat_id = chat_id;
+		mr.message_id = message_id;
+		mr.reply_to_chat_id = reply_chat_id;
+		mr.reply_to_msg_id = reply_msg_id;
+		mr.is_group = is_group;
+		message_reply_handler_(mr);
+	};
 
-			MessageReply mr;
-			mr.chat_id = chat_id;
-			mr.message_id = message_id;
-			mr.reply_to_msg_id = reply_id;
-			mr.is_group = is_group;
-			message_reply_handler_(mr);
+	/*
+	 * If the replied message was already fetched (dedup) or we hit the
+	 * chain-depth cap, just record the link. Otherwise fetch and save the
+	 * replied message first (saving any new chat/sender it introduces),
+	 * record the link, then continue up the chain from it. Cross-chat
+	 * replies save the replied message to its own table by chat kind.
+	 */
+	std::pair<int64_t, int64_t> key(reply_chat_id, reply_msg_id);
+	if (resolved_reply_targets_.count(key) || depth >= kMaxReplyDepth) {
+		emit();
+		return;
+	}
+
+	send_query(td_api::make_object<td_api::getMessage>(reply_chat_id,
+							   reply_msg_id),
+		[this, emit, reply_chat_id, reply_msg_id, depth](Object obj) {
+			if (obj->get_id() != td_api::message::ID) {
+				/* Replied message unavailable; record anyway. */
+				emit();
+				return;
+			}
+			auto r = td::move_tl_object_as<td_api::message>(obj);
+			mark_reply_resolved(reply_chat_id, reply_msg_id);
+			ensure_message_entities(*r);
+			if (is_private_chat(reply_chat_id))
+				handle_message_for_private_chat(*r, depth + 1);
+			else
+				handle_message_for_group_chat(*r, depth + 1);
+			emit();
 		});
 }
 
