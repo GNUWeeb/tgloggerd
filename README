@@ -75,6 +75,20 @@ build:
 
 The first build compiles TDLib from source and may take a while.
 
+The vendored MySQL Connector/C++ builds its own copy of protobuf, whose
+CMakeLists still declares a cmake_minimum_required below 3.5. CMake 4.0
+and newer reject this and the configure step fails with:
+
+    Compatibility with CMake < 3.5 has been removed from CMake.
+
+If you are on CMake 4 or newer, set CMAKE_POLICY_VERSION_MINIMUM to 3.5.
+Export it (not just -D) so it also reaches protobuf's separate external
+build:
+
+    export CMAKE_POLICY_VERSION_MINIMUM=3.5
+    cmake -B build -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    cmake --build build -j"$(nproc)"
+
 # Running
 
 1. Start MySQL. Copy the example Compose file, adjust the credentials if
