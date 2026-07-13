@@ -12,6 +12,7 @@
 
 #include <tgloggerd/models/User.hpp>
 #include <tgloggerd/models/Group.hpp>
+#include <tgloggerd/models/PrivateMessage.hpp>
 
 namespace tgloggerd {
 
@@ -69,6 +70,14 @@ public:
 	 * Set the callback invoked for every incoming text message.
 	 */
 	void setMessageHandler(std::function<void(const TextMessage &)> cb);
+
+	/*
+	 * Set the callback invoked for every private-chat message
+	 * (new, edited, or deleted). Replaces the simpler
+	 * setMessageHandler for full private message tracking.
+	 */
+	void setPrivateMessageHandler(
+		std::function<void(const models::PrivateMessage &)> cb);
 
 	/*
 	 * Set the callback invoked whenever a user's information is received

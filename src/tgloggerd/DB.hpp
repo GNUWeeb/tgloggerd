@@ -9,6 +9,7 @@
 #include <tgloggerd/models/User.hpp>
 #include <tgloggerd/models/File.hpp>
 #include <tgloggerd/models/Group.hpp>
+#include <tgloggerd/models/PrivateMessage.hpp>
 
 namespace tgloggerd {
 
@@ -52,6 +53,17 @@ public:
 	/* Point a group's photo_file_id at a files row. */
 	void setGroupPhoto(int64_t group_id, uint64_t file_id);
 
+	/*
+	 * Insert or update a private-chat message. Handles:
+	 *  - First-seen messages (insert).
+	 *  - Edits (copies old row into private_message_edits, then
+	 *    updates private_messages).
+	 *  - Deletions (sets is_deleted = 1, keeps the row).
+	 *  - Forward info (inserts into private_message_fwd_info if
+	 *    present and not already recorded).
+	 */
+	void upsertPrivateMessage(const models::PrivateMessage &msg);
+
 private:
 	void syncUsernames(mysql::Transaction &tx, const models::User &u);
 	void trackProfilePhotoChange(mysql::Transaction &tx,
@@ -59,6 +71,9 @@ private:
 	void syncGroupUsernames(mysql::Transaction &tx, const models::Group &g);
 	void trackGroupPhotoChange(mysql::Transaction &tx,
 				   int64_t group_id, uint64_t file_id);
+	void insertForwardInfo(mysql::Transaction &tx,
+			       uint64_t private_message_id,
+			       const models::ForwardInfo &info);
 
 	mysql::Database db_;
 };
