@@ -13,8 +13,8 @@ CREATE TABLE private_messages (
 	-- Telegram message identifier (unique per chat).
 	message_id   BIGINT          NOT NULL COMMENT 'td_api::message.id_.',
 
-	-- Who sent the message (user id); 0 for the logged-in account.
-	sender_id    BIGINT          NOT NULL DEFAULT 0 COMMENT 'Sender user id; 0 = own account.',
+	-- Who sent the message; NULL for the logged-in account.
+	sender_id    BIGINT          NULL COMMENT 'FK to users.id for the sender; NULL = own account.',
 
 	-- Whether the message was sent by the logged-in user.
 	is_outgoing  TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Message was sent by the logged-in account.',
@@ -49,6 +49,12 @@ CREATE TABLE private_messages (
 	KEY idx_private_messages_sender_id (sender_id),
 	KEY idx_private_messages_date (date),
 	KEY idx_private_messages_is_deleted (is_deleted),
+	CONSTRAINT fk_private_messages_chat_user
+		FOREIGN KEY (chat_id) REFERENCES users (id)
+		ON DELETE CASCADE ON UPDATE CASCADE,
+	CONSTRAINT fk_private_messages_sender_user
+		FOREIGN KEY (sender_id) REFERENCES users (id)
+		ON DELETE SET NULL ON UPDATE CASCADE,
 	CONSTRAINT fk_private_messages_file
 		FOREIGN KEY (file_id) REFERENCES files (id)
 		ON DELETE SET NULL ON UPDATE CASCADE
@@ -95,9 +101,7 @@ CREATE TABLE private_message_edits (
 
 -- Forward information for forwarded messages. One row per forwarded
 -- message; NULL forward info means the message is not forwarded.
--- The origin_* columns capture the original source; the
--- sender_name/sender_username help identify users we may not have
--- seen before.
+-- The origin_* columns capture the original source.
 
 CREATE TABLE private_message_fwd_info (
 	-- Surrogate primary key.
@@ -111,7 +115,7 @@ CREATE TABLE private_message_fwd_info (
 	                                    NOT NULL COMMENT 'Kind of message origin.',
 
 	-- Origin sender user id (messageOriginUser).
-	origin_sender_user_id  BIGINT       NULL COMMENT 'Original sender user id (messageOriginUser).',
+	origin_sender_user_id  BIGINT       NULL COMMENT 'Original sender user id (messageOriginUser); FK to users.id.',
 
 	-- Origin sender name when the sender is hidden (messageOriginHiddenUser)
 	-- or author_signature from messageOriginChat/messageOriginChannel.
@@ -135,6 +139,9 @@ CREATE TABLE private_message_fwd_info (
 	KEY idx_private_message_fwd_info_origin_chat_id (origin_chat_id),
 	CONSTRAINT fk_private_message_fwd_info_message
 		FOREIGN KEY (private_message_id) REFERENCES private_messages (id)
-		ON DELETE CASCADE ON UPDATE CASCADE
+		ON DELETE CASCADE ON UPDATE CASCADE,
+	CONSTRAINT fk_private_message_fwd_info_origin_sender_user
+		FOREIGN KEY (origin_sender_user_id) REFERENCES users (id)
+		ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='Forward information for forwarded private messages.';
