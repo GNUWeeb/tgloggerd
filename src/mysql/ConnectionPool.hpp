@@ -61,6 +61,15 @@ private:
 	std::condition_variable			cv_;
 	std::deque<std::unique_ptr<sql::Connection>> idle_;
 	size_t					created_ = 0;
+
+	/*
+	 * Serializes connection creation. The JDBC driver singleton
+	 * (get_mysql_driver_instance) is not thread-safe, and create() runs
+	 * outside mtx_ so several threads can create connections at once;
+	 * this guards the driver interaction without blocking acquire/release
+	 * of already-open connections.
+	 */
+	std::mutex				create_mtx_;
 };
 
 } /* namespace mysql */
