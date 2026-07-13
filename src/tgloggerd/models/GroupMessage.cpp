@@ -175,21 +175,24 @@ void DB::setGroupMessageFile(int64_t chat_id, int64_t message_id,
 }
 
 void DB::setGroupMessageReply(int64_t chat_id, int64_t message_id,
+			      int64_t reply_to_chat_id,
 			      int64_t reply_to_message_id)
 {
 	/*
-	 * Resolve the replied message's surrogate id from (chat_id,
-	 * message_id) and link it. If the replied row is absent the join
-	 * matches nothing and reply_to_id is left NULL.
+	 * Record the replied message universally, and resolve its surrogate
+	 * id when it is a group message too (LEFT JOIN, so reply_to_id is
+	 * NULL for a cross-table reply or an as-yet-unsaved target).
 	 */
 	db_.execute(
 		"UPDATE group_messages AS m"
-		" JOIN group_messages AS r"
-		"   ON r.chat_id = m.chat_id AND r.message_id = ?"
-		" SET m.reply_to_id = r.id"
+		" LEFT JOIN group_messages AS r"
+		"   ON r.chat_id = ? AND r.message_id = ?"
+		" SET m.reply_to_chat_id = ?, m.reply_to_msg_id = ?,"
+		"     m.reply_to_id = r.id"
 		" WHERE m.chat_id = ? AND m.message_id = ?",
-		{ (int64_t)reply_to_message_id, (int64_t)chat_id,
-		  (int64_t)message_id });
+		{ (int64_t)reply_to_chat_id, (int64_t)reply_to_message_id,
+		  (int64_t)reply_to_chat_id, (int64_t)reply_to_message_id,
+		  (int64_t)chat_id, (int64_t)message_id });
 }
 
 } /* namespace tgloggerd */

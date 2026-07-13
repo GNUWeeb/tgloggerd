@@ -74,7 +74,10 @@ struct MessageFile {
 struct MessageReply {
 	int64_t		chat_id;
 	int64_t		message_id;
-	int64_t		reply_to_msg_id;	/* replied message's message_id */
+	/* The replied message's (chat_id, message_id); reply_to_chat_id may
+	 * differ from chat_id for a cross-chat reply. */
+	int64_t		reply_to_chat_id;
+	int64_t		reply_to_msg_id;
 	bool		is_group;
 };
 

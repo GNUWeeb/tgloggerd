@@ -305,10 +305,12 @@ int TgLoggerd::start(void)
 				if (mr.is_group)
 					db_->setGroupMessageReply(mr.chat_id,
 						mr.message_id,
+						mr.reply_to_chat_id,
 						mr.reply_to_msg_id);
 				else
 					db_->setPrivateMessageReply(mr.chat_id,
 						mr.message_id,
+						mr.reply_to_chat_id,
 						mr.reply_to_msg_id);
 			} catch (const std::exception &e) {
 				pr_error(l_, "Failed to link reply chat_id=%lld"

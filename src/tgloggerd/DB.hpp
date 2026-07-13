@@ -89,14 +89,17 @@ public:
 				 uint64_t file_id);
 
 	/*
-	 * Link a message to the one it replies to, resolving the replied
-	 * message's surrogate id from (chat_id, reply_to_message_id). A no-op
-	 * if either the message or the replied message is absent, so the
-	 * replied message must be saved first.
+	 * Link a message to the one it replies to. Records the replied
+	 * message's (reply_to_chat_id, reply_to_message_id) universally, and
+	 * resolves the surrogate-id FK reply_to_id when the replied message
+	 * is in the same table. The replied message should be saved first so
+	 * reply_to_id resolves (cross-table replies leave it NULL).
 	 */
 	void setPrivateMessageReply(int64_t chat_id, int64_t message_id,
+				    int64_t reply_to_chat_id,
 				    int64_t reply_to_message_id);
 	void setGroupMessageReply(int64_t chat_id, int64_t message_id,
+				  int64_t reply_to_chat_id,
 				  int64_t reply_to_message_id);
 
 private:
