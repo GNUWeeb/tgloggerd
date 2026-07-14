@@ -65,6 +65,7 @@ struct MessageFile {
 	std::string	tg_file_id;
 	int64_t		file_size;
 	std::string	content_type;	/* files.file_type: "photo", ... */
+	std::string	orig_file_name;	/* original Telegram name; empty if none */
 };
 
 /*

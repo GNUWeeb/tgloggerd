@@ -419,7 +419,8 @@ void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
 void TgLoggerd::onMessageFile(const MessageFile &m)
 {
 	auto file_id = storeDownloadedFile(m.local_path, m.tg_file_id,
-					   m.file_size, m.content_type.c_str());
+					   m.file_size, m.content_type.c_str(),
+					   m.orig_file_name);
 	if (!file_id.has_value())
 		return;
 
@@ -451,7 +452,8 @@ void TgLoggerd::onMessageFile(const MessageFile &m)
 std::optional<uint64_t>
 TgLoggerd::storeDownloadedFile(const std::string &local_path,
 			       const std::string &tg_file_id,
-			       int64_t file_size, const char *file_type)
+			       int64_t file_size, const char *file_type,
+			       const std::string &orig_file_name)
 {
 	auto hex = sha256_file_hex(local_path);
 	if (!hex.has_value()) {
@@ -506,6 +508,7 @@ TgLoggerd::storeDownloadedFile(const std::string &local_path,
 	f.sha256_hex = *hex;
 	if (!ext.empty())
 		f.file_ext = ext;
+	f.orig_file_name = orig_file_name;
 
 	return db_->upsertFile(f);
 }

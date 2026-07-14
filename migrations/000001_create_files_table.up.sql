@@ -25,6 +25,11 @@ CREATE TABLE files (
 	-- Lower-case file extension without the leading dot (e.g. "jpg"); may be unknown.
 	file_ext    VARCHAR(10)     NULL,
 
+	-- Original file name as sent through Telegram (documents, videos,
+	-- audio, animations); empty for files that carry no name (photos,
+	-- stickers, voice notes).
+	orig_file_name VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'Original Telegram file name; empty if none.',
+
 	-- Number of times a file with this SHA-256 has been observed.
 	hit_count   INT UNSIGNED    NOT NULL DEFAULT 1,
 

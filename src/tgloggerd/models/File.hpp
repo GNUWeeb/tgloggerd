@@ -26,6 +26,8 @@ struct File {
 	std::string	sha256_hex;
 	/* Lowercase file extension without the leading dot; may be empty. */
 	std::optional<std::string>	file_ext;
+	/* Original Telegram file name; empty if the file carries none. */
+	std::string	orig_file_name;
 };
 
 } /* namespace models */

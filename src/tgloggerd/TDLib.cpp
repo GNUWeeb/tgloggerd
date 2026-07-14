@@ -342,7 +342,8 @@ extract_forward_info(const td_api::message &message)
  * matching files.file_type value. For photos, the largest size is chosen.
  */
 const td_api::file *message_content_file(const td_api::MessageContent &content,
-					 const char **category)
+					 const char **category,
+					 std::string *file_name)
 {
 	switch (content.get_id()) {
 	case td_api::messagePhoto::ID: {
@@ -366,17 +367,26 @@ const td_api::file *message_content_file(const td_api::MessageContent &content,
 	case td_api::messageVideo::ID: {
 		auto &c = static_cast<const td_api::messageVideo &>(content);
 		*category = "video";
-		return c.video_ ? c.video_->video_.get() : nullptr;
+		if (!c.video_)
+			return nullptr;
+		*file_name = c.video_->file_name_;
+		return c.video_->video_.get();
 	}
 	case td_api::messageDocument::ID: {
 		auto &c = static_cast<const td_api::messageDocument &>(content);
 		*category = "document";
-		return c.document_ ? c.document_->document_.get() : nullptr;
+		if (!c.document_)
+			return nullptr;
+		*file_name = c.document_->file_name_;
+		return c.document_->document_.get();
 	}
 	case td_api::messageAudio::ID: {
 		auto &c = static_cast<const td_api::messageAudio &>(content);
 		*category = "audio";
-		return c.audio_ ? c.audio_->audio_.get() : nullptr;
+		if (!c.audio_)
+			return nullptr;
+		*file_name = c.audio_->file_name_;
+		return c.audio_->audio_.get();
 	}
 	case td_api::messageVoiceNote::ID: {
 		auto &c = static_cast<const td_api::messageVoiceNote &>(content);
@@ -391,7 +401,10 @@ const td_api::file *message_content_file(const td_api::MessageContent &content,
 	case td_api::messageAnimation::ID: {
 		auto &c = static_cast<const td_api::messageAnimation &>(content);
 		*category = "animation";
-		return c.animation_ ? c.animation_->animation_.get() : nullptr;
+		if (!c.animation_)
+			return nullptr;
+		*file_name = c.animation_->file_name_;
+		return c.animation_->animation_.get();
 	}
 	default:
 		return nullptr;
@@ -490,6 +503,7 @@ struct TDLib::Impl {
 		int64_t		message_id;
 		bool		is_group;
 		std::string	content_type;
+		std::string	orig_file_name;
 	};
 	std::unordered_map<int32_t, PendingMsgFile>	pending_message_file_;
 
@@ -1274,13 +1288,14 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 		return;
 
 	const char *category = "unknown";
+	std::string file_name;
 	const td_api::file *f =
-		message_content_file(*message.content_, &category);
+		message_content_file(*message.content_, &category, &file_name);
 	if (!f)
 		return;
 
 	PendingMsgFile ref{ message.chat_id_, message.id_, is_group,
-			    category };
+			    category, file_name };
 
 	/* Already downloaded: link it immediately. */
 	if (f->local_ && f->local_->is_downloading_completed_) {
@@ -1309,6 +1324,7 @@ void TDLib::Impl::emit_message_file(const PendingMsgFile &ref,
 	mf.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
 	mf.file_size = f.size_;
 	mf.content_type = ref.content_type;
+	mf.orig_file_name = ref.orig_file_name;
 	message_file_handler_(mf);
 }
 
