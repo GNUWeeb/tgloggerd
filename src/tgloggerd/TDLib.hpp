@@ -13,6 +13,8 @@
 #include <tgloggerd/models/User.hpp>
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
+#include <tgloggerd/models/GroupMessage.hpp>
+#include <tgloggerd/models/GroupAdmin.hpp>
 
 namespace tgloggerd {
 
@@ -51,6 +53,36 @@ struct GroupPhoto {
 };
 
 /*
+ * A message's media attachment whose download has completed, ready to be
+ * stored and linked to its message row. is_group selects the target
+ * table (group_messages vs private_messages).
+ */
+struct MessageFile {
+	int64_t		chat_id;
+	int64_t		message_id;
+	bool		is_group;
+	std::string	local_path;
+	std::string	tg_file_id;
+	int64_t		file_size;
+	std::string	content_type;	/* files.file_type: "photo", ... */
+};
+
+/*
+ * A reply relationship: message (chat_id, message_id) replies to
+ * message reply_to_msg_id in the same chat. is_group selects the table.
+ * Emitted only after the replied message has been saved.
+ */
+struct MessageReply {
+	int64_t		chat_id;
+	int64_t		message_id;
+	/* The replied message's (chat_id, message_id); reply_to_chat_id may
+	 * differ from chat_id for a cross-chat reply. */
+	int64_t		reply_to_chat_id;
+	int64_t		reply_to_msg_id;
+	bool		is_group;
+};
+
+/*
  * tgloggerd::TDLib is a wrapper class for TDLib.
  *
  * Since TDLib contains very heavy header files, keep tgloggerd
@@ -80,10 +112,36 @@ public:
 		std::function<void(const models::PrivateMessage &)> cb);
 
 	/*
+	 * Set the callback invoked for every group-chat message (basic
+	 * group, supergroup or channel), whether new, edited, or deleted.
+	 */
+	void setGroupMessageHandler(
+		std::function<void(const models::GroupMessage &)> cb);
+
+	/*
+	 * Set the callback invoked when a message's media attachment has
+	 * finished downloading, so it can be stored and linked.
+	 */
+	void setMessageFileHandler(std::function<void(const MessageFile &)> cb);
+
+	/*
+	 * Set the callback invoked to link a message to the one it replies
+	 * to, after the replied message has been fetched and saved.
+	 */
+	void setMessageReplyHandler(std::function<void(const MessageReply &)> cb);
+
+	/*
 	 * Set the callback invoked whenever a user's information is received
 	 * or updated (td_api::updateUser).
 	 */
 	void setUserHandler(std::function<void(const models::User &)> cb);
+
+	/*
+	 * Set the callback invoked when a user's td_api::userFullInfo is
+	 * received (fetched on first sight, or via updateUserFullInfo).
+	 */
+	void setUserFullInfoHandler(
+		std::function<void(const models::UserFullInfo &)> cb);
 
 	/*
 	 * Set the callback invoked when a user's (big) profile photo has
@@ -103,6 +161,20 @@ public:
 	 * downloading.
 	 */
 	void setGroupPhotoHandler(std::function<void(const GroupPhoto &)> cb);
+
+	/*
+	 * Set the callback invoked with a group's full administrator set
+	 * (fetched on first sight and refreshed by periodic polling).
+	 */
+	void setGroupAdminsHandler(
+		std::function<void(const models::GroupAdminList &)> cb);
+
+	/*
+	 * Configure periodic admin polling: refresh interval in seconds
+	 * (<= 0 disables polling) and how many groups to refresh per tick.
+	 * Must be called before the client authorizes.
+	 */
+	void setAdminPollConfig(double interval_seconds, int batch);
 
 	/*
 	 * Process a single batch of TDLib events, waiting up to @timeout

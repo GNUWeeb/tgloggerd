@@ -46,9 +46,11 @@ void DB::upsertUser(const models::User &u)
 		" emoji_status_custom_emoji_id, emoji_status_expiration_date,"
 		" is_verified, is_scam, is_fake, is_premium, is_support,"
 		" restriction_reason, has_sensitive_content, restricts_new_chats,"
-		" paid_message_star_count"
+		" paid_message_star_count, is_contact, is_mutual_contact,"
+		" is_close_friend, have_access, language_code"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+		" ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" first_name = new.first_name,"
 		" last_name = new.last_name,"
@@ -68,7 +70,12 @@ void DB::upsertUser(const models::User &u)
 		" restriction_reason = new.restriction_reason,"
 		" has_sensitive_content = new.has_sensitive_content,"
 		" restricts_new_chats = new.restricts_new_chats,"
-		" paid_message_star_count = new.paid_message_star_count";
+		" paid_message_star_count = new.paid_message_star_count,"
+		" is_contact = new.is_contact,"
+		" is_mutual_contact = new.is_mutual_contact,"
+		" is_close_friend = new.is_close_friend,"
+		" have_access = new.have_access,"
+		" language_code = new.language_code";
 
 	mysql::Param emoji_id = std::monostate{};
 	if (u.emoji_status_custom_emoji_id.has_value())
@@ -110,6 +117,11 @@ void DB::upsertUser(const models::User &u)
 			b(u.has_sensitive_content),
 			b(u.restricts_new_chats),
 			(int64_t)u.paid_message_star_count,
+			b(u.is_contact),
+			b(u.is_mutual_contact),
+			b(u.is_close_friend),
+			b(u.have_access),
+			u.language_code,
 		});
 
 		if (old.empty()) {
@@ -280,6 +292,50 @@ void DB::trackProfilePhotoChange(mysql::Transaction &tx,
 	tx.insert("INSERT INTO user_hist_profile_photo"
 		  " (user_id, file_id) VALUES (?, ?)",
 		  { user_id, (int64_t)old_id });
+}
+
+void DB::upsertUserFullInfo(const models::UserFullInfo &fi)
+{
+	db_.transaction([&](mysql::Transaction &tx) {
+		/*
+		 * The user row is created from the user object (upsertUser)
+		 * before full info is fetched. If it is somehow not present
+		 * yet, skip rather than create a partial row.
+		 */
+		auto old = tx.query("SELECT bio FROM users WHERE id = ?",
+				    { (int64_t)fi.user_id });
+		if (old.empty())
+			return;
+
+		/* Record the previous bio when it changes. */
+		std::string old_bio = old[0][0].value_or("");
+		if (old_bio != fi.bio) {
+			tx.insert("INSERT INTO user_hist_bio (user_id, bio)"
+				  " VALUES (?, ?)",
+				  { (int64_t)fi.user_id, old_bio });
+		}
+
+		mysql::Param bday = std::monostate{};
+		if (fi.birthday_day.has_value())
+			bday = (int64_t)*fi.birthday_day;
+		mysql::Param bmon = std::monostate{};
+		if (fi.birthday_month.has_value())
+			bmon = (int64_t)*fi.birthday_month;
+		mysql::Param byear = std::monostate{};
+		if (fi.birthday_year.has_value())
+			byear = (int64_t)*fi.birthday_year;
+
+		tx.execute(
+			"UPDATE users SET bio = ?, personal_chat_id = ?,"
+			" birthday_day = ?, birthday_month = ?,"
+			" birthday_year = ? WHERE id = ?",
+			{
+				fi.bio,
+				(int64_t)fi.personal_chat_id,
+				bday, bmon, byear,
+				(int64_t)fi.user_id,
+			});
+	});
 }
 
 } /* namespace tgloggerd */

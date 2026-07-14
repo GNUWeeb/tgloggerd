@@ -15,7 +15,11 @@
 #include <iostream>
 #include <functional>
 #include <ctime>
+#include <set>
+#include <deque>
+#include <utility>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace tgloggerd {
 
@@ -69,6 +73,12 @@ models::User map_user(const td_api::user &u)
 	m.restricts_new_chats = u.restricts_new_chats_;
 	m.paid_message_star_count = u.paid_message_star_count_;
 
+	m.is_contact = u.is_contact_;
+	m.is_mutual_contact = u.is_mutual_contact_;
+	m.is_close_friend = u.is_close_friend_;
+	m.have_access = u.have_access_;
+	m.language_code = u.language_code_;
+
 	if (u.verification_status_) {
 		m.is_verified = u.verification_status_->is_verified_;
 		m.is_scam = u.verification_status_->is_scam_;
@@ -116,6 +126,306 @@ models::User map_user(const td_api::user &u)
 	return m;
 }
 
+models::UserFullInfo map_user_full_info(const td_api::userFullInfo &fi,
+					int64_t user_id)
+{
+	models::UserFullInfo m;
+	m.user_id = user_id;
+
+	if (fi.bio_)
+		m.bio = fi.bio_->text_;
+
+	if (fi.birthdate_) {
+		m.birthday_day = fi.birthdate_->day_;
+		m.birthday_month = fi.birthdate_->month_;
+		/* year_ is 0 when the user hides or omits the year. */
+		if (fi.birthdate_->year_ != 0)
+			m.birthday_year = fi.birthdate_->year_;
+	}
+
+	m.personal_chat_id = fi.personal_chat_id_;
+	return m;
+}
+
+/*
+ * Map a td_api::chatMember to a GroupAdmin. Returns false (skip) unless the
+ * member is a user (member_id is messageSenderUser) whose status is creator
+ * or administrator. A creator's rights are synthesized to all-true, since
+ * the owner implicitly holds every privilege.
+ */
+bool map_admin(const td_api::chatMember &m, models::GroupAdmin &out)
+{
+	if (!m.member_id_ ||
+	    m.member_id_->get_id() != td_api::messageSenderUser::ID)
+		return false;
+	out.user_id = static_cast<const td_api::messageSenderUser &>(
+		*m.member_id_).user_id_;
+	out.custom_title = m.tag_;
+	out.inviter_user_id = m.inviter_user_id_;
+	out.joined_date = m.joined_chat_date_;
+
+	if (!m.status_)
+		return false;
+
+	switch (m.status_->get_id()) {
+	case td_api::chatMemberStatusCreator::ID: {
+		auto &s = static_cast<const td_api::chatMemberStatusCreator &>(
+			*m.status_);
+		out.is_owner = true;
+		out.can_manage_chat = out.can_change_info = out.can_post_messages =
+		out.can_edit_messages = out.can_delete_messages =
+		out.can_invite_users = out.can_restrict_members =
+		out.can_pin_messages = out.can_manage_topics =
+		out.can_promote_members = out.can_manage_video_chats =
+		out.can_post_stories = out.can_edit_stories =
+		out.can_delete_stories = out.can_manage_direct_messages =
+		out.can_manage_tags = true;
+		out.is_anonymous = s.is_anonymous_;
+		return true;
+	}
+	case td_api::chatMemberStatusAdministrator::ID: {
+		auto &s = static_cast<const td_api::chatMemberStatusAdministrator &>(
+			*m.status_);
+		if (!s.rights_)
+			return true;
+		const auto &r = *s.rights_;
+		out.can_manage_chat = r.can_manage_chat_;
+		out.can_change_info = r.can_change_info_;
+		out.can_post_messages = r.can_post_messages_;
+		out.can_edit_messages = r.can_edit_messages_;
+		out.can_delete_messages = r.can_delete_messages_;
+		out.can_invite_users = r.can_invite_users_;
+		out.can_restrict_members = r.can_restrict_members_;
+		out.can_pin_messages = r.can_pin_messages_;
+		out.can_manage_topics = r.can_manage_topics_;
+		out.can_promote_members = r.can_promote_members_;
+		out.can_manage_video_chats = r.can_manage_video_chats_;
+		out.can_post_stories = r.can_post_stories_;
+		out.can_edit_stories = r.can_edit_stories_;
+		out.can_delete_stories = r.can_delete_stories_;
+		out.can_manage_direct_messages = r.can_manage_direct_messages_;
+		out.can_manage_tags = r.can_manage_tags_;
+		out.is_anonymous = r.is_anonymous_;
+		return true;
+	}
+	default:
+		/* restricted / member / left / banned: not an admin. */
+		return false;
+	}
+}
+
+/*
+ * Whether a chat id refers to a private (one-to-one) chat.
+ *
+ * In TDLib a private chat's id equals the peer user id and is always
+ * positive, whereas basic groups, supergroups and channels use negative
+ * ids. Secret chats are disabled (use_secret_chats_ = false), so a
+ * positive id is unambiguously a private chat. Only private chats are
+ * logged to private_messages, whose chat_id foreign key references
+ * users.id; routing group/channel messages there (negative chat ids) is
+ * what violates that constraint.
+ */
+bool is_private_chat(int64_t chat_id)
+{
+	return chat_id > 0;
+}
+
+/*
+ * Map a td_api::message's content to the coarse MessageContent used by
+ * both private and group messages. Media files are not linked here; only
+ * the content type (and text, for text messages) is captured.
+ */
+void extract_message_content(const td_api::message &message,
+			     models::MessageContent &out)
+{
+	if (!message.content_)
+		return;
+
+	switch (message.content_->get_id()) {
+	case td_api::messageText::ID: {
+		auto &c = static_cast<const td_api::messageText &>(
+			*message.content_);
+		out.content_type = models::MessageContentType::Text;
+		if (c.text_)
+			out.text = c.text_->text_;
+		break;
+	}
+	case td_api::messagePhoto::ID:
+		out.content_type = models::MessageContentType::Photo;
+		break;
+	case td_api::messageVideo::ID:
+		out.content_type = models::MessageContentType::Video;
+		break;
+	case td_api::messageDocument::ID:
+		out.content_type = models::MessageContentType::Document;
+		break;
+	case td_api::messageAudio::ID:
+		out.content_type = models::MessageContentType::Audio;
+		break;
+	case td_api::messageVoiceNote::ID:
+		out.content_type = models::MessageContentType::Voice;
+		break;
+	case td_api::messageSticker::ID:
+		out.content_type = models::MessageContentType::Sticker;
+		break;
+	case td_api::messageAnimation::ID:
+		out.content_type = models::MessageContentType::Animation;
+		break;
+	default:
+		out.content_type = models::MessageContentType::Unknown;
+		break;
+	}
+}
+
+/*
+ * Extract forwarded-message origin info from a td_api::message. Returns
+ * nullopt for non-forwarded messages. Shared by private and group
+ * messages, whose *_fwd_info tables are identical.
+ */
+std::optional<models::ForwardInfo>
+extract_forward_info(const td_api::message &message)
+{
+	if (!message.forward_info_)
+		return std::nullopt;
+
+	models::ForwardInfo fi;
+	fi.origin_date = message.forward_info_->date_;
+
+	if (message.forward_info_->origin_) {
+		switch (message.forward_info_->origin_->get_id()) {
+		case td_api::messageOriginUser::ID: {
+			auto &o = static_cast<const td_api::messageOriginUser &>(
+				*message.forward_info_->origin_);
+			fi.origin_type = models::ForwardOriginType::User;
+			fi.origin_sender_user_id = o.sender_user_id_;
+			break;
+		}
+		case td_api::messageOriginHiddenUser::ID: {
+			auto &o = static_cast<
+				const td_api::messageOriginHiddenUser &>(
+				*message.forward_info_->origin_);
+			fi.origin_type = models::ForwardOriginType::HiddenUser;
+			fi.origin_sender_name = o.sender_name_;
+			break;
+		}
+		case td_api::messageOriginChat::ID: {
+			auto &o = static_cast<const td_api::messageOriginChat &>(
+				*message.forward_info_->origin_);
+			fi.origin_type = models::ForwardOriginType::Chat;
+			fi.origin_chat_id = o.sender_chat_id_;
+			if (!o.author_signature_.empty())
+				fi.origin_sender_name = o.author_signature_;
+			break;
+		}
+		case td_api::messageOriginChannel::ID: {
+			auto &o = static_cast<
+				const td_api::messageOriginChannel &>(
+				*message.forward_info_->origin_);
+			fi.origin_type = models::ForwardOriginType::Channel;
+			fi.origin_chat_id = o.chat_id_;
+			fi.origin_message_id = o.message_id_;
+			if (!o.author_signature_.empty())
+				fi.origin_sender_name = o.author_signature_;
+			break;
+		}
+		default:
+			break;
+		}
+	}
+
+	return fi;
+}
+
+/*
+ * Return the primary downloadable file of a message's content, or nullptr
+ * if the content carries no file. On success, *category is set to the
+ * matching files.file_type value. For photos, the largest size is chosen.
+ */
+const td_api::file *message_content_file(const td_api::MessageContent &content,
+					 const char **category)
+{
+	switch (content.get_id()) {
+	case td_api::messagePhoto::ID: {
+		auto &c = static_cast<const td_api::messagePhoto &>(content);
+		*category = "photo";
+		if (!c.photo_)
+			return nullptr;
+		const td_api::file *best = nullptr;
+		int64_t best_px = -1;
+		for (const auto &sz : c.photo_->sizes_) {
+			if (!sz || !sz->photo_)
+				continue;
+			int64_t px = (int64_t)sz->width_ * sz->height_;
+			if (px > best_px) {
+				best_px = px;
+				best = sz->photo_.get();
+			}
+		}
+		return best;
+	}
+	case td_api::messageVideo::ID: {
+		auto &c = static_cast<const td_api::messageVideo &>(content);
+		*category = "video";
+		return c.video_ ? c.video_->video_.get() : nullptr;
+	}
+	case td_api::messageDocument::ID: {
+		auto &c = static_cast<const td_api::messageDocument &>(content);
+		*category = "document";
+		return c.document_ ? c.document_->document_.get() : nullptr;
+	}
+	case td_api::messageAudio::ID: {
+		auto &c = static_cast<const td_api::messageAudio &>(content);
+		*category = "audio";
+		return c.audio_ ? c.audio_->audio_.get() : nullptr;
+	}
+	case td_api::messageVoiceNote::ID: {
+		auto &c = static_cast<const td_api::messageVoiceNote &>(content);
+		*category = "voice";
+		return c.voice_note_ ? c.voice_note_->voice_.get() : nullptr;
+	}
+	case td_api::messageSticker::ID: {
+		auto &c = static_cast<const td_api::messageSticker &>(content);
+		*category = "sticker";
+		return c.sticker_ ? c.sticker_->sticker_.get() : nullptr;
+	}
+	case td_api::messageAnimation::ID: {
+		auto &c = static_cast<const td_api::messageAnimation &>(content);
+		*category = "animation";
+		return c.animation_ ? c.animation_->animation_.get() : nullptr;
+	}
+	default:
+		return nullptr;
+	}
+}
+
+/* Bound the reply-chain walk and the dedup set of fetched reply targets. */
+constexpr int kMaxReplyDepth = 128;
+constexpr size_t kReplyDedupCap = 1000000;
+
+/* Drop a group from admin polling after this many consecutive permission
+ * errors (e.g. we left it or lost visibility). */
+constexpr int kAdminPollMaxMiss = 3;
+
+/*
+ * The (chat_id, message_id) of the message @m replies to, written to
+ * @chat_id / @msg_id. Returns false for a non-reply or a story reply. The
+ * replied message may be in another chat (cross-chat reply); a zero
+ * chat_id in the reply info means the same chat as @m.
+ */
+bool reply_target(const td_api::message &m, int64_t &chat_id, int64_t &msg_id)
+{
+	if (!m.reply_to_ ||
+	    m.reply_to_->get_id() != td_api::messageReplyToMessage::ID)
+		return false;
+
+	auto &r = static_cast<const td_api::messageReplyToMessage &>(*m.reply_to_);
+	if (r.message_id_ == 0)
+		return false;
+	chat_id = (r.chat_id_ != 0) ? r.chat_id_ : m.chat_id_;
+	msg_id = r.message_id_;
+	return true;
+}
+
 } /* namespace */
 
 
@@ -132,10 +442,15 @@ struct TDLib::Impl {
 
 	std::function<void(const TextMessage &)>	msg_handler_;
 	std::function<void(const models::PrivateMessage &)> private_msg_handler_;
+	std::function<void(const models::GroupMessage &)> group_msg_handler_;
+	std::function<void(const MessageFile &)>	message_file_handler_;
+	std::function<void(const MessageReply &)>	message_reply_handler_;
 	std::function<void(const models::User &)>	user_handler_;
+	std::function<void(const models::UserFullInfo &)> user_full_info_handler_;
 	std::function<void(const ProfilePhoto &)>	photo_handler_;
 	std::function<void(const models::Group &)>	group_handler_;
 	std::function<void(const GroupPhoto &)>		group_photo_handler_;
+	std::function<void(const models::GroupAdminList &)> group_admins_handler_;
 
 	std::unique_ptr<td::ClientManager>		client_manager_;
 	td_api::object_ptr<td_api::AuthorizationState>	authorization_state_;
@@ -169,6 +484,28 @@ struct TDLib::Impl {
 	std::unordered_map<int64_t, int64_t>		chat_to_group_;
 	std::unordered_map<int32_t, int64_t>		pending_group_photo_;
 
+	/* In-flight message media downloads, keyed by TDLib file id. */
+	struct PendingMsgFile {
+		int64_t		chat_id;
+		int64_t		message_id;
+		bool		is_group;
+		std::string	content_type;
+	};
+	std::unordered_map<int32_t, PendingMsgFile>	pending_message_file_;
+
+	/* Reply targets already fetched, so a chain is not re-walked. */
+	std::set<std::pair<int64_t, int64_t>>		resolved_reply_targets_;
+
+	/* Groups whose admins we track (chat_ids), and a round-robin queue
+	 * for periodic refresh. Populated on first sight of a member group. */
+	std::unordered_set<int64_t>			admin_poll_set_;
+	std::deque<int64_t>				admin_poll_queue_;
+	std::unordered_map<int64_t, int>		admin_poll_miss_;
+	bool						admin_poll_started_ = false;
+	bool						closing_ = false;
+	double						admin_poll_interval_ = 300.0;
+	int						admin_poll_batch_ = 4;
+
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
 
 	std::uint64_t next_query_id(void) { return ++current_query_id_; }
@@ -181,7 +518,12 @@ struct TDLib::Impl {
 	void check_authentication_error(Object object);
 	std::function<void(Object)> create_authentication_query_handler(void);
 	void handle_new_message(td_api::message &message);
-	void handle_message_for_private_chat(td_api::message &message);
+	void handle_message_for_private_chat(td_api::message &message, int depth);
+	void handle_message_for_group_chat(td_api::message &message, int depth);
+	void resolve_reply_message(const td_api::message &message, bool is_group,
+				   int depth);
+	void ensure_message_entities(const td_api::message &message);
+	void mark_reply_resolved(int64_t chat_id, int64_t msg_id);
 	void handle_update_message_content(int64_t chat_id, int64_t message_id,
 					   const td_api::MessageContent *content);
 	void handle_delete_messages(int64_t chat_id,
@@ -189,10 +531,25 @@ struct TDLib::Impl {
 				    bool is_permanent);
 	void build_private_message(const td_api::message &message,
 				   models::PrivateMessage &out);
+	void build_group_message(const td_api::message &message,
+				 models::GroupMessage &out);
+	void resolve_forward_origin(const models::ForwardInfo &info);
+	void ensure_user_saved(int64_t user_id);
+	void ensure_chat_saved(int64_t chat_id);
+	void maybe_download_message_file(const td_api::message &message,
+					 bool is_group);
+	void emit_message_file(const PendingMsgFile &ref, const td_api::file &f);
 	void maybe_download_profile_photo(const td_api::user &u);
+	void request_user_full_info(int64_t user_id);
 	void handle_file_update(const td_api::file &f);
 	void emit_photo(int64_t user_id, const td_api::file &f);
-	void handle_new_chat(const td_api::chat &chat);
+	void handle_new_chat(const td_api::chat &chat, bool from_chat_list);
+	void fetch_group_admins(int64_t supergroup_id, int64_t chat_id);
+	void emit_basic_group_admins(int64_t chat_id,
+				     const td_api::basicGroupFullInfo &fi);
+	void arm_admin_alarm(void);
+	void on_admin_alarm(void);
+	void poll_admin_batch(void);
 	void maybe_download_group_photo(int64_t group_id,
 					const td_api::chatPhotoInfo *photo);
 	void emit_group(int64_t group_id);
@@ -258,11 +615,30 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				on_authorization_state_update();
 			},
 			[this](td_api::updateUser &u) {
-				if (user_handler_ && u.user_)
+				if (!u.user_)
+					return;
+				int64_t uid = u.user_->id_;
+				bool first_seen =
+					users_.find(uid) == users_.end();
+				if (user_handler_)
 					user_handler_(map_user(*u.user_));
-				if (u.user_)
-					maybe_download_profile_photo(*u.user_);
-				users_[u.user_->id_] = std::move(u.user_);
+				maybe_download_profile_photo(*u.user_);
+				users_[uid] = std::move(u.user_);
+				/*
+				 * Bio and other full-info fields are not in the
+				 * user object; fetch them once, when the user is
+				 * first seen.
+				 */
+				if (first_seen)
+					request_user_full_info(uid);
+			},
+			[this](td_api::updateUserFullInfo &u) {
+				if (user_full_info_handler_ &&
+				    u.user_full_info_)
+					user_full_info_handler_(
+						map_user_full_info(
+							*u.user_full_info_,
+							u.user_id_));
 			},
 			[this](td_api::updateFile &u) {
 				if (u.file_)
@@ -270,7 +646,7 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 			},
 			[this](td_api::updateNewChat &u) {
 				if (u.chat_)
-					handle_new_chat(*u.chat_);
+					handle_new_chat(*u.chat_, true);
 			},
 			[this](td_api::updateChatTitle &u) {
 				auto it = chat_to_group_.find(u.chat_id_);
@@ -325,8 +701,16 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				auto &st = group_state_[u.basic_group_id_];
 				st.description =
 					u.basic_group_full_info_->description_;
-				if (st.chat_seen)
-					emit_group(u.basic_group_id_);
+				if (!st.chat_seen)
+					return;
+				emit_group(u.basic_group_id_);
+				/*
+				 * Basic-group admins ride along in the full
+				 * info; sync them for groups we track.
+				 */
+				if (admin_poll_set_.count(st.chat_id))
+					emit_basic_group_admins(st.chat_id,
+						*u.basic_group_full_info_);
 			},
 			[this](td_api::updateNewMessage &u) {
 				handle_new_message(*u.message_);
@@ -340,7 +724,9 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				 * updateMessageEdited fires with edit_date
 				 * but not the content. Request the full
 				 * message; when it arrives we rebuild and
-				 * upsert it as if it were a new message.
+				 * upsert it as if it were a new message,
+				 * routing to the private or group path by
+				 * chat kind.
 				 */
 				send_query(
 					td_api::make_object<td_api::getMessage>(
@@ -352,8 +738,12 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 						auto msg =
 							td::move_tl_object_as<
 								td_api::message>(obj);
-						handle_message_for_private_chat(
-							*msg);
+						if (is_private_chat(msg->chat_id_))
+							handle_message_for_private_chat(
+								*msg, 0);
+						else
+							handle_message_for_group_chat(
+								*msg, 0);
 					});
 			},
 			[this](td_api::updateDeleteMessages &u) {
@@ -436,6 +826,17 @@ void TDLib::Impl::on_authorization_state_update(void)
 							td_api::user>(obj);
 						user_id_ = u->id_;
 					});
+				/*
+				 * Start the periodic admin poll once. Guarded
+				 * so a re-login does not spawn a second alarm
+				 * chain; disabled when the interval is <= 0.
+				 */
+				if (!admin_poll_started_ &&
+				    admin_poll_interval_ > 0.0 &&
+				    group_admins_handler_) {
+					admin_poll_started_ = true;
+					arm_admin_alarm();
+				}
 			},
 			[this](td_api::authorizationStateLoggingOut &) {
 				is_authorized_ = false;
@@ -472,10 +873,15 @@ std::function<void(Object)> TDLib::Impl::create_authentication_query_handler(voi
 void TDLib::Impl::handle_new_message(td_api::message &message)
 {
 	/*
-	 * Route to the private message handler if registered.
-	 * This handles all content types, not just text.
+	 * Route by chat kind: private (positive) chat ids go to
+	 * private_messages (chat_id is a users.id); group, supergroup and
+	 * channel chats (negative ids) go to group_messages (chat_id is a
+	 * groups.id).
 	 */
-	handle_message_for_private_chat(message);
+	if (is_private_chat(message.chat_id_))
+		handle_message_for_private_chat(message, 0);
+	else
+		handle_message_for_group_chat(message, 0);
 
 	/* Legacy text-only handler path. */
 	if (!msg_handler_)
@@ -528,14 +934,132 @@ void TDLib::Impl::handle_new_message(td_api::message &message)
 	msg_handler_(msg);
 }
 
-void TDLib::Impl::handle_message_for_private_chat(td_api::message &message)
+void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,
+						  int depth)
 {
 	if (!private_msg_handler_)
 		return;
 
 	models::PrivateMessage pm;
 	build_private_message(message, pm);
+	if (pm.forward_info.has_value())
+		resolve_forward_origin(*pm.forward_info);
 	private_msg_handler_(pm);
+
+	/* Row now exists; download and link any media attachment. */
+	maybe_download_message_file(message, false);
+
+	resolve_reply_message(message, false, depth);
+}
+
+void TDLib::Impl::handle_message_for_group_chat(td_api::message &message,
+						int depth)
+{
+	if (!group_msg_handler_)
+		return;
+
+	models::GroupMessage gm;
+	build_group_message(message, gm);
+	if (gm.forward_info.has_value())
+		resolve_forward_origin(*gm.forward_info);
+	group_msg_handler_(gm);
+
+	/* Row now exists; download and link any media attachment. */
+	maybe_download_message_file(message, true);
+
+	resolve_reply_message(message, true, depth);
+}
+
+void TDLib::Impl::mark_reply_resolved(int64_t chat_id, int64_t msg_id)
+{
+	/* Bound memory: drop the dedup set if it grows too large. */
+	if (resolved_reply_targets_.size() >= kReplyDedupCap)
+		resolved_reply_targets_.clear();
+	resolved_reply_targets_.insert({ chat_id, msg_id });
+}
+
+void TDLib::Impl::ensure_message_entities(const td_api::message &message)
+{
+	/*
+	 * A replied message may live in a chat we have never seen (cross-chat
+	 * reply). Make sure the chat's own entity and the sender exist, so
+	 * the message row's foreign keys resolve. Uses the same
+	 * fetch-if-unknown helpers as forward-origin resolution.
+	 */
+	if (is_private_chat(message.chat_id_))
+		ensure_user_saved(message.chat_id_);
+	else
+		ensure_chat_saved(message.chat_id_);
+
+	if (message.sender_id_) {
+		if (message.sender_id_->get_id() ==
+		    td_api::messageSenderUser::ID) {
+			auto &s = static_cast<const td_api::messageSenderUser &>(
+				*message.sender_id_);
+			ensure_user_saved(s.user_id_);
+		} else if (message.sender_id_->get_id() ==
+			   td_api::messageSenderChat::ID) {
+			auto &s = static_cast<const td_api::messageSenderChat &>(
+				*message.sender_id_);
+			ensure_chat_saved(s.chat_id_);
+		}
+	}
+}
+
+void TDLib::Impl::resolve_reply_message(const td_api::message &message,
+					bool is_group, int depth)
+{
+	if (!message_reply_handler_)
+		return;
+
+	int64_t reply_chat_id, reply_msg_id;
+	if (!reply_target(message, reply_chat_id, reply_msg_id))
+		return;
+
+	int64_t chat_id = message.chat_id_;
+	int64_t message_id = message.id_;
+
+	auto emit = [this, chat_id, message_id, reply_chat_id, reply_msg_id,
+		     is_group]() {
+		MessageReply mr;
+		mr.chat_id = chat_id;
+		mr.message_id = message_id;
+		mr.reply_to_chat_id = reply_chat_id;
+		mr.reply_to_msg_id = reply_msg_id;
+		mr.is_group = is_group;
+		message_reply_handler_(mr);
+	};
+
+	/*
+	 * If the replied message was already fetched (dedup) or we hit the
+	 * chain-depth cap, just record the link. Otherwise fetch and save the
+	 * replied message first (saving any new chat/sender it introduces),
+	 * record the link, then continue up the chain from it. Cross-chat
+	 * replies save the replied message to its own table by chat kind.
+	 */
+	std::pair<int64_t, int64_t> key(reply_chat_id, reply_msg_id);
+	if (resolved_reply_targets_.count(key) || depth >= kMaxReplyDepth) {
+		emit();
+		return;
+	}
+
+	send_query(td_api::make_object<td_api::getMessage>(reply_chat_id,
+							   reply_msg_id),
+		[this, emit, reply_chat_id, reply_msg_id, depth](Object obj) {
+			if (obj->get_id() != td_api::message::ID) {
+				/* Replied message unavailable; record anyway. */
+				emit();
+				return;
+			}
+			auto r = td::move_tl_object_as<td_api::message>(obj);
+			mark_reply_resolved(reply_chat_id, reply_msg_id);
+			ensure_message_entities(*r);
+			if (is_private_chat(reply_chat_id))
+				handle_message_for_private_chat(*r, depth + 1);
+			else
+				handle_message_for_group_chat(*r, depth + 1);
+			emit();
+		});
 }
 
 void TDLib::Impl::handle_update_message_content(int64_t chat_id,
@@ -579,17 +1103,27 @@ void TDLib::Impl::handle_delete_messages(int64_t chat_id,
 					 const td_api::array<td_api::int53> &message_ids,
 					 bool /* is_permanent */)
 {
-	if (!private_msg_handler_)
+	/* Route deletions to the same table the messages were stored in. */
+	bool priv = is_private_chat(chat_id);
+	if (priv && !private_msg_handler_)
+		return;
+	if (!priv && !group_msg_handler_)
 		return;
 
 	for (auto msg_id : message_ids) {
-		models::PrivateMessage pm;
-		pm.chat_id = chat_id;
-		pm.message_id = msg_id;
-		pm.is_deleted = true;
-		pm.edit_date = (int32_t)std::time(nullptr);
-		pm.content_type = models::PrivateMessageContentType::Unknown;
-		private_msg_handler_(pm);
+		if (priv) {
+			models::PrivateMessage pm;
+			pm.chat_id = chat_id;
+			pm.message_id = msg_id;
+			pm.is_deleted = true;
+			private_msg_handler_(pm);
+		} else {
+			models::GroupMessage gm;
+			gm.chat_id = chat_id;
+			gm.message_id = msg_id;
+			gm.is_deleted = true;
+			group_msg_handler_(gm);
+		}
 	}
 }
 
@@ -603,125 +1137,195 @@ void TDLib::Impl::build_private_message(const td_api::message &message,
 	out.edit_date = message.edit_date_;
 	out.is_deleted = false;
 
-	/* Resolve sender id. */
+	/*
+	 * Resolve the sender. Messages sent by the logged-in account are
+	 * recorded with a NULL sender_id, as the private_messages schema
+	 * prescribes. Incoming private-chat messages are always sent by the
+	 * peer user; a messageSenderChat is not expected here and is ignored
+	 * (its chat id is not a valid users.id).
+	 */
+	if (!message.is_outgoing_ && message.sender_id_ &&
+	    message.sender_id_->get_id() == td_api::messageSenderUser::ID) {
+		auto &s = static_cast<const td_api::messageSenderUser &>(
+			*message.sender_id_);
+		out.sender_id = s.user_id_;
+	}
+
+	extract_message_content(message, out.content);
+	out.forward_info = extract_forward_info(message);
+}
+
+void TDLib::Impl::build_group_message(const td_api::message &message,
+				      models::GroupMessage &out)
+{
+	out.chat_id = message.chat_id_;
+	out.message_id = message.id_;
+	out.is_outgoing = message.is_outgoing_;
+	out.is_channel_post = message.is_channel_post_;
+	out.date = message.date_;
+	out.edit_date = message.edit_date_;
+	out.is_deleted = false;
+
+	if (!message.author_signature_.empty())
+		out.author_signature = message.author_signature_;
+
+	/*
+	 * A group message's sender may be a user or a chat/channel (channel
+	 * posts, anonymous admins). Record whichever applies; the schema
+	 * keeps them in separate foreign-key columns. Unlike private
+	 * messages, the own account's sender is recorded too (is_outgoing
+	 * still marks it), since a group has many participants.
+	 */
 	if (message.sender_id_) {
 		if (message.sender_id_->get_id() ==
 		    td_api::messageSenderUser::ID) {
 			auto &s = static_cast<const td_api::messageSenderUser &>(
 				*message.sender_id_);
-			out.sender_id = s.user_id_;
+			out.sender_user_id = s.user_id_;
 		} else if (message.sender_id_->get_id() ==
 			   td_api::messageSenderChat::ID) {
 			auto &s = static_cast<const td_api::messageSenderChat &>(
 				*message.sender_id_);
-			out.sender_id = s.chat_id_;
+			out.sender_chat_id = s.chat_id_;
 		}
 	}
 
-	/* Content type and text. */
-	if (message.content_) {
-		switch (message.content_->get_id()) {
-		case td_api::messageText::ID: {
-			auto &c = static_cast<const td_api::messageText &>(
-				*message.content_);
-			out.content_type =
-				models::PrivateMessageContentType::Text;
-			if (c.text_)
-				out.text = c.text_->text_;
-			break;
-		}
-		case td_api::messagePhoto::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Photo;
-			break;
-		case td_api::messageVideo::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Video;
-			break;
-		case td_api::messageDocument::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Document;
-			break;
-		case td_api::messageAudio::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Audio;
-			break;
-		case td_api::messageVoiceNote::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Voice;
-			break;
-		case td_api::messageSticker::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Sticker;
-			break;
-		case td_api::messageAnimation::ID:
-			out.content_type =
-				models::PrivateMessageContentType::Animation;
-			break;
-		default:
-			out.content_type =
-				models::PrivateMessageContentType::Unknown;
-			break;
-		}
+	extract_message_content(message, out.content);
+	out.forward_info = extract_forward_info(message);
+}
+
+void TDLib::Impl::resolve_forward_origin(const models::ForwardInfo &info)
+{
+	/*
+	 * A forwarded message may reference an entity we have not stored
+	 * yet: the original sender (a user) or the original chat/channel.
+	 * Memorize it so the *_message_fwd_info references point at real
+	 * users/groups rows. Known entities are re-emitted (idempotent, and
+	 * it satisfies the origin_sender_user_id foreign key before the
+	 * message row is written); unknown ones are fetched from TDLib.
+	 */
+	if (info.origin_sender_user_id.has_value())
+		ensure_user_saved(*info.origin_sender_user_id);
+	if (info.origin_chat_id.has_value())
+		ensure_chat_saved(*info.origin_chat_id);
+}
+
+void TDLib::Impl::ensure_user_saved(int64_t user_id)
+{
+	if (user_id == 0 || !user_handler_)
+		return;
+
+	auto it = users_.find(user_id);
+	if (it != users_.end() && it->second) {
+		/*
+		 * Already known: persist synchronously so the forward-info FK
+		 * to users.id resolves before the message row is written.
+		 */
+		user_handler_(map_user(*it->second));
+		return;
 	}
 
-	/* Forward info. */
-	if (message.forward_info_) {
-		models::ForwardInfo fi;
-		fi.origin_date = message.forward_info_->date_;
+	/* Unknown: fetch it, then persist and cache when it arrives. */
+	send_query(td_api::make_object<td_api::getUser>(user_id),
+		[this](Object obj) {
+			if (obj->get_id() != td_api::user::ID)
+				return;
+			auto u = td::move_tl_object_as<td_api::user>(obj);
+			if (user_handler_)
+				user_handler_(map_user(*u));
+			maybe_download_profile_photo(*u);
+			users_[u->id_] = std::move(u);
+		});
+}
 
-		if (message.forward_info_->origin_) {
-			switch (message.forward_info_->origin_->get_id()) {
-			case td_api::messageOriginUser::ID: {
-				auto &o = static_cast<
-					const td_api::messageOriginUser &>(
-					*message.forward_info_->origin_);
-				fi.origin_type =
-					models::ForwardOriginType::User;
-				fi.origin_sender_user_id = o.sender_user_id_;
-				break;
-			}
-			case td_api::messageOriginHiddenUser::ID: {
-				auto &o = static_cast<
-					const td_api::messageOriginHiddenUser &>(
-					*message.forward_info_->origin_);
-				fi.origin_type =
-					models::ForwardOriginType::HiddenUser;
-				fi.origin_sender_name = o.sender_name_;
-				break;
-			}
-			case td_api::messageOriginChat::ID: {
-				auto &o = static_cast<
-					const td_api::messageOriginChat &>(
-					*message.forward_info_->origin_);
-				fi.origin_type =
-					models::ForwardOriginType::Chat;
-				fi.origin_chat_id = o.sender_chat_id_;
-				if (!o.author_signature_.empty())
-					fi.origin_sender_name =
-						o.author_signature_;
-				break;
-			}
-			case td_api::messageOriginChannel::ID: {
-				auto &o = static_cast<
-					const td_api::messageOriginChannel &>(
-					*message.forward_info_->origin_);
-				fi.origin_type =
-					models::ForwardOriginType::Channel;
-				fi.origin_chat_id = o.chat_id_;
-				fi.origin_message_id = o.message_id_;
-				if (!o.author_signature_.empty())
-					fi.origin_sender_name =
-						o.author_signature_;
-				break;
-			}
-			default:
-				break;
-			}
-		}
+void TDLib::Impl::ensure_chat_saved(int64_t chat_id)
+{
+	if (chat_id == 0 || !group_handler_)
+		return;
 
-		out.forward_info = std::move(fi);
+	/*
+	 * Only group, supergroup and channel chats (negative ids) map to a
+	 * groups row; a private chat's peer is handled via the user path.
+	 */
+	if (is_private_chat(chat_id))
+		return;
+
+	auto it = chat_to_group_.find(chat_id);
+	if (it != chat_to_group_.end()) {
+		/* Already known: re-emit so the group is persisted. */
+		emit_group(it->second);
+		return;
 	}
+
+	/* Unknown: fetch the chat; handle_new_chat persists it. */
+	send_query(td_api::make_object<td_api::getChat>(chat_id),
+		[this](Object obj) {
+			if (obj->get_id() != td_api::chat::ID)
+				return;
+			auto c = td::move_tl_object_as<td_api::chat>(obj);
+			handle_new_chat(*c, false);
+		});
+}
+
+void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
+					      bool is_group)
+{
+	if (!message_file_handler_ || !message.content_)
+		return;
+
+	const char *category = "unknown";
+	const td_api::file *f =
+		message_content_file(*message.content_, &category);
+	if (!f)
+		return;
+
+	PendingMsgFile ref{ message.chat_id_, message.id_, is_group,
+			    category };
+
+	/* Already downloaded: link it immediately. */
+	if (f->local_ && f->local_->is_downloading_completed_) {
+		emit_message_file(ref, *f);
+		return;
+	}
+
+	/* Otherwise request the download and remember the message for it. */
+	pending_message_file_[f->id_] = std::move(ref);
+	send_query(td_api::make_object<td_api::downloadFile>(
+			   f->id_, 1, 0, 0, false), {});
+}
+
+void TDLib::Impl::emit_message_file(const PendingMsgFile &ref,
+				    const td_api::file &f)
+{
+	if (!message_file_handler_ || !f.local_ ||
+	    !f.local_->is_downloading_completed_)
+		return;
+
+	MessageFile mf;
+	mf.chat_id = ref.chat_id;
+	mf.message_id = ref.message_id;
+	mf.is_group = ref.is_group;
+	mf.local_path = f.local_->path_;
+	mf.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
+	mf.file_size = f.size_;
+	mf.content_type = ref.content_type;
+	message_file_handler_(mf);
+}
+
+void TDLib::Impl::request_user_full_info(int64_t user_id)
+{
+	if (!user_full_info_handler_)
+		return;
+
+	send_query(td_api::make_object<td_api::getUserFullInfo>(user_id),
+		[this, user_id](Object obj) {
+			if (obj->get_id() != td_api::userFullInfo::ID)
+				return;
+			auto fi = td::move_tl_object_as<td_api::userFullInfo>(
+				obj);
+			user_full_info_handler_(
+				map_user_full_info(*fi, user_id));
+		});
 }
 
 void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
@@ -763,6 +1367,14 @@ void TDLib::Impl::handle_file_update(const td_api::file &f)
 		emit_group_photo(group_id, f);
 		return;
 	}
+
+	auto mit = pending_message_file_.find(f.id_);
+	if (mit != pending_message_file_.end()) {
+		PendingMsgFile ref = mit->second;
+		pending_message_file_.erase(mit);
+		emit_message_file(ref, f);
+		return;
+	}
 }
 
 void TDLib::Impl::emit_photo(int64_t user_id, const td_api::file &f)
@@ -779,7 +1391,7 @@ void TDLib::Impl::emit_photo(int64_t user_id, const td_api::file &f)
 	photo_handler_(p);
 }
 
-void TDLib::Impl::handle_new_chat(const td_api::chat &chat)
+void TDLib::Impl::handle_new_chat(const td_api::chat &chat, bool from_chat_list)
 {
 	if (!chat.type_)
 		return;
@@ -807,6 +1419,8 @@ void TDLib::Impl::handle_new_chat(const td_api::chat &chat)
 		/* Private and secret chats are not groups. */
 		return;
 	}
+
+	bool first_sight = group_state_.find(group_id) == group_state_.end();
 
 	GroupState &st = group_state_[group_id];
 	st.type = type;
@@ -836,6 +1450,160 @@ void TDLib::Impl::handle_new_chat(const td_api::chat &chat)
 				   group_id), {});
 
 	maybe_download_group_photo(chat.id_, chat.photo_.get());
+
+	/*
+	 * Track administrators only for groups in our own chat list (not for
+	 * chats merely referenced by a forward/reply). On first sight, start
+	 * tracking and fetch the admin list now; supergroups/channels use
+	 * getSupergroupMembers, basic groups get theirs from the
+	 * basicGroupFullInfo requested above (see updateBasicGroupFullInfo).
+	 */
+	if (from_chat_list && first_sight &&
+	    admin_poll_set_.find(chat.id_) == admin_poll_set_.end()) {
+		admin_poll_set_.insert(chat.id_);
+		admin_poll_queue_.push_back(chat.id_);
+		if (type != models::GroupType::BasicGroup)
+			fetch_group_admins(group_id, chat.id_);
+	}
+}
+
+void TDLib::Impl::fetch_group_admins(int64_t supergroup_id, int64_t chat_id)
+{
+	if (!group_admins_handler_)
+		return;
+
+	send_query(td_api::make_object<td_api::getSupergroupMembers>(
+			supergroup_id,
+			td_api::make_object<
+				td_api::supergroupMembersFilterAdministrators>(),
+			0, 200),
+		[this, chat_id](Object obj) {
+			/*
+			 * Data-loss guard: sync only on a real member list. An
+			 * error (permission denied, FLOOD_WAIT, ...) must never
+			 * be treated as "no admins" — that would remove them all.
+			 * On a permission error (400/403, e.g. we left the group)
+			 * count a miss and stop polling it after a few; transient
+			 * errors (FLOOD_WAIT, server) don't count.
+			 */
+			if (obj->get_id() != td_api::chatMembers::ID) {
+				if (obj->get_id() == td_api::error::ID) {
+					auto &e = static_cast<td_api::error &>(*obj);
+					if ((e.code_ == 400 || e.code_ == 403) &&
+					    ++admin_poll_miss_[chat_id] >=
+						    kAdminPollMaxMiss)
+						admin_poll_set_.erase(chat_id);
+				}
+				return;
+			}
+			admin_poll_miss_.erase(chat_id);
+			auto members =
+				td::move_tl_object_as<td_api::chatMembers>(obj);
+
+			models::GroupAdminList list;
+			list.group_id = chat_id;
+			for (const auto &m : members->members_) {
+				if (!m)
+					continue;
+				models::GroupAdmin ga;
+				if (!map_admin(*m, ga))
+					continue;
+				ensure_user_saved(ga.user_id);
+				list.admins.push_back(std::move(ga));
+			}
+
+			/* A group always has at least a creator; an empty set
+			 * means nothing usable was returned, so skip. */
+			if (!list.admins.empty())
+				group_admins_handler_(list);
+		});
+}
+
+void TDLib::Impl::emit_basic_group_admins(int64_t chat_id,
+					  const td_api::basicGroupFullInfo &fi)
+{
+	if (!group_admins_handler_)
+		return;
+
+	models::GroupAdminList list;
+	list.group_id = chat_id;
+	for (const auto &m : fi.members_) {
+		if (!m)
+			continue;
+		models::GroupAdmin ga;
+		if (!map_admin(*m, ga))
+			continue;
+		ensure_user_saved(ga.user_id);
+		list.admins.push_back(std::move(ga));
+	}
+
+	if (!list.admins.empty())
+		group_admins_handler_(list);
+}
+
+void TDLib::Impl::arm_admin_alarm(void)
+{
+	/*
+	 * setAlarm's Ok response is delivered on this (the loop) thread, so
+	 * the whole poll cycle runs where all TDLib state safely lives.
+	 */
+	send_query(td_api::make_object<td_api::setAlarm>(admin_poll_interval_),
+		   [this](Object) { on_admin_alarm(); });
+}
+
+void TDLib::Impl::on_admin_alarm(void)
+{
+	/* Dying: let the alarm chain end (no re-arm). */
+	if (stopped_ || closing_)
+		return;
+
+	/* Do work only while usable, but ALWAYS re-arm so a transient
+	 * de-auth does not permanently kill the heartbeat. Exactly one alarm
+	 * is in flight at any time. */
+	if (is_authorized_ && group_admins_handler_)
+		poll_admin_batch();
+
+	arm_admin_alarm();
+}
+
+void TDLib::Impl::poll_admin_batch(void)
+{
+	/*
+	 * Refresh up to admin_poll_batch_ tracked groups, round-robin: pop
+	 * from the front, re-fetch, push to the rear. Scan at most the
+	 * queue's current length so freshly re-pushed groups are not polled
+	 * twice in one cycle; evicted groups (not in admin_poll_set_) are
+	 * dropped instead of re-queued.
+	 */
+	int polled = 0;
+	size_t scan = admin_poll_queue_.size();
+	while (polled < admin_poll_batch_ && scan > 0 &&
+	       !admin_poll_queue_.empty()) {
+		int64_t chat_id = admin_poll_queue_.front();
+		admin_poll_queue_.pop_front();
+		scan--;
+
+		if (!admin_poll_set_.count(chat_id))
+			continue;	/* evicted: drop */
+
+		admin_poll_queue_.push_back(chat_id);
+
+		auto cit = chat_to_group_.find(chat_id);
+		if (cit == chat_to_group_.end())
+			continue;
+		auto git = group_state_.find(cit->second);
+		if (git == group_state_.end())
+			continue;
+
+		if (git->second.type == models::GroupType::BasicGroup)
+			/* Admins arrive via the resulting updateBasicGroupFullInfo. */
+			send_query(td_api::make_object<
+					td_api::getBasicGroupFullInfo>(
+					cit->second), {});
+		else
+			fetch_group_admins(cit->second, chat_id);
+		polled++;
+	}
 }
 
 void TDLib::Impl::maybe_download_group_photo(int64_t group_id,
@@ -907,9 +1675,31 @@ void TDLib::setPrivateMessageHandler(
 	impl_->private_msg_handler_ = std::move(cb);
 }
 
+void TDLib::setGroupMessageHandler(
+	std::function<void(const models::GroupMessage &)> cb)
+{
+	impl_->group_msg_handler_ = std::move(cb);
+}
+
+void TDLib::setMessageFileHandler(std::function<void(const MessageFile &)> cb)
+{
+	impl_->message_file_handler_ = std::move(cb);
+}
+
+void TDLib::setMessageReplyHandler(std::function<void(const MessageReply &)> cb)
+{
+	impl_->message_reply_handler_ = std::move(cb);
+}
+
 void TDLib::setUserHandler(std::function<void(const models::User &)> cb)
 {
 	impl_->user_handler_ = std::move(cb);
+}
+
+void TDLib::setUserFullInfoHandler(
+	std::function<void(const models::UserFullInfo &)> cb)
+{
+	impl_->user_full_info_handler_ = std::move(cb);
 }
 
 void TDLib::setProfilePhotoHandler(std::function<void(const ProfilePhoto &)> cb)
@@ -927,6 +1717,18 @@ void TDLib::setGroupPhotoHandler(std::function<void(const GroupPhoto &)> cb)
 	impl_->group_photo_handler_ = std::move(cb);
 }
 
+void TDLib::setGroupAdminsHandler(
+	std::function<void(const models::GroupAdminList &)> cb)
+{
+	impl_->group_admins_handler_ = std::move(cb);
+}
+
+void TDLib::setAdminPollConfig(double interval_seconds, int batch)
+{
+	impl_->admin_poll_interval_ = interval_seconds;
+	impl_->admin_poll_batch_ = batch > 0 ? batch : 1;
+}
+
 void TDLib::loop(int timeout)
 {
 	impl_->process_response(impl_->client_manager_->receive(timeout));
@@ -939,6 +1741,8 @@ bool TDLib::isStopped(void) const
 
 void TDLib::close(void)
 {
+	/* Stop re-arming the admin-poll alarm while TDLib shuts down. */
+	impl_->closing_ = true;
 	impl_->send_query(td_api::make_object<td_api::close>(), {});
 }
 

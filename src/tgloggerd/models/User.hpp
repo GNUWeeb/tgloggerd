@@ -45,7 +45,7 @@ struct User {
 	int64_t		profile_background_custom_emoji_id = 0;
 
 	std::optional<int64_t>	emoji_status_custom_emoji_id;
-	std::optional<int32_t>	emoji_status_expiration_date;
+	std::optional<int64_t>	emoji_status_expiration_date;
 
 	bool		is_verified = false;
 	bool		is_scam = false;
@@ -60,10 +60,35 @@ struct User {
 	bool		restricts_new_chats = false;
 	int64_t		paid_message_star_count = 0;
 
+	/* Relationship to the logged-in account. */
+	bool		is_contact = false;
+	bool		is_mutual_contact = false;
+	bool		is_close_friend = false;
+	bool		have_access = false;
+	std::string	language_code;
+
 	/* td_api::usernames */
 	std::vector<std::string>	active_usernames;
 	std::vector<std::string>	disabled_usernames;
 	std::vector<std::string>	collectible_usernames;
+};
+
+/*
+ * Extra user attributes from td_api::userFullInfo, which is fetched
+ * separately from the user object. Applied onto the existing users row;
+ * bio changes are tracked in user_hist_bio.
+ */
+struct UserFullInfo {
+	int64_t		user_id = 0;
+	std::string	bio;
+
+	/* td_api::birthdate; nullopt components when unset/hidden. */
+	std::optional<int32_t>	birthday_day;
+	std::optional<int32_t>	birthday_month;
+	std::optional<int32_t>	birthday_year;
+
+	/* Linked personal chat id; 0 if none. */
+	int64_t		personal_chat_id = 0;
 };
 
 } /* namespace models */

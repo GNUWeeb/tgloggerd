@@ -20,10 +20,10 @@ CREATE TABLE private_messages (
 	is_outgoing  TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Message was sent by the logged-in account.',
 
 	-- Unix timestamp of the original send.
-	date         INT             NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original send.',
+	date         BIGINT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original send.',
 
 	-- Unix timestamp of the last edit; 0 if never edited.
-	edit_date    INT             NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the last edit; 0 = never edited.',
+	edit_date    BIGINT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the last edit; 0 = never edited.',
 
 	-- Coarse content type for routing and filtering.
 	content_type ENUM('text', 'photo', 'video', 'document', 'audio',
@@ -39,6 +39,19 @@ CREATE TABLE private_messages (
 	-- Soft-delete flag. Deleted messages keep their row.
 	is_deleted   TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Soft-delete flag for message deletion.',
 
+	-- Whether the message is forwarded. Denormalized from the presence
+	-- of forward info (a private_message_fwd_info row) for quick filtering.
+	is_forwarded TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Message is a forwarded message.',
+
+	-- The message this one replies to. reply_to_chat_id/reply_to_msg_id
+	-- identify it universally (works across chats and tables, e.g. a reply
+	-- to a group message). reply_to_id is the surrogate-id FK, set only
+	-- when the replied message is in this same table. All NULL if not a
+	-- reply. Resolved in setPrivateMessageReply.
+	reply_to_chat_id BIGINT      NULL COMMENT 'Replied message chat_id; may differ from chat_id (cross-chat).',
+	reply_to_msg_id  BIGINT      NULL COMMENT 'Replied message message_id.',
+	reply_to_id  BIGINT UNSIGNED NULL COMMENT 'FK to private_messages.id of the replied message (same table only); NULL otherwise.',
+
 	-- Bookkeeping.
 	created_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
 	updated_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -49,6 +62,8 @@ CREATE TABLE private_messages (
 	KEY idx_private_messages_sender_id (sender_id),
 	KEY idx_private_messages_date (date),
 	KEY idx_private_messages_is_deleted (is_deleted),
+	KEY idx_private_messages_reply (reply_to_id),
+	KEY idx_private_messages_reply_target (reply_to_chat_id, reply_to_msg_id),
 	CONSTRAINT fk_private_messages_chat_user
 		FOREIGN KEY (chat_id) REFERENCES users (id)
 		ON DELETE CASCADE ON UPDATE CASCADE,
@@ -57,6 +72,10 @@ CREATE TABLE private_messages (
 		ON DELETE SET NULL ON UPDATE CASCADE,
 	CONSTRAINT fk_private_messages_file
 		FOREIGN KEY (file_id) REFERENCES files (id)
+		ON DELETE SET NULL ON UPDATE CASCADE,
+	-- Self-reference to the replied message by surrogate id.
+	CONSTRAINT fk_private_messages_reply
+		FOREIGN KEY (reply_to_id) REFERENCES private_messages (id)
 		ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='Private chat messages (one-to-one chats only). Soft-deleted rows persist.';
@@ -82,7 +101,7 @@ CREATE TABLE private_message_edits (
 
 	-- The edit_date value that triggered this snapshot (equals the
 	-- new edit_date in private_messages after the update).
-	edit_date         INT             NOT NULL COMMENT 'The edit_date value that triggered this snapshot.',
+	edit_date         BIGINT          NOT NULL COMMENT 'The edit_date value that triggered this snapshot.',
 
 	-- Bookkeeping.
 	created_at        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',
@@ -128,7 +147,7 @@ CREATE TABLE private_message_fwd_info (
 	origin_message_id      BIGINT       NULL COMMENT 'Original message id (messageOriginChannel).',
 
 	-- Date of the original message (from messageForwardInfo.date_).
-	origin_date            INT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original message.',
+	origin_date            BIGINT       NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the original message.',
 
 	-- Bookkeeping.
 	created_at            DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Row creation time.',

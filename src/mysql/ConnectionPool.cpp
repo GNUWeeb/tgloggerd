@@ -21,11 +21,20 @@ ConnectionPool::~ConnectionPool(void) = default;
 
 std::unique_ptr<sql::Connection> ConnectionPool::create(void)
 {
-	sql::mysql::MySQL_Driver *driver = sql::mysql::get_mysql_driver_instance();
 	std::string url = "tcp://" + cfg_.host + ":" + std::to_string(cfg_.port);
 
-	std::unique_ptr<sql::Connection> conn(
-		driver->connect(url, cfg_.user, cfg_.password));
+	std::unique_ptr<sql::Connection> conn;
+	{
+		/*
+		 * The driver singleton and its connect() are not thread-safe;
+		 * serialize just this part. Everything below operates on the
+		 * freshly created per-connection object and needs no lock.
+		 */
+		std::lock_guard<std::mutex> lock(create_mtx_);
+		sql::mysql::MySQL_Driver *driver =
+			sql::mysql::get_mysql_driver_instance();
+		conn.reset(driver->connect(url, cfg_.user, cfg_.password));
+	}
 	conn->setSchema(cfg_.database);
 
 	std::unique_ptr<sql::Statement> stmt(conn->createStatement());

@@ -5,6 +5,7 @@
 #include <tgloggerd/DB.hpp>
 
 #include <string>
+#include <vector>
 #include <optional>
 
 namespace tgloggerd {
@@ -19,35 +20,34 @@ mysql::Param b(bool v)
 } /* namespace */
 
 /*
- * Upsert a private message.
- *
- * On first insert: creates the row in private_messages and, if forward
- * info is present, inserts into private_message_fwd_info.
- *
- * On update (same chat_id + message_id):
- *   - If edit_date increased and content differs, copy the old content
- *     into private_message_edits before updating private_messages.
- *   - If is_deleted changed to true, only set is_deleted = 1.
- *   - If forward_info is present and not already recorded, insert it.
+ * Upsert a group message. Structurally identical to upsertPrivateMessage
+ * (see the edit/delete/forward semantics there); the differences are the
+ * target tables, the split user/chat sender columns, and the channel-post
+ * metadata. The shared edit-snapshot and forward-info logic is reused via
+ * the DB message helpers.
  */
-void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
+void DB::upsertGroupMessage(const models::GroupMessage &msg)
 {
 	/*
 	 * file_id is intentionally omitted: media files are downloaded
-	 * asynchronously and linked later via setPrivateMessageFile, so the
+	 * asynchronously and linked later via setGroupMessageFile, so the
 	 * content upsert must never touch it (a rebuild on edit would
 	 * otherwise reset the link to NULL).
 	 */
 	static const char *upsert_sql =
-		"INSERT INTO private_messages ("
-		" chat_id, message_id, sender_id, is_outgoing, date,"
+		"INSERT INTO group_messages ("
+		" chat_id, message_id, sender_user_id, sender_chat_id,"
+		" is_outgoing, is_channel_post, author_signature, date,"
 		" edit_date, content_type, text, is_deleted,"
 		" is_forwarded"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
-		" sender_id = new.sender_id,"
+		" sender_user_id = new.sender_user_id,"
+		" sender_chat_id = new.sender_chat_id,"
 		" is_outgoing = new.is_outgoing,"
+		" is_channel_post = new.is_channel_post,"
+		" author_signature = new.author_signature,"
 		" date = new.date,"
 		" edit_date = new.edit_date,"
 		" content_type = new.content_type,"
@@ -56,25 +56,48 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		" is_forwarded = new.is_forwarded";
 
 	db_.transaction([&](mysql::Transaction &tx) {
-		/*
-		 * Fetch the current row (if any) to detect edits.
-		 */
 		auto old_rows = tx.query(
 			"SELECT id, edit_date, content_type, text, file_id,"
 			"       is_deleted"
-			" FROM private_messages"
+			" FROM group_messages"
 			" WHERE chat_id = ? AND message_id = ?",
 			{ (int64_t)msg.chat_id, (int64_t)msg.message_id });
 
-		mysql::Param sender_param = std::monostate{};
-		if (msg.sender_id.has_value())
-			sender_param = (int64_t)*msg.sender_id;
+		mysql::Param sender_user_param = std::monostate{};
+		if (msg.sender_user_id.has_value())
+			sender_user_param = (int64_t)*msg.sender_user_id;
+
+		mysql::Param sender_chat_param = std::monostate{};
+		if (msg.sender_chat_id.has_value())
+			sender_chat_param = (int64_t)*msg.sender_chat_id;
+
+		mysql::Param author_param = std::monostate{};
+		if (msg.author_signature.has_value())
+			author_param = *msg.author_signature;
 
 		mysql::Param text_param = std::monostate{};
 		if (msg.content.text.has_value())
 			text_param = *msg.content.text;
 
 		std::string new_ct = models::to_string(msg.content.content_type);
+
+		auto bind_all = [&]() -> std::vector<mysql::Param> {
+			return {
+				(int64_t)msg.chat_id,
+				(int64_t)msg.message_id,
+				sender_user_param,
+				sender_chat_param,
+				b(msg.is_outgoing),
+				b(msg.is_channel_post),
+				author_param,
+				(int64_t)msg.date,
+				(int64_t)msg.edit_date,
+				new_ct,
+				text_param,
+				b(msg.is_deleted),
+				b(msg.forward_info.has_value()),
+			};
+		};
 
 		if (old_rows.empty()) {
 			/*
@@ -85,66 +108,41 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			if (msg.is_deleted)
 				return;
 
-			/*
-			 * First time seeing this message: insert new row.
-			 */
-			tx.execute(upsert_sql, {
-				(int64_t)msg.chat_id,
-				(int64_t)msg.message_id,
-				sender_param,
-				b(msg.is_outgoing),
-				(int64_t)msg.date,
-				(int64_t)msg.edit_date,
-				new_ct,
-				text_param,
-				b(msg.is_deleted),
-				b(msg.forward_info.has_value()),
-			});
+			tx.execute(upsert_sql, bind_all());
 
-			/*
-			 * Retrieve the auto-generated id for the forward info.
-			 */
 			auto new_rows = tx.query(
-				"SELECT id FROM private_messages"
+				"SELECT id FROM group_messages"
 				" WHERE chat_id = ? AND message_id = ?",
 				{ (int64_t)msg.chat_id,
 				  (int64_t)msg.message_id });
 			if (!new_rows.empty() && new_rows[0][0].has_value() &&
 			    msg.forward_info.has_value()) {
-				uint64_t pm_id = std::stoull(*new_rows[0][0]);
-				insertForwardInfo(tx, "private_message_fwd_info",
-						  "private_message_id", pm_id,
+				uint64_t gm_id = std::stoull(*new_rows[0][0]);
+				insertForwardInfo(tx, "group_message_fwd_info",
+						  "group_message_id", gm_id,
 						  *msg.forward_info);
 			}
 			return;
 		}
 
-		/*
-		 * Existing row: handle edits and deletions.
-		 */
 		auto &old = old_rows[0];
-		uint64_t pm_id = std::stoull(*old[0]);
+		uint64_t gm_id = std::stoull(*old[0]);
 		int64_t old_edit_date = old[1].has_value() ?
 			std::stoll(*old[1]) : 0;
 		bool old_deleted = old[5].has_value() && *old[5] == "1";
 
 		/*
-		 * If the message is now deleted and wasn't before, only update
-		 * is_deleted. edit_date is left untouched so it keeps
-		 * reflecting the last real content edit.
+		 * Deletion: only flag is_deleted, keeping edit_date as the last
+		 * real content edit time.
 		 */
 		if (msg.is_deleted && !old_deleted) {
 			tx.execute(
-				"UPDATE private_messages SET is_deleted = 1"
+				"UPDATE group_messages SET is_deleted = 1"
 				" WHERE id = ?",
-				{ (int64_t)pm_id });
+				{ (int64_t)gm_id });
 			return;
 		}
 
-		/*
-		 * If the edit_date increased and content changed, copy the old
-		 * content into private_message_edits first.
-		 */
 		models::MessageContent old_content;
 		old_content.content_type =
 			models::message_content_type_from_string(
@@ -154,57 +152,40 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		if (old[4].has_value())
 			old_content.file_id = std::stoull(*old[4]);
 
-		snapshotMessageEditIfChanged(tx, "private_message_edits",
-					     "private_message_id", pm_id,
+		snapshotMessageEditIfChanged(tx, "group_message_edits",
+					     "group_message_id", gm_id,
 					     old_content, old_edit_date,
 					     msg.content, msg.edit_date);
 
-		/*
-		 * Update the private_messages row.
-		 */
-		tx.execute(upsert_sql, {
-			(int64_t)msg.chat_id,
-			(int64_t)msg.message_id,
-			sender_param,
-			b(msg.is_outgoing),
-			(int64_t)msg.date,
-			(int64_t)msg.edit_date,
-			new_ct,
-			text_param,
-			b(msg.is_deleted),
-			b(msg.forward_info.has_value()),
-		});
+		tx.execute(upsert_sql, bind_all());
 
-		/*
-		 * Insert forward info if present and not already recorded.
-		 */
 		if (msg.forward_info.has_value())
-			insertForwardInfo(tx, "private_message_fwd_info",
-					  "private_message_id", pm_id,
+			insertForwardInfo(tx, "group_message_fwd_info",
+					  "group_message_id", gm_id,
 					  *msg.forward_info);
 	});
 }
 
-void DB::setPrivateMessageFile(int64_t chat_id, int64_t message_id,
-			       uint64_t file_id)
+void DB::setGroupMessageFile(int64_t chat_id, int64_t message_id,
+			     uint64_t file_id)
 {
-	db_.execute("UPDATE private_messages SET file_id = ?"
+	db_.execute("UPDATE group_messages SET file_id = ?"
 		    " WHERE chat_id = ? AND message_id = ?",
 		    { (int64_t)file_id, (int64_t)chat_id, (int64_t)message_id });
 }
 
-void DB::setPrivateMessageReply(int64_t chat_id, int64_t message_id,
-				int64_t reply_to_chat_id,
-				int64_t reply_to_message_id)
+void DB::setGroupMessageReply(int64_t chat_id, int64_t message_id,
+			      int64_t reply_to_chat_id,
+			      int64_t reply_to_message_id)
 {
 	/*
 	 * Record the replied message universally, and resolve its surrogate
-	 * id when it is a private message too (LEFT JOIN, so reply_to_id is
+	 * id when it is a group message too (LEFT JOIN, so reply_to_id is
 	 * NULL for a cross-table reply or an as-yet-unsaved target).
 	 */
 	db_.execute(
-		"UPDATE private_messages AS m"
-		" LEFT JOIN private_messages AS r"
+		"UPDATE group_messages AS m"
+		" LEFT JOIN group_messages AS r"
 		"   ON r.chat_id = ? AND r.message_id = ?"
 		" SET m.reply_to_chat_id = ?, m.reply_to_msg_id = ?,"
 		"     m.reply_to_id = r.id"

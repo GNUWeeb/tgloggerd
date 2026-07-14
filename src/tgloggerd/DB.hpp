@@ -10,6 +10,8 @@
 #include <tgloggerd/models/File.hpp>
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
+#include <tgloggerd/models/GroupMessage.hpp>
+#include <tgloggerd/models/GroupAdmin.hpp>
 
 namespace tgloggerd {
 
@@ -34,6 +36,13 @@ public:
 	void upsertUser(const models::User &u);
 
 	/*
+	 * Apply td_api::userFullInfo fields (bio, birthdate, personal chat)
+	 * onto an existing users row, recording the previous bio in
+	 * user_hist_bio when it changes. No-op if the user row is absent.
+	 */
+	void upsertUserFullInfo(const models::UserFullInfo &fi);
+
+	/*
 	 * Insert a file, or, if a row with the same SHA-256 already exists,
 	 * bump its hit_count. Returns the files.id in both cases.
 	 */
@@ -54,6 +63,15 @@ public:
 	void setGroupPhoto(int64_t group_id, uint64_t file_id);
 
 	/*
+	 * Replace a group's stored administrator set with a freshly fetched
+	 * one, recording added/removed/privilege-change events in
+	 * group_admin_hist. Only call with a genuinely fetched list: an empty
+	 * list removes all stored admins, so an errored fetch must not reach
+	 * here.
+	 */
+	void syncGroupAdmins(const models::GroupAdminList &list);
+
+	/*
 	 * Insert or update a private-chat message. Handles:
 	 *  - First-seen messages (insert).
 	 *  - Edits (copies old row into private_message_edits, then
@@ -64,6 +82,36 @@ public:
 	 */
 	void upsertPrivateMessage(const models::PrivateMessage &msg);
 
+	/*
+	 * Insert or update a group-chat message. Same semantics as
+	 * upsertPrivateMessage, targeting the group_messages tables.
+	 */
+	void upsertGroupMessage(const models::GroupMessage &msg);
+
+	/*
+	 * Point a message's file_id at a files row, once its media
+	 * attachment has been downloaded. Managed separately from the
+	 * content upsert so an edit rebuild never clears the link.
+	 */
+	void setPrivateMessageFile(int64_t chat_id, int64_t message_id,
+				   uint64_t file_id);
+	void setGroupMessageFile(int64_t chat_id, int64_t message_id,
+				 uint64_t file_id);
+
+	/*
+	 * Link a message to the one it replies to. Records the replied
+	 * message's (reply_to_chat_id, reply_to_message_id) universally, and
+	 * resolves the surrogate-id FK reply_to_id when the replied message
+	 * is in the same table. The replied message should be saved first so
+	 * reply_to_id resolves (cross-table replies leave it NULL).
+	 */
+	void setPrivateMessageReply(int64_t chat_id, int64_t message_id,
+				    int64_t reply_to_chat_id,
+				    int64_t reply_to_message_id);
+	void setGroupMessageReply(int64_t chat_id, int64_t message_id,
+				  int64_t reply_to_chat_id,
+				  int64_t reply_to_message_id);
+
 private:
 	void syncUsernames(mysql::Transaction &tx, const models::User &u);
 	void trackProfilePhotoChange(mysql::Transaction &tx,
@@ -71,8 +119,23 @@ private:
 	void syncGroupUsernames(mysql::Transaction &tx, const models::Group &g);
 	void trackGroupPhotoChange(mysql::Transaction &tx,
 				   int64_t group_id, uint64_t file_id);
-	void insertForwardInfo(mysql::Transaction &tx,
-			       uint64_t private_message_id,
+
+	/*
+	 * Shared message-upsert helpers, parameterized by table and
+	 * foreign-key column so the identical private/group logic is not
+	 * duplicated. The table and column arguments are compile-time
+	 * literals, never user input.
+	 */
+	bool snapshotMessageEditIfChanged(mysql::Transaction &tx,
+					  const char *edits_table,
+					  const char *fk_column,
+					  uint64_t message_row_id,
+					  const models::MessageContent &old_content,
+					  int64_t old_edit_date,
+					  const models::MessageContent &new_content,
+					  int64_t new_edit_date);
+	void insertForwardInfo(mysql::Transaction &tx, const char *table,
+			       const char *fk_column, uint64_t message_row_id,
 			       const models::ForwardInfo &info);
 
 	mysql::Database db_;

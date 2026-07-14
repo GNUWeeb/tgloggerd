@@ -12,6 +12,7 @@
 #include "helpers/log.h"
 #include "TDLib.hpp"
 #include "DB.hpp"
+#include "ThreadPool.hpp"
 
 namespace tgloggerd {
 
@@ -33,6 +34,7 @@ private:
 						    const char *file_type);
 	void onProfilePhoto(const ProfilePhoto &p);
 	void onGroupPhoto(const GroupPhoto &p);
+	void onMessageFile(const MessageFile &m);
 
 	uint32_t api_id_;
 	char api_hash_[64];
@@ -41,6 +43,17 @@ private:
 	log_hd_t *l_ = nullptr;
 	std::unique_ptr<TDLib> tdlib_;
 	std::unique_ptr<DB> db_;
+
+	/*
+	 * Persistence runs off the TDLib event loop. serial_ is a single
+	 * worker: it owns all DB writes and the file->row link updates, so
+	 * their order (and thus every FK/edit/delete invariant) is preserved.
+	 * files_ hashes/copies downloaded media in parallel, then hands the
+	 * final link update back to serial_. Declared last so they are joined
+	 * before db_ on destruction; start() also drains them explicitly.
+	 */
+	std::unique_ptr<ThreadPool> serial_;
+	std::unique_ptr<ThreadPool> files_;
 };
 
 } /* namespace tgloggerd */
