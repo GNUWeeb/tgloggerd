@@ -275,7 +275,16 @@ void Database::transaction(const std::function<void(Transaction &)> &fn)
 			c->rollback();
 			c->setAutoCommit(true);
 		} catch (...) {
-			/* Best effort; report the original failure below. */
+			/*
+			 * The cleanup itself failed, so the connection's state
+			 * is unknown: dead (a loss the error code did not
+			 * betray), or alive with autocommit still off -- and a
+			 * pooled connection with autocommit off makes every
+			 * later write on it silently non-durable. Either way
+			 * it must not be pooled. The original failure is what
+			 * gets reported.
+			 */
+			conn.discard();
 		}
 		throw std::runtime_error(
 			std::string("MySQL transaction failed: ") + e.what());
@@ -284,7 +293,8 @@ void Database::transaction(const std::function<void(Transaction &)> &fn)
 			c->rollback();
 			c->setAutoCommit(true);
 		} catch (...) {
-			/* Best effort; rethrow the original exception. */
+			/* Same as above: unknown state, never pool it. */
+			conn.discard();
 		}
 		throw;
 	}
