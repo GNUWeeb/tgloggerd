@@ -2035,14 +2035,29 @@ void TDLib::Impl::refetch_edited_message(int64_t chat_id, int64_t message_id,
 /*
  * Content kinds whose changes are the SERVER mutating a message rather than
  * anyone editing it: a poll's vote counts and a live location's coordinates
- * change continuously and carry no edit_date. Re-fetching those would be a
- * round trip per vote for a message whose recorded content did not change.
+ * change continuously and carry no edit_date, so recording them as versions
+ * would append a row per vote or per movement.
+ *
+ * messageLiveLocation is the class that actually churns -- it is distinct
+ * from messageLocation (a static pin) in this TDLib build; the static one is
+ * kept in the list because excluding it costs nothing and its updates, if any
+ * ever fire, could only be server-driven too.
+ *
+ * The messageExpired* kinds are the server destroying TTL/view-once media
+ * after the fact. That is not an edit either, and treating it as one would
+ * overwrite the archived photo/video with 'unknown' content -- the exact
+ * opposite of how deletions are handled, which preserve what was seen.
  */
 bool is_server_churn_content(const td_api::MessageContent &c)
 {
 	switch (c.get_id()) {
 	case td_api::messagePoll::ID:
 	case td_api::messageLocation::ID:
+	case td_api::messageLiveLocation::ID:
+	case td_api::messageExpiredPhoto::ID:
+	case td_api::messageExpiredVideo::ID:
+	case td_api::messageExpiredVideoNote::ID:
+	case td_api::messageExpiredVoiceNote::ID:
 		return true;
 	default:
 		return false;
