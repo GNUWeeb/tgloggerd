@@ -1183,7 +1183,15 @@ struct TDLib::Impl {
 		 * silently shifts every value into the wrong member. */
 		bool		is_link_preview = false;
 	};
-	std::unordered_map<int32_t, PendingMsgFile>	pending_message_file_;
+	/*
+	 * Keyed by TDLib file id -- which TDLib DEDUPLICATES by remote id, so
+	 * two messages carrying the same photo (a forwarded meme, one link
+	 * previewed twice) share one id. A plain map's operator[] silently
+	 * replaced the first message's pending entry with the second, and the
+	 * first message never got its file linked. Hence a multimap, with
+	 * every waiting message emitted when the download lands.
+	 */
+	std::unordered_multimap<int32_t, PendingMsgFile> pending_message_file_;
 
 	/* Reply targets already fetched, so a chain is not re-walked. */
 	std::set<std::pair<int64_t, int64_t>>		resolved_reply_targets_;
@@ -2373,7 +2381,7 @@ void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
 		emit_message_file(ref, *img);
 		return;
 	}
-	pending_message_file_[img->id_] = std::move(ref);
+	pending_message_file_.emplace(img->id_, std::move(ref));
 	send_query(td_api::make_object<td_api::downloadFile>(img->id_, 1, 0, 0,
 							     false), {});
 }
@@ -2419,7 +2427,7 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 	}
 
 	/* Otherwise request the download and remember the message for it. */
-	pending_message_file_[f->id_] = std::move(ref);
+	pending_message_file_.emplace(f->id_, std::move(ref));
 	send_query(td_api::make_object<td_api::downloadFile>(
 			   f->id_, 1, 0, 0, false), {});
 }
@@ -2596,11 +2604,15 @@ void TDLib::Impl::handle_file_update(const td_api::file &f)
 		return;
 	}
 
-	auto mit = pending_message_file_.find(f.id_);
-	if (mit != pending_message_file_.end()) {
-		PendingMsgFile ref = mit->second;
-		pending_message_file_.erase(mit);
-		emit_message_file(ref, f);
+	auto range = pending_message_file_.equal_range(f.id_);
+	if (range.first != range.second) {
+		/* Every message waiting on this file gets it. */
+		std::vector<PendingMsgFile> refs;
+		for (auto it = range.first; it != range.second; ++it)
+			refs.push_back(it->second);
+		pending_message_file_.erase(range.first, range.second);
+		for (const auto &ref : refs)
+			emit_message_file(ref, f);
 		return;
 	}
 }
