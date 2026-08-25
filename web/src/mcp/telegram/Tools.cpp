@@ -60,6 +60,19 @@ constexpr size_t MAX_BATCH_IDS = 100;
  * The allowlist is curated and therefore small, which is what makes inlining
  * it affordable.
  */
+/*
+ * WHERE THE ALLOWLIST IS ENFORCED, so the full set is one comment away rather
+ * than one grep that has to guess how the SQL was line-wrapped.
+ *
+ * Everything that returns MESSAGES goes through msgGate() below: search,
+ * recent, get_messages, message history, popular words. The tools that return
+ * a GROUP or a per-group aggregate carry their own inline check against
+ * telegram_public_groups instead, because they already bind the group as a
+ * constant and so gain nothing from the literal-list form: get_group,
+ * get_group_history, list_group_admins, list_group_senders,
+ * count_user_messages. Both forms are gates; only the message path needs this
+ * one's query plan.
+ */
 struct Gate {
 	std::string              sql;   /* " AND m.chat_id IN (?,?)" or " AND 1=0" */
 	std::vector<std::string> binds;
@@ -197,7 +210,26 @@ drogon::orm::Result execTool(const drogon::orm::DbClientPtr &db,
 	try {
 		return execSync(db, sql, binds);
 	} catch (const std::exception &e) {
-		throw ToolError(std::string(what) + ": " + e.what());
+		const std::string msg = e.what();
+		/*
+		 * A timeout is the one failure the caller can actually do
+		 * something about, and the server's own wording ("maximum
+		 * statement execution time exceeded") says nothing about what.
+		 * The caller is a model; tell it which knob to turn.
+		 */
+		if (msg.find("maximum statement execution time") !=
+		    std::string::npos) {
+			throw ToolError(
+				std::string(what) +
+				": the query exceeded the 5-second limit. "
+				"Narrow it -- add a group_id, a date/edit_date "
+				"range, or a smaller limit. Note that combining "
+				"a broad text match with an explicit order_by "
+				"is the expensive case: without order_by the "
+				"same search is ordered by relevance, which "
+				"the full-text index can serve directly.");
+		}
+		throw ToolError(std::string(what) + ": " + msg);
 	}
 }
 
@@ -724,8 +756,19 @@ Json messageRow(const drogon::orm::Row &r, const RowOpts &o)
  * The join is deliberately not part of choosing those ids -- see
  * runMessageQuery.
  */
+/*
+ * The statement timeout lives HERE, on the outermost SELECT.
+ *
+ * MySQL accepts MAX_EXECUTION_TIME only on a top-level standalone SELECT --
+ * inside a derived table it is silently ignored (warning 3125). The two-phase
+ * plan below wraps the id-selection query in `FROM (...) sel`, so a hint on
+ * that inner query buys nothing; it has to be on the statement that wraps it,
+ * which is this one. Getting that wrong turns the 5-second guard into no guard
+ * at all, and a slow plan then holds a pool connection for as long as it likes.
+ */
 constexpr const char *MSG_SELECT =
-	"SELECT m.message_id, m.chat_id, m.sender_user_id, m.date, "
+	"SELECT /*+ MAX_EXECUTION_TIME(5000) */ "
+	"m.message_id, m.chat_id, m.sender_user_id, m.date, "
 	"FROM_UNIXTIME(m.date) AS sent_at, m.content_type, m.text, "
 	"m.is_forwarded, m.is_channel_post, m.reply_to_msg_id, m.deleted_at, "
 	"m.edit_date, "
@@ -772,6 +815,7 @@ struct OrderSpec {
 	std::string keyExpr;  /* same value as a NUMBER, for the cursor */
 	std::string valExpr;  /* how a cursor value is spelled back in */
 	std::string sql;      /* the full ORDER BY */
+	std::string extraWhere; /* narrowing this ordering requires */
 	bool asc = false;
 	bool cursorable = true;
 };
@@ -787,8 +831,14 @@ OrderSpec parseOrder(const Json &args, const std::string &ftExpr)
 	}
 
 	o.key = "date";
-	if (args.contains("order_by") && args["order_by"].is_string())
+	bool explicitOrder = false;
+	if (args.contains("order_by") && !args["order_by"].is_null()) {
+		if (!args["order_by"].is_string())
+			throw ToolError("\"order_by\" must be a string: date, "
+					"edit_date or deleted_at");
 		o.key = args["order_by"].get<std::string>();
+		explicitOrder = true;
+	}
 
 	if (o.key == "date") {
 		o.col = "m.date";
@@ -808,6 +858,18 @@ OrderSpec parseOrder(const Json &args, const std::string &ftExpr)
 		o.col = "m.deleted_at";
 		o.keyExpr = "UNIX_TIMESTAMP(m.deleted_at)";
 		o.valExpr = "FROM_UNIXTIME(?)";
+		/*
+		 * Sorting by a deletion time only means anything for rows that
+		 * have one, and NULL cannot be spelled in a cursor: the key
+		 * comes back as SQL NULL, is flattened to "", and would be
+		 * minted as the literal 0 -- after which every comparison
+		 * against a NULL deleted_at is NULL, so the resume predicate
+		 * matches nothing and paging silently stops. Excluding them
+		 * makes the key non-NULL by construction, keeps the column bare
+		 * so (chat_id, deleted_at) is still usable, and matches what
+		 * the option is for: listing what was removed.
+		 */
+		o.extraWhere = " AND m.deleted_at IS NOT NULL";
 	} else {
 		throw ToolError("\"order_by\" must be one of: date, edit_date, "
 				"deleted_at");
@@ -828,7 +890,7 @@ OrderSpec parseOrder(const Json &args, const std::string &ftExpr)
 	 * walks the fulltext index in order, so LIMIT stops early -- at the
 	 * cost of a cursor, since relevance is not a column to resume from.
 	 */
-	if (!ftExpr.empty() && !args.contains("order_by")) {
+	if (!ftExpr.empty() && !explicitOrder) {
 		o.key = "relevance";
 		o.sql = "MATCH(" + ftExpr + ") AGAINST(? IN BOOLEAN MODE) DESC";
 		o.cursorable = false;
@@ -876,7 +938,9 @@ Json runMessageQuery(const drogon::orm::DbClientPtr &db, const QueryReq &q)
 	 * so they are appended in exactly the order the placeholders appear:
 	 * gate, filter, cursor, inner relevance term, outer relevance term.
 	 */
-	std::string where = q.gate.sql;
+	/* Applied before the page/count split, so a total counts exactly what
+	 * paging would walk. */
+	std::string where = q.gate.sql + q.order.extraWhere;
 	std::vector<std::string> binds = q.gate.binds;
 	if (!q.whereExtra.empty()) {
 		where += " AND " + q.whereExtra;
@@ -901,9 +965,10 @@ Json runMessageQuery(const drogon::orm::DbClientPtr &db, const QueryReq &q)
 
 	/* limit 0 is a legitimate ask: "how many, without the rows". */
 	if (q.limit > 0 && !q.gate.matchesNothing) {
+		/* No timeout hint here: this is a derived table, where MySQL
+		 * ignores it. MSG_SELECT carries it for the whole statement. */
 		const std::string inner =
-			"SELECT /*+ MAX_EXECUTION_TIME(5000) */ m.id, " +
-			q.order.keyExpr + " AS ckey "
+			"SELECT m.id, " + q.order.keyExpr + " AS ckey "
 			"FROM telegram_group_messages m WHERE 1=1" + pageWhere +
 			" ORDER BY " + q.order.sql +
 			" LIMIT " + std::to_string(q.limit) +
@@ -925,6 +990,10 @@ Json runMessageQuery(const drogon::orm::DbClientPtr &db, const QueryReq &q)
 		std::string lastKey;
 		for (const auto &r : execTool(db, sql, allBinds)) {
 			out["messages"].push_back(messageRow(r, q.row));
+			/* Hoisted, not discarded: the rows no longer carry the
+			 * title, so the envelope has to. */
+			if (q.row.hoistGroup && !out.contains("group_title"))
+				out["group_title"] = colStr(r, "group_title");
 			lastId = colI64(r, "id_internal");
 			lastKey = colStr(r, "ckey");
 		}
@@ -1311,7 +1380,12 @@ void addPagingProps(Json &props)
 		  "Which timestamp to sort on. Default date (when sent). Use "
 		  "edit_date to list what changed, deleted_at to list what was "
 		  "removed -- both are index-backed. With a text match and no "
-		  "order_by, results come back by relevance instead." }
+		  "order_by, results come back by relevance instead, and you "
+		  "should usually leave it that way: pairing a BROAD text "
+		  "match with an explicit order_by makes the database sort "
+		  "every hit and can exceed the time limit. deleted_at "
+		  "ordering considers only messages that were actually "
+		  "deleted." }
 	};
 	props["order"] = Json{
 		{ "type", "string" },
@@ -2069,9 +2143,10 @@ Json run_telegram_list_group_senders(const drogon::orm::DbClientPtr &db, const J
 	 * those are excluded rather than collapsed into a
 	 * phantom participant.
 	 */
+	/* No hint here: derived table, where MySQL ignores it (warning 3125).
+	 * It goes on the wrapping SELECT below. */
 	const std::string inner =
-		"SELECT /*+ MAX_EXECUTION_TIME(5000) */ "
-		"m.sender_user_id AS uid, COUNT(1) AS n "
+		"SELECT m.sender_user_id AS uid, COUNT(1) AS n "
 		"FROM telegram_group_messages m "
 		"WHERE m.chat_id = ? "
 		"  AND m.sender_user_id IS NOT NULL "
@@ -2083,7 +2158,8 @@ Json run_telegram_list_group_senders(const drogon::orm::DbClientPtr &db, const J
 		" OFFSET " + std::to_string(offset);
 
 	const std::string sql =
-		"SELECT s.uid, s.n, u.first_name, u.last_name, "
+		"SELECT /*+ MAX_EXECUTION_TIME(5000) */ "
+		"s.uid, s.n, u.first_name, u.last_name, "
 		"u.type, u.is_verified, u.is_premium, "
 		"u.msg_count AS total_msgs, " +
 		usernameSubq("s.uid") + " AS username "
@@ -2709,8 +2785,16 @@ std::string unifiedDiff(const std::string &oldText, const std::string &newText)
 		}
 	}
 
-	std::string out = "@@ -" + std::to_string(pre + 1) + " +" +
-			  std::to_string(pre + 1) + " @@\n";
+	/*
+	 * A real unified-diff header: "@@ -start,count +start,count @@". Without
+	 * the counts the hunk is only well-formed when it happens to be exactly
+	 * one line for one line, so anything else could not be fed to a patch
+	 * tool. An empty side takes start 0 by convention.
+	 */
+	std::string out = "@@ -" + std::to_string(an ? pre + 1 : pre) + "," +
+			  std::to_string(an) + " +" +
+			  std::to_string(bn ? pre + 1 : pre) + "," +
+			  std::to_string(bn) + " @@\n";
 	size_t i = 0, j = 0;
 	while (i < an && j < bn) {
 		if (a[pre + i] == b[pre + j]) {

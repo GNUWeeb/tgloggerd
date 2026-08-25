@@ -250,6 +250,18 @@ std::string compileLeaf(Ctx &ctx, const nlohmann::json &node)
 		     "\" needs a value");
 	const nlohmann::json &v = node["value"];
 
+	/*
+	 * A presence field names a 0-sentinel column, not a boolean one, so
+	 * `= true` must become `<> 0` rather than binding the literal 1 and
+	 * comparing it against a raw timestamp -- which matches nothing and
+	 * returns zero rows with no error to say why.
+	 */
+	if (f->type == FType::Presence && (op == "=" || op == "!=")) {
+		const bool truthy = bindValue(*f, v) == "1";
+		const bool wantPresent = (op == "=") == truthy;
+		return wantPresent ? "(" + expr + " <> 0)" : "(" + expr + " = 0)";
+	}
+
 	if (op == "in") {
 		if (!v.is_array() || v.empty())
 			fail("\"in\" needs a non-empty array of values");
@@ -334,8 +346,23 @@ std::string compileNode(Ctx &ctx, const nlohmann::json &node, int depth)
 		return compileGroup(ctx, node["and"], depth, "AND");
 	if (hasOr)
 		return compileGroup(ctx, node["or"], depth, "OR");
-	if (hasNot)
-		return "(NOT " + compileNode(ctx, node["not"], depth + 1) + ")";
+	if (hasNot) {
+		/*
+		 * A negated match is an exclusion, not a ranking: every row that
+		 * survives it scores 0, so using it as the ORDER BY makes the
+		 * sort a total tie -- rows come back in arbitrary order, and
+		 * offset paging then repeats some and misses others. Restore the
+		 * relevance term around the recursion so only a POSITIVE match
+		 * can drive the ordering.
+		 */
+		const std::string savedExpr = ctx.ftExpr;
+		const std::string savedValue = ctx.ftValue;
+		std::string sql =
+			"(NOT " + compileNode(ctx, node["not"], depth + 1) + ")";
+		ctx.ftExpr = savedExpr;
+		ctx.ftValue = savedValue;
+		return sql;
+	}
 	return compileLeaf(ctx, node);
 }
 

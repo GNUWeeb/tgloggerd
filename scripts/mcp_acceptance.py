@@ -189,6 +189,72 @@ class Suite:
         self.check("no duplicates across pages", len(got) == len(set(got)))
 
     # ---- 6: count-only sizing, and the gate ------------------------------
+    # ---- 7: regressions found by adversarial review --------------------
+    def t_review_regressions(self):
+        print("\n[7] defects found by review, pinned so they stay fixed")
+        # A broad match with an explicit order_by used to run ~40s because the
+        # statement timeout sat on a derived table, where MySQL ignores it.
+        t0 = time.time()
+        try:
+            self.call("telegram_search_messages", {
+                "filter": {"field": "text", "op": "match", "value": "a*"},
+                "order_by": "date", "limit": 3, "fields": ["message_id"]})
+            timed_out = False
+        except AssertionError:
+            timed_out = True          # a bounded ToolError is the good case
+        dt = time.time() - t0
+        self.check("broad match + order_by is bounded by the guard", dt < 15,
+                   "%.1fs (was ~40s unbounded)" % dt)
+        self.check("...and it fails loudly rather than hanging", timed_out)
+
+        # A non-string order_by used to slip past the relevance override.
+        try:
+            self.call("telegram_search_messages",
+                      {"order_by": 5, "group_id": self.group, "limit": 1})
+            self.check("non-string order_by is rejected", False)
+        except AssertionError as e:
+            self.check("non-string order_by is rejected", "order_by" in str(e))
+
+        # deleted_at paging used to stop after one page: the NULL sort key was
+        # minted as "0" and no NULL row could match the resume predicate.
+        total, _ = self.call("telegram_search_messages", {
+            "group_id": self.group, "order_by": "deleted_at", "limit": 0,
+            "include_total": True})
+        seen, cursor = [], None
+        for _ in range(30):
+            a = {"group_id": self.group, "order_by": "deleted_at", "limit": 5,
+                 "fields": ["message_id"], "compact": True}
+            if cursor:
+                a["cursor"] = cursor
+            page, _ = self.call("telegram_search_messages", a)
+            seen += [m["message_id"] for m in page["messages"]]
+            cursor = page.get("next_cursor")
+            if not cursor:
+                break
+        self.check("deleted_at paging reaches every row",
+                   len(seen) == total["total"] == len(set(seen)),
+                   "paged %d, total %d" % (len(seen), total["total"]))
+
+        # A negated match is an exclusion, not a ranking: it must not become
+        # the ORDER BY (every surviving row scores 0, so the sort is a tie).
+        r, _ = self.call("telegram_search_messages", {
+            "filter": {"not": {"field": "text", "op": "match",
+                               "value": "kernel"}},
+            "group_id": self.group, "limit": 3, "fields": ["message_id"]})
+        self.check("negated match does not force relevance ordering",
+                   r["order_by"] == "date")
+
+        # A presence field compared with = used to bind 1 against a timestamp.
+        yes, _ = self.call("telegram_search_messages", {
+            "filter": {"field": "edited", "op": "=", "value": True},
+            "group_id": self.group, "limit": 0, "include_total": True})
+        nn, _ = self.call("telegram_search_messages", {
+            "filter": {"field": "edited", "op": "is_not_null"},
+            "group_id": self.group, "limit": 0, "include_total": True})
+        self.check("edited = true agrees with edited is_not_null",
+                   yes["total"] == nn["total"] and yes["total"] > 0,
+                   "%d vs %d" % (yes["total"], nn["total"]))
+
     def t_count_only_and_gate(self, private_group):
         print("\n[6] limit:0 sizing, and the exposure gate")
         r, _ = self.call("telegram_search_messages", {
@@ -241,6 +307,7 @@ def main():
     s.t_payload_shrink(a.shrink)
     s.t_cursor_exact()
     s.t_count_only_and_gate(a.private_group)
+    s.t_review_regressions()
 
     print("\n%d call(s) total, %d failure(s)" % (CALLS, s.failed))
     print("the motivating workload (tests 1+2) cost 2 calls; it was ~60.")
