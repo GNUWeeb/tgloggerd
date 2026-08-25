@@ -323,6 +323,21 @@ Outcome Gateway::Impl::run_once(void)
 		return oc;
 	}
 
+	/*
+	 * stop() may have landed while connect was in flight -- its
+	 * disconnect() then hit the PREVIOUS socket, or a not-yet-open one,
+	 * and this connection came up healthy anyway. The dispatch loop below
+	 * re-checks stopping only on Closed and Error, never on Message, so a
+	 * live connection would keep run() blocked forever. Catch it here,
+	 * before the loop starts.
+	 */
+	if (stopping.load()) {
+		sock->disconnect();
+		oc.next = Next::Stop;
+		oc.reason = StopReason::Requested;
+		return oc;
+	}
+
 	bool identified = false;
 	for (;;) {
 		std::string raw;
@@ -410,8 +425,16 @@ Outcome Gateway::Impl::run_once(void)
 			break;
 		}
 		case OP_HEARTBEAT:
-			/* Server asked for an immediate beat. */
-			ack_pending = true;
+			/*
+			 * Server asked for an immediate beat. Deliberately NOT
+			 * marked ack-pending: the heartbeat thread's zombie
+			 * check wakes on its own schedule, uncorrelated with
+			 * this exchange, and setting the flag here let the
+			 * timer fire inside the requested beat's ACK round
+			 * trip and close a perfectly healthy connection as a
+			 * zombie. Detection for the thread's own beats loses
+			 * nothing -- each has a full interval for its ACK.
+			 */
 			if (!sock->write(heartbeat_frame(), &err))
 				log(LogLevel::Warn,
 				    "requested heartbeat failed: " + err);
