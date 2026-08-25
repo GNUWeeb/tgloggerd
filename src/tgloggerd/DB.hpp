@@ -225,6 +225,20 @@ public:
 	MsgCountRefetch upsertGroupMessage(const models::GroupMessage &msg);
 
 	/*
+	 * Record the content a message now has, as delivered inline by
+	 * updateMessageContent, appending the version it replaces.
+	 *
+	 * Distinct from the upserts because that update carries content and no
+	 * edit_date, which is precisely what makes it worth using: the
+	 * edit_date-bearing update carries no content and has to fetch it, and
+	 * the fetch answers with whatever the message says later, losing any
+	 * version that was already superseded by then. Leaves edit_date alone.
+	 */
+	bool recordMessageContentVersion(int64_t chat_id, int64_t message_id,
+					 const models::MessageContent &content,
+					 bool is_group);
+
+	/*
 	 * Record a message's server-resolved link preview. The owning message
 	 * row id is resolved inside the statement via its (chat_id, message_id)
 	 * unique key, so this costs one round trip and cannot race a separate
@@ -325,6 +339,12 @@ private:
 					  const models::MessageContent &new_content,
 					  int64_t new_edit_date,
 					  bool entities_same);
+	void appendMessageVersion(mysql::Transaction &tx,
+				  const char *edits_table,
+				  const char *fk_column,
+				  uint64_t message_row_id,
+				  const models::MessageContent &content,
+				  int64_t edit_date);
 	void insertForwardInfo(mysql::Transaction &tx, const char *table,
 			       const char *fk_column, uint64_t message_row_id,
 			       const models::ForwardInfo &info);

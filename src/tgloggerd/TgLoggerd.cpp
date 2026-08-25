@@ -374,6 +374,29 @@ int TgLoggerd::start(void)
 			}
 		});
 	});
+	tdlib_->setContentVersionHandler(
+		[this](int64_t chat_id, int64_t message_id,
+		       const models::MessageContent &mc, bool is_group) {
+			serial_->post([this, chat_id, message_id, mc, is_group] {
+				try {
+					if (db_->recordMessageContentVersion(
+						chat_id, message_id, mc,
+						is_group))
+						pr_info(l_, "Recorded content"
+							" version chat_id=%lld"
+							" msg_id=%lld",
+							(long long)chat_id,
+							(long long)message_id);
+				} catch (const std::exception &e) {
+					pr_error(l_, "Failed to record message"
+						 " content version chat_id=%lld"
+						 " msg_id=%lld: %s",
+						 (long long)chat_id,
+						 (long long)message_id,
+						 e.what());
+				}
+			});
+		});
 	tdlib_->setLinkPreviewHandler(
 		[this](const models::LinkPreview &lp, bool is_group) {
 			/* Serialised with the message writes so the preview

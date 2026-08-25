@@ -566,52 +566,66 @@ describe_service_message(const td_api::message &message,
  * type, text/caption (with its formatting entities), and — for system
  * messages — the service type and a human-readable description are captured.
  */
+void extract_message_content(const td_api::MessageContent &content,
+			     models::MessageContent &out,
+			     const td_api::message *msg = nullptr);
+
+/*
+ * Overload taking the message, for the callers that have one. The work is done
+ * on the content alone so that updateMessageContent -- which is handed content
+ * with no message around it -- can use the same extraction.
+ */
 void extract_message_content(const td_api::message &message,
 			     models::MessageContent &out)
 {
-	if (!message.content_)
-		return;
+	if (message.content_)
+		extract_message_content(*message.content_, out, &message);
+}
 
-	switch (message.content_->get_id()) {
+void extract_message_content(const td_api::MessageContent &content,
+			     models::MessageContent &out,
+			     const td_api::message *msg)
+{
+	switch (content.get_id()) {
 	case td_api::messageText::ID: {
 		auto &c = static_cast<const td_api::messageText &>(
-			*message.content_);
+			content);
 		out.content_type = models::MessageContentType::Text;
 		set_formatted_text(c.text_.get(), out);
 		break;
 	}
 	case td_api::messagePhoto::ID: {
-		auto &c = static_cast<const td_api::messagePhoto &>(*message.content_);
+		auto &c = static_cast<const td_api::messagePhoto &>(content);
 		out.content_type = models::MessageContentType::Photo;
 		set_formatted_text(c.caption_.get(), out);
 		break;
 	}
 	case td_api::messageVideo::ID: {
-		auto &c = static_cast<const td_api::messageVideo &>(*message.content_);
+		auto &c = static_cast<const td_api::messageVideo &>(content);
 		out.content_type = models::MessageContentType::Video;
 		set_formatted_text(c.caption_.get(), out);
 		break;
 	}
 	case td_api::messageDocument::ID: {
-		auto &c = static_cast<const td_api::messageDocument &>(*message.content_);
+		auto &c = static_cast<const td_api::messageDocument &>(content);
 		out.content_type = models::MessageContentType::Document;
 		set_formatted_text(c.caption_.get(), out);
 		break;
 	}
 	case td_api::messageAudio::ID: {
-		auto &c = static_cast<const td_api::messageAudio &>(*message.content_);
+		auto &c = static_cast<const td_api::messageAudio &>(content);
 		out.content_type = models::MessageContentType::Audio;
 		set_formatted_text(c.caption_.get(), out);
 		break;
 	}
 	case td_api::messageVoiceNote::ID: {
-		auto &c = static_cast<const td_api::messageVoiceNote &>(*message.content_);
+		auto &c = static_cast<const td_api::messageVoiceNote &>(content);
 		out.content_type = models::MessageContentType::Voice;
 		set_formatted_text(c.caption_.get(), out);
 		break;
 	}
 	case td_api::messageAnimation::ID: {
-		auto &c = static_cast<const td_api::messageAnimation &>(*message.content_);
+		auto &c = static_cast<const td_api::messageAnimation &>(content);
 		out.content_type = models::MessageContentType::Animation;
 		set_formatted_text(c.caption_.get(), out);
 		break;
@@ -623,8 +637,16 @@ void extract_message_content(const td_api::message &message,
 		/* A system/service message (member joined, title changed, ...)
 		 * is a real, replyable message; record it as such. Anything
 		 * else is genuinely unknown content. */
+		/*
+		 * Describing a service message needs the message, not just its
+		 * content -- it reports who acted. updateMessageContent has no
+		 * message to give, but service messages are not edited, so the
+		 * only caller without one is also the one that never sees them.
+		 */
 		std::string service_type;
-		auto text = describe_service_message(message, service_type);
+		std::optional<std::string> text;
+		if (msg)
+			text = describe_service_message(*msg, service_type);
 		if (text.has_value()) {
 			out.content_type = models::MessageContentType::Service;
 			out.service_type = std::move(service_type);
@@ -1103,6 +1125,9 @@ struct TDLib::Impl {
 	std::function<void(const models::PrivateMessage &)> private_msg_handler_;
 	std::function<void(const models::GroupMessage &)> group_msg_handler_;
 	std::function<void(const models::LinkPreview &, bool)> link_preview_handler_;
+	/* A message's content as delivered inline by updateMessageContent. */
+	std::function<void(int64_t, int64_t, const models::MessageContent &,
+			   bool)> content_version_handler_;
 	std::function<void(const MessageFile &)>	message_file_handler_;
 	std::function<std::optional<uint64_t>(const std::string &)> file_lookup_;
 	std::function<void(const MessageFileLink &)>	message_file_link_handler_;
@@ -2054,29 +2079,37 @@ void TDLib::Impl::handle_update_message_content(int64_t chat_id,
 				 !is_private_chat(chat_id));
 
 	/*
-	 * ...and this is the EDIT fallback, which is a safety net rather than a
-	 * fix. Real edits arrive as updateMessageEdited, which carries the
-	 * edit_date this callback is not given and already re-fetches the
-	 * message; sampling live traffic found no edit that reached here
-	 * without one. But the two updates are independent, nothing in the API
-	 * guarantees they stay paired, and a silently missed edit is invisible
-	 * -- the stored text simply goes stale. So re-fetch here as well and
-	 * let the upsert decide: it snapshots the previous version only when
-	 * the content actually differs, making a duplicate re-fetch cost a
-	 * round trip and nothing more.
+	 * ...and this is where a version of the message is actually recorded,
+	 * from the content in hand.
 	 *
-	 * Skipped only for the content kinds that churn on their own, because
-	 * there the round trip would be per vote rather than per edit. It is
-	 * tempting to also skip a resolved link preview, since that is not an
-	 * edit and is by far the most common thing to arrive here -- but an
-	 * edit that ADDS a link is delivered with a preview too, so skipping
-	 * those would open the hole this exists to close, and the measured
-	 * traffic makes it a few round trips an hour.
+	 * This update is the only place the daemon is TOLD what a message now
+	 * says. The other one, updateMessageEdited, carries the date and not
+	 * the content, so it has to ask -- and the answer describes the message
+	 * whenever the server gets to the question, not when the edit happened.
+	 * Edit twice quickly and the first question is answered with the second
+	 * version; edit back to the original and the answer matches what is
+	 * already stored, so it is read as "nothing changed" and the version in
+	 * between is lost with nothing to show it existed. Content that arrives
+	 * inline cannot go stale that way, because it IS the version.
+	 *
+	 * Skipped for the kinds that churn without anyone editing them, where
+	 * this would append a version per vote.
 	 */
 	if (is_server_churn_content(*content))
 		return;
 
-	refetch_edited_message(chat_id, message_id, false);
+	if (content_version_handler_) {
+		models::MessageContent mc;
+		extract_message_content(*content, mc);
+		/*
+		 * The stored row is keyed by the SERVER message id, not the
+		 * TDLib one this update carries; forgetting the conversion
+		 * makes the lookup miss every message and the whole path a
+		 * silent no-op.
+		 */
+		content_version_handler_(chat_id, to_server_msg_id(message_id),
+					 mc, !is_private_chat(chat_id));
+	}
 }
 
 void TDLib::Impl::handle_delete_messages(int64_t chat_id,
@@ -3087,6 +3120,13 @@ void TDLib::setLinkPreviewHandler(
 	std::function<void(const models::LinkPreview &, bool)> cb)
 {
 	impl_->link_preview_handler_ = std::move(cb);
+}
+
+void TDLib::setContentVersionHandler(
+	std::function<void(int64_t, int64_t, const models::MessageContent &,
+			   bool)> cb)
+{
+	impl_->content_version_handler_ = std::move(cb);
 }
 
 void TDLib::setGroupMessageHandler(

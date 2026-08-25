@@ -109,39 +109,196 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 	    entities_same)
 		return false;
 
+	appendMessageVersion(tx, edits_table, fk_column, message_row_id,
+			     old_content, old_edit_date);
+	return true;
+}
+
+/*
+ * Append one superseded version of a message to its edits table, unconditionally.
+ *
+ * The stamp is the edit_date that content had while it was live -- its own
+ * start, not the date of the edit that ended it -- so edit_date means the same
+ * thing here as on the live row (this version came into being then, 0 for the
+ * original). A message's history is then its edit rows followed by the live
+ * row, each carrying its own start.
+ *
+ * Separate from snapshotMessageEditIfChanged because the two callers know
+ * different things. That one is driven by a rebuilt message and can see both
+ * edit_dates, so it decides whether an edit happened at all; this one is driven
+ * by a content update that carries no date, where the fact that the content
+ * differs IS the evidence.
+ */
+void DB::appendMessageVersion(mysql::Transaction &tx, const char *edits_table,
+			      const char *fk_column, uint64_t message_row_id,
+			      const models::MessageContent &content,
+			      int64_t edit_date)
+{
 	mysql::Param text_param = std::monostate{};
-	if (old_content.text.has_value())
-		text_param = *old_content.text;
+	if (content.text.has_value())
+		text_param = *content.text;
 
 	mysql::Param entities_param = std::monostate{};
-	if (old_content.entities.has_value())
-		entities_param = *old_content.entities;
+	if (content.entities.has_value())
+		entities_param = *content.entities;
 
 	mysql::Param file_param = std::monostate{};
-	if (old_content.file_id.has_value())
-		file_param = (int64_t)*old_content.file_id;
+	if (content.file_id.has_value())
+		file_param = (int64_t)*content.file_id;
 
 	std::string sql = std::string("INSERT INTO ") + edits_table + " (" +
 		fk_column + ", content_type, text, entities, file_id, edit_date)"
 		" VALUES (?, ?, ?, ?, ?, ?)";
 
-	/*
-	 * The snapshot records the content before the edit, stamped with the
-	 * edit_date that content had while it was live -- its own start, not
-	 * the date of the edit that ended it. That makes edit_date mean one
-	 * thing in both tables (this version came into being then, 0 for the
-	 * original), so a message's history reads as its edit rows followed by
-	 * the live row, each carrying its own start.
-	 */
 	tx.execute(sql, {
 		(int64_t)message_row_id,
-		std::string(models::to_string(old_content.content_type)),
+		std::string(models::to_string(content.content_type)),
 		text_param,
 		entities_param,
 		file_param,
-		(int64_t)old_edit_date,
+		(int64_t)edit_date,
 	});
-	return true;
+}
+
+namespace {
+
+/* Content kinds that own a file in telegram_files. */
+bool is_media_content_type(models::MessageContentType t)
+{
+	switch (t) {
+	case models::MessageContentType::Photo:
+	case models::MessageContentType::Video:
+	case models::MessageContentType::Document:
+	case models::MessageContentType::Audio:
+	case models::MessageContentType::Voice:
+	case models::MessageContentType::Sticker:
+	case models::MessageContentType::Animation:
+		return true;
+	default:
+		return false;
+	}
+}
+
+} /* namespace */
+
+/*
+ * Record a message's content as observed by updateMessageContent, which hands
+ * the daemon the new content directly.
+ *
+ * That directness is the whole point. The other way to learn an edit is
+ * updateMessageEdited, which carries a date and no content and so has to answer
+ * with getMessage -- and getMessage replies with the message as it stands when
+ * the server gets round to it, not as it stood at the edit that asked. Someone
+ * who edits twice in quick succession therefore has the first version answered
+ * with the second one, and if they then edit back to the original the archive
+ * sees the text it already had, concludes nothing changed, and the middle
+ * version is gone with no trace that it existed. Content delivered inline has
+ * no such window: it is the version, at the moment it existed.
+ *
+ * edit_date is deliberately not touched. This update does not carry one, and
+ * guessing would defeat the ordering guard on the upsert. The version being
+ * superseded is stamped with the date it held while live, which IS known, and
+ * the live row's date is left for updateMessageEdited to set.
+ *
+ * Returns true when a version was recorded.
+ */
+bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
+				     const models::MessageContent &content,
+				     bool is_group)
+{
+	const char *tbl   = is_group ? "telegram_group_messages"
+				     : "telegram_private_messages";
+	const char *edits = is_group ? "telegram_group_message_edits"
+				     : "telegram_private_message_edits";
+	const char *fk    = is_group ? "group_message_id"
+				     : "private_message_id";
+
+	bool recorded = false;
+	db_.transaction([&](mysql::Transaction &tx) {
+		mysql::Param entities_param = std::monostate{};
+		if (content.entities.has_value())
+			entities_param = *content.entities;
+
+		auto rows = tx.query(
+			std::string("SELECT id, edit_date, content_type, text,"
+				    " file_id, entities, deleted_at,"
+				    " (entities <=> CAST(? AS JSON))"
+				    " FROM ") + tbl +
+			" WHERE chat_id = ? AND message_id = ?",
+			{ entities_param, (int64_t)chat_id,
+			  (int64_t)message_id });
+
+		/*
+		 * Nothing stored yet. Not an error and not something to insert
+		 * from here: this update carries content but none of the
+		 * identity a row needs, and the message path will store it
+		 * properly when it arrives.
+		 */
+		if (rows.empty())
+			return;
+
+		auto &old = rows[0];
+
+		/* Deleted messages keep the content they were deleted with. */
+		if (old[6].has_value())
+			return;
+
+		models::MessageContent prev;
+		prev.content_type = models::message_content_type_from_string(
+			old[2].value_or("unknown"));
+		if (old[3].has_value())
+			prev.text = *old[3];
+		if (old[5].has_value())
+			prev.entities = *old[5];
+		if (old[4].has_value())
+			prev.file_id = std::stoull(*old[4]);
+
+		/* Same comparison the edit path makes; see the note there on
+		 * why entities is answered by the server and text is not. */
+		if (prev.content_type == content.content_type &&
+		    prev.text == content.text &&
+		    old[7].value_or("0") == "1")
+			return;
+
+		uint64_t row_id = std::stoull(*old[0]);
+		int64_t prev_edit_date = old[1].has_value() ?
+			std::stoll(*old[1]) : 0;
+
+		appendMessageVersion(tx, edits, fk, row_id, prev,
+				     prev_edit_date);
+
+		mysql::Param text_param = std::monostate{};
+		if (content.text.has_value())
+			text_param = *content.text;
+
+		mysql::Param service_param = std::monostate{};
+		if (content.service_type.has_value())
+			service_param = *content.service_type;
+
+		/*
+		 * Drop the file link when the new content cannot own one --
+		 * an edit that turns a photo into text would otherwise leave
+		 * the row pointing at the superseded version's file, which the
+		 * snapshot above now holds. When the new content IS media the
+		 * link is left alone for the async file pipeline to set.
+		 */
+		std::string sql = std::string("UPDATE ") + tbl +
+			" SET content_type = ?, text = ?, entities = ?,"
+			" service_type = ?";
+		if (!is_media_content_type(content.content_type))
+			sql += ", file_id = NULL";
+		sql += " WHERE id = ?";
+
+		tx.execute(sql, {
+			std::string(models::to_string(content.content_type)),
+			text_param,
+			entities_param,
+			service_param,
+			(int64_t)row_id,
+		});
+		recorded = true;
+	});
+	return recorded;
 }
 
 void DB::insertForwardInfo(mysql::Transaction &tx, const char *table,

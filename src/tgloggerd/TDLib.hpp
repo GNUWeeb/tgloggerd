@@ -188,6 +188,19 @@ public:
 		std::function<void(const models::GroupMessage &)> cb);
 
 	/*
+	 * Set the callback invoked when Telegram reports a message's content,
+	 * delivered inline rather than as a date to go and look up. Called with
+	 * (chat_id, message_id, content, is_group).
+	 *
+	 * This is what preserves a version that was replaced before anyone
+	 * could ask about it -- see recordMessageContentVersion(). It is not
+	 * called for polls or live locations, whose content changes on its own.
+	 */
+	void setContentVersionHandler(
+		std::function<void(int64_t, int64_t,
+				   const models::MessageContent &, bool)> cb);
+
+	/*
 	 * Set the callback invoked when a message carries a server-resolved link
 	 * preview. Fires after the message handler, so the row it attaches to
 	 * already exists.
