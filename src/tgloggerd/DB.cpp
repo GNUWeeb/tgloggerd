@@ -81,6 +81,72 @@ ChatPhoto DB::getGroupPhoto(int64_t chat_id)
 	return out;
 }
 
+/*
+ * The owning message, as a subquery, so the preview and its owner are resolved
+ * in one statement. Group and private messages live in separate tables (and
+ * separate columns here), which is the only thing that differs between the two.
+ */
+void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
+{
+	const char *sql = is_group
+		? "INSERT INTO telegram_link_previews "
+		  "  (group_message_id, url, display_url, site_name, title, "
+		  "   description, author, type, instant_view_version, "
+		  "   has_large_media, show_large_media, show_above_text) "
+		  "SELECT m.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
+		  "  FROM telegram_group_messages m "
+		  " WHERE m.chat_id = ? AND m.message_id = ? "
+		  "ON DUPLICATE KEY UPDATE "
+		  "  url = VALUES(url), display_url = VALUES(display_url), "
+		  "  site_name = VALUES(site_name), title = VALUES(title), "
+		  "  description = VALUES(description), author = VALUES(author), "
+		  "  type = VALUES(type), "
+		  "  instant_view_version = VALUES(instant_view_version), "
+		  "  has_large_media = VALUES(has_large_media), "
+		  "  show_large_media = VALUES(show_large_media), "
+		  "  show_above_text = VALUES(show_above_text)"
+		: "INSERT INTO telegram_link_previews "
+		  "  (private_message_id, url, display_url, site_name, title, "
+		  "   description, author, type, instant_view_version, "
+		  "   has_large_media, show_large_media, show_above_text) "
+		  "SELECT m.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
+		  "  FROM telegram_private_messages m "
+		  " WHERE m.chat_id = ? AND m.message_id = ? "
+		  "ON DUPLICATE KEY UPDATE "
+		  "  url = VALUES(url), display_url = VALUES(display_url), "
+		  "  site_name = VALUES(site_name), title = VALUES(title), "
+		  "  description = VALUES(description), author = VALUES(author), "
+		  "  type = VALUES(type), "
+		  "  instant_view_version = VALUES(instant_view_version), "
+		  "  has_large_media = VALUES(has_large_media), "
+		  "  show_large_media = VALUES(show_large_media), "
+		  "  show_above_text = VALUES(show_above_text)";
+
+	db_.execute(sql, { lp.url, lp.display_url, lp.site_name, lp.title,
+			   lp.description, lp.author, lp.type,
+			   (int64_t)lp.instant_view_version,
+			   (int64_t)(lp.has_large_media ? 1 : 0),
+			   (int64_t)(lp.show_large_media ? 1 : 0),
+			   (int64_t)(lp.show_above_text ? 1 : 0),
+			   lp.chat_id, lp.message_id });
+}
+
+void DB::setLinkPreviewPhoto(int64_t chat_id, int64_t message_id,
+			     bool is_group, uint64_t file_id)
+{
+	const char *sql = is_group
+		? "UPDATE telegram_link_previews p "
+		  "  JOIN telegram_group_messages m ON m.id = p.group_message_id "
+		  "   SET p.photo_file_id = ? "
+		  " WHERE m.chat_id = ? AND m.message_id = ?"
+		: "UPDATE telegram_link_previews p "
+		  "  JOIN telegram_private_messages m "
+		  "    ON m.id = p.private_message_id "
+		  "   SET p.photo_file_id = ? "
+		  " WHERE m.chat_id = ? AND m.message_id = ?";
+	db_.execute(sql, { (int64_t)file_id, chat_id, message_id });
+}
+
 std::optional<DiscordOrigin> DB::getDiscordOrigin(int64_t chat_id,
 						  int64_t message_id)
 {

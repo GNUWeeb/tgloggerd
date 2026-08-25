@@ -794,6 +794,179 @@ extract_forward_info(const td_api::message &message)
  * if the content carries no file. On success, *category is set to the
  * matching telegram_files.file_type value. For photos, the largest size is chosen.
  */
+/*
+ * The best image a link preview offers, and the preview's own metadata.
+ *
+ * The image is wherever the particular LinkPreviewType keeps it, and TDLib has
+ * forty of them. They fall into three shapes:
+ *
+ *   photo / thumbnail : a `photo`, i.e. a list of sizes -- take the largest
+ *   chatPhoto         : also a list of sizes, but a different type
+ *   a media object    : animation/video/document/audio/sticker, whose picture
+ *                       is its `thumbnail`, not the media itself
+ *
+ * The last distinction matters: for a preview of a YouTube link we want the
+ * poster frame, not the video. The user asked for the preview's IMAGE, and
+ * downloading the linked media instead would be a different, much larger thing.
+ *
+ * Returns the file to download, or nullptr when the preview has no image.
+ */
+const td_api::file *photo_best_size(const td_api::photo *p)
+{
+	if (!p)
+		return nullptr;
+	const td_api::file *best = nullptr;
+	int64_t best_px = -1;
+	for (const auto &sz : p->sizes_) {
+		if (!sz || !sz->photo_)
+			continue;
+		const int64_t px = (int64_t)sz->width_ * sz->height_;
+		if (px > best_px) {
+			best_px = px;
+			best = sz->photo_.get();
+		}
+	}
+	return best;
+}
+
+const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
+{
+	if (!p)
+		return nullptr;
+	const td_api::file *best = nullptr;
+	int64_t best_px = -1;
+	for (const auto &sz : p->sizes_) {
+		if (!sz || !sz->photo_)
+			continue;
+		const int64_t px = (int64_t)sz->width_ * sz->height_;
+		if (px > best_px) {
+			best_px = px;
+			best = sz->photo_.get();
+		}
+	}
+	return best;
+}
+
+const td_api::file *thumb_file(const td_api::thumbnail *t)
+{
+	return (t && t->file_) ? t->file_.get() : nullptr;
+}
+
+const td_api::file *link_preview_image(const td_api::LinkPreviewType *t,
+				       const char **type_name)
+{
+	*type_name = "unsupported";
+	if (!t)
+		return nullptr;
+
+	switch (t->get_id()) {
+	case td_api::linkPreviewTypeArticle::ID:
+		*type_name = "article";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeArticle &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypePhoto::ID:
+		*type_name = "photo";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypePhoto &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeApp::ID:
+		*type_name = "app";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeApp &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeWebApp::ID:
+		*type_name = "web_app";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeWebApp &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeEmbeddedVideoPlayer::ID:
+		*type_name = "embedded_video_player";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeEmbeddedVideoPlayer &>(*t)
+				.thumbnail_.get());
+	case td_api::linkPreviewTypeEmbeddedAnimationPlayer::ID:
+		*type_name = "embedded_animation_player";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeEmbeddedAnimationPlayer &>(*t)
+				.thumbnail_.get());
+	case td_api::linkPreviewTypeEmbeddedAudioPlayer::ID:
+		*type_name = "embedded_audio_player";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeEmbeddedAudioPlayer &>(*t)
+				.thumbnail_.get());
+	case td_api::linkPreviewTypeChat::ID:
+		*type_name = "chat";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeChat &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeUser::ID:
+		*type_name = "user";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeUser &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeChannelBoost::ID:
+		*type_name = "channel_boost";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeChannelBoost &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeSupergroupBoost::ID:
+		*type_name = "supergroup_boost";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeSupergroupBoost &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeVideoChat::ID:
+		*type_name = "video_chat";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeVideoChat &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeVideo::ID: {
+		*type_name = "video";
+		auto &v = static_cast<const td_api::linkPreviewTypeVideo &>(*t);
+		return v.video_ ? thumb_file(v.video_->thumbnail_.get())
+				: nullptr;
+	}
+	case td_api::linkPreviewTypeAnimation::ID: {
+		*type_name = "animation";
+		auto &a = static_cast<const td_api::linkPreviewTypeAnimation &>(*t);
+		return a.animation_
+			       ? thumb_file(a.animation_->thumbnail_.get())
+			       : nullptr;
+	}
+	case td_api::linkPreviewTypeDocument::ID: {
+		*type_name = "document";
+		auto &d = static_cast<const td_api::linkPreviewTypeDocument &>(*t);
+		return d.document_ ? thumb_file(d.document_->thumbnail_.get())
+				   : nullptr;
+	}
+	case td_api::linkPreviewTypeAudio::ID:
+		*type_name = "audio";
+		return nullptr;
+	case td_api::linkPreviewTypeSticker::ID:
+		*type_name = "sticker";
+		return nullptr;
+	case td_api::linkPreviewTypeMessage::ID:   *type_name = "message"; return nullptr;
+	case td_api::linkPreviewTypeStory::ID:     *type_name = "story"; return nullptr;
+	case td_api::linkPreviewTypeInvoice::ID:   *type_name = "invoice"; return nullptr;
+	case td_api::linkPreviewTypeGroupCall::ID: *type_name = "group_call"; return nullptr;
+	case td_api::linkPreviewTypeExternalVideo::ID: *type_name = "external_video"; return nullptr;
+	case td_api::linkPreviewTypeExternalAudio::ID: *type_name = "external_audio"; return nullptr;
+	default:
+		/* A type this TDLib knows and we do not: record it as
+		 * unsupported rather than dropping the preview entirely -- the
+		 * url and title are still worth keeping. */
+		*type_name = "unsupported";
+		return nullptr;
+	}
+}
+
+const td_api::linkPreview *message_link_preview(const td_api::MessageContent &c)
+{
+	if (c.get_id() != td_api::messageText::ID)
+		return nullptr;
+	return static_cast<const td_api::messageText &>(c).link_preview_.get();
+}
+
 const td_api::file *message_content_file(const td_api::MessageContent &content,
 					 const char **category,
 					 std::string *file_name)
@@ -928,6 +1101,7 @@ struct TDLib::Impl {
 	std::function<void(int64_t, int64_t)>		delete_forward_handler_;
 	std::function<void(const models::PrivateMessage &)> private_msg_handler_;
 	std::function<void(const models::GroupMessage &)> group_msg_handler_;
+	std::function<void(const models::LinkPreview &, bool)> link_preview_handler_;
 	std::function<void(const MessageFile &)>	message_file_handler_;
 	std::function<std::optional<uint64_t>(const std::string &)> file_lookup_;
 	std::function<void(const MessageFileLink &)>	message_file_link_handler_;
@@ -978,6 +1152,10 @@ struct TDLib::Impl {
 		bool		is_group;
 		std::string	content_type;
 		std::string	orig_file_name;
+		/* Appended, never inserted: this struct is built with an
+		 * aggregate initializer, so a field added anywhere but the end
+		 * silently shifts every value into the wrong member. */
+		bool		is_link_preview = false;
 	};
 	std::unordered_map<int32_t, PendingMsgFile>	pending_message_file_;
 
@@ -1067,6 +1245,8 @@ struct TDLib::Impl {
 	void resolve_forward_origin(const models::ForwardInfo &info);
 	void ensure_user_saved(int64_t user_id);
 	void ensure_chat_saved(int64_t chat_id);
+	void maybe_store_link_preview(const td_api::message &message,
+				      bool is_group);
 	void maybe_download_message_file(const td_api::message &message,
 					 bool is_group);
 	void emit_message_file(const PendingMsgFile &ref, const td_api::file &f);
@@ -1643,6 +1823,8 @@ void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,
 
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, false);
+	/* ...and record its link preview, whose row keys off that same row. */
+	maybe_store_link_preview(message, false);
 
 	resolve_reply_message(message, false, depth);
 }
@@ -1661,6 +1843,8 @@ void TDLib::Impl::handle_message_for_group_chat(td_api::message &message,
 
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, true);
+	/* ...and record its link preview, whose row keys off that same row. */
+	maybe_store_link_preview(message, true);
 
 	resolve_reply_message(message, true, depth);
 }
@@ -1979,6 +2163,72 @@ void TDLib::Impl::ensure_chat_saved(int64_t chat_id)
 		});
 }
 
+/*
+ * Record a message's link preview, and queue its image for download.
+ *
+ * Called after the message row exists, because the preview row keys off it.
+ * The image goes through exactly the same pipeline as an attachment --
+ * downloadFile, hash, content-address into telegram_files -- with one bit set
+ * so the completion links it to the preview instead of to the message.
+ */
+void TDLib::Impl::maybe_store_link_preview(const td_api::message &message,
+					   bool is_group)
+{
+	if (!message.content_)
+		return;
+	const td_api::linkPreview *lp = message_link_preview(*message.content_);
+	if (!lp)
+		return;
+
+	const char *type_name = "unsupported";
+	const td_api::file *img = link_preview_image(lp->type_.get(), &type_name);
+
+	if (link_preview_handler_) {
+		models::LinkPreview m;
+		m.chat_id = message.chat_id_;
+		m.message_id = to_server_msg_id(message.id_);
+		m.url = lp->url_;
+		m.display_url = lp->display_url_;
+		m.site_name = lp->site_name_;
+		m.title = lp->title_;
+		if (lp->description_)
+			m.description = lp->description_->text_;
+		m.author = lp->author_;
+		m.type = type_name;
+		m.instant_view_version = lp->instant_view_version_;
+		m.has_large_media = lp->has_large_media_;
+		m.show_large_media = lp->show_large_media_;
+		m.show_above_text = lp->show_above_text_;
+		link_preview_handler_(m, is_group);
+	}
+
+	if (!img || !message_file_handler_)
+		return;
+
+	PendingMsgFile ref{ message.chat_id_, to_server_msg_id(message.id_),
+			    is_group, "photo", std::string() };
+	ref.is_link_preview = true;
+
+	/* Already known: link the existing row instead of fetching again. */
+	if (file_lookup_ && message_file_link_handler_ && img->remote_ &&
+	    !img->remote_->id_.empty()) {
+		auto fid = file_lookup_(img->remote_->id_);
+		if (fid.has_value()) {
+			message_file_link_handler_(MessageFileLink{
+				ref.chat_id, ref.message_id, ref.is_group,
+				true, *fid });
+			return;
+		}
+	}
+	if (img->local_ && img->local_->is_downloading_completed_) {
+		emit_message_file(ref, *img);
+		return;
+	}
+	pending_message_file_[img->id_] = std::move(ref);
+	send_query(td_api::make_object<td_api::downloadFile>(img->id_, 1, 0, 0,
+							     false), {});
+}
+
 void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 					      bool is_group)
 {
@@ -2008,7 +2258,7 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 		if (fid.has_value()) {
 			message_file_link_handler_(MessageFileLink{
 				ref.chat_id, ref.message_id, ref.is_group,
-				*fid });
+				ref.is_link_preview, *fid });
 			return;
 		}
 	}
@@ -2036,6 +2286,7 @@ void TDLib::Impl::emit_message_file(const PendingMsgFile &ref,
 	mf.chat_id = ref.chat_id;
 	mf.message_id = ref.message_id;
 	mf.is_group = ref.is_group;
+	mf.is_link_preview = ref.is_link_preview;
 	mf.local_path = f.local_->path_;
 	mf.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
 	mf.tg_local_file_id = f.id_;
@@ -2729,6 +2980,12 @@ void TDLib::setPrivateMessageHandler(
 	std::function<void(const models::PrivateMessage &)> cb)
 {
 	impl_->private_msg_handler_ = std::move(cb);
+}
+
+void TDLib::setLinkPreviewHandler(
+	std::function<void(const models::LinkPreview &, bool)> cb)
+{
+	impl_->link_preview_handler_ = std::move(cb);
 }
 
 void TDLib::setGroupMessageHandler(

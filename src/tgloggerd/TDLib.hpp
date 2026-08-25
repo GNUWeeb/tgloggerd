@@ -15,6 +15,7 @@
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
 #include <tgloggerd/models/GroupMessage.hpp>
+#include <tgloggerd/models/LinkPreview.hpp>
 #include <tgloggerd/models/GroupAdmin.hpp>
 #include <tgloggerd/models/Backfill.hpp>
 
@@ -67,6 +68,14 @@ struct MessageFile {
 	int64_t		chat_id;
 	int64_t		message_id;
 	bool		is_group;
+	/*
+	 * The file is a LINK PREVIEW image, not an attachment. It belongs to the
+	 * message's preview card, so it must be linked to the preview row rather
+	 * than set as the message's own file -- a text message with a preview is
+	 * still a text message, and treating the card's picture as an attachment
+	 * would make it render as one everywhere.
+	 */
+	bool		is_link_preview = false;
 	std::string	local_path;
 	std::string	tg_file_id;	/* remote id (string), for DB dedup */
 	int32_t		tg_local_file_id; /* local id, for TDLib deleteFile */
@@ -84,6 +93,7 @@ struct MessageFileLink {
 	int64_t		chat_id;
 	int64_t		message_id;
 	bool		is_group;
+	bool		is_link_preview = false; /* see MessageFile */
 	uint64_t	file_id;	/* existing telegram_files.id */
 };
 
@@ -176,6 +186,14 @@ public:
 	 */
 	void setGroupMessageHandler(
 		std::function<void(const models::GroupMessage &)> cb);
+
+	/*
+	 * Set the callback invoked when a message carries a server-resolved link
+	 * preview. Fires after the message handler, so the row it attaches to
+	 * already exists.
+	 */
+	void setLinkPreviewHandler(
+		std::function<void(const models::LinkPreview &, bool is_group)> cb);
 
 	/*
 	 * Set the callback invoked once for every live, newly-received message

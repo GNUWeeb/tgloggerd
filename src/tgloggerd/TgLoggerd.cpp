@@ -374,6 +374,33 @@ int TgLoggerd::start(void)
 			}
 		});
 	});
+	tdlib_->setLinkPreviewHandler(
+		[this](const models::LinkPreview &lp, bool is_group) {
+			/* Serialised with the message writes so the preview
+			 * never lands before the row it points at. */
+			serial_->post([this, lp, is_group] {
+				try {
+					db_->upsertLinkPreview(lp, is_group);
+					pr_info(l_,
+						"Stored link preview | %s "
+						"chat_id=%lld msg_id=%lld "
+						"type=%s site=%.32s",
+						is_group ? "group" : "private",
+						(long long)lp.chat_id,
+						(long long)lp.message_id,
+						lp.type.c_str(),
+						lp.site_name.c_str());
+				} catch (const std::exception &e) {
+					pr_error(l_,
+						 "Failed to store link preview "
+						 "chat_id=%lld msg_id=%lld: %s",
+						 (long long)lp.chat_id,
+						 (long long)lp.message_id,
+						 e.what());
+				}
+			});
+		});
+
 	tdlib_->setMessageFileHandler([this](const MessageFile &mf) {
 		files_->post([this, mf] {
 			try {
@@ -581,16 +608,28 @@ void TgLoggerd::onMessageFile(const MessageFile &m)
 	int64_t message_id = m.message_id;
 	bool is_group = m.is_group;
 	uint64_t fid = *file_id;
-	serial_->post([this, chat_id, message_id, is_group, fid] {
+	const bool is_preview = m.is_link_preview;
+	serial_->post([this, chat_id, message_id, is_group, fid, is_preview] {
 		try {
-			if (is_group)
+			/*
+			 * A preview image belongs to the card, not to the
+			 * message: setting it as the message's own file would
+			 * make a text message render as an attachment
+			 * everywhere.
+			 */
+			if (is_preview)
+				db_->setLinkPreviewPhoto(chat_id, message_id,
+							 is_group, fid);
+			else if (is_group)
 				db_->setGroupMessageFile(chat_id, message_id,
 							 fid);
 			else
 				db_->setPrivateMessageFile(chat_id, message_id,
 							   fid);
-			pr_info(l_, "Stored message file | %s chat_id=%lld"
+			pr_info(l_, "Stored %s | %s chat_id=%lld"
 				" msg_id=%lld file_id=%llu",
+				is_preview ? "link preview image"
+					   : "message file",
 				is_group ? "group" : "private",
 				(long long)chat_id, (long long)message_id,
 				(unsigned long long)fid);
@@ -601,8 +640,10 @@ void TgLoggerd::onMessageFile(const MessageFile &m)
 		}
 	});
 
-	/* If this file belongs to a live forwarded message, mirror it to Discord. */
-	if (discord_)
+	/* If this file belongs to a live forwarded message, mirror it to
+	 * Discord -- but a preview image is not the message's media, and
+	 * Discord renders the link's own card anyway. */
+	if (discord_ && !is_preview)
 		discord_->on_media_stored(chat_id, message_id, fid);
 }
 
@@ -614,6 +655,11 @@ void TgLoggerd::onMessageFile(const MessageFile &m)
  */
 void TgLoggerd::onMessageFileLink(const MessageFileLink &lk)
 {
+	if (lk.is_link_preview) {
+		db_->setLinkPreviewPhoto(lk.chat_id, lk.message_id, lk.is_group,
+					 lk.file_id);
+		return;
+	}
 	if (lk.is_group)
 		db_->setGroupMessageFile(lk.chat_id, lk.message_id, lk.file_id);
 	else

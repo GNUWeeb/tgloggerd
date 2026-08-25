@@ -11,6 +11,7 @@
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
 #include <tgloggerd/models/GroupMessage.hpp>
+#include <tgloggerd/models/LinkPreview.hpp>
 #include <tgloggerd/models/GroupAdmin.hpp>
 #include <tgloggerd/models/Backfill.hpp>
 
@@ -222,6 +223,19 @@ public:
 	 * upsertPrivateMessage, targeting the telegram_group_messages tables.
 	 */
 	MsgCountRefetch upsertGroupMessage(const models::GroupMessage &msg);
+
+	/*
+	 * Record a message's server-resolved link preview. The owning message
+	 * row id is resolved inside the statement via its (chat_id, message_id)
+	 * unique key, so this costs one round trip and cannot race a separate
+	 * lookup. Re-running it updates in place: Telegram may resolve a
+	 * preview after the message first arrives.
+	 */
+	void upsertLinkPreview(const models::LinkPreview &lp, bool is_group);
+
+	/* Attach a downloaded image to a message's link preview. */
+	void setLinkPreviewPhoto(int64_t chat_id, int64_t message_id,
+				 bool is_group, uint64_t file_id);
 
 	/*
 	 * Point a message's file_id at a files row, once its media
