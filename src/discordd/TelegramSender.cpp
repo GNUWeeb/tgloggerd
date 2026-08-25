@@ -390,9 +390,44 @@ int64_t TelegramSender::addBot(uint64_t key, const std::string &token,
 	}
 
 	if (auto existing = impl_->bot_for_key(key)) {
-		std::lock_guard<std::mutex> lk(existing->mtx);
+		std::unique_lock<std::mutex> lk(existing->mtx);
 		if (existing->state == Bot::Ready)
 			return existing->user_id;
+		/*
+		 * Still authorizing: another refresh already kicked this bot
+		 * off. Wait on THAT attempt rather than stacking a second
+		 * client onto the same session directory.
+		 */
+		if (existing->state == Bot::Authorizing) {
+			if (!existing->cv.wait_for(
+				    lk, std::chrono::seconds(60), [&existing] {
+					    return existing->state !=
+						   Bot::Authorizing;
+				    })) {
+				if (err)
+					*err = "timed out waiting for bot "
+					       "authorization";
+				return 0;
+			}
+			if (existing->state == Bot::Ready)
+				return existing->user_id;
+		}
+		/*
+		 * Failed. The route refresh retries every cycle, and each
+		 * retry used to build a brand-new TDLib client while the old
+		 * one was never closed: it stayed registered in by_client
+		 * forever and kept its lock on the per-bot session directory
+		 * the replacement was about to open. Close the old client
+		 * first; its Closed state answers through on_auth_state and
+		 * drops the registration.
+		 */
+		lk.unlock();
+		impl_->send_query(existing->client_id,
+				  td_api::make_object<td_api::close>(), {});
+		{
+			std::lock_guard<std::mutex> blk(impl_->bots_mtx);
+			impl_->by_client.erase(existing->client_id);
+		}
 	}
 
 	auto b = std::make_shared<Bot>();
