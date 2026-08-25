@@ -167,14 +167,11 @@ drogon::Task<uint64_t> internBot(drogon::orm::DbClientPtr db, std::string token)
 	 * duplicating it. LAST_INSERT_ID(id) makes the id available even on
 	 * the duplicate path, where no insert happens.
 	 */
-	co_await db->execSqlCoro(
+	auto r = co_await db->execSqlCoro(
 		"INSERT INTO telegram_bots (token) VALUES (?) "
 		"ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), enabled = 1",
 		token);
-
-	auto rows = co_await db->execSqlCoro(
-		"SELECT id FROM telegram_bots WHERE token = ?", token);
-	co_return rows.empty() ? 0 : rows[0]["id"].as<uint64_t>();
+	co_return r.insertId();
 }
 
 drogon::Task<uint64_t> create(drogon::orm::DbClientPtr db,
