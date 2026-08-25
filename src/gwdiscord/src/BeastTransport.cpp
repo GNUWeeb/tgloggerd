@@ -319,7 +319,38 @@ public:
 
 			ssl::stream<tcp::socket> s{ioc, ctx};
 			tcp::resolver resolver{ioc};
-			net::connect(s.next_layer(), resolver.resolve(host, "443"));
+
+			/*
+			 * Bound every phase of the exchange. This GET runs on
+			 * the gateway thread during (re)connect discovery, and
+			 * Gateway::stop() can only unblock the WebSocket -- a
+			 * stalled GET /gateway/bot would wedge that thread
+			 * with nothing able to reach it. Kernel socket
+			 * timeouts cover connect, the TLS handshake and both
+			 * HTTP halves alike, since they all reduce to reads
+			 * and writes on this one socket. DNS resolution is the
+			 * remaining unbounded step; bounding it needs an async
+			 * resolver and is not worth the machinery for a
+			 * lookup of one well-known name.
+			 */
+			auto const eps = resolver.resolve(host, "443");
+			boost::system::error_code cec =
+				net::error::host_not_found;
+			for (const auto &ep : eps) {
+				tcp::socket &raw = s.next_layer();
+				raw.close(cec);
+				raw.open(ep.endpoint().protocol());
+				const struct timeval tv = { 30, 0 };
+				setsockopt(raw.native_handle(), SOL_SOCKET,
+					   SO_RCVTIMEO, &tv, sizeof(tv));
+				setsockopt(raw.native_handle(), SOL_SOCKET,
+					   SO_SNDTIMEO, &tv, sizeof(tv));
+				raw.connect(ep.endpoint(), cec);
+				if (!cec)
+					break;
+			}
+			if (cec)
+				throw boost::system::system_error(cec);
 			if (!SSL_set_tlsext_host_name(s.native_handle(),
 						      host.c_str())) {
 				out.error = "failed to set TLS SNI hostname";
