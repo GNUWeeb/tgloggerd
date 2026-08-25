@@ -61,12 +61,26 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		 * existing deletion time. It is set only on the deletion path. */
 
 	db_.transaction([&](mysql::Transaction &tx) {
+		mysql::Param entities_param = std::monostate{};
+		if (msg.content.entities.has_value())
+			entities_param = *msg.content.entities;
+
+		/*
+		 * The trailing expression asks MySQL whether the stored entities
+		 * and the incoming ones are the same JSON VALUE, which is not a
+		 * question that can be answered after the fact in C++ -- see
+		 * snapshotMessageEditIfChanged(). `<=>` is used rather than `=`
+		 * so that NULL (a message with no entities) compares equal to
+		 * NULL instead of yielding NULL.
+		 */
 		auto old_rows = tx.query(
 			"SELECT id, edit_date, content_type, text, file_id,"
-			"       deleted_at, entities"
+			"       deleted_at, entities,"
+			"       (entities <=> CAST(? AS JSON))"
 			" FROM telegram_group_messages"
 			" WHERE chat_id = ? AND message_id = ?",
-			{ (int64_t)msg.chat_id, (int64_t)msg.message_id });
+			{ entities_param, (int64_t)msg.chat_id,
+			  (int64_t)msg.message_id });
 
 		mysql::Param sender_user_param = std::monostate{};
 		if (msg.sender_user_id.has_value())
@@ -83,10 +97,6 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		mysql::Param text_param = std::monostate{};
 		if (msg.content.text.has_value())
 			text_param = *msg.content.text;
-
-		mysql::Param entities_param = std::monostate{};
-		if (msg.content.entities.has_value())
-			entities_param = *msg.content.entities;
 
 		mysql::Param service_param = std::monostate{};
 		if (msg.content.service_type.has_value())
@@ -189,7 +199,8 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		snapshotMessageEditIfChanged(tx, "telegram_group_message_edits",
 					     "group_message_id", gm_id,
 					     old_content, old_edit_date,
-					     msg.content, msg.edit_date);
+					     msg.content, msg.edit_date,
+					     old[7].value_or("0") == "1");
 
 		tx.execute(upsert_sql, bind_all());
 

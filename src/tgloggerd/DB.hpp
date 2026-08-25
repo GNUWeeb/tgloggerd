@@ -323,7 +323,8 @@ private:
 					  const models::MessageContent &old_content,
 					  int64_t old_edit_date,
 					  const models::MessageContent &new_content,
-					  int64_t new_edit_date);
+					  int64_t new_edit_date,
+					  bool entities_same);
 	void insertForwardInfo(mysql::Transaction &tx, const char *table,
 			       const char *fk_column, uint64_t message_row_id,
 			       const models::ForwardInfo &info);

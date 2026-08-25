@@ -69,7 +69,8 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 				      const models::MessageContent &old_content,
 				      int64_t old_edit_date,
 				      const models::MessageContent &new_content,
-				      int64_t new_edit_date)
+				      int64_t new_edit_date,
+				      bool entities_same)
 {
 	/*
 	 * Only a genuine edit (edit_date advanced) that actually changed the
@@ -84,9 +85,28 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 	 * never carries one at build time. Comparing it would flag every
 	 * media message as edited. The old file_id is still snapshotted.
 	 */
+	/*
+	 * `entities` cannot be compared here, which is why the caller passes
+	 * the answer in. It is a MySQL JSON column, so what comes back out of
+	 * a SELECT is the server's normalisation of what went in -- object
+	 * keys reordered, a space after every colon and comma -- while
+	 * new_content.entities is format_entities_json()'s compact rendering.
+	 * The two spellings of one value never match as bytes, so comparing
+	 * them as strings reported "changed" for every message that carries an
+	 * entity, and every advance of edit_date wrote a snapshot whose content
+	 * was identical to the previous one. The caller resolves it the only
+	 * way that is actually correct, by asking MySQL to compare the two as
+	 * JSON values.
+	 *
+	 * text, by contrast, is compared right here on purpose. It is a plain
+	 * std::string comparison and therefore exact; the same comparison
+	 * pushed into SQL would inherit the column's utf8mb4_0900_ai_ci
+	 * collation and quietly treat an edit that only changed case or
+	 * accents as no edit at all.
+	 */
 	if (old_content.content_type == new_content.content_type &&
 	    old_content.text == new_content.text &&
-	    old_content.entities == new_content.entities)
+	    entities_same)
 		return false;
 
 	mysql::Param text_param = std::monostate{};

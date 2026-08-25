@@ -62,15 +62,24 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		 * only on the deletion path below. */
 
 	db_.transaction([&](mysql::Transaction &tx) {
+		mysql::Param entities_param = std::monostate{};
+		if (msg.content.entities.has_value())
+			entities_param = *msg.content.entities;
+
 		/*
-		 * Fetch the current row (if any) to detect edits.
+		 * Fetch the current row (if any) to detect edits. The trailing
+		 * expression compares stored and incoming entities as JSON
+		 * VALUES; see snapshotMessageEditIfChanged() for why that cannot
+		 * be done in C++.
 		 */
 		auto old_rows = tx.query(
 			"SELECT id, edit_date, content_type, text, file_id,"
-			"       deleted_at, entities"
+			"       deleted_at, entities,"
+			"       (entities <=> CAST(? AS JSON))"
 			" FROM telegram_private_messages"
 			" WHERE chat_id = ? AND message_id = ?",
-			{ (int64_t)msg.chat_id, (int64_t)msg.message_id });
+			{ entities_param, (int64_t)msg.chat_id,
+			  (int64_t)msg.message_id });
 
 		mysql::Param sender_param = std::monostate{};
 		if (msg.sender_id.has_value())
@@ -79,10 +88,6 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		mysql::Param text_param = std::monostate{};
 		if (msg.content.text.has_value())
 			text_param = *msg.content.text;
-
-		mysql::Param entities_param = std::monostate{};
-		if (msg.content.entities.has_value())
-			entities_param = *msg.content.entities;
 
 		mysql::Param service_param = std::monostate{};
 		if (msg.content.service_type.has_value())
@@ -190,7 +195,8 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		snapshotMessageEditIfChanged(tx, "telegram_private_message_edits",
 					     "private_message_id", pm_id,
 					     old_content, old_edit_date,
-					     msg.content, msg.edit_date);
+					     msg.content, msg.edit_date,
+					     old[7].value_or("0") == "1");
 
 		/*
 		 * Update the telegram_private_messages row.
