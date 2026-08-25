@@ -526,6 +526,7 @@ DiscordForwarder::resolve_reply(const ForwardMessage &fm)
 				ri.mention = "<@" + o->author_id + ">";
 				ri.mention_user_id = o->author_id;
 			}
+			ri.origin_channel_id = o->channel_id;
 			ri.snippet = reply_preview(o->content);
 			ri.ok = true;
 			return ri;
@@ -669,9 +670,19 @@ void DiscordForwarder::post_reply_preview(const std::string &webhook_url,
 	/*
 	 * The mention is the content of this preview message, which is what
 	 * makes it notify; the quoted card follows underneath it.
+	 *
+	 * Notify exactly once. The chat may mirror to several webhooks, and
+	 * each posts its own preview; only the one landing in the channel
+	 * the origin message lives in allows the ping. Everywhere else the
+	 * same mention renders silently. An empty origin channel cannot
+	 * double-notify: no origin row means no author to ping at all.
 	 */
+	std::string ping = ri.mention_user_id;
+	if (!ri.origin_channel_id.empty() &&
+	    webhook_info(webhook_url).channel_id != ri.origin_channel_id)
+		ping.clear();
 	DiscordResponse r = client_.post_json(webhook_url,
-		build_payload(s, ri.mention, embed, ri.mention_user_id));
+		build_payload(s, ri.mention, embed, ping));
 	if (!r.ok()) {
 		std::string detail = r.status ? r.body.substr(0, 200) : r.error;
 		pr_warn(l_, "discord: reply preview POST failed (status=%ld): %s",

@@ -110,6 +110,14 @@ private:
 		std::string jump_url;
 		std::string mention;         /* "<@id>", rendered in content */
 		std::string mention_user_id; /* that id alone, to allow the ping */
+		/*
+		 * The channel the origin message lives in. A chat can mirror
+		 * to several webhooks, and the author should be NOTIFIED once,
+		 * where their conversation is -- not once per mirror. Only the
+		 * webhook posting into this channel allows the ping; the rest
+		 * render the same mention as plain, silent text.
+		 */
+		std::string origin_channel_id;
 		bool        ok = false;
 	};
 
