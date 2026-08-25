@@ -1301,13 +1301,34 @@ bool isRepetitive(std::string_view w)
  */
 void collapseElongation(std::string &w)
 {
-	size_t out = 0;
-	for (size_t i = 0; i < w.size(); i++) {
-		if (out >= 2 && w[i] == w[out - 1] && w[i] == w[out - 2])
+	/*
+	 * By codepoint, not by byte. A single character can legitimately
+	 * repeat a byte three times -- U+20820, a CJK ideograph, is
+	 * F0 A0 A0 A0 -- and the byte-level collapse dropped the third
+	 * continuation byte, corrupting the word into malformed UTF-8
+	 * before it was ever counted.
+	 */
+	std::string out;
+	out.reserve(w.size());
+	std::string_view prev1, prev2;
+	size_t i = 0;
+	while (i < w.size()) {
+		const unsigned char b = (unsigned char)w[i];
+		size_t len = b < 0x80 ? 1 :
+			     (b >> 5) == 0x06 ? 2 :
+			     (b >> 4) == 0x0E ? 3 :
+			     (b >> 3) == 0x1E ? 4 : 1;
+		if (i + len > w.size())
+			len = 1;
+		const std::string_view cp(w.data() + i, len);
+		i += len;
+		if (cp == prev1 && cp == prev2)
 			continue;
-		w[out++] = w[i];
+		out.append(cp);
+		prev2 = prev1;
+		prev1 = cp;
 	}
-	w.resize(out);
+	w = std::move(out);
 }
 
 struct WordFilter {
