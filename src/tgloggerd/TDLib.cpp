@@ -1245,7 +1245,8 @@ struct TDLib::Impl {
 	void resolve_forward_origin(const models::ForwardInfo &info);
 	void ensure_user_saved(int64_t user_id);
 	void ensure_chat_saved(int64_t chat_id);
-	void maybe_store_link_preview(const td_api::message &message,
+	void maybe_store_link_preview(int64_t chat_id, int64_t tdlib_msg_id,
+				      const td_api::MessageContent &content,
 				      bool is_group);
 	void maybe_download_message_file(const td_api::message &message,
 					 bool is_group);
@@ -1824,7 +1825,9 @@ void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, false);
 	/* ...and record its link preview, whose row keys off that same row. */
-	maybe_store_link_preview(message, false);
+	if (message.content_)
+		maybe_store_link_preview(message.chat_id_, message.id_,
+					 *message.content_, false);
 
 	resolve_reply_message(message, false, depth);
 }
@@ -1844,7 +1847,9 @@ void TDLib::Impl::handle_message_for_group_chat(td_api::message &message,
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, true);
 	/* ...and record its link preview, whose row keys off that same row. */
-	maybe_store_link_preview(message, true);
+	if (message.content_)
+		maybe_store_link_preview(message.chat_id_, message.id_,
+					 *message.content_, true);
 
 	resolve_reply_message(message, true, depth);
 }
@@ -1942,40 +1947,39 @@ void TDLib::Impl::resolve_reply_message(const td_api::message &message,
 }
 
 void TDLib::Impl::handle_update_message_content(int64_t chat_id,
-						int64_t message_id,
-						const td_api::MessageContent *content)
+					       int64_t message_id,
+					       const td_api::MessageContent *content)
 {
-	if (!private_msg_handler_)
+	if (!content)
 		return;
 
 	/*
-	 * For message edits we need the full message object to get
-	 * edit_date and sender. TDLib sends a separate updateMessageEdited
-	 * or we can request getMessage. However, updateMessageContent
-	 * only has chat_id, message_id, and new_content.
+	 * This is how a LATE-RESOLVED LINK PREVIEW arrives.
 	 *
-	 * For now, we send a getMessage query to fetch the full message
-	 * so we can determine edit_date. But this adds latency and
-	 * complexity. Simpler: just record the content update as a
-	 * potential edit. We check telegram_private_messages for the existing
-	 * row and compare content.
+	 * Telegram does not always have the preview ready when it delivers the
+	 * message. It sends the text first and resolves the URL on its own
+	 * servers afterwards, then pushes the completed card as a content
+	 * update. So a preview captured only at updateNewMessage time misses
+	 * exactly the links that were slow to resolve -- which correlates with
+	 * the pages worth archiving, since a big page is a slow one.
 	 *
-	 * Actually, the simplest approach for now: we know the message
-	 * already exists in telegram_private_messages. We can just update the
-	 * content fields. But we need edit_date. Let's use a simpler
-	 * strategy: request getMessage to get the full object.
+	 * Storing it is an upsert keyed on the message, so the resolved card
+	 * simply replaces the empty or partial one, and the image goes down the
+	 * same download path it would have taken had it arrived on time. If the
+	 * message row does not exist yet the upsert's subquery matches nothing
+	 * and writes nothing, which is the right answer rather than an error.
 	 *
-	 * For now, skip updateMessageContent handling; content changes
-	 * that TDLib delivers via updateMessageContent without a
-	 * corresponding edit_date are initial loads. Real edits come
-	 * via updateMessageEdited which we'll handle below, or via
-	 * updateNewMessage with an edit_date > 0.
-	 *
-	 * TODO: implement getMessage-based edit tracking.
+	 * Deliberately narrow. updateMessageContent also fires for polls,
+	 * live locations and ordinary edits, and this handler acts only when
+	 * the new content is a text message carrying a link preview --
+	 * message_link_preview() returns nullptr for everything else. Message
+	 * EDITS are not tracked here: they arrive with edit_date via
+	 * updateMessageEdited, which is where they are handled, and using this
+	 * update for them would need a getMessage round trip to learn the
+	 * edit_date this callback is not given.
 	 */
-	(void)chat_id;
-	(void)message_id;
-	(void)content;
+	maybe_store_link_preview(chat_id, message_id, *content,
+				 !is_private_chat(chat_id));
 }
 
 void TDLib::Impl::handle_delete_messages(int64_t chat_id,
@@ -2171,12 +2175,12 @@ void TDLib::Impl::ensure_chat_saved(int64_t chat_id)
  * downloadFile, hash, content-address into telegram_files -- with one bit set
  * so the completion links it to the preview instead of to the message.
  */
-void TDLib::Impl::maybe_store_link_preview(const td_api::message &message,
+void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
+					   int64_t tdlib_msg_id,
+					   const td_api::MessageContent &content,
 					   bool is_group)
 {
-	if (!message.content_)
-		return;
-	const td_api::linkPreview *lp = message_link_preview(*message.content_);
+	const td_api::linkPreview *lp = message_link_preview(content);
 	if (!lp)
 		return;
 
@@ -2185,8 +2189,8 @@ void TDLib::Impl::maybe_store_link_preview(const td_api::message &message,
 
 	if (link_preview_handler_) {
 		models::LinkPreview m;
-		m.chat_id = message.chat_id_;
-		m.message_id = to_server_msg_id(message.id_);
+		m.chat_id = chat_id;
+		m.message_id = to_server_msg_id(tdlib_msg_id);
 		m.url = lp->url_;
 		m.display_url = lp->display_url_;
 		m.site_name = lp->site_name_;
@@ -2205,7 +2209,7 @@ void TDLib::Impl::maybe_store_link_preview(const td_api::message &message,
 	if (!img || !message_file_handler_)
 		return;
 
-	PendingMsgFile ref{ message.chat_id_, to_server_msg_id(message.id_),
+	PendingMsgFile ref{ chat_id, to_server_msg_id(tdlib_msg_id),
 			    is_group, "photo", std::string() };
 	ref.is_link_preview = true;
 
