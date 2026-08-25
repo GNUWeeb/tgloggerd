@@ -92,7 +92,47 @@ std::string toUnixSeconds(const nlohmann::json &v)
 		     "\"; use YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ");
 
 	/* timegm, not mktime: stored timestamps are UTC. */
-	const time_t t = timegm(&tm_v);
+	time_t t = timegm(&tm_v);
+
+	/*
+	 * strptime hands back the first character it did not consume, and
+	 * ignoring it meant "...T12:00:00+07:00" silently lost its offset:
+	 * the client said one instant, the filter used another, seven hours
+	 * away, with nothing to say so. Accept exactly what ISO-8601 can put
+	 * there -- fractional seconds, 'Z', or a numeric offset, which is
+	 * APPLIED -- and refuse anything else out loud.
+	 */
+	if (*p == '.') {
+		p++;
+		if (*p < '0' || *p > '9')
+			fail("malformed fractional seconds in \"" + s + "\"");
+		while (*p >= '0' && *p <= '9')
+			p++;
+	}
+	if (*p == 'Z' || *p == 'z') {
+		p++;
+	} else if (*p == '+' || *p == '-') {
+		const bool west = *p == '-';
+		p++;
+		if (p[0] < '0' || p[0] > '9' || p[1] < '0' || p[1] > '9')
+			fail("malformed UTC offset in \"" + s + "\"");
+		long off = ((p[0] - '0') * 10 + (p[1] - '0')) * 3600;
+		p += 2;
+		if (*p == ':')
+			p++;
+		if (p[0] >= '0' && p[0] <= '9') {
+			if (p[1] < '0' || p[1] > '9')
+				fail("malformed UTC offset in \"" + s + "\"");
+			off += ((p[0] - '0') * 10 + (p[1] - '0')) * 60;
+			p += 2;
+		}
+		/* +07:00 labels a wall clock AHEAD of UTC: subtract to get
+		 * the UTC instant; a western offset adds. */
+		t += west ? off : -off;
+	}
+	if (*p)
+		fail("unrecognised trailing \"" + std::string(p) +
+		     "\" in date \"" + s + "\"");
 	return std::to_string((long long)t);
 }
 
