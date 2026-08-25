@@ -255,6 +255,32 @@ group, or a group nobody exposed — so when the group is not on the allowlist i
 `note` saying so. That is not a leak: the caller supplied the id, and the answer is about
 the allowlist, not about whether the group exists.
 
+### Link previews
+
+A message whose text contains a URL usually carries the preview card Telegram's
+servers resolved for it, and message rows return it as `link_preview`:
+
+```json
+"link_preview": {
+  "url": "https://x.com/inaho_vt/status/…", "display_url": "x.com/inaho_vt/…",
+  "site_name": "X (formerly Twitter)", "title": "…", "description": "…",
+  "type": "photo",
+  "image": {"file_id": 1174645, "size": 601199, "stored": true, "url": "…"}
+}
+```
+
+It is worth asking for because it is frequently the only surviving record of
+what a link pointed at — the page can change or disappear, the card cannot.
+`type` is the `LinkPreviewType` Telegram assigned (`photo`, `article`, `chat`,
+`embedded_video_player`, …); Telegram tends to use `photo` when the page has a
+dominant image and `article` when it does not, so an `article` with no `image`
+is normal rather than a gap.
+
+`image` follows the same rules as message media: it is omitted entirely by
+`include_media: false`, and its `url` appears only when the bytes are actually
+stored. `link_preview` is a valid name for the `fields` projection, so a scan
+can ask for previews and nothing else.
+
 ### Scanning cheaply
 
 A wide scan usually wants to know **which** messages match, not what they say — and the

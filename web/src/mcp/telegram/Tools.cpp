@@ -436,6 +436,7 @@ const char *const kRowFields[] = {
 	"text", "is_forwarded", "is_channel_post", "reply_to_message_id",
 	"is_edited", "is_deleted", "edit_date", "deleted_at",
 	"previous_version_count", "history_available_via", "media",
+	"link_preview",
 };
 
 struct RowOpts {
@@ -747,6 +748,52 @@ Json messageRow(const drogon::orm::Row &r, const RowOpts &o)
 
 	if (o.includeMedia && o.wants("media") && !r["file_id"].isNull())
 		j["media"] = mediaJson(r, true);
+
+	/*
+	 * The link preview card Telegram resolved for a URL in this message.
+	 * Worth returning because it is often the only record of what a link
+	 * pointed at -- the page can change or vanish, the card cannot. Follows
+	 * include_media, since its image is the same kind of per-row bulk.
+	 */
+	if (o.wants("link_preview") && !r["lp_url"].isNull()) {
+		Json lp;
+		lp["url"] = colStr(r, "lp_url");
+		const std::string du = colStr(r, "lp_display_url");
+		if (!du.empty())
+			lp["display_url"] = du;
+		const std::string site = colStr(r, "lp_site_name");
+		if (!site.empty())
+			lp["site_name"] = site;
+		const std::string ti = colStr(r, "lp_title");
+		if (!ti.empty())
+			lp["title"] = ti;
+		const std::string de = colStr(r, "lp_description");
+		if (!de.empty())
+			lp["description"] = de;
+		const std::string au = colStr(r, "lp_author");
+		if (!au.empty())
+			lp["author"] = au;
+		lp["type"] = colStr(r, "lp_type");
+		if (colI64(r, "lp_iv"))
+			lp["instant_view_version"] = colI64(r, "lp_iv");
+		if (o.includeMedia && !r["lp_photo_id"].isNull()) {
+			Json md;
+			const int64_t fid = colI64(r, "lp_photo_id");
+			md["file_id"] = fid;
+			md["type"] = colStr(r, "lp_photo_type");
+			md["size"] = colI64(r, "lp_photo_size");
+			const bool stored = colI64(r, "lp_photo_on_disk") != 0;
+			md["stored"] = stored;
+			if (stored) {
+				const std::string u =
+					fileurl::forFile((uint64_t)fid);
+				if (!u.empty())
+					md["url"] = u;
+			}
+			lp["image"] = std::move(md);
+		}
+		j["link_preview"] = std::move(lp);
+	}
 	return j;
 }
 
@@ -788,7 +835,18 @@ constexpr const char *MSG_SELECT =
 	 * whole round trip per edited message.
 	 */
 	"(SELECT COUNT(1) FROM telegram_group_message_edits pe "
-	"  WHERE pe.group_message_id = m.id) AS prev_versions ";
+	"  WHERE pe.group_message_id = m.id) AS prev_versions, "
+	/*
+	 * The link preview, joined rather than counted: at most one row per
+	 * message (unique key), so this cannot duplicate the message, and it
+	 * runs only over the already-chosen page.
+	 */
+	"lp.url AS lp_url, lp.display_url AS lp_display_url, "
+	"lp.site_name AS lp_site_name, lp.title AS lp_title, "
+	"LEFT(lp.description, 1000) AS lp_description, lp.author AS lp_author, "
+	"lp.type AS lp_type, lp.instant_view_version AS lp_iv, "
+	"lp.photo_file_id AS lp_photo_id, lpf.file_type AS lp_photo_type, "
+	"lpf.file_size AS lp_photo_size, lpf.on_disk AS lp_photo_on_disk ";
 
 /*
  * The display joins, shared by both places that decorate a chosen set of
@@ -799,7 +857,9 @@ constexpr const char *MSG_SELECT =
 constexpr const char *MSG_JOINS =
 	"JOIN `telegram_groups` g ON g.id = m.chat_id "
 	"LEFT JOIN telegram_users su ON su.id = m.sender_user_id "
-	"LEFT JOIN telegram_files f ON f.id = m.file_id ";
+	"LEFT JOIN telegram_files f ON f.id = m.file_id "
+	"LEFT JOIN telegram_link_previews lp ON lp.group_message_id = m.id "
+	"LEFT JOIN telegram_files lpf ON lpf.id = lp.photo_file_id ";
 
 /*
  * How a message scan is ordered, and how a cursor for it is spelled.
@@ -1342,7 +1402,8 @@ void addRowShapeProps(Json &props)
 		  "sender_name, sender_username, date, sent_at, content_type, "
 		  "text, is_forwarded, is_channel_post, reply_to_message_id, "
 		  "is_edited, is_deleted, edit_date, deleted_at, "
-		  "previous_version_count, history_available_via, media. "
+		  "previous_version_count, history_available_via, media, "
+		  "link_preview. "
 		  "message_id is always included -- it is the handle every "
 		  "follow-up call needs. Cuts response size several-fold on a "
 		  "wide scan." }
