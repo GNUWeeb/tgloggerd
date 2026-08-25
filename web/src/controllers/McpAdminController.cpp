@@ -210,9 +210,28 @@ McpAdminController::tokensMint(drogon::HttpRequestPtr req)
 	if (!s)
 		co_return jsonError("Not signed in.", drogon::k403Forbidden);
 
+	/*
+	 * The column is VARCHAR(64) utf8mb4 -- 64 CHARACTERS -- and the
+	 * form's maxlength counts characters too, so the cap here must
+	 * count codepoints. A byte resize could split a multibyte character
+	 * and hand MySQL malformed UTF-8.
+	 */
 	std::string name = req->getParameter("name");
-	if (name.size() > 64)
-		name.resize(64);
+	{
+		size_t chars = 0, i = 0;
+		while (i < name.size() && chars < 64) {
+			const unsigned char b = (unsigned char)name[i];
+			size_t len = b < 0x80 ? 1 :
+				     (b >> 5) == 0x06 ? 2 :
+				     (b >> 4) == 0x0E ? 3 :
+				     (b >> 3) == 0x1E ? 4 : 1;
+			if (i + len > name.size())
+				break;
+			i += len;
+			chars++;
+		}
+		name.resize(i);
+	}
 
 	const std::string plaintext = mcp::token::mint();
 
