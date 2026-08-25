@@ -159,6 +159,54 @@ void DiscordD::Impl::refresh_loop(void)
 	}
 }
 
+/*
+ * Telegram caps a message at 4096 UTF-16 code units -- that is the unit its
+ * API counts in, so a string of 4-byte emoji hits the cap at half the
+ * codepoint count. Split the rendered text into chunks under the cap,
+ * preferring to break on a newline so an attachment URL line is never torn
+ * in half. Sent sequentially, everything arrives instead of the whole
+ * message being rejected with MESSAGE_TOO_LONG and silently dropped.
+ */
+static std::vector<std::string> split_for_telegram(const std::string &s)
+{
+	static constexpr size_t MAX_UNITS = 4096;
+	std::vector<std::string> out;
+	size_t start = 0, i = 0, units = 0, last_nl = 0;
+
+	while (i < s.size()) {
+		const unsigned char b = (unsigned char)s[i];
+		size_t len = b < 0x80 ? 1 :
+			     (b >> 5) == 0x06 ? 2 :
+			     (b >> 4) == 0x0E ? 3 :
+			     (b >> 3) == 0x1E ? 4 : 1;
+		if (i + len > s.size())
+			len = 1;
+		/* Astral-plane codepoints are a surrogate pair: two units. */
+		const size_t cp_units = len == 4 ? 2 : 1;
+
+		if (units + cp_units > MAX_UNITS) {
+			size_t cut = last_nl > start ? last_nl : i;
+			out.push_back(s.substr(start, cut - start));
+			if (cut == last_nl)
+				cut++; /* the newline itself is the seam */
+			start = cut;
+			i = cut;
+			units = 0;
+			last_nl = start;
+			continue;
+		}
+		if (s[i] == '\n')
+			last_nl = i;
+		units += cp_units;
+		i += len;
+	}
+	if (start < s.size())
+		out.push_back(s.substr(start));
+	if (out.empty())
+		out.push_back(std::string());
+	return out;
+}
+
 std::string DiscordD::Impl::render(const gwdiscord::Message &m) const
 {
 	/*
@@ -294,11 +342,18 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 				}
 				if (!routed)
 					continue;
+				/*
+				 * Only the head chunk is recorded, so only it
+				 * can be edited; an edit that grew past the
+				 * cap updates the head and the tail stays as
+				 * originally sent.
+				 */
 				std::string err;
 				if (!tg->editText(f.telegram_bot_id,
 						  f.telegram_chat_id,
 						  f.telegram_message_id,
-						  text, &err))
+						  split_for_telegram(text)[0],
+						  &err))
 					log(LOG_WARN, "edit failed: " + err);
 			}
 		} catch (const std::exception &e) {
@@ -337,10 +392,20 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 				}
 			}
 
+			/*
+			 * A rendered message can exceed Telegram's limit --
+			 * 4000 chars of content plus an attachment line per
+			 * file adds up. Send it in chunks rather than letting
+			 * the whole forward fail; the first chunk is the one
+			 * recorded, so edits and deletes keep pointing at the
+			 * head of the message.
+			 */
+			const auto chunks = split_for_telegram(text);
 			std::string err;
 			const int64_t sent = tg->sendText(r.telegram_bot_id,
 							  r.telegram_chat_id,
-							  text, reply_to, &err);
+							  chunks[0], reply_to,
+							  &err);
 			if (!sent) {
 				log(LOG_WARN, "forward to chat " +
 						      std::to_string(r.telegram_chat_id) +
@@ -349,6 +414,14 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 			}
 			db->recordForwarded(m.id, r.id, r.telegram_chat_id,
 					    sent);
+			for (size_t ci = 1; ci < chunks.size(); ci++) {
+				if (!tg->sendText(r.telegram_bot_id,
+						  r.telegram_chat_id,
+						  chunks[ci], sent, &err))
+					log(LOG_WARN, "continuation " +
+						std::to_string(ci) +
+						" failed: " + err);
+			}
 			log(LOG_INFO, "forwarded discord " +
 					      std::to_string(m.id) +
 					      " -> telegram " +
