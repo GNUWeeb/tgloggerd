@@ -50,13 +50,32 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		" sender_id = new.sender_id,"
 		" is_outgoing = new.is_outgoing,"
 		" date = new.date,"
-		" edit_date = new.edit_date,"
-		" content_type = new.content_type,"
-		" text = new.text,"
-		" entities = new.entities,"
-		" service_type = new.service_type,"
 		" is_forwarded = new.is_forwarded,"
-		" media_album_id = new.media_album_id";
+		" media_album_id = new.media_album_id,"
+		/*
+		 * The content columns are only taken from a copy that is at
+		 * least as recent as the stored one. Two getMessage replies for
+		 * the same message can arrive in either order -- an edit and a
+		 * backfill copy race, and a reply that resolves after a later
+		 * edit carries the older content -- and without this the loser
+		 * of that race silently overwrote the current text with a stale
+		 * version. `>=` rather than `>` so an unedited re-ingest, which
+		 * carries the same edit_date, still refreshes the row.
+		 *
+		 * The identity columns above stay unconditional on purpose: a
+		 * backfill copy may legitimately know more about the sender or
+		 * the album than the live update did.
+		 *
+		 * edit_date is assigned last. MySQL evaluates these left to
+		 * right and a later assignment reads the already-updated value,
+		 * so assigning it first would leave every guard below comparing
+		 * against the incoming date rather than the stored one.
+		 */
+		" content_type = IF(new.edit_date >= telegram_private_messages.edit_date, new.content_type, telegram_private_messages.content_type),"
+		" text = IF(new.edit_date >= telegram_private_messages.edit_date, new.text, telegram_private_messages.text),"
+		" entities = IF(new.edit_date >= telegram_private_messages.edit_date, new.entities, telegram_private_messages.entities),"
+		" service_type = IF(new.edit_date >= telegram_private_messages.edit_date, new.service_type, telegram_private_messages.service_type),"
+		" edit_date = IF(new.edit_date >= telegram_private_messages.edit_date, new.edit_date, telegram_private_messages.edit_date)";
 		/* deleted_at is intentionally not upserted; a re-ingested
 		 * message must not clear an existing deletion time. It is set
 		 * only on the deletion path below. */
