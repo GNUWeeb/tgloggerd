@@ -13,19 +13,11 @@
 
 #include <atomic>
 #include <csignal>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
-
-static discordd::DiscordD *g_app = nullptr;
-
-static void on_signal(int sig)
-{
-	(void)sig;
-	if (g_app)
-		g_app->stop();
-}
 
 static const char *env_or(const char *name, const char *dflt)
 {
@@ -90,16 +82,36 @@ int main(void)
 		return 1;
 
 	discordd::DiscordD app(std::move(cfg));
-	g_app = &app;
 
-	struct sigaction sa;
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = on_signal;
-	sigemptyset(&sa.sa_mask);
-	sigaction(SIGINT, &sa, nullptr);
-	sigaction(SIGTERM, &sa, nullptr);
+	/*
+	 * Shutdown signals are taken SYNCHRONOUSLY, on their own thread.
+	 * DiscordD::stop() notifies condition variables and reaches
+	 * Gateway::stop(), which locks mutexes and tears down a socket --
+	 * none of it async-signal-safe. Delivered as an interruption on a
+	 * thread that happens to hold one of those locks, the old handler
+	 * deadlocked the shutdown it was asked to perform. Blocking the
+	 * signals in every thread (the mask is inherited by the ones run()
+	 * spawns) and sigwait()ing turns delivery into ordinary thread
+	 * context, where stop() is just a call.
+	 */
+	sigset_t sigs;
+	sigemptyset(&sigs);
+	sigaddset(&sigs, SIGINT);
+	sigaddset(&sigs, SIGTERM);
+	pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
+	std::atomic<bool> done{false};
+	std::thread sig_thread([&] {
+		int sig = 0;
+		sigwait(&sigs, &sig);
+		if (!done.load())
+			app.stop();
+	});
 
 	const int rc = app.run();
-	g_app = nullptr;
+	done = true;
+	/* Unblock sigwait on a signal-less exit; harmless if it already
+	 * returned. */
+	pthread_kill(sig_thread.native_handle(), SIGTERM);
+	sig_thread.join();
 	return rc;
 }
