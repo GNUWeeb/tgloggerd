@@ -1142,7 +1142,8 @@ std::vector<int64_t> exposedGroups(const drogon::orm::DbClientPtr &db)
 
 /* Join display columns onto an explicit, already-authorised set of ids. */
 Json decorateIds(const drogon::orm::DbClientPtr &db,
-		 const std::vector<int64_t> &ids, const RowOpts &o)
+		 const std::vector<int64_t> &ids, const RowOpts &o,
+		 Json *envelope = nullptr)
 {
 	Json arr = Json::array();
 	if (ids.empty())
@@ -1157,8 +1158,14 @@ Json decorateIds(const drogon::orm::DbClientPtr &db,
 	const std::string sql =
 		std::string(MSG_SELECT) + "FROM telegram_group_messages m " +
 		MSG_JOINS + "WHERE m.id IN (" + in + ") ORDER BY m.date DESC";
-	for (const auto &r : execTool(db, sql, binds))
+	for (const auto &r : execTool(db, sql, binds)) {
 		arr.push_back(messageRow(r, o));
+		/* Hoisted, not discarded: compact rows drop the title, so
+		 * the caller's envelope has to carry it. */
+		if (envelope && o.hoistGroup &&
+		    !envelope->contains("group_title"))
+			(*envelope)["group_title"] = colStr(r, "group_title");
+	}
 	return arr;
 }
 
@@ -1208,7 +1215,7 @@ Json listRecent(const drogon::orm::DbClientPtr &db,
 		ids.push_back(hits[i].id);
 
 	Json out;
-	out["messages"] = decorateIds(db, ids, o);
+	out["messages"] = decorateIds(db, ids, o, &out);
 	out["count"] = out["messages"].size();
 	out["limit"] = limit;
 	out["offset"] = offset;
@@ -2987,6 +2994,10 @@ Json run_telegram_get_messages(const drogon::orm::DbClientPtr &db,
 			const int64_t mid = colI64(r, "message_id");
 			seen.insert(mid);
 			Json row = messageRow(r, o);
+			/* Hoisted, not discarded -- same contract as the
+			 * search path. */
+			if (o.hoistGroup && !out.contains("group_title"))
+				out["group_title"] = colStr(r, "group_title");
 			const int64_t rowId = colI64(r, "id_internal");
 			if (withHistory) {
 				rowIds.push_back(rowId);
