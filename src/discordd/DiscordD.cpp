@@ -200,6 +200,25 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 	if (routes.empty())
 		return; /* not a configured channel: nothing to log or send */
 
+	/*
+	 * MESSAGE_UPDATE does not mean "a user edited this". Discord fires it
+	 * for its own metadata mutations too -- a link embed resolving, a
+	 * flags change -- and those carry edited_timestamp: null, since the
+	 * user never touched the message. Treating them as edits stamped
+	 * edited_at on messages that were never edited and pushed a no-op
+	 * editText per forwarded copy. Such an event may still refresh the
+	 * archive (below), but it is not an edit and must not forward.
+	 *
+	 * Partial update payloads can also omit content entirely; those are
+	 * dropped whole rather than overwriting recorded text with "".
+	 */
+	const bool metadata_only = edited && m.edited_timestamp.empty();
+	if (metadata_only) {
+		if (m.content.empty())
+			return;
+		edited = false;
+	}
+
 	/* Log first, so the archive is complete even if forwarding fails. */
 	try {
 		db->upsertGuild(m.guild_id, "");
@@ -219,6 +238,15 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 	} catch (const std::exception &e) {
 		log(LOG_ERROR, std::string("logging failed: ") + e.what());
 	}
+
+	/*
+	 * A metadata-only update is archived above and goes no further: it is
+	 * neither an edit to apply nor a message to send -- forwarding here
+	 * would post a pre-start message to Telegram out of order the moment
+	 * one of its links unfurled.
+	 */
+	if (metadata_only)
+		return;
 
 	/*
 	 * ECHO SUPPRESSION. Two distinct cases, and both are needed:
@@ -248,25 +276,40 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 
 	const std::string text = render(m);
 
-	for (const auto &r : routes) {
+	if (edited) {
+		/*
+		 * Apply the edit to what we already sent. One lookup for the
+		 * whole event: the per-route filter is applied to the one
+		 * result set, instead of re-running the identical query once
+		 * per route as the loop below used to.
+		 */
 		try {
-			if (edited) {
-				/* Apply the edit to what we already sent. */
-				for (const auto &f :
-				     db->getForwarded(m.id)) {
-					if (f.route_id != r.id)
-						continue;
-					std::string err;
-					if (!tg->editText(f.telegram_bot_id,
-							  f.telegram_chat_id,
-							  f.telegram_message_id,
-							  text, &err)) {
-						log(LOG_WARN,
-						    "edit failed: " + err);
+			for (const auto &f : db->getForwarded(m.id)) {
+				bool routed = false;
+				for (const auto &r : routes) {
+					if (f.route_id == r.id) {
+						routed = true;
+						break;
 					}
 				}
-				continue;
+				if (!routed)
+					continue;
+				std::string err;
+				if (!tg->editText(f.telegram_bot_id,
+						  f.telegram_chat_id,
+						  f.telegram_message_id,
+						  text, &err))
+					log(LOG_WARN, "edit failed: " + err);
 			}
+		} catch (const std::exception &e) {
+			log(LOG_ERROR,
+			    std::string("edit fan-out failed: ") + e.what());
+		}
+		return;
+	}
+
+	for (const auto &r : routes) {
+		try {
 
 			/* A redelivered gateway event must not double-send. */
 			if (db->alreadyForwarded(m.id, r.id)) {
