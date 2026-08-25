@@ -255,6 +255,23 @@ class Suite:
                    yes["total"] == nn["total"] and yes["total"] > 0,
                    "%d vs %d" % (yes["total"], nn["total"]))
 
+        # deleted sat on the boolean type over a nullable DATETIME, so
+        # `deleted = true` compiled to `deleted_at = '1'` and every boolean
+        # comparison silently matched nothing.
+        every, _ = self.call("telegram_search_messages", {
+            "group_id": self.group, "limit": 0, "include_total": True})
+        dyes, _ = self.call("telegram_search_messages", {
+            "filter": {"field": "deleted", "op": "=", "value": True},
+            "group_id": self.group, "limit": 0, "include_total": True})
+        dno, _ = self.call("telegram_search_messages", {
+            "filter": {"field": "deleted", "op": "=", "value": False},
+            "group_id": self.group, "limit": 0, "include_total": True})
+        self.check("deleted = true/false partition the group",
+                   dno["total"] > 0 and
+                   dyes["total"] + dno["total"] == every["total"],
+                   "%d + %d vs %d" % (dyes["total"], dno["total"],
+                                      every["total"]))
+
     def t_count_only_and_gate(self, private_group):
         print("\n[6] limit:0 sizing, and the exposure gate")
         r, _ = self.call("telegram_search_messages", {

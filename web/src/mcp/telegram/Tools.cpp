@@ -343,8 +343,9 @@ const flt::Field kMsgFields[] = {
 	  "kind of message", "" },
 	{ "is_forwarded", "m.is_forwarded", flt::FType::Bool, "", "", "" },
 	{ "is_channel_post", "m.is_channel_post", flt::FType::Bool, "", "", "" },
-	{ "deleted", "m.deleted_at", flt::FType::Bool, "",
-	  "use op is_null for live messages, is_not_null for deleted ones", "" },
+	{ "deleted", "m.deleted_at", flt::FType::PresenceNull, "",
+	  "true for deleted messages, false for live ones "
+	  "(is_null / is_not_null work too)", "" },
 	{ "edited", "m.edit_date", flt::FType::Presence, "",
 	  "use op is_not_null for messages that were edited, is_null for "
 	  "untouched ones -- the mirror of `deleted`", "" },

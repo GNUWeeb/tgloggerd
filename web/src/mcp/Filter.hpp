@@ -50,6 +50,15 @@ enum class FType {
 	 * like deleted_at, and stays a range the index can use.
 	 */
 	Presence,
+	/*
+	 * The nullable twin: a column that stores NULL to mean "never
+	 * happened" -- deleted_at is the one. `= true` / `= false` compile to
+	 * IS NOT NULL / IS NULL, as do is_not_null / is_null; every other
+	 * operator is refused. Without this the field sat on FType::Bool,
+	 * where `= true` bound the literal '1' against a DATETIME and
+	 * silently matched nothing.
+	 */
+	PresenceNull,
 };
 
 struct Field {

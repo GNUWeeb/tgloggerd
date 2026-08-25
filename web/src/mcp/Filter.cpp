@@ -129,6 +129,7 @@ std::string bindValue(const Field &f, const nlohmann::json &v)
 	}
 	case FType::Bool:
 	case FType::Presence:
+	case FType::PresenceNull:
 		if (v.is_boolean())
 			return v.get<bool>() ? "1" : "0";
 		if (v.is_number_integer())
@@ -260,6 +261,17 @@ std::string compileLeaf(Ctx &ctx, const nlohmann::json &node)
 		const bool truthy = bindValue(*f, v) == "1";
 		const bool wantPresent = (op == "=") == truthy;
 		return wantPresent ? "(" + expr + " <> 0)" : "(" + expr + " = 0)";
+	}
+
+	/* The NULL-sentinel twin of the rewrite above. */
+	if (f->type == FType::PresenceNull) {
+		if (op != "=" && op != "!=")
+			fail("field \"" + key + "\" is a flag; use = true, "
+			     "= false, is_null or is_not_null");
+		const bool truthy = bindValue(*f, v) == "1";
+		const bool wantPresent = (op == "=") == truthy;
+		return wantPresent ? "(" + expr + " IS NOT NULL)"
+				   : "(" + expr + " IS NULL)";
 	}
 
 	if (op == "in") {
@@ -422,6 +434,9 @@ std::string describeFields(const Schema &schema)
 		case FType::Bool:     out += "boolean"; break;
 		case FType::Presence: out += "presence, use op is_null / "
 					     "is_not_null";
+				      break;
+		case FType::PresenceNull:
+				      out += "flag, use = true / = false";
 				      break;
 		}
 		out += ")";

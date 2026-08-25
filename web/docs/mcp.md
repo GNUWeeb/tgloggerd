@@ -182,9 +182,10 @@ appears in **no** window on `date` — so "everything edited in December 2024", 
 send time and 75 by edit time; the one it drops is message `681387`, edited 735 days after
 it was sent.
 
-`edited` and `deleted` are the presence forms — `is_not_null` for "it happened",
-`is_null` for "it did not" — where `edited` reads a column that stores `0` rather than
-`NULL` and is compiled accordingly.
+`edited` and `deleted` are the presence forms — `= true` for "it happened", `= false`
+for "it did not" (`is_not_null` / `is_null` mean the same thing) — each compiled to
+match how its column spells "never": `edited` reads a column that stores `0`,
+`deleted` one that stores `NULL`.
 
 Ordering on all three is index-backed (migration `000025`); see
 [Performance notes](#performance-notes).
