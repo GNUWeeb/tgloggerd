@@ -1409,6 +1409,72 @@ drogon::Task<nlohmann::json> chatHistory(drogon::orm::DbClientPtr db,
 		}
 	}
 
+	/*
+	 * Link previews for this page, in one query rather than one per
+	 * message -- the same batch-by-row-id shape the edit history above
+	 * uses, and for the same reason: a page is up to `limit` messages and
+	 * a query each would be a round trip each.
+	 */
+	if (!rowIds.empty()) {
+		std::string idlist;
+		for (size_t i = 0; i < rowIds.size(); i++) {
+			if (i)
+				idlist += ",";
+			idlist += std::to_string(rowIds[i]);
+		}
+		const std::string fk = group ? "group_message_id"
+					     : "private_message_id";
+		const std::string pq =
+			"SELECT p." + fk + " AS mid, p.url, p.display_url, "
+			"p.site_name, p.title, LEFT(p.description, 1000) AS description, "
+			"p.author, p.type, p.instant_view_version, "
+			"p.photo_file_id, f.file_ext AS p_ext, "
+			"f.file_size AS p_size, f.on_disk AS p_on_disk "
+			"FROM telegram_link_previews p "
+			"LEFT JOIN telegram_files f ON f.id = p.photo_file_id "
+			"WHERE p." + fk + " IN (" + idlist + ")";
+		auto pv = co_await db->execSqlCoro(pq);
+		std::unordered_map<int64_t, nlohmann::json> prevMap;
+		for (const auto &row : pv) {
+			nlohmann::json lp;
+			lp["url"]          = escCol(row, "url");
+			lp["display_url"]  = escCol(row, "display_url");
+			lp["site_name"]    = escCol(row, "site_name");
+			lp["title"]        = escCol(row, "title");
+			lp["description"]  = escCol(row, "description");
+			lp["author"]       = escCol(row, "author");
+			lp["type"]         = escCol(row, "type");
+			if (!row["instant_view_version"].isNull())
+				lp["instant_view_version"] =
+					row["instant_view_version"].as<int>();
+			/*
+			 * The image, described exactly like message media so the
+			 * template and chat-render.js can reuse the same
+			 * rendering -- including `stored`, since a preview image
+			 * whose bytes were pruned must not be linked.
+			 */
+			if (!row["photo_file_id"].isNull()) {
+				nlohmann::json med;
+				med["file_id"] = row["photo_file_id"].as<int64_t>();
+				std::string ext = row["p_ext"].isNull()
+						? std::string()
+						: row["p_ext"].as<std::string>();
+				med["render"] = mediaRender("photo", ext);
+				if (!row["p_size"].isNull())
+					med["size"] = row["p_size"].as<uint64_t>();
+				med["stored"] = row["p_on_disk"].isNull() ||
+						row["p_on_disk"].as<int>() != 0;
+				lp["media"] = std::move(med);
+			}
+			prevMap[row["mid"].as<int64_t>()] = std::move(lp);
+		}
+		for (size_t i = 0; i < msgs.size(); i++) {
+			auto it = prevMap.find(rowIds[i]);
+			if (it != prevMap.end())
+				msgs[i]["link_preview"] = std::move(it->second);
+		}
+	}
+
 	/* Oldest-first for rendering. The cursor window is already ascending;
 	 * the landing window came back newest-first, so reverse it. */
 	nlohmann::json ordered = nlohmann::json::array();

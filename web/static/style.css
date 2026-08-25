@@ -973,3 +973,26 @@ img.msg-media { cursor: zoom-in; object-fit: contain; }
 	border-radius: 10px;
 }
 .mcp-new h2 { margin-top: 0; font-size: 1.05rem; }
+
+/*
+ * Link preview card. Deliberately quiet: a bordered block with a left accent,
+ * the way Telegram and Discord both render one, so it reads as attached to the
+ * message rather than as another message.
+ */
+.link-preview {
+	display: block;
+	margin: 6px 0 2px;
+	padding: 6px 10px;
+	border-left: 3px solid var(--accent, #2ecc71);
+	border-radius: 4px;
+	background: rgba(127, 127, 127, .08);
+	text-decoration: none;
+	color: inherit;
+	max-width: 420px;
+}
+.link-preview:hover { background: rgba(127, 127, 127, .15); }
+.lp-site  { font-size: .78em; opacity: .75; }
+.lp-title { font-weight: 600; margin: 1px 0; }
+.lp-desc  { font-size: .88em; opacity: .85; white-space: pre-wrap; }
+.lp-image { display: block; margin-top: 6px; max-width: 100%;
+	    max-height: 260px; border-radius: 4px; }

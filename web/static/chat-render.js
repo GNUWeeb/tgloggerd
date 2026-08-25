@@ -73,6 +73,32 @@
 		return '<a class="reply-quote" href="' + r.href + '">' + body + "</a>";
 	}
 
+	/*
+	 * The link-preview card. Mirrors the .link-preview block in chat.html
+	 * exactly -- this file exists to render the markup the server would, so
+	 * a scrolled-in message is indistinguishable from a server-rendered one.
+	 */
+	function linkPreview(m) {
+		var lp = m.link_preview;
+		if (!lp)
+			return "";
+		var h = '<a class="link-preview" href="' + lp.url +
+			'" target="_blank" rel="noopener noreferrer">';
+		if (lp.site_name)
+			h += '<div class="lp-site">' + lp.site_name + "</div>";
+		if (lp.title)
+			h += '<div class="lp-title">' + lp.title + "</div>";
+		if (lp.description)
+			h += '<div class="lp-desc">' + lp.description + "</div>";
+		/* Only when the bytes are actually stored, the same rule as
+		 * message media: a pruned file would 404. */
+		if (lp.media && lp.media.stored !== false && lp.media.url)
+			h += '<img class="lp-image" src="' + lp.media.url +
+			     '" alt="" loading="lazy">';
+		h += "</a>";
+		return h;
+	}
+
 	/* Placeholder for a file whose bytes were too large to keep (only its
 	 * metadata is recorded); mirrors the .media-missing template branch. */
 	function missing(md, ctype, cls) {
@@ -209,7 +235,7 @@
 			? ' <span class="badge warn">deleted' + (m.deleted_at !== undefined ? " · " + m.deleted_at : "") + "</span>" : "";
 		var meta = '<div class="msg-meta"><span class="msg-time">' + (m.date !== "" ? m.date : "—") + "</span>" + edits(m) + del + "</div>";
 		return '<div class="' + cls + '" id="msg-' + m.msg_id + '" data-day="' + m.day + '">' + av +
-			'<div class="bubble">' + senderLine(m) + forward(m) + reply(m) + singleMedia(m) + text + sig + meta + "</div></div>";
+			'<div class="bubble">' + senderLine(m) + forward(m) + reply(m) + singleMedia(m) + text + linkPreview(m) + sig + meta + "</div></div>";
 	}
 
 	function one(m) {

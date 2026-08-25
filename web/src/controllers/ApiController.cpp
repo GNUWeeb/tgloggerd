@@ -44,6 +44,12 @@ void enrichUrls(nlohmann::json &m)
 			if (it.contains("media") && it["media"].contains("file_id"))
 				it["media"]["url"] = fileUrl(
 					it["media"]["file_id"].get<int64_t>());
+	/* The link-preview card carries an image like any other media. */
+	if (m.contains("link_preview") &&
+	    m["link_preview"].contains("media") &&
+	    m["link_preview"]["media"].contains("file_id"))
+		m["link_preview"]["media"]["url"] = fileUrl(
+			m["link_preview"]["media"]["file_id"].get<int64_t>());
 	if (m.contains("edits"))
 		for (auto &e : m["edits"])
 			if (e.contains("media") && e["media"].contains("file_id"))

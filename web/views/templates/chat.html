@@ -116,6 +116,14 @@
 				</div>
 ## if m.text != ""
 				<div class="msg-text">{{ m.text }}</div>
+## if existsIn(m, "link_preview")
+				<a class="link-preview" href="{{ m.link_preview.url }}" target="_blank" rel="noopener noreferrer">
+{% if m.link_preview.site_name != "" %}					<div class="lp-site">{{ m.link_preview.site_name }}</div>
+{% endif %}{% if m.link_preview.title != "" %}					<div class="lp-title">{{ m.link_preview.title }}</div>
+{% endif %}{% if m.link_preview.description != "" %}					<div class="lp-desc">{{ m.link_preview.description }}</div>
+{% endif %}{% if existsIn(m.link_preview, "media") %}{% if m.link_preview.media.stored %}					<img class="lp-image" src="{{ media(m.link_preview.media.file_id) }}" alt="" loading="lazy">
+{% endif %}{% endif %}				</a>
+## endif
 ## endif
 				<div class="msg-meta">
 					<span class="msg-time">{% if m.date != "" %}{{ m.date }}{% else %}—{% endif %}</span>
@@ -223,6 +231,14 @@
 
 ## if m.text != ""
 				<div class="msg-text">{{ m.text }}</div>
+## if existsIn(m, "link_preview")
+				<a class="link-preview" href="{{ m.link_preview.url }}" target="_blank" rel="noopener noreferrer">
+{% if m.link_preview.site_name != "" %}					<div class="lp-site">{{ m.link_preview.site_name }}</div>
+{% endif %}{% if m.link_preview.title != "" %}					<div class="lp-title">{{ m.link_preview.title }}</div>
+{% endif %}{% if m.link_preview.description != "" %}					<div class="lp-desc">{{ m.link_preview.description }}</div>
+{% endif %}{% if existsIn(m.link_preview, "media") %}{% if m.link_preview.media.stored %}					<img class="lp-image" src="{{ media(m.link_preview.media.file_id) }}" alt="" loading="lazy">
+{% endif %}{% endif %}				</a>
+## endif
 ## endif
 
 ## if existsIn(m, "author_signature")
