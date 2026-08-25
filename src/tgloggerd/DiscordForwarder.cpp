@@ -522,8 +522,10 @@ DiscordForwarder::resolve_reply(const ForwardMessage &fm)
 				ri.jump_url = "https://discord.com/channels/" +
 					      o->guild_id + "/" + o->channel_id +
 					      "/" + o->message_id;
-			if (!o->author_id.empty())
+			if (!o->author_id.empty()) {
 				ri.mention = "<@" + o->author_id + ">";
+				ri.mention_user_id = o->author_id;
+			}
 			ri.snippet = reply_preview(o->content);
 			ri.ok = true;
 			return ri;
@@ -578,20 +580,17 @@ std::string DiscordForwarder::reply_embed(const ReplyInfo &ri,
 	e += "}";
 	/*
 	 * ri.snippet is already discord-escaped and length-bounded by
-	 * reply_preview(); here it only needs JSON encoding. A Discord-origin
-	 * reply leads with a mention of the real author, so the card reads as
-	 * addressing them. It renders as a mention chip but does not notify:
-	 * build_payload sets allowed_mentions parse:[], and a bridge that pings
-	 * on every relayed reply would be intolerable.
+	 * reply_preview(); here it only needs JSON encoding.
+	 *
+	 * The mention deliberately does NOT go in here. Discord never notifies
+	 * for a mention inside an embed -- verified against the API: the same
+	 * id in an embed description comes back with an empty `mentions` array,
+	 * while in `content` with an explicit allowance it resolves. So the
+	 * mention lives in the message content (post_reply_preview) and the
+	 * embed carries only the quoted text.
 	 */
-	std::string desc = ri.mention;
-	if (!ri.snippet.empty()) {
-		if (!desc.empty())
-			desc += "\n";
-		desc += ri.snippet;
-	}
-	if (!desc.empty())
-		e += ",\"description\":\"" + json_escape(desc) + "\"";
+	if (!ri.snippet.empty())
+		e += ",\"description\":\"" + json_escape(ri.snippet) + "\"";
 	e += "}]";
 	return e;
 }
@@ -667,8 +666,12 @@ void DiscordForwarder::post_reply_preview(const std::string &webhook_url,
 			? ri.jump_url
 			: reply_jump_url(webhook_url, ri.chat_id, ri.message_id);
 	std::string embed = reply_embed(ri, jump);
+	/*
+	 * The mention is the content of this preview message, which is what
+	 * makes it notify; the quoted card follows underneath it.
+	 */
 	DiscordResponse r = client_.post_json(webhook_url,
-		build_payload(s, std::string(), embed));
+		build_payload(s, ri.mention, embed, ri.mention_user_id));
 	if (!r.ok()) {
 		std::string detail = r.status ? r.body.substr(0, 200) : r.error;
 		pr_warn(l_, "discord: reply preview POST failed (status=%ld): %s",
@@ -678,13 +681,27 @@ void DiscordForwarder::post_reply_preview(const std::string &webhook_url,
 
 std::string DiscordForwarder::build_payload(const Sender &s,
 					    const std::string &content,
-					    const std::string &embed) const
+					    const std::string &embed,
+					    const std::string &ping_user_id) const
 {
 	std::string p = "{\"username\":\"" + json_escape(s.name) + "\"";
 	if (!s.avatar_url.empty())
 		p += ",\"avatar_url\":\"" + json_escape(s.avatar_url) + "\"";
 	p += ",\"content\":\"" + json_escape(content) + "\"";
-	p += ",\"allowed_mentions\":{\"parse\":[]}";
+	/*
+	 * parse:[] stays, and it is the important half: forwarded text is
+	 * written by anyone in the Telegram group, so @everyone, @here, roles
+	 * and stray <@id> tokens in a relayed message must never notify.
+	 * `users` is an allowlist of exactly the one account this bridge chose
+	 * to address -- the author of the message being replied to -- so the
+	 * ping is narrow by construction rather than a blanket opening.
+	 */
+	if (ping_user_id.empty()) {
+		p += ",\"allowed_mentions\":{\"parse\":[]}";
+	} else {
+		p += ",\"allowed_mentions\":{\"parse\":[],\"users\":[\"" +
+		     json_escape(ping_user_id) + "\"]}";
+	}
 	if (!embed.empty())
 		p += "," + embed;
 	p += "}";

@@ -108,7 +108,8 @@ private:
 		 * real Discord author instead of the bridge bot.
 		 */
 		std::string jump_url;
-		std::string mention;
+		std::string mention;         /* "<@id>", rendered in content */
+		std::string mention_user_id; /* that id alone, to allow the ping */
 		bool        ok = false;
 	};
 
@@ -144,8 +145,13 @@ private:
 	 * webhook, so a following post renders below it. */
 	void post_reply_preview(const std::string &webhook_url, const Sender &s,
 				const ReplyInfo &ri);
+	/*
+	 * `ping_user_id`, when set, is the ONE user a mention in `content` is
+	 * permitted to notify. Everything else stays unpingable.
+	 */
 	std::string build_payload(const Sender &s, const std::string &content,
-				  const std::string &embed) const;
+				  const std::string &embed,
+				  const std::string &ping_user_id = std::string()) const;
 	/* POST one payload to a webhook and record the created message id (so a
 	 * later edit/delete can find it; the content is re-derived, not stored). */
 	void post_one_and_record(const std::string &url, const std::string &payload,
