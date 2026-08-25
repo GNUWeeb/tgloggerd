@@ -232,6 +232,13 @@ flagged edited with no captured version, `telegram_get_message_history` returns
 `previous_version_count: 0` **and a `note` saying why**, because silence there would read
 as "nothing changed" — the opposite of the truth.
 
+**`edit_date` on a version means that version's own start**, not the moment it was
+replaced — `0` for the original text of a message that was later edited. It is the
+same quantity the live message reports, so a full history reads as the returned
+versions followed by the current message, each stamped with when it came into being.
+`observed_at` is separate and is when the daemon *recorded* the version, which can lag
+the edit itself.
+
 Deletion does not erase content: a deleted message keeps its text, and
 `deleted_observed_at` records when the deletion was *noticed*.
 

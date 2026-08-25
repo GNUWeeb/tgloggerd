@@ -125,15 +125,21 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 		fk_column + ", content_type, text, entities, file_id, edit_date)"
 		" VALUES (?, ?, ?, ?, ?, ?)";
 
-	/* The snapshot records the content *before* the edit, keyed by the
-	 * edit_date that triggered it (the new edit_date of the live row). */
+	/*
+	 * The snapshot records the content before the edit, stamped with the
+	 * edit_date that content had while it was live -- its own start, not
+	 * the date of the edit that ended it. That makes edit_date mean one
+	 * thing in both tables (this version came into being then, 0 for the
+	 * original), so a message's history reads as its edit rows followed by
+	 * the live row, each carrying its own start.
+	 */
 	tx.execute(sql, {
 		(int64_t)message_row_id,
 		std::string(models::to_string(old_content.content_type)),
 		text_param,
 		entities_param,
 		file_param,
-		(int64_t)new_edit_date,
+		(int64_t)old_edit_date,
 	});
 	return true;
 }
