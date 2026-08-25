@@ -177,7 +177,19 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		 * keeping edit_date as the last real content edit time. The
 		 * deleted_at IS NULL guard preserves the first deletion time.
 		 */
-		if (msg.is_deleted && !old_deleted) {
+		if (msg.is_deleted) {
+			/*
+			 * Return whether or not the stamp is applied. A
+			 * deletion model carries no content -- the handler
+			 * builds it with only chat_id, message_id and the flag
+			 * set -- so letting a repeat deletion fall through to
+			 * the upsert below overwrites the preserved text with
+			 * NULL, the content_type with 'unknown' and both dates
+			 * with 0, destroying the very message the tombstone
+			 * exists to keep.
+			 */
+			if (old_deleted)
+				return;
 			tx.execute(
 				"UPDATE telegram_group_messages SET deleted_at = NOW()"
 				" WHERE id = ? AND deleted_at IS NULL",
