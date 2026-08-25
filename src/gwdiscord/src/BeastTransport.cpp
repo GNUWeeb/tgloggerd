@@ -24,8 +24,10 @@
 #include <boost/beast/websocket/ssl.hpp>
 
 #include <atomic>
+#include <future>
 #include <memory>
 #include <mutex>
+#include <thread>
 
 namespace beast = boost::beast;
 namespace http  = boost::beast::http;
@@ -47,16 +49,39 @@ static void init_ssl_ctx(ssl::context &ctx, const std::string &host)
 
 class BeastWebSocket final : public WebSocket {
 public:
-	BeastWebSocket(void) : ctx_(ssl::context::tlsv12_client) {}
+	BeastWebSocket(void)
+		: ctx_(ssl::context::tlsv12_client),
+		  work_(net::make_work_guard(ioc_)) {}
 
 	~BeastWebSocket(void) override
 	{
 		disconnect();
+		work_.reset();
+		if (runner_.joinable())
+			runner_.join();
 	}
 
+	/*
+	 * Called once, before any read/write/close, from the thread that owns
+	 * this socket; the io thread starts only when it succeeds. Everything
+	 * in here runs synchronously on the caller, which is safe precisely
+	 * because nothing else can be touching the stream yet.
+	 */
 	bool connect(const std::string &host, const std::string &target,
 		     std::string *err) override
 	{
+		std::lock_guard<std::mutex> lk(state_mtx_);
+		if (disconnected_.load()) {
+			/*
+			 * A disconnect() that raced us -- the owner is being
+			 * stopped. Refusing here is what makes stop() during a
+			 * connect attempt stick instead of being wiped by the
+			 * attempt succeeding afterwards.
+			 */
+			if (err)
+				*err = "socket was disconnected";
+			return false;
+		}
 		try {
 			init_ssl_ctx(ctx_, host);
 			s_ = std::make_unique<Stream>(ioc_, ctx_);
@@ -71,6 +96,7 @@ public:
 				    host.c_str())) {
 				if (err)
 					*err = "failed to set TLS SNI hostname";
+				s_.reset();
 				return false;
 			}
 			s_->next_layer().handshake(ssl::stream_base::client);
@@ -85,7 +111,14 @@ public:
 						"gwdiscord (https://git.gnuweeb.net/GNUWeeb/tgloggerd)");
 				}));
 			s_->handshake(host, target);
-			disconnected_ = false;
+
+			/*
+			 * From here on every stream operation is an async one
+			 * initiated on this thread and RUN on the io thread;
+			 * see the class comment at the bottom.
+			 */
+			runner_ = std::thread([this] { ioc_.run(); });
+			running_ = true;
 			return true;
 		} catch (const std::exception &e) {
 			if (err)
@@ -103,29 +136,53 @@ public:
 			return ReadStatus::Error;
 		}
 
+		struct Result {
+			beast::error_code ec;
+			uint16_t          code = 0;
+			std::string       reason;
+		};
 		beast::flat_buffer buf;
-		beast::error_code ec;
-		s_->read(buf, ec);
+		std::promise<Result> pr;
+		auto fut = pr.get_future();
 
-		if (ec == ws::error::closed) {
+		net::post(ioc_, [&] {
+			s_->async_read(buf, [&](beast::error_code ec, size_t) {
+				Result r;
+				r.ec = ec;
+				/*
+				 * The close code is stream state; take it here
+				 * on the io thread, where nothing else can be
+				 * running against the stream, not afterwards
+				 * on the caller's thread.
+				 */
+				if (ec == ws::error::closed) {
+					r.code = static_cast<uint16_t>(
+						s_->reason().code);
+					r.reason = std::string(
+						s_->reason().reason.data(),
+						s_->reason().reason.size());
+				}
+				pr.set_value(std::move(r));
+			});
+		});
+		Result r = fut.get();
+
+		if (r.ec == ws::error::closed) {
 			/*
 			 * Beast surfaces the close code as a typed field. This
 			 * is what lets the Gateway distinguish a fatal 4014
 			 * from a recoverable drop -- see is_fatal_close_code().
 			 */
-			peer_close_.code =
-				static_cast<uint16_t>(s_->reason().code);
-			peer_close_.reason =
-				std::string(s_->reason().reason.data(),
-					    s_->reason().reason.size());
+			peer_close_.code = r.code;
+			peer_close_.reason = r.reason;
 			return ReadStatus::Closed;
 		}
-		if (ec) {
+		if (r.ec) {
 			/* A disconnect() we asked for is not an error. */
 			if (disconnected_.load())
 				return ReadStatus::Closed;
 			if (err)
-				*err = ec.message();
+				*err = r.ec.message();
 			return ReadStatus::Error;
 		}
 
@@ -141,14 +198,20 @@ public:
 			return false;
 		}
 		/*
-		 * Beast permits one concurrent reader and one concurrent
-		 * writer, but not two writers. The heartbeat thread and any
-		 * protocol-level send both land here, so serialize them.
+		 * One write-class operation in flight at a time (Beast's
+		 * rule); the blocking wait under the mutex enforces it.
 		 */
 		std::lock_guard<std::mutex> lk(write_mtx_);
-		beast::error_code ec;
-		s_->text(true);
-		s_->write(net::buffer(payload), ec);
+		std::promise<beast::error_code> pr;
+		auto fut = pr.get_future();
+		net::post(ioc_, [&] {
+			s_->text(true);
+			s_->async_write(net::buffer(payload),
+					[&](beast::error_code ec, size_t) {
+						pr.set_value(ec);
+					});
+		});
+		const beast::error_code ec = fut.get();
 		if (ec) {
 			if (err)
 				*err = ec.message();
@@ -159,19 +222,26 @@ public:
 
 	void close(uint16_t code, const std::string &reason) override
 	{
-		if (!s_)
+		if (!s_ || !running_)
 			return;
+		/* async_close is a write-class operation: same serialization. */
 		std::lock_guard<std::mutex> lk(write_mtx_);
-		beast::error_code ec;
-		/*
-		 * Beast htons-casts whatever code it is handed, so Discord's
-		 * 4000-4999 range passes through verbatim. Closing with 1000
-		 * or 1001 would make the session unresumable.
-		 */
-		s_->close(ws::close_reason(static_cast<ws::close_code>(code),
-					   reason),
-			  ec);
-		(void)ec; /* Best-effort: we are tearing down anyway. */
+		std::promise<beast::error_code> pr;
+		auto fut = pr.get_future();
+		net::post(ioc_, [&] {
+			/*
+			 * Beast htons-casts whatever code it is handed, so
+			 * Discord's 4000-4999 range passes through verbatim.
+			 * Closing with 1000 or 1001 would make the session
+			 * unresumable.
+			 */
+			s_->async_close(
+				ws::close_reason(
+					static_cast<ws::close_code>(code),
+					reason),
+				[&](beast::error_code ec) { pr.set_value(ec); });
+		});
+		(void)fut.get(); /* Best-effort: we are tearing down anyway. */
 	}
 
 	CloseInfo peer_close(void) const override
@@ -181,26 +251,56 @@ public:
 
 	void disconnect(void) override
 	{
+		std::lock_guard<std::mutex> lk(state_mtx_);
 		disconnected_ = true;
 		if (!s_)
 			return;
-		beast::error_code ec;
 		/*
 		 * Shut the TCP socket down underneath the TLS and WebSocket
-		 * layers: that is what makes a read() blocked on another
-		 * thread return promptly.
+		 * layers: that is what makes a read() blocked on the io thread
+		 * complete promptly. Once the io thread runs, the socket may
+		 * only be touched from there; before it runs (a connect that
+		 * failed, or never happened) there is no concurrency and the
+		 * direct call is fine.
 		 */
-		s_->next_layer().next_layer().shutdown(
-			tcp::socket::shutdown_both, ec);
-		s_->next_layer().next_layer().close(ec);
+		if (running_) {
+			net::post(ioc_, [this] { raw_close(); });
+		} else {
+			raw_close();
+		}
 	}
 
 private:
 	using Stream = ws::stream<ssl::stream<tcp::socket>>;
 
+	void raw_close(void)
+	{
+		beast::error_code ec;
+		s_->next_layer().next_layer().shutdown(
+			tcp::socket::shutdown_both, ec);
+		s_->next_layer().next_layer().close(ec);
+	}
+
+	/*
+	 * THREADING. The synchronous first cut of this class had the gateway
+	 * thread blocked in a sync read while the heartbeat thread called sync
+	 * write on the same stream. That is undefined: Beast's one-reader/
+	 * one-writer allowance covers ASYNC operations only, a sync read
+	 * writes its own auto-pong replies to WS pings, and both threads end
+	 * up in SSL_read/SSL_write on one SSL*, which OpenSSL does not
+	 * support -- TLS 1.3 KeyUpdates make the reader write even without a
+	 * ping in flight. So the stream is now driven entirely by ONE io
+	 * thread running ioc_: public calls post async operations and block
+	 * on their completion, keeping the blocking Transport contract while
+	 * no two operations ever touch the stream concurrently.
+	 */
 	net::io_context		ioc_;
 	ssl::context		ctx_;
+	net::executor_work_guard<net::io_context::executor_type> work_;
 	std::unique_ptr<Stream>	s_;
+	std::thread		runner_;
+	bool			running_ = false;
+	std::mutex		state_mtx_; /* connect vs disconnect */
 	std::mutex		write_mtx_;
 	CloseInfo		peer_close_;
 	std::atomic<bool>	disconnected_{false};
