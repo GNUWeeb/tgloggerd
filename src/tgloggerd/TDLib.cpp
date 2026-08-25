@@ -8,6 +8,7 @@
 #include <td/telegram/td_api.h>
 #include <td/telegram/td_api.hpp>
 
+#include <map>
 #include <string>
 #include <memory>
 #include <vector>
@@ -1162,6 +1163,23 @@ struct TDLib::Impl {
 	/* Reply targets already fetched, so a chain is not re-walked. */
 	std::set<std::pair<int64_t, int64_t>>		resolved_reply_targets_;
 
+	/*
+	 * Messages with a getMessage in flight from refetch_edited_message(),
+	 * so a burst of updates about one message does not put several
+	 * identical queries on the wire at once. `rearm` records that another
+	 * request came in while this one was outstanding and the fetch must be
+	 * repeated once it lands. `rearm_mirror` belongs to that queued repeat
+	 * alone -- the in-flight request carries its own mirror flag in its
+	 * callback -- so an edit coalesced behind a preview resolution still
+	 * reaches Discord, without the repeat re-mirroring what the first one
+	 * already did. Only ever touched on the TDLib loop thread.
+	 */
+	struct InflightRefetch {
+		bool rearm = false;
+		bool rearm_mirror = false;
+	};
+	std::map<std::pair<int64_t, int64_t>, InflightRefetch> refetch_inflight_;
+
 	/* Groups whose admins we track (chat_ids), and a round-robin queue
 	 * for periodic refresh. Populated on first sight of a member group. */
 	std::unordered_set<int64_t>			admin_poll_set_;
@@ -1937,20 +1955,55 @@ void TDLib::Impl::resolve_reply_message(const td_api::message &message,
 void TDLib::Impl::refetch_edited_message(int64_t chat_id, int64_t message_id,
 					 bool mirror)
 {
+	auto key = std::make_pair(chat_id, message_id);
+
+	/*
+	 * One query per message at a time. A single edit routinely produces
+	 * both an updateMessageEdited and an updateMessageContent, and a user
+	 * correcting themselves produces several in a row; without this each
+	 * of them raced the others to answer the same question.
+	 */
+	auto it = refetch_inflight_.find(key);
+	if (it != refetch_inflight_.end()) {
+		it->second.rearm = true;
+		it->second.rearm_mirror = it->second.rearm_mirror || mirror;
+		return;
+	}
+	refetch_inflight_[key] = InflightRefetch{};
+
 	send_query(td_api::make_object<td_api::getMessage>(chat_id, message_id),
-		   [this, mirror](Object obj) {
-			   if (obj->get_id() != td_api::message::ID)
-				   return;
-			   auto msg = td::move_tl_object_as<td_api::message>(obj);
-			   if (is_private_chat(msg->chat_id_))
-				   handle_message_for_private_chat(*msg, 0);
-			   else
-				   handle_message_for_group_chat(*msg, 0);
-			   if (mirror && edit_forward_handler_) {
-				   ForwardMessage fm;
-				   build_forward_message(*msg, fm);
-				   edit_forward_handler_(fm);
+		   [this, key, mirror](Object obj) {
+			   /*
+			    * Clear the slot before doing anything else, and on
+			    * every path including the error one -- a query that
+			    * fails must not wedge the message permanently.
+			    */
+			   bool rearm = false;
+			   bool rearm_mirror = false;
+			   auto slot = refetch_inflight_.find(key);
+			   if (slot != refetch_inflight_.end()) {
+				   rearm = slot->second.rearm;
+				   rearm_mirror = slot->second.rearm_mirror;
+				   refetch_inflight_.erase(slot);
 			   }
+
+			   if (obj->get_id() == td_api::message::ID) {
+				   auto msg = td::move_tl_object_as<td_api::message>(obj);
+				   if (is_private_chat(msg->chat_id_))
+					   handle_message_for_private_chat(*msg, 0);
+				   else
+					   handle_message_for_group_chat(*msg, 0);
+				   if (mirror && edit_forward_handler_) {
+					   ForwardMessage fm;
+					   build_forward_message(*msg, fm);
+					   edit_forward_handler_(fm);
+				   }
+			   }
+
+			   /* Something changed while we were asking; ask again. */
+			   if (rearm)
+				   refetch_edited_message(key.first, key.second,
+							  rearm_mirror);
 		   });
 }
 
