@@ -20,19 +20,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <thread>
 
 using namespace gwdiscord;
-
-static Gateway *g_gw = nullptr;
-static std::atomic<bool> g_signalled{false};
-
-static void on_signal(int sig)
-{
-	(void)sig;
-	g_signalled = true;
-	if (g_gw)
-		g_gw->stop(); /* safe from a signal-adjacent context */
-}
 
 static void print_message(const char *what, const Message &m,
 			  Snowflake only_channel)
@@ -89,7 +79,6 @@ int main(int argc, char **argv)
 	};
 
 	Gateway gw(cfg, beast_transport(), log);
-	g_gw = &gw;
 
 	gw.on_ready([](const Ready &r) {
 		printf("connected as %s; waiting for messages\n",
@@ -111,11 +100,33 @@ int main(int argc, char **argv)
 		fflush(stdout);
 	});
 
-	signal(SIGINT, on_signal);
-	signal(SIGTERM, on_signal);
+	/*
+	 * Shutdown signals are taken SYNCHRONOUSLY, on their own thread.
+	 * Gateway::stop() locks mutexes and signals condition variables,
+	 * none of which is async-signal-safe: called from a handler that
+	 * interrupted a thread holding one of those locks, it deadlocks.
+	 * Blocking the signals everywhere and sigwait()ing for them turns
+	 * delivery into ordinary thread context, where stop() is fine.
+	 */
+	sigset_t sigs;
+	sigemptyset(&sigs);
+	sigaddset(&sigs, SIGINT);
+	sigaddset(&sigs, SIGTERM);
+	pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
+	std::atomic<bool> done{false};
+	std::thread sig_thread([&] {
+		int sig = 0;
+		sigwait(&sigs, &sig);
+		if (!done.load())
+			gw.stop();
+	});
 
 	StopReason why = gw.run();
-	g_gw = nullptr;
+	done = true;
+	/* Unblock sigwait on a signal-less exit; harmless if it already
+	 * returned. */
+	pthread_kill(sig_thread.native_handle(), SIGTERM);
+	sig_thread.join();
 
 	switch (why) {
 	case StopReason::Requested:
