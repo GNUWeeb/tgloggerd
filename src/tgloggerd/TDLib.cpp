@@ -1245,6 +1245,8 @@ struct TDLib::Impl {
 	void resolve_forward_origin(const models::ForwardInfo &info);
 	void ensure_user_saved(int64_t user_id);
 	void ensure_chat_saved(int64_t chat_id);
+	void refetch_edited_message(int64_t chat_id, int64_t message_id,
+				    bool mirror);
 	void maybe_store_link_preview(int64_t chat_id, int64_t tdlib_msg_id,
 				      const td_api::MessageContent &content,
 				      bool is_group);
@@ -1488,36 +1490,13 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 			},
 			[this](td_api::updateMessageEdited &u) {
 				/*
-				 * updateMessageEdited fires with edit_date
-				 * but not the content. Request the full
-				 * message; when it arrives we rebuild and
-				 * upsert it as if it were a new message,
-				 * routing to the private or group path by
-				 * chat kind.
+				 * updateMessageEdited fires with edit_date but
+				 * not the content, so the message has to be
+				 * fetched. This is the path that captures
+				 * essentially every real edit.
 				 */
-				send_query(
-					td_api::make_object<td_api::getMessage>(
-						u.chat_id_, u.message_id_),
-					[this](Object obj) {
-						if (obj->get_id() !=
-						    td_api::message::ID)
-							return;
-						auto msg =
-							td::move_tl_object_as<
-								td_api::message>(obj);
-						if (is_private_chat(msg->chat_id_))
-							handle_message_for_private_chat(
-								*msg, 0);
-						else
-							handle_message_for_group_chat(
-								*msg, 0);
-						/* Mirror the edit to Discord too. */
-						if (edit_forward_handler_) {
-							ForwardMessage fm;
-							build_forward_message(*msg, fm);
-							edit_forward_handler_(fm);
-						}
-					});
+				refetch_edited_message(u.chat_id_, u.message_id_,
+						       true);
 			},
 			[this](td_api::updateDeleteMessages &u) {
 				handle_delete_messages(
@@ -1946,6 +1925,52 @@ void TDLib::Impl::resolve_reply_message(const td_api::message &message,
 		});
 }
 
+/*
+ * Re-fetch a message whose content may have changed, and re-run it through the
+ * normal message path so the upsert snapshots the previous version.
+ *
+ * `mirror` says whether to also push the edit to the Discord bridge. The
+ * updateMessageEdited path does; the content-update fallback does not, because
+ * it fires for changes that are not edits (a link preview resolving) and
+ * re-mirroring those would edit the Discord message for no reason.
+ */
+void TDLib::Impl::refetch_edited_message(int64_t chat_id, int64_t message_id,
+					 bool mirror)
+{
+	send_query(td_api::make_object<td_api::getMessage>(chat_id, message_id),
+		   [this, mirror](Object obj) {
+			   if (obj->get_id() != td_api::message::ID)
+				   return;
+			   auto msg = td::move_tl_object_as<td_api::message>(obj);
+			   if (is_private_chat(msg->chat_id_))
+				   handle_message_for_private_chat(*msg, 0);
+			   else
+				   handle_message_for_group_chat(*msg, 0);
+			   if (mirror && edit_forward_handler_) {
+				   ForwardMessage fm;
+				   build_forward_message(*msg, fm);
+				   edit_forward_handler_(fm);
+			   }
+		   });
+}
+
+/*
+ * Content kinds whose changes are the SERVER mutating a message rather than
+ * anyone editing it: a poll's vote counts and a live location's coordinates
+ * change continuously and carry no edit_date. Re-fetching those would be a
+ * round trip per vote for a message whose recorded content did not change.
+ */
+bool is_server_churn_content(const td_api::MessageContent &c)
+{
+	switch (c.get_id()) {
+	case td_api::messagePoll::ID:
+	case td_api::messageLocation::ID:
+		return true;
+	default:
+		return false;
+	}
+}
+
 void TDLib::Impl::handle_update_message_content(int64_t chat_id,
 					       int64_t message_id,
 					       const td_api::MessageContent *content)
@@ -1969,17 +1994,36 @@ void TDLib::Impl::handle_update_message_content(int64_t chat_id,
 	 * message row does not exist yet the upsert's subquery matches nothing
 	 * and writes nothing, which is the right answer rather than an error.
 	 *
-	 * Deliberately narrow. updateMessageContent also fires for polls,
-	 * live locations and ordinary edits, and this handler acts only when
-	 * the new content is a text message carrying a link preview --
-	 * message_link_preview() returns nullptr for everything else. Message
-	 * EDITS are not tracked here: they arrive with edit_date via
-	 * updateMessageEdited, which is where they are handled, and using this
-	 * update for them would need a getMessage round trip to learn the
-	 * edit_date this callback is not given.
+	 * message_link_preview() returns nullptr for anything that is not a
+	 * text message with a preview, so this is a no-op for the rest.
 	 */
 	maybe_store_link_preview(chat_id, message_id, *content,
 				 !is_private_chat(chat_id));
+
+	/*
+	 * ...and this is the EDIT fallback, which is a safety net rather than a
+	 * fix. Real edits arrive as updateMessageEdited, which carries the
+	 * edit_date this callback is not given and already re-fetches the
+	 * message; sampling live traffic found no edit that reached here
+	 * without one. But the two updates are independent, nothing in the API
+	 * guarantees they stay paired, and a silently missed edit is invisible
+	 * -- the stored text simply goes stale. So re-fetch here as well and
+	 * let the upsert decide: it snapshots the previous version only when
+	 * the content actually differs, making a duplicate re-fetch cost a
+	 * round trip and nothing more.
+	 *
+	 * Skipped only for the content kinds that churn on their own, because
+	 * there the round trip would be per vote rather than per edit. It is
+	 * tempting to also skip a resolved link preview, since that is not an
+	 * edit and is by far the most common thing to arrive here -- but an
+	 * edit that ADDS a link is delivered with a preview too, so skipping
+	 * those would open the hole this exists to close, and the measured
+	 * traffic makes it a few round trips an hour.
+	 */
+	if (is_server_churn_content(*content))
+		return;
+
+	refetch_edited_message(chat_id, message_id, false);
 }
 
 void TDLib::Impl::handle_delete_messages(int64_t chat_id,
