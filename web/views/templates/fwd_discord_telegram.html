@@ -48,7 +48,7 @@
 				<select id="rt-f-bot" name="telegram_bot_id">
 					<option value="">— add a new bot below —</option>
 ## for b in bots
-					<option value="{{ b.id }}">{{ b.label }}{% if not b.connected %} (not connected yet){% endif %}</option>
+					<option value="{{ b.id }}">{{ b.label }}</option>
 ## endfor
 				</select>
 				<span class="rt-hint">Bots are shared between routes. Existing tokens are never shown — to change a route's bot, pick another or paste a new token.</span>
