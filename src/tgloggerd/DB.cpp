@@ -86,6 +86,36 @@ ChatPhoto DB::getGroupPhoto(int64_t chat_id)
  * in one statement. Group and private messages live in separate tables (and
  * separate columns here), which is the only thing that differs between the two.
  */
+namespace {
+
+/*
+ * Truncate to at most @max_chars codepoints, never splitting one. The
+ * link-preview VARCHAR columns are utf8mb4 and measured in CHARACTERS, and
+ * under strict sql_mode an oversized bind rejects the whole INSERT rather
+ * than truncating -- so the clamp has to happen here, and by codepoint, or a
+ * multibyte value cut at a byte boundary would be rejected as malformed.
+ */
+std::string utf8_truncate_chars(const std::string &s, size_t max_chars)
+{
+	size_t chars = 0, i = 0;
+	while (i < s.size() && chars < max_chars) {
+		unsigned char b = (unsigned char)s[i];
+		size_t len = b < 0x80 ? 1 :
+			     (b >> 5) == 0x06 ? 2 :
+			     (b >> 4) == 0x0E ? 3 :
+			     (b >> 3) == 0x1E ? 4 : 1;
+		if (i + len > s.size())
+			break;
+		i += len;
+		chars++;
+	}
+	if (i >= s.size())
+		return s;
+	return s.substr(0, i);
+}
+
+} /* namespace */
+
 void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
 {
 	const char *sql = is_group
@@ -122,8 +152,17 @@ void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
 		  "  show_large_media = VALUES(show_large_media), "
 		  "  show_above_text = VALUES(show_above_text)";
 
-	db_.execute(sql, { lp.url, lp.display_url, lp.site_name, lp.title,
-			   lp.description, lp.author, lp.type,
+	/*
+	 * url/display_url are TEXT (migration 000028) and stored whole. The
+	 * metadata fields keep their VARCHAR limits and are clamped to them:
+	 * they come from an arbitrary page's own markup, and losing the tail
+	 * of a title is nothing next to losing the whole preview.
+	 */
+	db_.execute(sql, { lp.url, lp.display_url,
+			   utf8_truncate_chars(lp.site_name, 255),
+			   utf8_truncate_chars(lp.title, 512),
+			   lp.description,
+			   utf8_truncate_chars(lp.author, 255), lp.type,
 			   (int64_t)lp.instant_view_version,
 			   (int64_t)(lp.has_large_media ? 1 : 0),
 			   (int64_t)(lp.show_large_media ? 1 : 0),
