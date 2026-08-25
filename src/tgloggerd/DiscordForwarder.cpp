@@ -462,6 +462,35 @@ DiscordForwarder::resolve_sender(int64_t chat_id, int64_t sender_id,
 	return s;
 }
 
+/*
+ * A Discord user, rendered the way discordd renders them going the other way:
+ * username#discriminator. The global name is deliberately not used -- it is not
+ * unique and is often long, whereas username#discriminator identifies the
+ * account. Discord moved most accounts to a "0" discriminator, which is kept
+ * rather than special-cased so every author renders the same shape.
+ */
+DiscordForwarder::Sender
+DiscordForwarder::discord_origin_sender(const DiscordOrigin &o) const
+{
+	Sender s;
+	s.name = o.username;
+	if (!o.discriminator.empty())
+		s.name += "#" + o.discriminator;
+	if (s.name.empty())
+		s.name = "Discord";
+	s.name = utf8_truncate(s.name, kMaxUsername);
+
+	/*
+	 * Discord's own CDN, not our /files proxy: this image is theirs and we
+	 * never downloaded it. Omitted when the account has no custom avatar,
+	 * rather than guessing at the default-avatar shard.
+	 */
+	if (!o.avatar.empty() && !o.author_id.empty())
+		s.avatar_url = "https://cdn.discordapp.com/avatars/" +
+			       o.author_id + "/" + o.avatar + ".png";
+	return s;
+}
+
 DiscordForwarder::ReplyInfo
 DiscordForwarder::resolve_reply(const ForwardMessage &fm)
 {
@@ -469,6 +498,42 @@ DiscordForwarder::resolve_reply(const ForwardMessage &fm)
 	if (fm.reply_to_msg_id == 0)
 		return ri;
 	int64_t qchat = fm.reply_to_chat_id != 0 ? fm.reply_to_chat_id : fm.chat_id;
+
+	ri.chat_id = qchat;
+	ri.message_id = fm.reply_to_msg_id;
+
+	/*
+	 * FIRST: did the replied message come FROM Discord?
+	 *
+	 * If a Discord user posted it and discordd bridged it into Telegram,
+	 * then on Telegram it belongs to the bridge BOT -- so resolving it the
+	 * ordinary way produces a card quoting the bot, with no link, because
+	 * that Telegram message was never forwarded Telegram->Discord and so
+	 * has no entry in the other direction's map. Going back across the
+	 * bridge gives the real author and the real message instead.
+	 */
+	try {
+		auto o = db_->getDiscordOrigin(qchat, fm.reply_to_msg_id);
+		if (o) {
+			ri.sender = discord_origin_sender(*o);
+			/* Their own message, in the channel it actually lives
+			 * in -- independent of which webhook we post through. */
+			if (!o->guild_id.empty() && !o->channel_id.empty())
+				ri.jump_url = "https://discord.com/channels/" +
+					      o->guild_id + "/" + o->channel_id +
+					      "/" + o->message_id;
+			if (!o->author_id.empty())
+				ri.mention = "<@" + o->author_id + ">";
+			ri.snippet = reply_preview(o->content);
+			ri.ok = true;
+			return ri;
+		}
+	} catch (const std::exception &e) {
+		/* Fall through to the Telegram path: a lookup failure should
+		 * degrade to the old card, not drop the preview entirely. */
+		pr_warn(l_, "discord: discord-origin lookup failed: %s",
+			e.what());
+	}
 
 	std::optional<QuotedMessage> q;
 	try {
@@ -482,9 +547,18 @@ DiscordForwarder::resolve_reply(const ForwardMessage &fm)
 
 	ri.sender = resolve_sender(qchat, q->sender_id, q->sender_chat_id,
 				   q->sender_name);
+	/*
+	 * Stamp the quoted author with the same reversible identifier the
+	 * forwarded author carries, so a reader can tell exactly which Telegram
+	 * user and message is being quoted. Omitted when no user owns it -- a
+	 * channel post or an anonymous admin has no user id to encode, and
+	 * "cx:AA:..." would assert one that does not exist.
+	 */
+	if (q->sender_id != 0)
+		ri.sender.name = forwarded_author_name(ri.sender.name,
+						       q->sender_id,
+						       fm.reply_to_msg_id);
 	ri.snippet = reply_preview(q->text);
-	ri.chat_id = qchat;
-	ri.message_id = fm.reply_to_msg_id;
 	ri.ok = true;
 	return ri;
 }
@@ -502,10 +576,22 @@ std::string DiscordForwarder::reply_embed(const ReplyInfo &ri,
 	if (!ri.sender.avatar_url.empty())
 		e += ",\"icon_url\":\"" + json_escape(ri.sender.avatar_url) + "\"";
 	e += "}";
-	/* ri.snippet is already discord-escaped and length-bounded by
-	 * reply_preview(); here it only needs JSON encoding. */
-	if (!ri.snippet.empty())
-		e += ",\"description\":\"" + json_escape(ri.snippet) + "\"";
+	/*
+	 * ri.snippet is already discord-escaped and length-bounded by
+	 * reply_preview(); here it only needs JSON encoding. A Discord-origin
+	 * reply leads with a mention of the real author, so the card reads as
+	 * addressing them. It renders as a mention chip but does not notify:
+	 * build_payload sets allowed_mentions parse:[], and a bridge that pings
+	 * on every relayed reply would be intolerable.
+	 */
+	std::string desc = ri.mention;
+	if (!ri.snippet.empty()) {
+		if (!desc.empty())
+			desc += "\n";
+		desc += ri.snippet;
+	}
+	if (!desc.empty())
+		e += ",\"description\":\"" + json_escape(desc) + "\"";
 	e += "}]";
 	return e;
 }
@@ -574,8 +660,13 @@ void DiscordForwarder::post_reply_preview(const std::string &webhook_url,
 	/* Own message, empty content + the reply embed, so the caller's next
 	 * post to the same webhook lands below it. Not tracked: it mirrors
 	 * another, still-present message. Jump link is per-channel. */
-	std::string embed = reply_embed(ri,
-		reply_jump_url(webhook_url, ri.chat_id, ri.message_id));
+	/* A Discord-origin reply already knows its link absolutely; only a
+	 * Telegram-origin one has to be resolved per webhook. */
+	const std::string jump =
+		!ri.jump_url.empty()
+			? ri.jump_url
+			: reply_jump_url(webhook_url, ri.chat_id, ri.message_id);
+	std::string embed = reply_embed(ri, jump);
 	DiscordResponse r = client_.post_json(webhook_url,
 		build_payload(s, std::string(), embed));
 	if (!r.ok()) {

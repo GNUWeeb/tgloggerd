@@ -26,6 +26,7 @@
 namespace tgloggerd {
 
 class DB;
+struct DiscordOrigin;
 
 /*
  * Mirrors live Telegram messages to Discord channels via incoming webhooks.
@@ -99,6 +100,15 @@ private:
 		std::string snippet;        /* replied text: <=5 lines, escaped */
 		int64_t     chat_id = 0;    /* replied message (chat_id, message_id), */
 		int64_t     message_id = 0; /* to resolve its Discord jump link */
+		/*
+		 * Set when the replied message did not originate on Telegram at
+		 * all: it is a Discord message discordd bridged IN. Then the
+		 * link is already known absolutely (the message lives in one
+		 * Discord channel, not per-webhook) and `mention` addresses its
+		 * real Discord author instead of the bridge bot.
+		 */
+		std::string jump_url;
+		std::string mention;
 		bool        ok = false;
 	};
 
@@ -112,6 +122,9 @@ private:
 	void reload(void);
 	void refresh_loop(void);
 
+	/* The replied message's author when it came from Discord: their real
+	 * Discord identity and avatar, not the bridge bot's. */
+	Sender discord_origin_sender(const DiscordOrigin &o) const;
 	Sender resolve_sender(int64_t chat_id, int64_t sender_id,
 			      int64_t sender_chat_id,
 			      const std::string &known_name);

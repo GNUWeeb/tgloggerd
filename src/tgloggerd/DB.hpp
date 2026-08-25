@@ -67,6 +67,26 @@ struct FileInfo {
 };
 
 /* A Discord message the forwarder posted, for applying a later edit/delete. */
+/*
+ * The Discord message a Telegram message was bridged FROM.
+ *
+ * Present only when discordd posted that Telegram message on behalf of a
+ * Discord user (discord_telegram_sent_messages). Ids are carried as strings
+ * because Discord snowflakes are 64-bit UNSIGNED and are only ever
+ * concatenated into a URL or a mention here -- parsing them into an int64
+ * would risk a wrap for no gain.
+ */
+struct DiscordOrigin {
+	std::string message_id;    /* the original Discord message */
+	std::string channel_id;
+	std::string guild_id;      /* may be empty; then no jump link */
+	std::string author_id;     /* may be empty if the message was not logged */
+	std::string username;
+	std::string discriminator;
+	std::string avatar;        /* CDN hash; may be empty */
+	std::string content;
+};
+
 struct SentMessage {
 	std::string webhook_url;
 	std::string discord_message_id;
@@ -109,6 +129,14 @@ public:
 	/* Discord-forwarder lookups (see DiscordForwarder). */
 	std::optional<uint64_t> getUserPhotoFileId(int64_t user_id);
 	ChatPhoto getGroupPhoto(int64_t chat_id);
+	/*
+	 * Was this Telegram message bridged in from Discord? Keyed by
+	 * (telegram_chat_id, telegram_message_id), which
+	 * discord_telegram_sent_messages indexes directly.
+	 */
+	std::optional<DiscordOrigin> getDiscordOrigin(int64_t chat_id,
+						      int64_t message_id);
+
 	std::optional<QuotedMessage> getQuotedMessage(int64_t chat_id,
 						      int64_t message_id);
 	std::optional<FileInfo> getFileInfo(uint64_t files_id);

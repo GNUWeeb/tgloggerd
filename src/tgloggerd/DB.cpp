@@ -81,6 +81,45 @@ ChatPhoto DB::getGroupPhoto(int64_t chat_id)
 	return out;
 }
 
+std::optional<DiscordOrigin> DB::getDiscordOrigin(int64_t chat_id,
+						  int64_t message_id)
+{
+	/*
+	 * The route supplies the channel when the message row itself is
+	 * missing -- discordd records what it SENT before it necessarily has
+	 * the message logged, and a jump link only needs guild + channel + id.
+	 */
+	auto rows = db_.query(
+		"SELECT dts.discord_message_id, "
+		"       COALESCE(dm.channel_id, rt.discord_channel_id), "
+		"       COALESCE(dm.guild_id, ch.guild_id), "
+		"       dm.author_id, du.username, du.discriminator, "
+		"       du.avatar, dm.content "
+		"FROM discord_telegram_sent_messages dts "
+		"JOIN discord_telegram_routes rt ON rt.id = dts.route_id "
+		"LEFT JOIN discord_messages dm ON dm.id = dts.discord_message_id "
+		"LEFT JOIN discord_channels ch ON ch.id = rt.discord_channel_id "
+		"LEFT JOIN discord_users du ON du.id = dm.author_id "
+		"WHERE dts.telegram_chat_id = ? AND dts.telegram_message_id = ? "
+		"LIMIT 1",
+		{ chat_id, message_id });
+	if (rows.empty())
+		return std::nullopt;
+
+	DiscordOrigin o;
+	o.message_id    = rows[0][0].value_or("");
+	o.channel_id    = rows[0][1].value_or("");
+	o.guild_id      = rows[0][2].value_or("");
+	o.author_id     = rows[0][3].value_or("");
+	o.username      = rows[0][4].value_or("");
+	o.discriminator = rows[0][5].value_or("");
+	o.avatar        = rows[0][6].value_or("");
+	o.content       = rows[0][7].value_or("");
+	if (o.message_id.empty())
+		return std::nullopt;
+	return o;
+}
+
 std::optional<QuotedMessage> DB::getQuotedMessage(int64_t chat_id,
 						  int64_t message_id)
 {
