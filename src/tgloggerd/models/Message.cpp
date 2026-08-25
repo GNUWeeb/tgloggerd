@@ -142,6 +142,42 @@ void DB::appendMessageVersion(mysql::Transaction &tx, const char *edits_table,
 	if (content.entities.has_value())
 		entities_param = *content.entities;
 
+	/*
+	 * Refuse to append a version identical to the newest one already
+	 * recorded. Two paths can observe the same superseded version -- the
+	 * inline content update, and a getMessage reply that was already in
+	 * flight when the edit landed. The in-flight reply can even carry the
+	 * OLD content with the OLD edit_date, sail past the ordering guard on
+	 * equality, transiently revert the live row, and make the next edit
+	 * re-snapshot a version that is already in the table. The revert heals
+	 * on the next fetch; the duplicate row would be permanent, so it is
+	 * stopped here, where every append path funnels through.
+	 */
+	auto newest = tx.query(
+		std::string("SELECT content_type, text, file_id, edit_date,"
+			    " (entities <=> CAST(? AS JSON)) FROM ") +
+		edits_table + " WHERE " + fk_column + " = ?"
+		" ORDER BY id DESC LIMIT 1",
+		{ entities_param, (int64_t)message_row_id });
+	if (!newest.empty()) {
+		auto &n = newest[0];
+		std::optional<std::string> n_text;
+		if (n[1].has_value())
+			n_text = *n[1];
+		std::optional<uint64_t> n_file;
+		if (n[2].has_value())
+			n_file = std::stoull(*n[2]);
+		int64_t n_edit = n[3].has_value() ? std::stoll(*n[3]) : 0;
+
+		if (n[0].value_or("unknown") ==
+			    models::to_string(content.content_type) &&
+		    n_text == content.text &&
+		    n_file == content.file_id &&
+		    n_edit == edit_date &&
+		    n[4].value_or("0") == "1")
+			return;
+	}
+
 	mysql::Param file_param = std::monostate{};
 	if (content.file_id.has_value())
 		file_param = (int64_t)*content.file_id;
