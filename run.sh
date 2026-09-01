@@ -42,6 +42,27 @@ NPROC="$(nproc)"
 # swallow a failure just in case it is unavailable.
 build_cmd() { nice -n 19 bash -c "$1" || bash -c "$1"; }
 
+# The daemon and discordd containers build in the SAME tree (build/, so TDLib
+# is compiled once). Two cmake processes configuring one tree concurrently
+# corrupt its cache -- seen in practice as compiler-identification files
+# written with an empty COMPILER_ID, after which every later configure
+# trusts the cache, skips re-identification, and dies on TDLib's "Compiler
+# isn't supported" check. Both containers being (re)created by one
+# `docker compose up` is exactly when they configure at the same time, so
+# one lock, held for the whole configure+build: whoever comes second waits,
+# then reuses everything the first one compiled.
+build_locked() {
+	(
+		exec 9> .git/tgld-build.lock
+		flock 9
+		# The cache inspection runs under the lock too: checking another
+		# container's half-written identification files would itself
+		# misread them as corrupt.
+		prepare_build_dir "$1"
+		build_cmd "$2"
+	)
+}
+
 # cmake bakes absolute paths into <dir>/CMakeCache.txt. If the directory was
 # configured for a different path -- e.g. a native `cmake -B build` run on the
 # host before switching to this container, where the same files are mounted at
@@ -53,7 +74,22 @@ prepare_build_dir() {
 	if ! grep -qxF "CMAKE_CACHEFILE_DIR:INTERNAL=${PWD}/${dir}" "$cache"; then
 		log "Discarding stale CMake cache in ${dir}/ (configured for another path)"
 		rm -rf "$dir"
+		return 0
 	fi
+	# Recover from the corruption described above build_locked: an
+	# identification file recording an empty compiler id wedges every
+	# subsequent configure. Dropping only CMakeFiles/<cmake-version>/
+	# makes cmake re-identify the toolchain and reconfigure while the
+	# compiled objects stay valid, so recovery is an incremental build,
+	# not a from-scratch TDLib compile.
+	local idfile
+	for idfile in "$dir"/CMakeFiles/*/CMakeCXXCompiler.cmake; do
+		[ -f "$idfile" ] || continue
+		if grep -q 'COMPILER_ID ""' "$idfile"; then
+			log "Discarding corrupted compiler identification in ${idfile%/*}/"
+			rm -rf "${idfile%/*}"
+		fi
+	done
 }
 
 # Populate the submodules a component builds from. A fresh checkout leaves them
@@ -101,11 +137,10 @@ daemon)
 	ensure_submodules submodules/td submodules/mysql-connector-cpp
 
 	log "Building tgloggerd (this compiles TDLib on the first run and is slow)"
-	prepare_build_dir build
 	# --target tgloggerd, not everything: build/ also holds discordd, which
 	# this container neither runs nor needs, and building it here would
 	# make the daemon depend on discordd's own dependencies.
-	build_cmd "cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target tgloggerd -j${NPROC}"
+	build_locked build "cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target tgloggerd -j${NPROC}"
 
 	wait_for_mysql "$TG_DB_HOST" "$TG_DB_PORT"
 	log "Applying daemon migrations"
@@ -147,11 +182,10 @@ discord)
 	ensure_submodules submodules/td submodules/mysql-connector-cpp
 
 	log "Building discordd (shares build/ with tgloggerd, so TDLib is compiled once)"
-	prepare_build_dir build
 	# The configure line must match the daemon's exactly: both containers
 	# share build/, and a differing cache would make them reconfigure in a
 	# loop against each other.
-	build_cmd "cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target discordd -j${NPROC}"
+	build_locked build "cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target discordd -j${NPROC}"
 
 	wait_for_mysql "$TG_DB_HOST" "$TG_DB_PORT"
 	# The daemon container owns migrations; discordd only reads the schema
