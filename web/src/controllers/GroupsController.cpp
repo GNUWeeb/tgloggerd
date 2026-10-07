@@ -5,9 +5,11 @@
  */
 #include "controllers/GroupsController.hpp"
 
+#include "auth/AuthFilter.hpp"
 #include "auth/Session.hpp"
 #include "controllers/Common.hpp"
 #include "dao/Browse.hpp"
+#include "dao/Mcp.hpp"
 #include "dao/Search.hpp"
 #include "views/Render.hpp"
 
@@ -174,6 +176,18 @@ GroupsController::chat(drogon::HttpRequestPtr req, std::string id)
 	auto db = drogon::app().getDbClient("ro");
 
 	int64_t gid = strtoll(id.c_str(), nullptr, 10);
+
+	/*
+	 * Signed in: any group. Anyone else: only a group an admin put on the
+	 * MCP exposure allowlist -- checked on gid itself, the exact id every
+	 * query below uses, so the decision cannot diverge from what is read.
+	 * Everything else gets the sign-in redirect it always got, whether or
+	 * not the group exists.
+	 */
+	const bool authed = auth::isAuthenticated(req);
+	if (!authed && !co_await dao::mcp::isAllowed(db, gid))
+		co_return drogon::HttpResponse::newRedirectionResponse("/login");
+
 	auto header = co_await dao::browse::chatHeader(db, "group", gid);
 	if (!header)
 		co_return renderStatus(req, drogon::k404NotFound, "Group not found",
@@ -190,12 +204,23 @@ GroupsController::chat(drogon::HttpRequestPtr req, std::string id)
 		afterTs = strtoll(afterTsParam.c_str(), nullptr, 10);
 
 	nlohmann::json data = pageBase(req);
+	if (!authed) {
+		/*
+		 * The layout shows the signed-in chrome whenever "username"
+		 * is present at all, even empty -- so drop it, which also
+		 * hides a stale cookie's name. public_view hides the links
+		 * that would only lead to the sign-in page.
+		 */
+		data.erase("username");
+		data["is_admin"] = false;
+		data["public_view"] = true;
+	}
 	data["scope"] = "group";
 	data["chat"]  = *header;
 	data["title"] = (*header)["title"];
 
 	nlohmann::json hist = co_await dao::browse::chatHistory(
-		db, "group", gid, limit, after, afterTs);
+		db, "group", gid, limit, after, afterTs, authed);
 	data["messages"]    = hist["messages"];
 	data["limit"]       = hist["limit"];
 	data["has_older"]   = hist.contains("older_after");

@@ -121,10 +121,17 @@ chatHeader(drogon::orm::DbClientPtr db, std::string scope, int64_t chatId);
  * effective `limit`, so the same data drives the server-rendered pager today
  * and a scroll/fetch endpoint later.
  */
+/*
+ * quoteOtherChats=false withholds the preview of a reply whose target lives
+ * in a different chat, leaving only the bare reply marker. The public view of
+ * an exposed group needs it: the replied message may sit in a chat that is
+ * not exposed, and quoting it would publish that chat's content.
+ */
 drogon::Task<nlohmann::json> chatHistory(drogon::orm::DbClientPtr db,
 					 std::string scope, int64_t chatId,
 					 int limit, std::optional<int64_t> after,
-					 std::optional<int64_t> afterTs);
+					 std::optional<int64_t> afterTs,
+					 bool quoteOtherChats = true);
 
 } /* namespace tgweb::dao::browse */
 

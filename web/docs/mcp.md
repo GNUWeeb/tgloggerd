@@ -17,6 +17,15 @@ HTTP transport, authentication, the filter grammar, and the tools.
 AND m.chat_id IN (SELECT group_id FROM telegram_public_groups)
 ```
 
+**The same allowlist also makes a group's chat public on the web.** For a listed group,
+`/groups/<id>/chat` and the JSON feed behind it (`/v1/chats/group/<id>/messages`) answer
+without a session, and the media they link (`/files/<token>`) was already public by
+design. Nothing else opens up: `/users/<id>`, the group's detail and admin pages, search
+and every list page still require signing in, and an unlisted group's chat still redirects
+to `/login` -- the same answer whether or not the group exists. In the anonymous view a
+reply quoting a message from *another* chat shows no preview, since that chat may not be
+listed. A signed-in session takes precedence: it sees any group, as before.
+
 Consequences, all verified against the running server:
 
 - With an empty allowlist, every message tool returns zero rows.

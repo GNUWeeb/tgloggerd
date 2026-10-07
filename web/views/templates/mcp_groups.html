@@ -2,6 +2,7 @@
 <section class="mcp-groups" id="mcp-groups" data-csrf="{{ csrf }}">
 	<h1>MCP exposed groups</h1>
 	<p class="muted">Only the groups listed here can be read through <a href="/mcp-admin">MCP</a>. Everything else in the archive — every other group, and every direct message — stays invisible to it.</p>
+	<p class="mcp-err"><strong>Exposing a group also publishes its chat on the web.</strong> Anyone, without signing in, can read its history and files at <code>/groups/&lt;id&gt;/chat</code> — including deleted messages and edit history. User profiles, the group's detail page and every other page still require a session.</p>
 
 ## if db_error != ""
 	<p class="mcp-err">Could not read the allowlist: {{ db_error }}</p>

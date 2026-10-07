@@ -4,9 +4,11 @@
  */
 #include "controllers/ApiController.hpp"
 
+#include "auth/AuthFilter.hpp"
 #include "auth/FileToken.hpp"
 #include "controllers/Common.hpp"
 #include "dao/Browse.hpp"
+#include "dao/Mcp.hpp"
 
 #include <cstdint>
 #include <cstdlib>
@@ -63,14 +65,24 @@ drogon::Task<drogon::HttpResponsePtr>
 ApiController::messages(drogon::HttpRequestPtr req, std::string scope,
 			std::string id)
 {
+	auto db = drogon::app().getDbClient("ro");
+	int64_t chatId = strtoll(id.c_str(), nullptr, 10);
+
+	/*
+	 * The same rule as the HTML chat page, decided before anything else so
+	 * an anonymous caller learns nothing -- not even whether the scope is
+	 * valid. Private chats are never public.
+	 */
+	const bool authed = auth::isAuthenticated(req);
+	if (!authed &&
+	    (scope != "group" || !co_await dao::mcp::isAllowed(db, chatId)))
+		co_return drogon::HttpResponse::newRedirectionResponse("/login");
+
 	if (!validScope(scope)) {
 		auto resp = drogon::HttpResponse::newHttpResponse();
 		resp->setStatusCode(drogon::k404NotFound);
 		co_return resp;
 	}
-
-	auto db = drogon::app().getDbClient("ro");
-	int64_t chatId = strtoll(id.c_str(), nullptr, 10);
 
 	int limit = clampedIntParam(req, "limit", 30, 1, 100);
 	std::optional<int64_t> after;
@@ -83,7 +95,7 @@ ApiController::messages(drogon::HttpRequestPtr req, std::string scope,
 		afterTs = strtoll(afterTsParam.c_str(), nullptr, 10);
 
 	nlohmann::json hist = co_await dao::browse::chatHistory(
-		db, scope, chatId, limit, after, afterTs);
+		db, scope, chatId, limit, after, afterTs, authed);
 	for (auto &m : hist["messages"])
 		enrichUrls(m);
 

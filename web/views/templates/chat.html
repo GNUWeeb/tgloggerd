@@ -9,7 +9,9 @@
 	</div>
 	<header class="chat-head">
 ## if chat.kind == "group"
+## if not exists("public_view")
 		<a class="chat-back" href="/groups/{{ chat.id }}" title="Back to details">←</a>
+## endif
 ## else
 		<a class="chat-back" href="/users/{{ chat.id }}" title="Back to details">←</a>
 ## endif

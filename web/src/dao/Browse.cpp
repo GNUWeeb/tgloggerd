@@ -1077,7 +1077,8 @@ const char *mediaRender(const std::string &ctype, const std::string &ext)
  * returned via rowId so the caller can attach edit history.
  */
 nlohmann::json buildChatMessage(const drogon::orm::Row &r, int64_t &rowId,
-				bool group, int64_t chatId)
+				bool group, int64_t chatId,
+				bool quoteOtherChats)
 {
 	rowId = r["id"].as<int64_t>();
 	bool outgoing = r["is_outgoing"].as<int>() != 0;
@@ -1160,7 +1161,9 @@ nlohmann::json buildChatMessage(const drogon::orm::Row &r, int64_t &rowId,
 
 	/* Reply preview. reply_to_id resolves a same-table target (rich preview);
 	 * otherwise reply_to_msg_id marks a reply we cannot preview here. */
-	if (!r["r_msg_id"].isNull()) {
+	const bool foreignTarget = !r["r_msg_id"].isNull() &&
+				   r["r_chat_id"].as<int64_t>() != chatId;
+	if (!r["r_msg_id"].isNull() && (quoteOtherChats || !foreignTarget)) {
 		nlohmann::json rep;
 		rep["msg_id"]       = r["r_msg_id"].as<int64_t>();
 		/*
@@ -1180,6 +1183,8 @@ nlohmann::json buildChatMessage(const drogon::orm::Row &r, int64_t &rowId,
 		rep["content_type"] = r["r_ctype"].isNull() ? "" : r["r_ctype"].as<std::string>();
 		m["reply"] = std::move(rep);
 	} else if (!r["reply_to_msg_id"].isNull()) {
+		/* Also the withheld foreign quote: a reply, with nothing said
+		 * about what it replies to. */
 		nlohmann::json rep;
 		rep["msg_id"]  = r["reply_to_msg_id"].as<int64_t>();
 		rep["in_chat"] = false;
@@ -1242,7 +1247,8 @@ chatHeader(drogon::orm::DbClientPtr db, std::string scope, int64_t chatId)
 drogon::Task<nlohmann::json> chatHistory(drogon::orm::DbClientPtr db,
 					 std::string scope, int64_t chatId,
 					 int limit, std::optional<int64_t> after,
-					 std::optional<int64_t> afterTs)
+					 std::optional<int64_t> afterTs,
+					 bool quoteOtherChats)
 {
 	bool group = scope == "group";
 	const char *mtable = group ? "telegram_group_messages" : "telegram_private_messages";
@@ -1352,7 +1358,8 @@ drogon::Task<nlohmann::json> chatHistory(drogon::orm::DbClientPtr db,
 	for (const auto &r : rows) {
 		pageIds.insert(r["message_id"].as<int64_t>());
 		int64_t rid = 0;
-		nlohmann::json m = buildChatMessage(r, rid, group, chatId);
+		nlohmann::json m = buildChatMessage(r, rid, group, chatId,
+						    quoteOtherChats);
 		if (m["is_edited"].get<bool>())
 			editedIds.push_back(rid);
 		rowIds.push_back(rid);

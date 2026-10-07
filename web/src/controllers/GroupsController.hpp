@@ -12,7 +12,11 @@
 
 namespace tgweb::controllers {
 
-/* Browse groups and a single group's admins/history. Requires a session. */
+/*
+ * Browse groups and a single group's admins/history. Requires a session, with
+ * one exception: the chat of a group on the MCP exposure allowlist is readable
+ * anonymously (see chat()). Its detail and admin pages are not.
+ */
 class GroupsController : public drogon::HttpController<GroupsController> {
 public:
 	METHOD_LIST_BEGIN
@@ -23,7 +27,7 @@ public:
 	ADD_METHOD_TO(GroupsController::admins, "/groups/{1}/admins", drogon::Get,
 		      "tgweb::auth::AuthFilter");
 	ADD_METHOD_TO(GroupsController::chat, "/groups/{1}/chat", drogon::Get,
-		      "tgweb::auth::AuthFilter");
+		      "tgweb::auth::OptionalAuthFilter");
 	METHOD_LIST_END
 
 	drogon::Task<drogon::HttpResponsePtr> list(drogon::HttpRequestPtr req);
