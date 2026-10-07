@@ -1077,7 +1077,7 @@ const char *mediaRender(const std::string &ctype, const std::string &ext)
  * returned via rowId so the caller can attach edit history.
  */
 nlohmann::json buildChatMessage(const drogon::orm::Row &r, int64_t &rowId,
-				bool group)
+				bool group, int64_t chatId)
 {
 	rowId = r["id"].as<int64_t>();
 	bool outgoing = r["is_outgoing"].as<int>() != 0;
@@ -1163,7 +1163,15 @@ nlohmann::json buildChatMessage(const drogon::orm::Row &r, int64_t &rowId,
 	if (!r["r_msg_id"].isNull()) {
 		nlohmann::json rep;
 		rep["msg_id"]       = r["r_msg_id"].as<int64_t>();
-		rep["in_chat"]      = true;
+		/*
+		 * reply_to_id resolves a target in ANY chat of the same table
+		 * (the daemon records replies universally), so a resolved
+		 * target is not necessarily in this chat. in_chat is what the
+		 * pager uses to build an in-chat link to it; claiming it for
+		 * a foreign target pointed that link at whatever message of
+		 * THIS chat happened to share the id.
+		 */
+		rep["in_chat"]      = r["r_chat_id"].as<int64_t>() == chatId;
 		rep["sender_name"]  = !r["r_sg_title"].isNull()
 			? escCol(r, "r_sg_title")
 			: nameOf(r, "r_su_first", "r_su_last", "");
@@ -1278,7 +1286,7 @@ drogon::Task<nlohmann::json> chatHistory(drogon::orm::DbClientPtr db,
 		"f.file_type AS f_type, f.file_ext AS f_ext, f.orig_file_name AS f_name, f.file_size AS f_size, f.on_disk AS f_on_disk, "
 		"fw.origin_type, fw.origin_sender_user_id, fw.origin_sender_name, "
 		"fw.origin_chat_id, fw.origin_message_id, "
-		"rm.message_id AS r_msg_id, rm.deleted_at AS r_deleted_at, "
+		"rm.message_id AS r_msg_id, rm.chat_id AS r_chat_id, rm.deleted_at AS r_deleted_at, "
 		"rm.content_type AS r_ctype, LEFT(rm.text,120) AS r_snippet, "
 		"rsu.first_name AS r_su_first, rsu.last_name AS r_su_last, "
 		"rsg.title AS r_sg_title "
@@ -1307,7 +1315,7 @@ drogon::Task<nlohmann::json> chatHistory(drogon::orm::DbClientPtr db,
 		"f.file_type AS f_type, f.file_ext AS f_ext, f.orig_file_name AS f_name, f.file_size AS f_size, f.on_disk AS f_on_disk, "
 		"fw.origin_type, fw.origin_sender_user_id, fw.origin_sender_name, "
 		"fw.origin_chat_id, fw.origin_message_id, "
-		"rm.message_id AS r_msg_id, rm.deleted_at AS r_deleted_at, "
+		"rm.message_id AS r_msg_id, rm.chat_id AS r_chat_id, rm.deleted_at AS r_deleted_at, "
 		"rm.content_type AS r_ctype, LEFT(rm.text,120) AS r_snippet, "
 		"rsu.first_name AS r_su_first, rsu.last_name AS r_su_last, "
 		"NULL AS r_sg_title "
@@ -1344,7 +1352,7 @@ drogon::Task<nlohmann::json> chatHistory(drogon::orm::DbClientPtr db,
 	for (const auto &r : rows) {
 		pageIds.insert(r["message_id"].as<int64_t>());
 		int64_t rid = 0;
-		nlohmann::json m = buildChatMessage(r, rid, group);
+		nlohmann::json m = buildChatMessage(r, rid, group, chatId);
 		if (m["is_edited"].get<bool>())
 			editedIds.push_back(rid);
 		rowIds.push_back(rid);
