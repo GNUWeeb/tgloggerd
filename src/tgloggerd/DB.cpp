@@ -38,6 +38,28 @@ std::vector<DiscordWebhook> DB::loadDiscordWebhooks(void)
 	return out;
 }
 
+std::vector<std::pair<int64_t, int64_t>> DB::listMediaMessagesWithoutFile(void)
+{
+	static const char *media =
+		"('photo','video','document','audio','voice','sticker','animation')";
+	auto rows = db_.query(
+		std::string("SELECT chat_id, message_id FROM telegram_group_messages"
+			    " WHERE file_id IS NULL AND deleted_at IS NULL"
+			    " AND content_type IN ") + media +
+		" UNION ALL SELECT chat_id, message_id FROM telegram_private_messages"
+		" WHERE file_id IS NULL AND deleted_at IS NULL"
+		" AND content_type IN " + media);
+
+	std::vector<std::pair<int64_t, int64_t>> out;
+	out.reserve(rows.size());
+	for (const auto &r : rows) {
+		if (!r[0].has_value() || !r[1].has_value())
+			continue;
+		out.emplace_back(std::stoll(*r[0]), std::stoll(*r[1]));
+	}
+	return out;
+}
+
 std::vector<int64_t> DB::loadForwardingBotUserIds(void)
 {
 	/*

@@ -1263,6 +1263,16 @@ struct TDLib::Impl {
 	std::unordered_map<int64_t, time_t>		refetch_group_last_;
 	double						refetch_cooldown_ = 300.0;
 
+	/*
+	 * Media relink queue (see relinkMessageMedia), under refetch_mtx_.
+	 * relink_tick_/relink_sent_ are loop-thread-only pacing state.
+	 */
+	std::deque<std::pair<int64_t, int64_t>>	relink_pending_;
+	size_t						relink_total_ = 0;
+	size_t						relink_sent_ = 0;
+	time_t						relink_tick_ = 0;
+	int						relink_in_tick_ = 0;
+
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
 
 	std::uint64_t next_query_id(void) { return ++current_query_id_; }
@@ -1309,6 +1319,7 @@ struct TDLib::Impl {
 	void enqueue_refetch_user(int64_t user_id);
 	void enqueue_refetch_group(int64_t group_id);
 	void drain_refetch(void);
+	void drain_relink(void);
 	void refetch_user_info(int64_t user_id);
 	void refetch_group_info(int64_t chat_id);
 	void handle_file_update(const td_api::file &f);
@@ -2492,8 +2503,43 @@ void TDLib::Impl::enqueue_refetch_group(int64_t group_id)
  * hammering the API; the refetch itself re-runs the normal fetch paths, whose
  * upserts record any changed fields as history.
  */
+/*
+ * At most this many relink re-fetches per second. Each one is a getMessage
+ * plus, for media not seen before, a download; TDLib batches the former per
+ * chat, but a burst of thousands still invites FLOOD_WAIT.
+ */
+constexpr int kRelinkPerSecond = 10;
+
+void TDLib::Impl::drain_relink(void)
+{
+	time_t now = std::time(nullptr);
+	if (now != relink_tick_) {
+		relink_tick_ = now;
+		relink_in_tick_ = 0;
+	}
+	while (relink_in_tick_ < kRelinkPerSecond) {
+		std::pair<int64_t, int64_t> m;
+		{
+			std::lock_guard<std::mutex> lk(refetch_mtx_);
+			if (relink_pending_.empty())
+				return;
+			m = relink_pending_.front();
+			relink_pending_.pop_front();
+		}
+		/* TDLib addresses a server message as id << 20. */
+		refetch_edited_message(m.first, m.second << 20, false);
+		relink_in_tick_++;
+		if (++relink_sent_ % 1000 == 0 || relink_sent_ == relink_total_)
+			std::cerr << "relink: re-fetched " << relink_sent_
+				  << " of " << relink_total_
+				  << " message(s) missing their media\n";
+	}
+}
+
 void TDLib::Impl::drain_refetch(void)
 {
+	drain_relink();
+
 	std::unordered_set<int64_t> users, groups;
 	{
 		std::lock_guard<std::mutex> lk(refetch_mtx_);
@@ -3289,6 +3335,14 @@ void TDLib::refetchUser(int64_t user_id)
 void TDLib::refetchGroup(int64_t group_id)
 {
 	impl_->enqueue_refetch_group(group_id);
+}
+
+void TDLib::relinkMessageMedia(std::vector<std::pair<int64_t, int64_t>> msgs)
+{
+	std::lock_guard<std::mutex> lk(impl_->refetch_mtx_);
+	impl_->relink_total_ += msgs.size();
+	for (auto &m : msgs)
+		impl_->relink_pending_.push_back(m);
 }
 
 } /* namespace tgloggerd */

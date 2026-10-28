@@ -19,6 +19,7 @@
 #include <tgloggerd/models/GroupAdmin.hpp>
 #include <tgloggerd/models/Backfill.hpp>
 
+#include <utility>
 #include <vector>
 
 namespace tgloggerd {
@@ -366,6 +367,16 @@ public:
 	 */
 	void refetchUser(int64_t user_id);
 	void refetchGroup(int64_t group_id);
+
+	/*
+	 * Queue (chat_id, server message id) pairs whose media should be
+	 * downloaded and linked again. Each is re-fetched through the normal
+	 * message path, so a file already known is linked without a download
+	 * and one whose bytes are already in the store is linked without a
+	 * second copy. Thread-safe; drained on the loop thread at a fixed pace
+	 * so a large batch cannot flood the API.
+	 */
+	void relinkMessageMedia(std::vector<std::pair<int64_t, int64_t>> msgs);
 
 	/*
 	 * When enabled, issue a one-time optimizeStorage once the client

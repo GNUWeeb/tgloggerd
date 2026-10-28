@@ -252,6 +252,25 @@ int TgLoggerd::start(void)
 					 tdlib_path);
 	tdlib_->setPruneOnStart(env("TG_PRUNE_TDLIB_ON_START", "1") != "0");
 	/*
+	 * Opt-in, one-off repair: re-fetch every message that has media but no
+	 * linked file, so the download and link step runs for it again. A file
+	 * whose bytes already sit in the store -- left there when a database
+	 * failure lost its row -- is linked back without a second copy. Off by
+	 * default because a pass costs one lookup per such message, and the
+	 * ones that can never be repaired would be retried on every boot.
+	 */
+	if (env("TG_RELINK_MEDIA_ON_START", "0") != "0") {
+		try {
+			auto msgs = db_->listMediaMessagesWithoutFile();
+			pr_info(l_, "relink: %zu message(s) have media but no"
+				" linked file; re-fetching them", msgs.size());
+			tdlib_->relinkMessageMedia(std::move(msgs));
+		} catch (const std::exception &e) {
+			pr_error(l_, "relink: could not list messages: %s",
+				 e.what());
+		}
+	}
+	/*
 	 * Handlers run on the event loop, where the models are already built
 	 * from td_api objects. They only enqueue the persistence work: DB
 	 * upserts go to serial_ (order preserved); media hashing goes to

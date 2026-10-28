@@ -15,6 +15,7 @@
 #include <tgloggerd/models/GroupAdmin.hpp>
 #include <tgloggerd/models/Backfill.hpp>
 
+#include <utility>
 #include <vector>
 #include <string>
 #include <cstdint>
@@ -126,6 +127,15 @@ public:
 	 * therefore not forwarded.
 	 */
 	std::vector<int64_t> loadForwardingBotUserIds(void);
+
+	/*
+	 * (chat_id, message_id) of every live message whose content is a media
+	 * kind but which has no file linked -- media whose file row was lost
+	 * (a database crash between the copy and the insert, or a reset), or
+	 * whose download never finished. Input to TDLib::relinkMessageMedia().
+	 * Deleted messages are left out: the server no longer has them.
+	 */
+	std::vector<std::pair<int64_t, int64_t>> listMediaMessagesWithoutFile(void);
 
 	/* Discord-forwarder lookups (see DiscordForwarder). */
 	std::optional<uint64_t> getUserPhotoFileId(int64_t user_id);
