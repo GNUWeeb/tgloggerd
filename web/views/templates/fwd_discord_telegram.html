@@ -9,17 +9,18 @@
 
 	<table class="grid rt-table">
 		<thead>
-			<tr><th>Discord channel</th><th>Telegram chat</th><th>Sending bot</th><th>Status</th><th class="rt-actions-col"></th></tr>
+			<tr><th>Discord channel</th><th>Telegram chat</th><th>Sending bot</th><th>Forwards</th><th>Status</th><th class="rt-actions-col"></th></tr>
 		</thead>
 		<tbody id="rt-body">
 ## if length(routes) == 0
-			<tr id="rt-empty"><td colspan="5" class="muted">No routes yet. Add one to start forwarding from Discord.</td></tr>
+			<tr id="rt-empty"><td colspan="6" class="muted">No routes yet. Add one to start forwarding from Discord.</td></tr>
 ## endif
 ## for r in routes
-			<tr data-id="{{ r.id }}" data-channel-id="{{ r.discord_channel_id }}" data-chat-id="{{ r.chat_id }}" data-chat-title="{{ r.chat_title }}" data-bot-id="{{ r.telegram_bot_id }}" data-enabled="{% if r.enabled %}1{% else %}0{% endif %}">
+			<tr data-id="{{ r.id }}" data-channel-id="{{ r.discord_channel_id }}" data-chat-id="{{ r.chat_id }}" data-chat-title="{{ r.chat_title }}" data-bot-id="{{ r.telegram_bot_id }}" data-types="{{ r.types }}" data-enabled="{% if r.enabled %}1{% else %}0{% endif %}">
 				<td class="rt-channel">{{ r.discord_channel_id }}</td>
 				<td class="cell-name">{{ r.chat_title }} <span class="muted">· {{ r.chat_id }}</span></td>
 				<td>{{ r.bot_label }}</td>
+				<td class="rt-types-cell">{{ r.types_label }}</td>
 				<td>
 {% if r.enabled %}{% if r.bot_enabled %}<span class="bool-yes">Enabled</span>{% else %}<span class="muted">Bot disabled</span>{% endif %}{% else %}<span class="muted">Disabled</span>{% endif %}
 				</td>
@@ -57,6 +58,15 @@
 				<input type="password" id="rt-f-token" name="bot_token" placeholder="123456789:AA…" autocomplete="off">
 				<span class="rt-hint">Only needed when adding a bot. Leave blank to keep using the bot selected above.</span>
 			</label>
+			<fieldset class="rt-types">
+				<legend>Content types to forward</legend>
+				<label class="rt-check"><input type="checkbox" class="rt-f-type" value="sticker" checked> Sticker</label>
+				<label class="rt-check"><input type="checkbox" class="rt-f-type" value="text" checked> Text message</label>
+				<label class="rt-check"><input type="checkbox" class="rt-f-type" value="photo" checked> Photo</label>
+				<label class="rt-check"><input type="checkbox" class="rt-f-type" value="video" checked> Video</label>
+				<label class="rt-check"><input type="checkbox" class="rt-f-type" value="document" checked> Document</label>
+				<span class="rt-hint">Only ticked types are forwarded. A message is filtered part by part: its text follows “Text message”, each attachment its own type — an image is a Photo, a video a Video, any other file a Document. Attachments and stickers are forwarded as links.</span>
+			</fieldset>
 			<label class="rt-check"><input type="checkbox" id="rt-f-enabled" name="enabled" value="1" checked> Enabled</label>
 			<div class="rt-form-actions">
 				<button type="submit">Save</button>

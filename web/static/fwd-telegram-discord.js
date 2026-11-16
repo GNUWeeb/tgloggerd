@@ -22,7 +22,27 @@
 	    $id      = $("#int-f-id"),
 	    $chat    = $("#int-f-chat"),
 	    $url     = $("#int-f-url"),
-	    $enabled = $("#int-f-enabled");
+	    $enabled = $("#int-f-enabled"),
+	    $types   = $form.find(".int-f-type");
+
+	/*
+	 * The content-type checkboxes. Each one's value is a type key; a row
+	 * carries the keys it has enabled as a comma-separated list, and the
+	 * form posts every type as fwd_<key>=1|0.
+	 */
+	function setTypes(keys) {
+		var on = keys === null ? null : String(keys || "").split(",");
+		$types.each(function () {
+			this.checked = on === null || on.indexOf(this.value) !== -1;
+		});
+	}
+
+	function typeParams(params) {
+		$types.each(function () {
+			params["fwd_" + this.value] = this.checked ? "1" : "0";
+		});
+		return params;
+	}
 
 	$chat.select2({
 		placeholder: "Search a group, channel, or user…",
@@ -52,12 +72,14 @@
 			$chat.empty().append(opt).trigger("change");
 			$url.val(row.url);
 			$enabled.prop("checked", String(row.enabled) === "1");
+			setTypes(row.types);
 		} else {
 			$title.text("Add integration");
 			$id.val("");
 			$chat.val(null).trigger("change");
 			$url.val("");
 			$enabled.prop("checked", true);
+			setTypes(null); /* a new one forwards everything */
 		}
 		$wrap.prop("hidden", false);
 		$("html, body").animate({ scrollTop: $wrap.offset().top - 20 }, 150);
@@ -89,6 +111,7 @@
 			chatType: $tr.attr("data-chat-type"),
 			chatTitle: $tr.attr("data-chat-title"),
 			url: $tr.attr("data-url"),
+			types: $tr.attr("data-types"),
 			enabled: $tr.attr("data-enabled")
 		});
 	});
@@ -108,12 +131,12 @@
 	$form.on("submit", function (e) {
 		e.preventDefault();
 		setMsg("Saving…");
-		postForm("/platform-fwd/telegram-discord/save", {
+		postForm("/platform-fwd/telegram-discord/save", typeParams({
 			id: $id.val(),
 			chat_id: $chat.val() || "",
 			webhook_url: $url.val(),
 			enabled: $enabled.prop("checked") ? "1" : "0"
-		}).then(function (res) {
+		})).then(function (res) {
 			if (res.ok)
 				location.reload();
 			else

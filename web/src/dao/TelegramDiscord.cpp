@@ -32,6 +32,17 @@ std::string userName(const drogon::orm::Row &r)
 	return name.empty() ? std::string("(no name)") : name;
 }
 
+/* The fwd_* columns of a telegram_discord_webhooks row. */
+ForwardTypes rowTypes(const drogon::orm::Row &r)
+{
+	ForwardTypes t;
+	for (size_t i = 0; i < kTelegramDiscordTypes; i++) {
+		const auto &d = kForwardTypes[i];
+		t.*d.flag = r[std::string("fwd_") + d.key].as<int>() != 0;
+	}
+	return t;
+}
+
 } /* namespace */
 
 drogon::Task<nlohmann::json> list(drogon::orm::DbClientPtr db)
@@ -42,6 +53,8 @@ drogon::Task<nlohmann::json> list(drogon::orm::DbClientPtr db)
 	auto rows = co_await db->execSqlCoro(
 		"SELECT w.id, w.telegram_chat_id, w.telegram_chat_type, "
 		"w.webhook_url, w.enabled, w.created_at, "
+		"w.fwd_sticker, w.fwd_text, w.fwd_photo, w.fwd_video, "
+		"w.fwd_document, w.fwd_other, "
 		"g.title AS group_title, u.first_name, u.last_name "
 		"FROM telegram_discord_webhooks w "
 		"LEFT JOIN `telegram_groups` g "
@@ -69,6 +82,11 @@ drogon::Task<nlohmann::json> list(drogon::orm::DbClientPtr db)
 		j["chat_title"] = Render::esc(title);
 		j["webhook_url"] = Render::esc(colStr(r, "webhook_url"));
 		j["enabled"]    = r["enabled"].as<int>() != 0;
+		/* `types` feeds the edit form; `types_label` is for reading. */
+		const ForwardTypes types = rowTypes(r);
+		j["types"] = forwardTypesKeys(types, kTelegramDiscordTypes);
+		j["types_label"] =
+			forwardTypesLabel(types, kTelegramDiscordTypes);
 		j["created_at"] = Render::esc(colStr(r, "created_at"));
 		arr.push_back(std::move(j));
 	}
@@ -80,7 +98,9 @@ drogon::Task<std::optional<Webhook>> get(drogon::orm::DbClientPtr db,
 {
 	auto rows = co_await db->execSqlCoro(
 		"SELECT id, telegram_chat_id, telegram_chat_type, webhook_url, "
-		"enabled FROM telegram_discord_webhooks WHERE id = ?",
+		"enabled, fwd_sticker, fwd_text, fwd_photo, fwd_video, "
+		"fwd_document, fwd_other "
+		"FROM telegram_discord_webhooks WHERE id = ?",
 		id);
 	if (rows.empty())
 		co_return std::nullopt;
@@ -92,29 +112,41 @@ drogon::Task<std::optional<Webhook>> get(drogon::orm::DbClientPtr db,
 	w.chatType   = r["telegram_chat_type"].as<std::string>();
 	w.webhookUrl = colStr(r, "webhook_url");
 	w.enabled    = r["enabled"].as<int>() != 0;
+	w.types      = rowTypes(r);
 	co_return w;
 }
 
 drogon::Task<uint64_t> create(drogon::orm::DbClientPtr db, int64_t chatId,
 			      std::string chatType, std::string webhookUrl,
-			      bool enabled)
+			      bool enabled, ForwardTypes types)
 {
 	auto r = co_await db->execSqlCoro(
 		"INSERT INTO telegram_discord_webhooks "
-		"(telegram_chat_id, telegram_chat_type, webhook_url, enabled) "
-		"VALUES (?, ?, ?, ?)",
-		chatId, chatType, webhookUrl, enabled ? 1 : 0);
+		"(telegram_chat_id, telegram_chat_type, webhook_url, enabled, "
+		"fwd_sticker, fwd_text, fwd_photo, fwd_video, fwd_document, "
+		"fwd_other) "
+		"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		chatId, chatType, webhookUrl, enabled ? 1 : 0,
+		types.sticker ? 1 : 0, types.text ? 1 : 0, types.photo ? 1 : 0,
+		types.video ? 1 : 0, types.document ? 1 : 0,
+		types.other ? 1 : 0);
 	co_return r.insertId();
 }
 
 drogon::Task<void> update(drogon::orm::DbClientPtr db, uint64_t id,
 			  int64_t chatId, std::string chatType,
-			  std::string webhookUrl, bool enabled)
+			  std::string webhookUrl, bool enabled,
+			  ForwardTypes types)
 {
 	co_await db->execSqlCoro(
 		"UPDATE telegram_discord_webhooks SET telegram_chat_id = ?, "
-		"telegram_chat_type = ?, webhook_url = ?, enabled = ? WHERE id = ?",
-		chatId, chatType, webhookUrl, enabled ? 1 : 0, id);
+		"telegram_chat_type = ?, webhook_url = ?, enabled = ?, "
+		"fwd_sticker = ?, fwd_text = ?, fwd_photo = ?, fwd_video = ?, "
+		"fwd_document = ?, fwd_other = ? WHERE id = ?",
+		chatId, chatType, webhookUrl, enabled ? 1 : 0,
+		types.sticker ? 1 : 0, types.text ? 1 : 0, types.photo ? 1 : 0,
+		types.video ? 1 : 0, types.document ? 1 : 0,
+		types.other ? 1 : 0, id);
 	co_return;
 }
 

@@ -19,6 +19,7 @@
 #include "auth/Csrf.hpp"
 #include "auth/FileToken.hpp"
 #include "auth/Session.hpp"
+#include "dao/ForwardTypes.hpp"
 #include "views/Render.hpp"
 
 namespace tgweb::controllers {
@@ -115,6 +116,25 @@ inline int clampedIntParam(const drogon::HttpRequestPtr &req, const char *name,
 		return def;
 	int n = atoi(v.c_str());
 	return std::clamp(n, lo, hi);
+}
+
+/*
+ * Apply a forwarding route's content-type parameters (fwd_<key>, "1" or "0")
+ * to `types`, for the first `n` of dao::kForwardTypes. A parameter that is
+ * absent leaves its flag alone, so the caller decides what an omitted type
+ * means by what it passes in: all set for a new route, the stored flags for an
+ * existing one. A client that predates the flags therefore changes none.
+ */
+inline void applyForwardTypeParams(const drogon::HttpRequestPtr &req,
+				   dao::ForwardTypes &types, size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		const auto &d = dao::kForwardTypes[i];
+		const std::string v =
+			req->getParameter(std::string("fwd_") + d.key);
+		if (!v.empty())
+			types.*d.flag = v == "1";
+	}
 }
 
 } /* namespace tgweb::controllers */

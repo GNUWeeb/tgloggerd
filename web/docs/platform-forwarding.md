@@ -28,6 +28,62 @@ daemon declines to re-send what the other delivered, so a message is not echoed
 back to where it came from: `discordd` skips webhook-authored Discord messages,
 and `tgloggerd` skips Telegram messages sent by a bot in `telegram_bots`.
 
+## Content-type filters
+
+Each route, in either direction, chooses which **content types** it forwards.
+Both pages show them as a row of checkboxes in the add/edit form, and the route
+table summarises them in its *Forwards* column (`Everything`, a list, or
+`Nothing`). Only the ticked types are forwarded.
+
+| Type (`fwd_<key>`) | Telegram → Discord | Discord → Telegram |
+|---|---|---|
+| `fwd_sticker`  | a sticker | a sticker (`sticker_items`) |
+| `fwd_text`     | a text message, or the caption of a media message | the message text |
+| `fwd_photo`    | a photo | an attachment whose MIME type is `image/*` |
+| `fwd_video`    | a video | an attachment whose MIME type is `video/*` |
+| `fwd_document` | a document (file) | every other attachment, including one with no MIME type |
+| `fwd_other`    | service (system) messages and every type not listed: voice, audio, animation (GIF), … | — (no such class) |
+
+A message is filtered **part by part**, not as a whole:
+
+- A photo with a caption and *Photo* off, *Text message* on → the caption alone
+  is forwarded. With *Text message* off and *Photo* on → the photo alone.
+- A Discord message with text, an image and a PDF becomes one Telegram message
+  holding only the lines whose type is ticked (Discord media crosses as one link
+  line per item, and stickers as a link line too).
+- When no part of a message is enabled, nothing is sent for it.
+
+Telegram → Discord files what a **service message** says ("X joined the group")
+under *Others*, not *Text message*: it is part of that message, not a caption.
+
+The flags are the `fwd_*` columns of `telegram_discord_webhooks` and
+`discord_telegram_routes` (migration `000031`), all defaulting to `1`, so a
+route forwards everything until told otherwise. The daemons pick a change up on
+their next reload of the table, like any other edit (see *Propagation*).
+
+Changing a filter affects **new** messages only. An edit or delete of a message
+forwarded earlier still reaches its forwarded copy, and a message that was
+filtered out is not sent retroactively when its type is ticked later.
+
+### Parameters
+
+Both save endpoints — `POST /platform-fwd/telegram-discord/save` and
+`POST /platform-fwd/discord-telegram/save` — accept one parameter per type,
+named as in the table above (`fwd_other` on Telegram → Discord only):
+
+| Value | Meaning |
+|---|---|
+| `1` | Forward this type |
+| `0` (or anything else non-empty) | Do not forward it |
+| omitted | **Create:** forward it. **Update:** leave the stored flag unchanged |
+
+The pages always send every type. The "omitted" rule exists so a script written
+before the filters existed keeps working without switching anything off.
+
+Saving with an `id` that no longer exists is refused with a 404
+(`That integration no longer exists. Please reload.` or `That route no longer
+exists. Please reload.`) rather than silently doing nothing.
+
 The rest of this document covers **Discord → Telegram**, which is the newer and
 more involved of the two.
 
@@ -77,6 +133,7 @@ exposes as `data-csrf` on the page root.
 | `telegram_bot_id` | conditionally | Existing `telegram_bots.id` |
 | `bot_token` | conditionally | New bot token; wins over `telegram_bot_id` |
 | `enabled` | no | `1` to enable |
+| `fwd_sticker`, `fwd_text`, `fwd_photo`, `fwd_video`, `fwd_document` | no | Content types to forward — see *Content-type filters* |
 | `csrf` | yes | Session CSRF token |
 
 One of `telegram_bot_id` or `bot_token` must be supplied.
@@ -115,6 +172,7 @@ Unlike the Telegram → Discord page, the handlers here wrap their database call
 | `That Discord channel already forwards to that Telegram chat.` | Would violate `uq_dtr_channel_chat`. Checked first so the duplicate reads as a sentence. |
 | `That does not look like a Telegram bot token …` | Token is not `<digits>:<secret>`. Shape only — whether it *works* is discovered when `discordd` logs it in. |
 | `Choose an existing bot, or paste a bot token to add one.` | Neither `telegram_bot_id` nor `bot_token` given. |
+| `That route no longer exists. Please reload.` | Saving with an `id` that was deleted meanwhile (404). |
 | `This route has forwarded N message(s) …` | See below. |
 | `Your session expired. Please reload.` | CSRF check failed (403). |
 

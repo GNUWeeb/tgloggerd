@@ -165,12 +165,28 @@ DiscordTelegramController::save(drogon::HttpRequestPtr req)
 				"Choose an existing bot, or paste a bot token "
 				"to add one.");
 
+		/* A new route forwards every content type unless told
+		 * otherwise; an existing one keeps the flags the request
+		 * does not mention. */
+		dao::ForwardTypes types;
+		if (id) {
+			auto cur = co_await dao::discord_telegram::get(db, id);
+			if (!cur)
+				co_return jsonError(
+					"That route no longer exists. Please "
+					"reload.",
+					drogon::k404NotFound);
+			types = cur->types;
+		}
+		applyForwardTypeParams(req, types, dao::kDiscordTelegramTypes);
+
 		if (!id)
-			co_await dao::discord_telegram::create(db, channelId, chatId,
-						     botId, enabled);
+			co_await dao::discord_telegram::create(
+				db, channelId, chatId, botId, enabled, types);
 		else
-			co_await dao::discord_telegram::update(db, id, channelId, chatId,
-						     botId, enabled);
+			co_await dao::discord_telegram::update(
+				db, id, channelId, chatId, botId, enabled,
+				types);
 	} catch (const std::exception &e) {
 		co_return jsonError(std::string("Database error: ") + e.what(),
 				    drogon::k500InternalServerError);

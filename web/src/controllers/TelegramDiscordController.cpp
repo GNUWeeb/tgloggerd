@@ -113,13 +113,26 @@ TelegramDiscordController::save(drogon::HttpRequestPtr req)
 		co_return jsonError("That chat is not in the log yet, so the bot "
 				    "cannot access it. Pick one it has seen.");
 
+	/* A new integration forwards every content type unless told otherwise;
+	 * an existing one keeps the flags the request does not mention. */
+	dao::ForwardTypes types;
 	if (idStr.empty()) {
-		co_await dao::telegram_discord::create(db, chat->chatId, chat->type, url,
-					      enabled);
+		applyForwardTypeParams(req, types, dao::kTelegramDiscordTypes);
+		co_await dao::telegram_discord::create(db, chat->chatId,
+						       chat->type, url, enabled,
+						       types);
 	} else {
 		uint64_t id = std::strtoull(idStr.c_str(), nullptr, 10);
-		co_await dao::telegram_discord::update(db, id, chat->chatId, chat->type, url,
-					      enabled);
+		auto cur = co_await dao::telegram_discord::get(db, id);
+		if (!cur)
+			co_return jsonError("That integration no longer exists. "
+					    "Please reload.",
+					    drogon::k404NotFound);
+		types = cur->types;
+		applyForwardTypeParams(req, types, dao::kTelegramDiscordTypes);
+		co_await dao::telegram_discord::update(db, id, chat->chatId,
+						       chat->type, url, enabled,
+						       types);
 	}
 	co_return jsonResp({ {"ok", true} });
 }

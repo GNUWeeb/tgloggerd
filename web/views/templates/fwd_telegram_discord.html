@@ -9,16 +9,17 @@
 
 	<table class="grid int-table">
 		<thead>
-			<tr><th>Telegram chat</th><th>Discord webhook</th><th>Status</th><th class="int-actions-col"></th></tr>
+			<tr><th>Telegram chat</th><th>Discord webhook</th><th>Forwards</th><th>Status</th><th class="int-actions-col"></th></tr>
 		</thead>
 		<tbody id="int-body">
 ## if length(webhooks) == 0
-			<tr id="int-empty"><td colspan="4" class="muted">No integrations yet. Add one to start forwarding.</td></tr>
+			<tr id="int-empty"><td colspan="5" class="muted">No integrations yet. Add one to start forwarding.</td></tr>
 ## endif
 ## for w in webhooks
-			<tr data-id="{{ w.id }}" data-chat-id="{{ w.chat_id }}" data-chat-type="{{ w.chat_type }}" data-chat-title="{{ w.chat_title }}" data-url="{{ w.webhook_url }}" data-enabled="{% if w.enabled %}1{% else %}0{% endif %}">
+			<tr data-id="{{ w.id }}" data-chat-id="{{ w.chat_id }}" data-chat-type="{{ w.chat_type }}" data-chat-title="{{ w.chat_title }}" data-url="{{ w.webhook_url }}" data-types="{{ w.types }}" data-enabled="{% if w.enabled %}1{% else %}0{% endif %}">
 				<td class="cell-name">{{ w.chat_title }} <span class="muted">· {{ w.chat_type }} · {{ w.chat_id }}</span></td>
 				<td class="int-url">{{ w.webhook_url }}</td>
+				<td class="int-types-cell">{{ w.types_label }}</td>
 				<td>{% if w.enabled %}<span class="bool-yes">Enabled</span>{% else %}<span class="muted">Disabled</span>{% endif %}</td>
 				<td class="nowrap int-row-actions">
 					<button type="button" class="btn-link int-edit">Edit</button>
@@ -40,6 +41,16 @@
 			<label>Discord webhook URL
 				<input type="url" id="int-f-url" name="webhook_url" placeholder="https://discord.com/api/webhooks/…" autocomplete="off">
 			</label>
+			<fieldset class="int-types">
+				<legend>Content types to forward</legend>
+				<label class="int-check"><input type="checkbox" class="int-f-type" value="sticker" checked> Sticker</label>
+				<label class="int-check"><input type="checkbox" class="int-f-type" value="text" checked> Text message</label>
+				<label class="int-check"><input type="checkbox" class="int-f-type" value="photo" checked> Photo</label>
+				<label class="int-check"><input type="checkbox" class="int-f-type" value="video" checked> Video</label>
+				<label class="int-check"><input type="checkbox" class="int-f-type" value="document" checked> Document</label>
+				<label class="int-check"><input type="checkbox" class="int-f-type" value="other" checked> Others</label>
+				<span class="int-hint">Only ticked types are forwarded. A message is filtered part by part: a caption follows “Text message”, the media its own type — so a photo with a caption still sends the caption when “Photo” is off. “Others” covers system messages and every other type (voice, audio, GIF, …).</span>
+			</fieldset>
 			<label class="int-check"><input type="checkbox" id="int-f-enabled" name="enabled" value="1" checked> Enabled</label>
 			<div class="int-form-actions">
 				<button type="submit">Save</button>

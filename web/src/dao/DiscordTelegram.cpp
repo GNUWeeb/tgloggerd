@@ -32,6 +32,17 @@ std::string userName(const drogon::orm::Row &r)
 	return name.empty() ? std::string("(no name)") : name;
 }
 
+/* The fwd_* columns of a discord_telegram_routes row. */
+ForwardTypes rowTypes(const drogon::orm::Row &r)
+{
+	ForwardTypes t;
+	for (size_t i = 0; i < kDiscordTelegramTypes; i++) {
+		const auto &d = kForwardTypes[i];
+		t.*d.flag = r[std::string("fwd_") + d.key].as<int>() != 0;
+	}
+	return t;
+}
+
 /*
  * How a bot is shown to an admin. NEVER derived from the token.
  *
@@ -63,6 +74,8 @@ drogon::Task<nlohmann::json> list(drogon::orm::DbClientPtr db)
 	auto rows = co_await db->execSqlCoro(
 		"SELECT r.id, r.discord_channel_id, r.telegram_chat_id, "
 		"r.telegram_bot_id, r.enabled, r.created_at, "
+		"r.fwd_sticker, r.fwd_text, r.fwd_photo, r.fwd_video, "
+		"r.fwd_document, "
 		"b.bot_user_id, b.username AS bot_username, "
 		"b.enabled AS bot_enabled, "
 		"g.title AS group_title, u.first_name, u.last_name "
@@ -107,6 +120,11 @@ drogon::Task<nlohmann::json> list(drogon::orm::DbClientPtr db)
 			Render::esc(botLabel(botId, botUser,
 					     colStr(r, "bot_username")));
 		j["enabled"] = r["enabled"].as<int>() != 0;
+		/* `types` feeds the edit form; `types_label` is for reading. */
+		const ForwardTypes types = rowTypes(r);
+		j["types"] = forwardTypesKeys(types, kDiscordTelegramTypes);
+		j["types_label"] =
+			forwardTypesLabel(types, kDiscordTelegramTypes);
 		/* A route is only live when its bot is enabled too. */
 		j["bot_enabled"] = r["bot_enabled"].as<int>() != 0;
 		j["created_at"] = Render::esc(colStr(r, "created_at"));
@@ -119,7 +137,8 @@ drogon::Task<std::optional<Route>> get(drogon::orm::DbClientPtr db, uint64_t id)
 {
 	auto rows = co_await db->execSqlCoro(
 		"SELECT id, discord_channel_id, telegram_chat_id, "
-		"telegram_bot_id, enabled FROM discord_telegram_routes "
+		"telegram_bot_id, enabled, fwd_sticker, fwd_text, fwd_photo, "
+		"fwd_video, fwd_document FROM discord_telegram_routes "
 		"WHERE id = ?",
 		id);
 	if (rows.empty())
@@ -132,6 +151,7 @@ drogon::Task<std::optional<Route>> get(drogon::orm::DbClientPtr db, uint64_t id)
 	out.telegramChatId = r["telegram_chat_id"].as<int64_t>();
 	out.telegramBotId = r["telegram_bot_id"].as<uint64_t>();
 	out.enabled = r["enabled"].as<int>() != 0;
+	out.types = rowTypes(r);
 	co_return out;
 }
 
@@ -176,27 +196,35 @@ drogon::Task<uint64_t> internBot(drogon::orm::DbClientPtr db, std::string token)
 
 drogon::Task<uint64_t> create(drogon::orm::DbClientPtr db,
 			      uint64_t discordChannelId, int64_t telegramChatId,
-			      uint64_t telegramBotId, bool enabled)
+			      uint64_t telegramBotId, bool enabled,
+			      ForwardTypes types)
 {
 	auto r = co_await db->execSqlCoro(
 		"INSERT INTO discord_telegram_routes "
-		"(discord_channel_id, telegram_chat_id, telegram_bot_id, enabled) "
-		"VALUES (?, ?, ?, ?)",
+		"(discord_channel_id, telegram_chat_id, telegram_bot_id, enabled, "
+		"fwd_sticker, fwd_text, fwd_photo, fwd_video, fwd_document) "
+		"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		discordChannelId, telegramChatId, telegramBotId,
-		enabled ? 1 : 0);
+		enabled ? 1 : 0, types.sticker ? 1 : 0, types.text ? 1 : 0,
+		types.photo ? 1 : 0, types.video ? 1 : 0,
+		types.document ? 1 : 0);
 	co_return r.insertId();
 }
 
 drogon::Task<void> update(drogon::orm::DbClientPtr db, uint64_t id,
 			  uint64_t discordChannelId, int64_t telegramChatId,
-			  uint64_t telegramBotId, bool enabled)
+			  uint64_t telegramBotId, bool enabled,
+			  ForwardTypes types)
 {
 	co_await db->execSqlCoro(
 		"UPDATE discord_telegram_routes SET discord_channel_id = ?, "
-		"telegram_chat_id = ?, telegram_bot_id = ?, enabled = ? "
-		"WHERE id = ?",
+		"telegram_chat_id = ?, telegram_bot_id = ?, enabled = ?, "
+		"fwd_sticker = ?, fwd_text = ?, fwd_photo = ?, fwd_video = ?, "
+		"fwd_document = ? WHERE id = ?",
 		discordChannelId, telegramChatId, telegramBotId,
-		enabled ? 1 : 0, id);
+		enabled ? 1 : 0, types.sticker ? 1 : 0, types.text ? 1 : 0,
+		types.photo ? 1 : 0, types.video ? 1 : 0,
+		types.document ? 1 : 0, id);
 	co_return;
 }
 

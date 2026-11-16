@@ -5,6 +5,8 @@
 #ifndef TGLOGGERD_WEB_DAO_TELEGRAMDISCORD_HPP
 #define TGLOGGERD_WEB_DAO_TELEGRAMDISCORD_HPP
 
+#include "dao/ForwardTypes.hpp"
+
 #include <drogon/orm/DbClient.h>
 #include <drogon/utils/coroutine.h>
 
@@ -32,6 +34,7 @@ struct Webhook {
 	std::string chatType;   /* "private" | "group" */
 	std::string webhookUrl;
 	bool        enabled;
+	ForwardTypes types;     /* content types it forwards */
 };
 
 /* A Telegram chat resolved from the logged schema (groups/users). */
@@ -50,11 +53,12 @@ drogon::Task<std::optional<Webhook>> get(drogon::orm::DbClientPtr db,
 
 drogon::Task<uint64_t> create(drogon::orm::DbClientPtr db, int64_t chatId,
 			      std::string chatType, std::string webhookUrl,
-			      bool enabled);
+			      bool enabled, ForwardTypes types);
 
 drogon::Task<void> update(drogon::orm::DbClientPtr db, uint64_t id,
 			  int64_t chatId, std::string chatType,
-			  std::string webhookUrl, bool enabled);
+			  std::string webhookUrl, bool enabled,
+			  ForwardTypes types);
 
 drogon::Task<void> remove(drogon::orm::DbClientPtr db, uint64_t id);
 

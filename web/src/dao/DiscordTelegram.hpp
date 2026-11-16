@@ -5,6 +5,8 @@
 #ifndef TGLOGGERD_WEB_DAO_DISCORDTELEGRAM_HPP
 #define TGLOGGERD_WEB_DAO_DISCORDTELEGRAM_HPP
 
+#include "dao/ForwardTypes.hpp"
+
 #include <drogon/orm/DbClient.h>
 #include <drogon/utils/coroutine.h>
 
@@ -39,6 +41,7 @@ struct Route {
 	int64_t     telegramChatId;
 	uint64_t    telegramBotId;
 	bool        enabled;
+	ForwardTypes types;     /* content types it forwards; `other` unused */
 };
 
 /*
@@ -86,11 +89,13 @@ drogon::Task<uint64_t> internBot(drogon::orm::DbClientPtr db,
 
 drogon::Task<uint64_t> create(drogon::orm::DbClientPtr db,
 			      uint64_t discordChannelId, int64_t telegramChatId,
-			      uint64_t telegramBotId, bool enabled);
+			      uint64_t telegramBotId, bool enabled,
+			      ForwardTypes types);
 
 drogon::Task<void> update(drogon::orm::DbClientPtr db, uint64_t id,
 			  uint64_t discordChannelId, int64_t telegramChatId,
-			  uint64_t telegramBotId, bool enabled);
+			  uint64_t telegramBotId, bool enabled,
+			  ForwardTypes types);
 
 drogon::Task<void> remove(drogon::orm::DbClientPtr db, uint64_t id);
 
