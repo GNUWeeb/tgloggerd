@@ -55,10 +55,16 @@ std::vector<Route> DB::loadRoutes(void)
 {
 	static const char *SQL =
 		"SELECT r.id, r.discord_channel_id, r.telegram_chat_id, "
-		"       r.telegram_bot_id, b.token, b.bot_user_id, b.username "
+		"       r.telegram_bot_id, b.token, b.bot_user_id, b.username, "
+		"       r.fwd_sticker, r.fwd_text, r.fwd_photo, r.fwd_video, "
+		"       r.fwd_document "
 		"FROM discord_telegram_routes r "
 		"JOIN telegram_bots b ON b.id = r.telegram_bot_id "
 		"WHERE r.enabled = 1 AND b.enabled = 1";
+
+	/* Column order of the fwd_* flags above, from column 7 on. */
+	static const unsigned bits[] = { FWD_STICKER, FWD_TEXT, FWD_PHOTO,
+					 FWD_VIDEO, FWD_DOCUMENT };
 
 	std::vector<Route> out;
 	for (const auto &r : db_->query(SQL)) {
@@ -70,6 +76,10 @@ std::vector<Route> DB::loadRoutes(void)
 		rt.bot_token = row_str(r, 4);
 		rt.bot_user_id = row_i64(r, 5);
 		rt.bot_username = row_str(r, 6);
+		for (size_t i = 0; i < sizeof(bits) / sizeof(bits[0]); i++) {
+			if (row_u64(r, 7 + i))
+				rt.types |= bits[i];
+		}
 		out.push_back(std::move(rt));
 	}
 	return out;

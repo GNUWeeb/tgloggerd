@@ -15,6 +15,19 @@
 
 namespace discordd {
 
+/*
+ * The content types a route can be told to forward, one bit each. A message is
+ * filtered part by part: its text follows FWD_TEXT, each attachment the bit of
+ * its own type, each sticker FWD_STICKER.
+ */
+enum : unsigned {
+	FWD_STICKER  = 1u << 0,
+	FWD_TEXT     = 1u << 1,
+	FWD_PHOTO    = 1u << 2,	/* an attachment of an image type */
+	FWD_VIDEO    = 1u << 3,	/* an attachment of a video type */
+	FWD_DOCUMENT = 1u << 4,	/* every other attachment */
+};
+
 /* One enabled Discord channel -> Telegram chat route, with its bot. */
 struct Route {
 	uint64_t	id = 0;
@@ -24,6 +37,7 @@ struct Route {
 	std::string	bot_token;
 	int64_t		bot_user_id = 0;
 	std::string	bot_username;	/* as last recorded; may be empty */
+	unsigned	types = 0;	/* FWD_* bits this route forwards */
 };
 
 /* A Telegram message a Discord reply should be threaded onto. */

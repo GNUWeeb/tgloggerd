@@ -74,7 +74,7 @@ struct DiscordD::Impl {
 	void on_delete(const gwdiscord::MessageDelete &d);
 
 	/* Render a Discord message as the Telegram text to send. */
-	std::string render(const gwdiscord::Message &m) const;
+	std::string render(const gwdiscord::Message &m, unsigned types) const;
 };
 
 /*
@@ -207,7 +207,22 @@ static std::vector<std::string> split_for_telegram(const std::string &s)
 	return out;
 }
 
-std::string DiscordD::Impl::render(const gwdiscord::Message &m) const
+/* The FWD_* bit an attachment is filtered by, from its MIME type. */
+static unsigned attachment_type(const gwdiscord::Attachment &a)
+{
+	if (a.content_type.compare(0, 6, "image/") == 0)
+		return FWD_PHOTO;
+	if (a.content_type.compare(0, 6, "video/") == 0)
+		return FWD_VIDEO;
+	return FWD_DOCUMENT; /* including one Discord sent no type for */
+}
+
+/*
+ * Render the parts of `m` a route forwarding `types` (FWD_* bits) should get,
+ * or "" when none of them is enabled and the route gets nothing at all.
+ */
+std::string DiscordD::Impl::render(const gwdiscord::Message &m,
+				   unsigned types) const
 {
 	/*
 	 * Plain text: the author line then the content. Telegram entity
@@ -228,18 +243,38 @@ std::string DiscordD::Impl::render(const gwdiscord::Message &m) const
 	if (!m.author.discriminator.empty())
 		who += "#" + m.author.discriminator;
 
-	std::string out = who + ":\n";
-	if (!m.content.empty())
-		out += m.content;
+	std::string body;
+	if ((types & FWD_TEXT) && !m.content.empty())
+		body = m.content;
 
+	/* Media goes across as a link line each; the flags pick the lines. */
 	for (const auto &a : m.attachments) {
-		if (!out.empty() && out.back() != '\n')
-			out += "\n";
-		out += "[" + a.filename + "] " + a.url;
+		if (!(types & attachment_type(a)))
+			continue;
+		if (!body.empty() && body.back() != '\n')
+			body += "\n";
+		body += "[" + a.filename + "] " + a.url;
 	}
-	if (m.content.empty() && m.attachments.empty())
-		out += "(no text)";
-	return out;
+	for (const auto &st : m.stickers) {
+		if (!(types & FWD_STICKER))
+			continue;
+		if (!body.empty() && body.back() != '\n')
+			body += "\n";
+		body += "[sticker: " + st.name + "] " + st.url();
+	}
+
+	/*
+	 * A message with nothing we render at all (an embed, a poll) is still
+	 * announced, as a text-less text message. That is different from a
+	 * message whose every part was filtered out, which must stay silent.
+	 */
+	if (body.empty()) {
+		if (!(types & FWD_TEXT) || !m.content.empty() ||
+		    !m.attachments.empty() || !m.stickers.empty())
+			return std::string();
+		body = "(no text)";
+	}
+	return who + ":\n" + body;
 }
 
 void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
@@ -322,8 +357,6 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 		}
 	}
 
-	const std::string text = render(m);
-
 	if (edited) {
 		/*
 		 * Apply the edit to what we already sent. One lookup for the
@@ -333,14 +366,23 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 		 */
 		try {
 			for (const auto &f : db->getForwarded(m.id)) {
-				bool routed = false;
+				const Route *route = nullptr;
 				for (const auto &r : routes) {
 					if (f.route_id == r.id) {
-						routed = true;
+						route = &r;
 						break;
 					}
 				}
-				if (!routed)
+				if (!route)
+					continue;
+				/*
+				 * Rendered per route: each has its own content
+				 * types. If the edit left nothing this route
+				 * forwards, what was sent stays as it is.
+				 */
+				const std::string text =
+					render(m, route->types);
+				if (text.empty())
 					continue;
 				/*
 				 * Only the head chunk is recorded, so only it
@@ -365,6 +407,16 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 
 	for (const auto &r : routes) {
 		try {
+			/* Only the content types this route forwards. */
+			const std::string text = render(m, r.types);
+			if (text.empty()) {
+				log(LOG_DEBUG, "nothing in " +
+						       std::to_string(m.id) +
+						       " for route " +
+						       std::to_string(r.id) +
+						       " (content types)");
+				continue;
+			}
 
 			/* A redelivered gateway event must not double-send. */
 			if (db->alreadyForwarded(m.id, r.id)) {
