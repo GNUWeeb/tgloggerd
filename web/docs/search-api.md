@@ -237,6 +237,7 @@ columns once, and each entry in `rows` is a **positional array aligned to
   "rows":   [ [ "/files/<token>", 123, "Ada", "adalove", "regular", "42", false, ... ],
               [ "",               456, "(no name)", "", "deleted", "0", false, ... ] ],
   "total":      3029,
+  "total_exact": true,
   "limit":      10,
   "offset":     0,
   "max_offset": 500000,
@@ -262,6 +263,21 @@ columns once, and each entry in `rows` is a **positional array aligned to
   placeholder that is itself the link.
 - `total` is the full count for the current filter (drives pagination); `offset`
   is clamped to `max_offset`.
+- `total_exact` says whether `total` is that count or only an **estimate**. The
+  count feeds nothing but the pager, so it is never allowed to fail the request:
+  - Counting has the same 3-second limit as the page query. When it runs out,
+    `total` falls back to an estimate and `total_exact` is `false`.
+  - With no conditions, the estimate is the storage engine's row estimate for
+    the table (InnoDB's `table_rows`, which can be off by a fair margin).
+    `group_messages` — millions of rows — always answers a no-condition request
+    this way, without attempting the exact count at all.
+  - With conditions there is no cheap estimate, so `total` is only what the
+    returned page proves: `offset` + its rows, plus one when the page is full.
+    It grows as you page forward; treat it as "at least".
+  The pages render an estimated total as "about N results".
+- When the **page** query itself runs out of time, the response is the usual
+  error envelope (`The search took too long and was stopped. …`) rather than a
+  500.
 
 ### Debug (admin, `?debug=1`)
 

@@ -688,6 +688,8 @@ const SearchSchema kGroupMsgsSchema = {
 	/* nCols      */ sizeof(kGroupMsgCols) / sizeof(kGroupMsgCols[0]),
 	/* mapRow     */ &mapRowGroupMsg,
 	/* countFrom  */ "telegram_group_messages m", /* WHERE is all on m.* */
+	/* countCap   */ 0,
+	/* estimateBrowseCount */ true, /* millions of rows */
 };
 
 const SearchField *findField(const SearchSchema &s, const std::string &key)
@@ -754,7 +756,7 @@ bool buildQuery(const SearchSchema &s, const Request &req,
 		std::string &countSql, std::string &pageSql,
 		std::vector<std::string> &binds, std::string &usedSort,
 		std::string &usedOrder, int &limit, int &offset,
-		std::string &orderBind, std::string &err)
+		std::string &orderBind, bool &filtered, std::string &err)
 {
 	if ((int)req.conds.size() > MAX_CONDS) {
 		err = "too many conditions (max " + std::to_string(MAX_CONDS) + ")";
@@ -905,6 +907,7 @@ bool buildQuery(const SearchSchema &s, const Request &req,
 		tiebreak = ", " + std::string(s.idCol) + " DESC";
 
 	std::string whereClause = where.empty() ? "" : (" WHERE " + where);
+	filtered = !where.empty();
 	std::string_view countFrom =
 		s.countFrom.empty() ? s.fromJoin : s.countFrom;
 	/* Cap the count only for a non-fulltext filter, which can scan millions of
@@ -936,6 +939,20 @@ bool buildQuery(const SearchSchema &s, const Request &req,
 		return false;
 	}
 	return true;
+}
+
+} /* namespace */
+
+namespace {
+
+/* The table a schema counts: the first word of its count FROM clause, without
+ * its alias or backticks. */
+std::string countTable(const SearchSchema &s)
+{
+	std::string_view from = s.countFrom.empty() ? s.fromJoin : s.countFrom;
+	std::string name(from.substr(0, from.find(' ')));
+	name.erase(std::remove(name.begin(), name.end(), '`'), name.end());
+	return name;
 }
 
 } /* namespace */
@@ -1050,9 +1067,10 @@ drogon::Task<nlohmann::json> run(drogon::orm::DbClientPtr db,
 	std::string countSql, pageSql, usedSort, usedOrder, orderBind, err;
 	std::vector<std::string> binds;
 	int limit = 0, offset = 0;
+	bool filtered = false;
 
 	if (!buildQuery(schema, req, countSql, pageSql, binds, usedSort,
-			usedOrder, limit, offset, orderBind, err))
+			usedOrder, limit, offset, orderBind, filtered, err))
 		co_return nlohmann::json{ { "error", err } };
 
 	/* The count uses the WHERE binds; the page adds the relevance ORDER BY
@@ -1075,14 +1093,75 @@ drogon::Task<nlohmann::json> run(drogon::orm::DbClientPtr db,
 	 * overload (dynamic bind list). A non-const vector would instead bind
 	 * to the variadic overload as a single parameter.
 	 */
-	auto cres = co_await db->execSqlCoro(countSql, std::as_const(binds));
-	out["total"] = cres.empty() ? 0 : cres[0]["n"].as<int64_t>();
+	/*
+	 * The count only feeds the pager, so it must never take the page down
+	 * with it. Counting can outlast the statement time limit -- a bare
+	 * COUNT(*) is a full index scan, seconds long once a table holds
+	 * millions of rows -- and the server then interrupts it. Fall back to
+	 * an estimate, flagged by total_exact, instead of failing the request.
+	 */
+	int64_t total = 0;
+	bool exact = false;
+	if (filtered || !schema.estimateBrowseCount) {
+		try {
+			auto cres = co_await db->execSqlCoro(
+				countSql, std::as_const(binds));
+			total = cres.empty() ? 0 : cres[0]["n"].as<int64_t>();
+			exact = true;
+		} catch (const drogon::orm::DrogonDbException &) {
+			/* Interrupted or failed: estimated below. */
+		}
+	}
 
-	auto pres = co_await db->execSqlCoro(pageSql, std::as_const(pageBinds));
+	/*
+	 * The page itself has no substitute. But a search that ran out of time
+	 * is the user's query being too broad, not a server fault: say so in
+	 * the error envelope every caller already handles.
+	 */
 	nlohmann::json rows = nlohmann::json::array();
-	for (const auto &r : pres)
-		rows.push_back(schema.mapRow(r));
-	out["rows"] = std::move(rows);
+	try {
+		auto pres = co_await db->execSqlCoro(pageSql,
+						     std::as_const(pageBinds));
+		for (const auto &r : pres)
+			rows.push_back(schema.mapRow(r));
+	} catch (const drogon::orm::DrogonDbException &) {
+		co_return nlohmann::json{
+			{ "error", "The search took too long and was stopped. "
+				   "Narrow it down and try again." } };
+	}
+
+	if (!exact) {
+		const int64_t seen = (int64_t)offset + (int64_t)rows.size();
+		if (!filtered) {
+			/* Every row matches, so the engine's own row estimate
+			 * for the table is the answer, give or take. */
+			try {
+				auto eres = co_await db->execSqlCoro(
+					"SELECT table_rows AS n "
+					"FROM information_schema.tables "
+					"WHERE table_schema = DATABASE() "
+					"AND table_name = ?",
+					countTable(schema));
+				if (!eres.empty() && !eres[0]["n"].isNull())
+					total = eres[0]["n"].as<int64_t>();
+			} catch (const drogon::orm::DrogonDbException &) {
+			}
+		}
+		/*
+		 * A filter has no cheap estimate. Report what this page proves
+		 * exists -- its rows, plus one more when the page is full --
+		 * which is enough for the pager to offer the next page. The
+		 * same floor keeps a stale table estimate from hiding rows the
+		 * page is showing.
+		 */
+		const int64_t floor =
+			seen + ((int)rows.size() == limit ? 1 : 0);
+		if (total < floor)
+			total = floor;
+	}
+	out["total"]       = total;
+	out["total_exact"] = exact;
+	out["rows"]        = std::move(rows);
 
 	if (req.debug) {
 		nlohmann::json dbg;

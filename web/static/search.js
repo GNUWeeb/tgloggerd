@@ -47,6 +47,8 @@ jQuery(function ($) {
 	var urlp = new URLSearchParams(window.location.search);
 	var state = {
 		total:     attrNum("data-total", 0),
+		/* false when the server could only estimate the count */
+		totalExact: $page.attr("data-total-exact") !== "0",
 		limit:     attrNum("data-limit", 50),
 		offset:    attrNum("data-offset", 0),
 		maxOffset: attrNum("data-max-offset", 500000),
@@ -227,7 +229,8 @@ jQuery(function ($) {
 	function renderMeta() {
 		var pages = totalPages();
 		var cur = state.limit > 0 ? Math.floor(state.offset / state.limit) + 1 : 1;
-		$("#meta-text").html('<span class="muted"><strong>' + state.total +
+		$("#meta-text").html('<span class="muted">' +
+			(state.totalExact ? "" : "about ") + "<strong>" + state.total +
 			"</strong> result" + (state.total === 1 ? "" : "s") +
 			'</span> <span class="muted">· page ' + cur + " / " +
 			pages + "</span>");
@@ -272,7 +275,8 @@ jQuery(function ($) {
 			'<table class="kv debug-kv">' +
 			"<tr><th>Fetch query</th><td><code>" + g.sql + "</code></td></tr>" +
 			"<tr><th>Count query</th><td><code>" + g.count_sql + "</code></td></tr>" +
-			"<tr><th>Total rows</th><td>" + d.total + "</td></tr>" +
+			"<tr><th>Total rows</th><td>" + d.total +
+			(d.total_exact === false ? " (estimate)" : "") + "</td></tr>" +
 			"<tr><th>Bind data</th><td>" +
 			(g.bind || []).map(function (b) {
 				return '<span class="bind">' + b + "</span>";
@@ -321,6 +325,7 @@ jQuery(function ($) {
 
 		$.getJSON(api, params).done(function (d) {
 			state.total  = d.total;
+			state.totalExact = d.total_exact !== false;
 			state.limit  = d.limit;
 			state.offset = d.offset;
 			if (d.max_offset)

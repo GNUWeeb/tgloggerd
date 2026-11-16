@@ -1,6 +1,6 @@
 <section class="search-page" id="search-page"
 	data-api="/v1/search/{{ entity }}" data-detail-base="{{ detail_base }}"
-	data-total="{{ total }}" data-limit="{{ limit }}" data-offset="{{ offset }}"
+	data-total="{{ total }}" data-total-exact="{% if total_exact %}1{% else %}0{% endif %}" data-limit="{{ limit }}" data-offset="{{ offset }}"
 	data-max-offset="{{ max_offset }}"
 	data-sort="{{ sort }}" data-order="{{ order }}"
 	data-id-index="{{ id_index }}" data-photo-index="{{ photo_index }}">
@@ -17,7 +17,7 @@
 	</div>
 
 	<div class="search-meta">
-		<span id="meta-text"><span class="muted"><strong>{{ total }}</strong> result{% if total != 1 %}s{% endif %}</span> <span class="muted">· page {{ page_current }} / {{ page_count }}</span></span>
+		<span id="meta-text"><span class="muted">{% if not total_exact %}about {% endif %}<strong>{{ total }}</strong> result{% if total != 1 %}s{% endif %}</span> <span class="muted">· page {{ page_current }} / {{ page_count }}</span></span>
 		<label class="limit-ctl">Per page
 			<input type="number" id="limit-input" min="1" max="1000" step="1" value="{{ limit }}">
 		</label>
@@ -30,7 +30,7 @@
 			<table class="kv debug-kv">
 				<tr><th>Fetch query</th><td><code>{{ debug.sql }}</code></td></tr>
 				<tr><th>Count query</th><td><code>{{ debug.count_sql }}</code></td></tr>
-				<tr><th>Total rows</th><td>{{ total }}</td></tr>
+				<tr><th>Total rows</th><td>{{ total }}{% if not total_exact %} (estimate){% endif %}</td></tr>
 				<tr><th>Bind data</th><td>{% for b in debug.bind %}<span class="bind">{{ b }}</span> {% endfor %}</td></tr>
 			</table>
 			<div class="table-wrap">

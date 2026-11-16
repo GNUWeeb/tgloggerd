@@ -100,6 +100,7 @@ GroupMessagesController::list(drogon::HttpRequestPtr req)
 	data["stored_index"] = -1;
 	data["schema_json"] = result["fields"].dump();
 	data["total"]       = total;
+	data["total_exact"] = result.value("total_exact", true);
 	data["limit"]       = limit;
 	data["offset"]      = offset;
 	data["max_offset"]  = maxOffset;

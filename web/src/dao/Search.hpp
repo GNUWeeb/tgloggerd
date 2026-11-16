@@ -122,6 +122,11 @@ struct SearchSchema {
 	 * plenty for paging). Fast/indexed counts still return their exact value if
 	 * below the cap. */
 	int countCap = 0;
+	/* Do not even try to count a bare browse-all (no conditions) exactly:
+	 * report the storage engine's row estimate instead. For a table of
+	 * millions of rows the exact count is a full index scan that takes
+	 * seconds on every page view, to print a number nobody needs exact. */
+	bool estimateBrowseCount = false;
 };
 
 /* One parsed condition from the search JSON. */
