@@ -41,10 +41,27 @@ struct MsgCountRefetch {
 	std::optional<int64_t> group;
 };
 
+/*
+ * The content types a Discord webhook integration can be told to forward, one
+ * bit each. A message is filtered part by part: its text or caption follows
+ * FWD_TEXT, its media the bit of its own type.
+ */
+enum : unsigned {
+	FWD_STICKER  = 1u << 0,
+	FWD_TEXT     = 1u << 1,
+	FWD_PHOTO    = 1u << 2,
+	FWD_VIDEO    = 1u << 3,
+	FWD_DOCUMENT = 1u << 4,
+	/* Service (system) messages and every content type without a bit of
+	 * its own: voice, audio, animation, ... */
+	FWD_OTHER    = 1u << 5,
+};
+
 /* One enabled Discord webhook integration: mirror chat_id -> webhook_url. */
 struct DiscordWebhook {
 	int64_t     chat_id;
 	std::string webhook_url;
+	unsigned    types;	/* FWD_* bits this webhook forwards */
 };
 
 /* A quoted (replied-to) message, for rendering a reply in a forward. */

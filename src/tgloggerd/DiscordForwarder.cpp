@@ -293,6 +293,45 @@ int64_t now_epoch(void)
 	return (int64_t)std::time(nullptr);
 }
 
+/* The FWD_* bit a media message's file is filtered by. */
+unsigned media_type(const std::string &kind)
+{
+	if (kind == "sticker")
+		return FWD_STICKER;
+	if (kind == "photo")
+		return FWD_PHOTO;
+	if (kind == "video")
+		return FWD_VIDEO;
+	if (kind == "document")
+		return FWD_DOCUMENT;
+	return FWD_OTHER; /* voice, audio, animation, ... */
+}
+
+/*
+ * The FWD_* bit a message's text is filtered by. A text message's body and a
+ * media message's caption are both "text"; what a service message or an
+ * unrecognised content type says is part of that message, so it follows
+ * "other" instead.
+ */
+unsigned text_type(const ForwardMessage &fm)
+{
+	if (fm.kind == "text" || fm.has_file)
+		return FWD_TEXT;
+	return FWD_OTHER;
+}
+
+/* Keep the webhooks that forward content of `type`. */
+std::vector<DiscordWebhook> hooks_taking(std::vector<DiscordWebhook> hooks,
+					 unsigned type)
+{
+	hooks.erase(std::remove_if(hooks.begin(), hooks.end(),
+				   [type](const DiscordWebhook &w) {
+					   return !(w.types & type);
+				   }),
+		    hooks.end());
+	return hooks;
+}
+
 } /* namespace */
 
 DiscordForwarder::DiscordForwarder(DB *db, log_hd_t *l, size_t threads,
@@ -343,7 +382,7 @@ void DiscordForwarder::stop(void)
 	started_ = false;
 }
 
-std::vector<std::string> DiscordForwarder::webhooks_for(int64_t chat_id)
+std::vector<DiscordWebhook> DiscordForwarder::webhooks_for(int64_t chat_id)
 {
 	std::lock_guard<std::mutex> lk(cache_mtx_);
 	auto it = cache_.find(chat_id);
@@ -362,9 +401,9 @@ void DiscordForwarder::reload(void)
 		return;
 	}
 
-	std::unordered_map<int64_t, std::vector<std::string>> next;
+	std::unordered_map<int64_t, std::vector<DiscordWebhook>> next;
 	for (const auto &w : rows)
-		next[w.chat_id].push_back(w.webhook_url);
+		next[w.chat_id].push_back(w);
 
 	/*
 	 * Loaded on the same cycle as the webhooks so a newly configured
@@ -746,8 +785,8 @@ void DiscordForwarder::post_one_and_record(const std::string &url,
 
 void DiscordForwarder::forward(const ForwardMessage &fm)
 {
-	std::vector<std::string> urls = webhooks_for(fm.chat_id);
-	if (urls.empty())
+	std::vector<DiscordWebhook> hooks = webhooks_for(fm.chat_id);
+	if (hooks.empty())
 		return;
 
 	/*
@@ -773,15 +812,15 @@ void DiscordForwarder::forward(const ForwardMessage &fm)
 			now_epoch() + media_ttl_, fm.sender_id,
 			fm.sender_chat_id, fm.sender_name,
 			fm.reply_to_chat_id, fm.reply_to_msg_id,
-			!fm.text.empty() };
+			!fm.text.empty(), media_type(fm.kind) };
 	}
 
 	/* A caption/quote (if any) is sent now; the media (if any) follows. */
-	pool_.post([this, fm, urls] { do_text_forward(fm, urls); });
+	pool_.post([this, fm, hooks] { do_text_forward(fm, hooks); });
 }
 
 void DiscordForwarder::do_text_forward(ForwardMessage fm,
-				       std::vector<std::string> urls)
+				       std::vector<DiscordWebhook> hooks)
 {
 	std::string content =
 		truncate_escaped(render_markdown(fm.text, fm.entities), 2000);
@@ -792,6 +831,12 @@ void DiscordForwarder::do_text_forward(ForwardMessage fm,
 	if (content.empty())
 		return;
 
+	/* Only the webhooks that take this text. Those that do not but take
+	 * the media get the reply preview from do_media_forward instead. */
+	hooks = hooks_taking(std::move(hooks), text_type(fm));
+	if (hooks.empty())
+		return;
+
 	ReplyInfo ri = resolve_reply(fm);
 	Sender s = resolve_sender(fm.chat_id, fm.sender_id, fm.sender_chat_id,
 				  fm.sender_name);
@@ -799,9 +844,10 @@ void DiscordForwarder::do_text_forward(ForwardMessage fm,
 	s.name = forwarded_author_name(s.name, fm.sender_id, fm.message_id);
 	pr_info(l_, "discord: forwarding chat_id=%lld (%s%s) to %zu webhook(s): %.60s",
 		(long long)fm.chat_id, fm.kind.empty() ? "text" : fm.kind.c_str(),
-		ri.ok ? "+reply" : "", urls.size(), content.c_str());
+		ri.ok ? "+reply" : "", hooks.size(), content.c_str());
 
-	for (const auto &url : urls) {
+	for (const auto &hook : hooks) {
+		const std::string &url = hook.webhook_url;
 		/* The replied-message preview goes first (own message), so the reply
 		 * text lands below it -- Discord draws content above embeds, so they
 		 * cannot share one message. Jump link is per-channel. */
@@ -948,18 +994,20 @@ void DiscordForwarder::on_media_stored(int64_t chat_id, int64_t message_id,
 		pending_media_.erase(it);
 	}
 
-	std::vector<std::string> urls = webhooks_for(chat_id);
-	if (urls.empty())
+	/* Only the webhooks that take this type of media. */
+	std::vector<DiscordWebhook> hooks =
+		hooks_taking(webhooks_for(chat_id), pm.type);
+	if (hooks.empty())
 		return;
 
-	pool_.post([this, chat_id, message_id, pm, files_id, urls] {
-		do_media_forward(chat_id, message_id, pm, files_id, urls);
+	pool_.post([this, chat_id, message_id, pm, files_id, hooks] {
+		do_media_forward(chat_id, message_id, pm, files_id, hooks);
 	});
 }
 
 void DiscordForwarder::do_media_forward(int64_t chat_id, int64_t message_id,
 					PendingMedia pm, uint64_t files_id,
-					std::vector<std::string> urls)
+					std::vector<DiscordWebhook> hooks)
 {
 	std::optional<FileInfo> fi;
 	try {
@@ -983,9 +1031,16 @@ void DiscordForwarder::do_media_forward(int64_t chat_id, int64_t message_id,
 	/* If this media is a reply with no caption, its preview was not posted by
 	 * do_text_forward; post it here, right before the media, so it stays
 	 * above it. (A captioned reply already showed the preview in the text
-	 * message.) Posting both from this one task keeps them ordered. */
+	 * message.) Posting both from this one task keeps them ordered.
+	 *
+	 * A webhook that does not take text never got the caption, nor the
+	 * preview that goes with it, so it is owed the preview here too. */
+	auto preview_due = [&pm](const DiscordWebhook &w) {
+		return !pm.has_caption || !(w.types & FWD_TEXT);
+	};
 	ReplyInfo ri;
-	if (pm.reply_to_msg_id != 0 && !pm.has_caption) {
+	if (pm.reply_to_msg_id != 0 &&
+	    std::any_of(hooks.begin(), hooks.end(), preview_due)) {
 		ForwardMessage q{};
 		q.chat_id = chat_id;
 		q.reply_to_chat_id = pm.reply_to_chat_id;
@@ -1002,9 +1057,11 @@ void DiscordForwarder::do_media_forward(int64_t chat_id, int64_t message_id,
 
 	pr_info(l_, "discord: forwarding media chat_id=%lld (%s%s) to %zu webhook(s)",
 		(long long)chat_id, fi->file_type.c_str(),
-		ri.ok ? "+reply" : "", urls.size());
-	for (const auto &hook : urls) {
-		if (ri.ok)
+		ri.ok ? "+reply" : "", hooks.size());
+	for (const auto &w : hooks) {
+		const std::string &hook = w.webhook_url;
+
+		if (ri.ok && preview_due(w))
 			post_reply_preview(hook, s, ri);
 		post_one_and_record(hook, build_payload(s, content, embed),
 				    chat_id, message_id, "media");

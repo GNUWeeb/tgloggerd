@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "helpers/log.h"
+#include "DB.hpp" /* DiscordWebhook */
 #include "DiscordClient.hpp"
 #include "FileToken.hpp"
 #include "ThreadPool.hpp"
@@ -25,7 +26,6 @@
 
 namespace tgloggerd {
 
-class DB;
 struct DiscordOrigin;
 
 /*
@@ -39,6 +39,11 @@ struct DiscordOrigin;
  * (on_media_stored, driven from the file pipeline) -- backfilled files, absent
  * from the pending set, are ignored. Avatar/media URLs are the web's public
  * /files/<token> links, minted with the shared WEB_APP_KEY.
+ *
+ * Each webhook forwards only the content types it has enabled (the FWD_* bits),
+ * and a message is filtered part by part: the text or caption goes to the
+ * webhooks that take text, the media to those that take its type. A webhook
+ * that takes neither part gets nothing.
  */
 class DiscordForwarder {
 public:
@@ -84,6 +89,7 @@ private:
 		int64_t     reply_to_chat_id; /* the message this media replies to, */
 		int64_t     reply_to_msg_id;  /* so its preview is posted with the media */
 		bool        has_caption;      /* if so, do_text_forward showed the preview */
+		unsigned    type;             /* FWD_* bit of the media itself */
 	};
 	/* A webhook's guild/channel, to build a message jump link (from a
 	 * one-time GET of the webhook, cached in webhook_info_). */
@@ -121,7 +127,7 @@ private:
 		bool        ok = false;
 	};
 
-	std::vector<std::string> webhooks_for(int64_t chat_id);
+	std::vector<DiscordWebhook> webhooks_for(int64_t chat_id);
 	/*
 	 * True when `sender_id` is one of the bots discordd forwards Discord
 	 * messages into Telegram with. Such a message originated on Discord,
@@ -166,9 +172,11 @@ private:
 				 int64_t chat_id, int64_t message_id,
 				 const char *kind);
 
-	void do_text_forward(ForwardMessage fm, std::vector<std::string> urls);
+	void do_text_forward(ForwardMessage fm,
+			     std::vector<DiscordWebhook> hooks);
 	void do_media_forward(int64_t chat_id, int64_t message_id, PendingMedia pm,
-			      uint64_t files_id, std::vector<std::string> urls);
+			      uint64_t files_id,
+			      std::vector<DiscordWebhook> hooks);
 	void do_edit_forward(ForwardMessage fm);
 	void do_delete_forward(int64_t chat_id, int64_t message_id);
 	void sweep_pending_locked(int64_t now);
@@ -184,7 +192,7 @@ private:
 	ThreadPool	pool_;
 
 	std::mutex	cache_mtx_;
-	std::unordered_map<int64_t, std::vector<std::string>> cache_;
+	std::unordered_map<int64_t, std::vector<DiscordWebhook>> cache_;
 	/* Telegram user ids of discordd's forwarding bots; see is_bridge_bot.
 	 * Reloaded with the webhook cache, under cache_mtx_. */
 	std::vector<int64_t> bridge_bots_;

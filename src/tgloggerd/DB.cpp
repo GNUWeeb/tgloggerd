@@ -25,15 +25,27 @@ void DB::ping(void)
 std::vector<DiscordWebhook> DB::loadDiscordWebhooks(void)
 {
 	auto rows = db_.query(
-		"SELECT telegram_chat_id, webhook_url FROM telegram_discord_webhooks "
-		"WHERE enabled = 1");
+		"SELECT telegram_chat_id, webhook_url, fwd_sticker, fwd_text, "
+		"fwd_photo, fwd_video, fwd_document, fwd_other "
+		"FROM telegram_discord_webhooks WHERE enabled = 1");
+
+	/* Column order of the fwd_* flags above. */
+	static const unsigned bits[] = { FWD_STICKER, FWD_TEXT, FWD_PHOTO,
+					 FWD_VIDEO, FWD_DOCUMENT, FWD_OTHER };
 
 	std::vector<DiscordWebhook> out;
 	out.reserve(rows.size());
 	for (const auto &r : rows) {
 		if (!r[0].has_value() || !r[1].has_value())
 			continue;
-		out.push_back({ std::stoll(*r[0]), *r[1] });
+
+		unsigned types = 0;
+		for (size_t i = 0; i < sizeof(bits) / sizeof(bits[0]); i++) {
+			const auto &f = r[2 + i];
+			if (f.has_value() && *f != "0")
+				types |= bits[i];
+		}
+		out.push_back({ std::stoll(*r[0]), *r[1], types });
 	}
 	return out;
 }
