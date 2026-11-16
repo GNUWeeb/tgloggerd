@@ -69,6 +69,18 @@ Attachment parse_attachment(const Json::Value &v)
 	return a;
 }
 
+Sticker parse_sticker(const Json::Value &v)
+{
+	Sticker s;
+	if (!v.isObject())
+		return s;
+	s.id = parse_snowflake(v["id"]);
+	s.name = json_str(v, "name");
+	if (v.isMember("format_type") && v["format_type"].isIntegral())
+		s.format_type = v["format_type"].asInt();
+	return s;
+}
+
 Message parse_message(const Json::Value &v)
 {
 	Message m;
@@ -87,6 +99,11 @@ Message parse_message(const Json::Value &v)
 	if (v.isMember("attachments") && v["attachments"].isArray()) {
 		for (const auto &a : v["attachments"])
 			m.attachments.push_back(parse_attachment(a));
+	}
+
+	if (v.isMember("sticker_items") && v["sticker_items"].isArray()) {
+		for (const auto &st : v["sticker_items"])
+			m.stickers.push_back(parse_sticker(st));
 	}
 
 	if (v.isMember("message_reference") &&

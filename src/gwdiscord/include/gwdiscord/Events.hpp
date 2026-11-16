@@ -51,6 +51,45 @@ struct Attachment {
 	int		height = 0;
 };
 
+/*
+ * A sticker attached to a message (the message's `sticker_items`). Discord
+ * sends only this stub with a message, not the full sticker object.
+ */
+struct Sticker {
+	enum Format {
+		FORMAT_PNG    = 1,
+		FORMAT_APNG   = 2,
+		FORMAT_LOTTIE = 3,	/* a JSON animation, not an image */
+		FORMAT_GIF    = 4,
+	};
+
+	Snowflake	id = 0;
+	std::string	name;
+	int		format_type = 0;	/* a Format; 0 if not sent */
+
+	/*
+	 * Where the sticker's file is served. Unlike an attachment URL this
+	 * is not signed and does not expire. GIF stickers are served only by
+	 * the media proxy; the rest come from the CDN.
+	 */
+	std::string url(void) const
+	{
+		const std::string sid = std::to_string(id);
+
+		switch (format_type) {
+		case FORMAT_GIF:
+			return "https://media.discordapp.net/stickers/" + sid +
+			       ".gif";
+		case FORMAT_LOTTIE:
+			return "https://cdn.discordapp.com/stickers/" + sid +
+			       ".json";
+		default:
+			return "https://cdn.discordapp.com/stickers/" + sid +
+			       ".png";
+		}
+	}
+};
+
 /* Where a reply points. Present only when the message is a reply. */
 struct MessageReference {
 	Snowflake	message_id = 0;
@@ -75,6 +114,7 @@ struct Message {
 	std::string	timestamp;	/* ISO-8601, as sent */
 	std::string	edited_timestamp; /* empty when never edited */
 	std::vector<Attachment>		attachments;
+	std::vector<Sticker>		stickers;
 	std::optional<MessageReference>	reference;
 
 	bool from_webhook(void) const { return webhook_id != 0; }

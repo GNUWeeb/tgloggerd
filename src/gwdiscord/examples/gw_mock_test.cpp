@@ -40,7 +40,8 @@ static const char *READY = R"({"op":0,"s":1,"t":"READY","d":{
 	"resume_gateway_url":"wss://resume.example.invalid",
 	"user":{"id":"865960934626951168","username":"testbot","bot":true}}})";
 
-/* A webhook-authored reply carrying an attachment: every field a bridge uses. */
+/* A webhook-authored reply carrying an attachment and a sticker: every field
+ * a bridge uses. */
 static const char *MSG = R"({"op":0,"s":2,"t":"MESSAGE_CREATE","d":{
 	"id":"1541191219416399922",
 	"channel_id":"1541156106343161896",
@@ -54,7 +55,9 @@ static const char *MSG = R"({"op":0,"s":2,"t":"MESSAGE_CREATE","d":{
 	"attachments":[{"id":"999","filename":"cat.png","size":12345,
 	                "content_type":"image/png",
 	                "url":"https://cdn.discordapp.com/a/cat.png?ex=1&is=2&hm=3",
-	                "width":800,"height":600}]}})";
+	                "width":800,"height":600}],
+	"sticker_items":[{"id":"749054660769218631","name":"Wave",
+	                  "format_type":4}]}})";
 
 static LogSink quiet_log(void)
 {
@@ -111,6 +114,14 @@ static void test_happy_path(void)
 	      "attachment filename");
 	CHECK(!seen.attachments.empty() && seen.attachments[0].size == 12345,
 	      "attachment size");
+	CHECK(seen.stickers.size() == 1, "sticker parsed");
+	CHECK(!seen.stickers.empty() && seen.stickers[0].name == "Wave",
+	      "sticker name");
+	CHECK(!seen.stickers.empty() &&
+		      seen.stickers[0].url() ==
+			      "https://media.discordapp.net/stickers/"
+			      "749054660769218631.gif",
+	      "sticker url follows its format");
 
 	/* The IDENTIFY frame must carry the privileged intent bit. */
 	auto sent = rec->sent_copy();

@@ -43,7 +43,7 @@ the two differed; it is `GPL-2.0-or-later` now, for the same OpenSSL reason.
 include/gwdiscord/     public headers — no third-party type appears in any of them
   Transport.hpp        the seam: WebSocket + HttpClient interfaces
   Gateway.hpp          the Discord client, intents, close-code policy
-  Events.hpp           plain structs: Message, User, Attachment, ...
+  Events.hpp           plain structs: Message, User, Attachment, Sticker, ...
   Log.hpp              a log-sink callback the host provides
   Rest.hpp             GET /gateway/bot
   MockTransport.hpp    a non-network Transport, for tests
