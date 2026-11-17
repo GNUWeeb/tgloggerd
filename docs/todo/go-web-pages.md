@@ -38,10 +38,18 @@ takes over (docs/design/web-go.md section 4).
 - The render service and its React entry point are the React
   application's (`web/app/`); this item tests the protocol with a
   stand-in renderer.
+- The client (openapi-fetch) calls `GET /api/page/{path}` with the
+  path parameter encoded, `%2F` for each slash, and the page's own
+  query string as the request's; an empty path (`/api/page/`) is the
+  dashboard. Decode it, and answer an unknown path with the
+  not_found page data and status 404.
+- The operations are described in `webapi/openapi.yaml`; mark each
+  one served (drop `x-tgd-status: planned`) as it lands, and
+  `npm run check:api` in web/app must stay clean.
 
 ## Depends on
 
-- `go-web-openapi`
+Nothing.
 
 ## Done when
 
