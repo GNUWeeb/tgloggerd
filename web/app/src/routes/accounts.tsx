@@ -82,7 +82,7 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }
 	};
 	const save = () => call(() => (isNew
-		? ok(api.POST('/api/accounts', { body: { username: a.username, name: a.name, email: a.email ?? '', role: a.role } }))
+		? ok(api.POST('/api/accounts', { body: { username: a.username, name: a.name, email: a.email ?? '', role: a.role, ...(a.role === 'member' && a.grants.length ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })) } : {}) } }))
 		: ok(api.PATCH('/api/accounts/{id}', { params: { path: { id: a.id } }, body: {
 			name: a.name, role: a.role,
 			...(a.email !== init.email ? { email: a.email ?? '' } : {}),
@@ -90,6 +90,27 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 			...(a.role === 'member' ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })), abilities: a.abilities } : {}),
 		} }))), 'close');
 	const restrict = a.restrict ?? { hide_private: false, hide_groups: [], join_chat: false };
+	// A member's groups per federation: on the Access tab, and when
+	// creating a member (an admin must grant at least one federation).
+	const grantsBlock = (
+		<>
+			<h3 className="a-sec">Groups, per federation</h3>
+			<p className="a-muted sm">A member sees only the groups granted here, and people only as they appear in those groups. Members never see private messages.</p>
+			{props.federations.map((f) => {
+				const g = grantOf(f.id);
+				return (
+					<section key={f.id} className={`a-fedgrant ${g ? 'on' : ''}`}>
+						<header>
+							<Switch checked={!!g} onChange={() => set({ grants: g ? a.grants.filter((x) => x.fed !== f.id) : [...a.grants, { fed: f.id, groups: [] }] })} label={<><Network size={14} /> {f.name}</>} />
+							{g && <span className="a-muted sm">{g.groups.length} of {f.group_count} groups</span>}
+						</header>
+						{g && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={{ kind: 'group', federation: f.id }} placeholder={`Add a group of ${f.name}...`} />}
+					</section>
+				);
+			})}
+		</>
+	);
+	const grantRequired = isNew && !isSuper && a.role === 'member' && a.grants.length === 0;
 	return (
 		<Modal wide title={isNew ? 'New account' : init.name} icon={!isNew ? <Avatar id={init.id} name={init.name} size={24} /> : undefined} onClose={onClose}
 			footer={<>
@@ -97,7 +118,8 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 				{init.last_superadmin && <span className="a-muted sm a-note"><Info size={13} />The last active superadmin cannot be disabled or demoted.</span>}
 				<span className="a-grow" />
 				<Btn ghost onClick={onClose}>Cancel</Btn>
-				<Btn primary onClick={() => void save()}>{isNew ? 'Create and email link' : 'Save changes'}</Btn>
+				{grantRequired && <span className="a-muted sm a-note"><Info size={13} />Grant at least one federation.</span>}
+				<Btn primary disabled={grantRequired} onClick={() => void save()}>{isNew ? 'Create and email link' : 'Save changes'}</Btn>
 			</>}>
 			{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			{note && <div className="a-banner" role="status"><MailCheck size={15} /><span>{note}</span></div>}
@@ -146,7 +168,8 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 								</label>
 							);
 						})}</div>
-						{isNew && a.role !== 'superadmin' && <p className="a-muted sm">Federations, restrictions and grants are set on the Access tab once the account exists.</p>}
+						{isNew && a.role === 'admin' && <p className="a-muted sm">Federations and restrictions are set on the Access tab once the account exists.</p>}
+						{isNew && a.role === 'member' && <p className="a-muted sm">Abilities are set on the Access tab once the account exists.</p>}
 					</section>
 				</div>
 			)}
@@ -180,22 +203,11 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 				</div>
 			)}
 
+			{isNew && a.role === 'member' && <div className="a-form">{grantsBlock}</div>}
+
 			{!isNew && tab === 'access' && a.role === 'member' && (
 				<div className="a-form">
-					<h3 className="a-sec">Groups, per federation</h3>
-					<p className="a-muted sm">A member sees only the groups granted here, and people only as they appear in those groups. Members never see private messages.</p>
-					{props.federations.map((f) => {
-						const g = grantOf(f.id);
-						return (
-							<section key={f.id} className={`a-fedgrant ${g ? 'on' : ''}`}>
-								<header>
-									<Switch checked={!!g} onChange={() => set({ grants: g ? a.grants.filter((x) => x.fed !== f.id) : [...a.grants, { fed: f.id, groups: [] }] })} label={<><Network size={14} /> {f.name}</>} />
-									{g && <span className="a-muted sm">{g.groups.length} of {f.group_count} groups</span>}
-								</header>
-								{g && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={{ kind: 'group', federation: f.id }} placeholder={`Add a group of ${f.name}...`} />}
-							</section>
-						);
-					})}
+					{grantsBlock}
 					<h3 className="a-sec">Abilities</h3>
 					<ul className="a-perms">{ABILITIES.map(([k, t, d]) => (
 						<li key={k}><label><input type="checkbox" checked={a.abilities.includes(k)} onChange={() => set({ abilities: a.abilities.includes(k) ? a.abilities.filter((x) => x !== k) : [...a.abilities, k] })} /><span><b>{t}</b><span className="a-muted sm">{d}</span></span></label></li>

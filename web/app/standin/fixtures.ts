@@ -382,8 +382,11 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		if (!body.username || !body.email) return [400, { error: 'bad_request', message: 'Username and email address are required.' }];
 		if (accounts.some((a) => a.username === body.username)) return [409, { error: 'taken', message: 'That username is taken.' }];
 		if (s.role !== 'superadmin' && body.role !== 'member') return [403, { error: 'forbidden', message: 'Admins create members only.' }];
+		const grants = (body.grants || []).map((g) => ({ fed: g.fed, groupIds: g.group_ids || [] }));
+		// An admin's new member must land in a federation that admin manages.
+		if (s.role !== 'superadmin' && !grants.some((g) => s.manageableFeds.some((f) => f.id === g.fed))) return [400, { error: 'grants_required', message: 'Grant at least one federation you administer.' }];
 		const id = Math.max(...accounts.map((a) => a.id)) + 1;
-		accounts.push({ id, username: body.username, name: body.name || body.username, email: body.email, verified: false, invited: true, role: body.role, active: true, last: '', created: '2026-11-17 16:00:00', hue: 200, adminOf: [], restrict: { hide_private: false, hide_groups: [], join_chat: false }, grants: [], abilities: [] });
+		accounts.push({ id, username: body.username, name: body.name || body.username, email: body.email, verified: false, invited: true, role: body.role, active: true, last: '', created: '2026-11-17 16:00:00', hue: 200, adminOf: [], restrict: { hide_private: false, hide_groups: [], join_chat: false }, grants, abilities: [] });
 		return [201, { id }];
 	}
 	if ((m = p.match(/^accounts\/(\d+)(?:\/([\w-]+))?$/))) {
