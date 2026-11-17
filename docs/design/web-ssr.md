@@ -196,7 +196,7 @@ markup:
   the same values sent to the render service, minus nothing and plus
   nothing.
 - Serialisation is Go's `encoding/json` with HTML escaping on (the
-  default): `<`, `>` and `&` become `<`, `>`, `&`, and
+  default): `<`, `>` and `&` become `\u003c`, `\u003e`, `\u0026`, and
   U+2028 and U+2029 are escaped, so no string can close the script
   element or break JavaScript parsing. The browser reads it with
   `JSON.parse(el.textContent)`, never `eval` or `innerHTML`.
