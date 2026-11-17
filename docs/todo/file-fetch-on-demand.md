@@ -38,7 +38,6 @@ whole first.
 
 ## Depends on
 
-- `tdlib-cross-thread-request`
 - `internal-api-server`
 
 ## Done when

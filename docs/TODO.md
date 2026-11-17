@@ -101,7 +101,6 @@ The file store as a capped cache in front of Telegram:
 [design/storage-cache.md](design/storage-cache.md).
 
 - [`files-cache-schema`](todo/files-cache-schema.md): Add the columns that make telegram_files a cache: last access, Telegram unique id, nullable sha256, alias.
-- [`tdlib-cross-thread-request`](todo/tdlib-cross-thread-request.md): Let any thread but the loop send a TDLib request and wait for its answer.
 - [`chat-membership-tracking`](todo/chat-membership-tracking.md): Know per chat whether the account is a member, from supergroup and basic group status.
 - [`media-record-without-download`](todo/media-record-without-download.md): Record media from non-member chats and over the per-file cap without downloading it.
 - [`internal-api-server`](todo/internal-api-server.md): Give tgloggerd an authenticated internal HTTP API for the web, with file status and access recording.

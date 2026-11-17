@@ -18,7 +18,9 @@ step needs care, and the last one needs the owner's go.
 - Set the `.env` values of storage-cache.md section 12 with
   `TG_STORAGE_DRY_RUN=1`; recreate the containers
   (`--force-recreate`, since env changes need it).
-- Run every "at cutover" check of the other items.
+- Run every "at cutover" check of the other items, and check that
+  `TDLib::request()` (getOption "version") from a thread other than
+  the loop gets its answer after login; its own item is closed.
 - Report the dry run's numbers (files and GiB for retention and for
   the cap) to the owner and wait for a go; then set
   `TG_STORAGE_DRY_RUN=0` and recreate.
@@ -34,7 +36,6 @@ step needs care, and the last one needs the owner's go.
 ## Depends on
 
 - `files-cache-schema`
-- `tdlib-cross-thread-request`
 - `chat-membership-tracking`
 - `media-record-without-download`
 - `internal-api-server`
