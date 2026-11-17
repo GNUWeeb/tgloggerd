@@ -30,7 +30,13 @@ the account's address book instead of the user's renames.
   a contact, where there is one.
 - The web shows the own name, with the contact name as a secondary
   label; search matches both. MCP answers carry the own name.
-- Not in scope: changing the account's contacts.
+- An explicit admin action, "Look up real name", on a contact's user
+  page (decided with the project owner on 2026-11-18): tgloggerd
+  removes the contact, records the own name TDLib then reports, and
+  adds the contact back as it was. It runs once per click, for that
+  one user, never automatically or in bulk. The result is stored in
+  the own-name columns with a "last checked" time.
+- Not in scope: any other change to the account's contacts.
 
 ## Design notes
 
@@ -47,13 +53,37 @@ the account's address book instead of the user's renames.
   Decide before building it.
 - Schema change: an additive migration on `telegram_users` (contact
   flag, contact name columns) with the web synced in the same series.
+- The lookup cycle, as a curated operation on the internal API:
+  1. Journal first: a row holding the contact as the account has it
+     (contact name, phone number if known, the contact's private note
+     from `userFullInfo.note`, and whether the account shared its
+     phone number with them), written before anything changes.
+  2. `removeContacts([user_id])`; wait for the `updateUser` that
+     carries the user's own name, with a timeout.
+  3. `addContact(user_id, importedContact{phone, first, last, note},
+     share_phone_number)` restores the contact exactly as journalled.
+  4. Store the own name and the check time; delete the journal row
+     only after the re-add succeeded.
+  On startup, any journal row left over (a crash between 2 and 3) is
+  re-added before anything else, so a contact is never lost.
+- Side effects to state on the page before the admin confirms: the
+  user can briefly see a change (mutual-contact status, the account's
+  phone number), per-contact settings TDLib does not expose (such as
+  a custom photo set for them) are not restored, and contact changes
+  are rate-limited by Telegram, so the action refuses to run more
+  often than a modest limit (a flood wait is reported, not retried).
 
 ## Depends on
 
-Nothing.
+Nothing for the passive part; the lookup action needs the internal
+API, which is merged (`TDLib::request` and `InternalApi` routes).
 
 ## Done when
 
+- "Look up real name" on a contact's page shows their own name and
+  the check time, and the contact is still in the account afterwards
+  with the same name, phone number and note; a daemon killed between
+  removal and re-add restores the contact on its next start.
 - User 742278412 shows as "Moe" with "Michael William Jonathan" as the
   contact name; a contact rename in the account does not change the
   logged name or add a name history row; removing the contact makes
