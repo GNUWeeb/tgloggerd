@@ -16,7 +16,8 @@ under Authentication:
 The health endpoint needs no login and exists for probes and for
 checking the routing.
 
-It also serves the files, /files/<token>, described under Files.
+It also serves the files, /files/<token>, described under Files, and
+the pages of the React application, described under Pages.
 
 # The API contract
 
@@ -28,8 +29,7 @@ should they and the description ever differ, that is a bug in one of
 them, fixed in both at once.
 
 Operations designed but not served yet are in the description too,
-marked `x-tgd-status: planned`: the page data of every React page
-(GET /api/page/{path}), the chat window and search, and the account,
+marked `x-tgd-status: planned`: the chat window and search, and the account,
 forwarding, Join chat and MCP administration actions. A port serves
 the operation and drops the marker in the same change. A per-account
 bearer-token scheme for clients without cookies is reserved there
@@ -173,6 +173,61 @@ TG_MAX_STORE_FILE_SIZE, TG_FETCH_TIMEOUT_SECS), and the webapi
 container mounts the repository at /workspace and runs from there, as
 the daemon does, so the paths the daemon answers with open in it.
 
+# Pages
+
+The React application's pages (web/app) have real URLs; the service
+answers each with a complete HTML document, rendered by the render
+service, and the same page data as JSON for navigation in the browser.
+docs/design/web-ssr.md specifies both and the render protocol.
+
+    GET /<page path>          the page's document (HTML)
+    GET /api/page/<path>      the same page data as JSON (getPage)
+    GET /app/assets/<file>    the client bundle's files
+
+The page table (defaultPages in internal/server/pages.go) maps each
+page path to its route id, shared with the React route registry, and
+to a loader, which reads the page's props through the request scope
+(Server.requestScope). A page whose data the service does not load
+yet has no loader: its document is not served here, and /api/page
+answers {"reload": true} for it, so the browser loads it in full from
+the Drogon web. So far only login has a loader; not_found is the
+answer for paths that are no page and for things the scope hides,
+404 either way.
+
+  - /api/page/<path> takes the page path without its leading slash,
+    its slashes plain or encoded as %2F, and the page's query string
+    as its own. An empty path is the dashboard.
+  - A signed-out visitor gets only the public pages: login, the three
+    email link pages and the public chats of exposed groups (the
+    latter four answer reload for now). Any other path, a page or
+    not, answers 401 on /api/page and redirects a document request
+    to /login?next=<path and query>.
+  - The email address gate (web-accounts.md section 8) has one hook,
+    Server.emailRequired in pages.go; web-email fills it in.
+  - The document is one template (internal/render/document.go) for
+    rendered and fallback pages; the page data is JSON with
+    encoding/json's HTML escaping, and a signed-in document carries
+    the CSRF token of the session cookie it was asked with.
+  - The render service is reached over RENDER_SOCKET. A render waits
+    at most RENDER_TIMEOUT; a refused connection or a timeout skips
+    the service for RENDER_BACKOFF. Any failure serves the same
+    document with empty markup (data-ssr="0"), which the browser
+    renders from the embedded data.
+  - The client bundle is WEBAPI_APP_DIST, read at start: the entry,
+    styles and preloads come from its .vite/manifest.json, and its
+    assets/ directory is served under /app/assets/ as immutable.
+    WEBAPI_APP_BUILD must be the TGD_BUILD the bundle and the render
+    service were built with; the render service refuses another one
+    (409), and the page falls back.
+  - Signed-in answers are private, no-store; a public page asked for
+    without a session cookie may be cached for a minute.
+
+nginx sends a page path here once its loader is in place, as it does
+/api/ and /files/.
+
+internal/render/rendertest is a stand-in render service on a Unix
+socket, used by the tests.
+
 # Layout
 
     openapi.yaml           The API description (see The API contract).
@@ -192,6 +247,8 @@ the daemon does, so the paths the daemon answers with open in it.
     internal/media/        The rules files are served by: store path,
                            names and types, ranges, the fetch policy,
                            the TDLib path check.
+    internal/render/       The render service's client, the client
+                           assets and the page document.
     vendor/                The third-party modules, committed.
     build/                 Build output (git-ignored).
 
@@ -295,6 +352,13 @@ and its own:
     WEBAPI_LISTEN_ADDR   default 127.0.0.1
     WEBAPI_LISTEN_PORT   default 8081
     WEBAPI_LOG_LEVEL     debug, info (default), warn or error
+    WEBAPI_APP_DIST      the client bundle, default web/app/dist/client
+    WEBAPI_APP_BUILD     its build id, default dev
+    RENDER_SOCKET        the render service's socket, default
+                         /run/tgloggerd-render/render.sock
+    RENDER_TIMEOUT       milliseconds a render may take, default 500
+    RENDER_BACKOFF       milliseconds the render service is skipped
+                         after it failed to answer, default 2000
 
 An empty value counts as unset. A malformed number stops the service at
 start. Logs are structured (log/slog, key=value) on stderr, one line per

@@ -82,6 +82,19 @@ type Config struct {
 	// X-Forwarded-For hops are skipped to find a request's client.
 	// Empty: the connection's peer is the client.
 	TrustedProxies []netip.Prefix
+
+	// RenderSocket is the render service's Unix socket (RENDER_SOCKET);
+	// RenderTimeout bounds a render, connect and answer together
+	// (RENDER_TIMEOUT), and RenderBackoff is how long the service is
+	// skipped after it failed to answer (RENDER_BACKOFF).
+	RenderSocket  string
+	RenderTimeout time.Duration
+	RenderBackoff time.Duration
+	// AppDist is the client bundle vite build wrote (WEBAPI_APP_DIST),
+	// with .vite/manifest.json and assets/; AppBuild is its build id
+	// (WEBAPI_APP_BUILD), the TGD_BUILD it was built with.
+	AppDist  string
+	AppBuild string
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -118,6 +131,16 @@ func positive(key, def string) (int, error) {
 		return 0, fmt.Errorf("%s: %q is not a positive number", key, s)
 	}
 	return n, nil
+}
+
+// millis reads a duration given in milliseconds.
+func millis(key, def string) (time.Duration, error) {
+	s := env(key, def)
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("%s: %q is not a positive number of milliseconds", key, s)
+	}
+	return time.Duration(n) * time.Millisecond, nil
 }
 
 func level(key, def string) (slog.Level, error) {
@@ -242,6 +265,18 @@ func FromEnv() (*Config, error) {
 	if c.TrustedProxies, err = trustedProxies("WEBAPI_TRUSTED_PROXIES"); err != nil {
 		return nil, err
 	}
+
+	// The render service and the bundle it was built with
+	// (docs/design/web-ssr.md sections 4.5 and 6).
+	c.RenderSocket = env("RENDER_SOCKET", "/run/tgloggerd-render/render.sock")
+	if c.RenderTimeout, err = millis("RENDER_TIMEOUT", "500"); err != nil {
+		return nil, err
+	}
+	if c.RenderBackoff, err = millis("RENDER_BACKOFF", "2000"); err != nil {
+		return nil, err
+	}
+	c.AppDist = env("WEBAPI_APP_DIST", "web/app/dist/client")
+	c.AppBuild = env("WEBAPI_APP_BUILD", "dev")
 
 	return &c, nil
 }

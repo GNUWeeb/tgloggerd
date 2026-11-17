@@ -127,9 +127,31 @@ export interface paths {
          *
          *     A signed-in account with no verified email address (web-accounts.md section 8) gets the email_required route for every page path except those three, until an address is verified; its API operations answer 403 email_required, except session, logout, the account's email operations and the three link operations.
          *
-         *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist.
+         *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public chats of exposed groups (group_chat).
+         *
+         *     So far the service loads the data of login (and not_found); every other route answers {"reload": true}. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/assets/{file}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A file of the client bundle
+         * @description The content-hashed files vite build wrote to the bundle's assets/ directory (WEBAPI_APP_DIST), which page documents link (web-ssr.md section 6). Nothing outside that directory is served.
+         */
+        get: operations["getAsset"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2222,7 +2244,7 @@ export interface operations {
             /** @description The page data, or a request to load the page in full. */
             200: {
                 headers: {
-                    /** @description private, no-store for a signed-in request. */
+                    /** @description public, max-age=60 for a public page asked for without a session cookie; private, no-store otherwise, and for {"reload": true}. */
                     "Cache-Control"?: string;
                     [name: string]: unknown;
                 };
@@ -2249,6 +2271,40 @@ export interface operations {
                 };
             };
             503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The file's path under assets/. */
+                file: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file. */
+            200: {
+                headers: {
+                    /** @description public, max-age=31536000, immutable */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description No such file, or no bundle. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
         };
     };
     getChatMessages: {
