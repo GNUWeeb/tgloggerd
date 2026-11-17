@@ -141,4 +141,3 @@ Accounts, roles and federations:
 
 ## Operations
 
-- [`migrate-url-secrets`](todo/migrate-url-secrets.md): Keep database passwords out of migration logs and the root password out of processes that do not need it.
