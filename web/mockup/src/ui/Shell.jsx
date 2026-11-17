@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
 	LayoutDashboard, Users, UsersRound, MessagesSquare, MessageCircle, FileText,
 	ArrowLeftRight, Bot, Settings, Search, Menu, LogOut, Sun, Moon, Monitor,
-	PanelLeftClose, PanelLeftOpen,
+	PanelLeftClose, PanelLeftOpen, UserCog,
 } from 'lucide-react';
 import { Link, useRouter } from '../router.jsx';
 import { useTheme } from './hooks.js';
@@ -22,13 +22,14 @@ const NAV = [
 		['/platform-fwd', 'Platform forwarding', ArrowLeftRight],
 		['/mcp-admin', 'MCP', Bot],
 	] },
-	{ label: null, items: [['/settings', 'Settings', Settings]] },
+	{ label: null, items: [['/settings/accounts', 'Accounts', UserCog], ['/settings', 'Settings', Settings]] },
 ];
 
 function isOn(path, href) {
 	if (href === '/') return path === '/';
 	if (href === '/group_messages') return path.startsWith('/group_messages') || path.startsWith('/messages/group');
 	if (href === '/private_messages') return path.startsWith('/private_messages') || path.startsWith('/messages/private');
+	if (href === '/settings') return path === '/settings';
 	return path === href || path.startsWith(href + '/');
 }
 

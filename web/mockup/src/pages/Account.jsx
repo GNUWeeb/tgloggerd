@@ -1,10 +1,19 @@
 // Settings and the sign-in page.
 import { useState } from 'react';
 import { CircleCheck, LogIn, ShieldCheck } from 'lucide-react';
-import { useRouter } from '../router.jsx';
+import { useRouter, Link } from '../router.jsx';
 import Shell, { ThemeButton } from '../ui/Shell.jsx';
 import { PageHead, Btn, Card } from '../ui/primitives.jsx';
 import { Field } from '../ui/forms.jsx';
+
+export function SettingsNav({ on }) {
+	return (
+		<nav className="a-settingsnav" aria-label="Settings sections">
+			<Link to="/settings" className={on === 'account' ? 'on' : ''}>Your account</Link>
+			<Link to="/settings/accounts" className={on === 'accounts' ? 'on' : ''}>Accounts</Link>
+		</nav>
+	);
+}
 
 export function Settings() {
 	const [done, setDone] = useState(false);
@@ -12,13 +21,10 @@ export function Settings() {
 		<Shell crumbs={[['Settings', null]]}>
 			<PageHead title="Settings" />
 			<div className="a-settings">
-				<nav className="a-settingsnav" aria-label="Settings sections">
-					<a href="#account" className="on">Account</a>
-					<a href="#appearance">Appearance</a>
-				</nav>
+				<SettingsNav on="account" />
 				<div className="a-stack">
 					<Card title="Account" className="a-narrow" >
-						<p className="a-muted" id="account">Signed in as <b>admin</b> . administrator</p>
+						<p className="a-muted">Signed in as <b>admin</b> . administrator</p>
 					</Card>
 					<Card title="Change password" className="a-narrow">
 						{done && <div className="a-banner"><CircleCheck size={15} /><span>Password changed. Every other session has been signed out.</span></div>}
@@ -31,7 +37,7 @@ export function Settings() {
 						</form>
 					</Card>
 					<Card title="Appearance" className="a-narrow">
-						<div className="a-row" id="appearance"><span className="a-grow">Theme: follows the system until changed</span><ThemeButton /></div>
+						<div className="a-row"><span className="a-grow">Theme: follows the system until changed</span><ThemeButton /></div>
 					</Card>
 				</div>
 			</div>

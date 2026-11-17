@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import { ForwardingIndex, TelegramDiscord, DiscordTelegram } from './pages/Forwarding.jsx';
 import { McpIndex, McpGroups, McpTokens } from './pages/Mcp.jsx';
 import { Settings, Login } from './pages/Account.jsx';
+import Accounts from './pages/Accounts.jsx';
 import { useQuery } from './router.jsx';
 import NotFound from './pages/NotFound.jsx';
 
@@ -39,6 +40,7 @@ const ROUTES = [
 	[/^\/mcp-admin\/groups$/, () => <McpGroups />],
 	[/^\/mcp-admin\/tokens$/, () => <McpTokens />],
 	[/^\/settings$/, () => <Settings />],
+	[/^\/settings\/accounts$/, () => <Accounts />],
 	[/^\/login$/, () => <Login />],
 ];
 

@@ -95,3 +95,50 @@ export function TypeChecks({ value, onChange, kinds = CONTENT_KINDS }) {
 		</div>
 	);
 }
+
+// Choose several chats; shown as removable chips.
+export function MultiPicker({ value, onChange, options, placeholder = 'Add...' }) {
+	const [q, setQ] = useState('');
+	const [open, setOpen] = useState(false);
+	const ids = new Set(value.map((v) => v.id));
+	const list = options.filter((o) => !ids.has(o.id) && (o.title || o.name).toLowerCase().includes(q.toLowerCase())).slice(0, 6);
+	return (
+		<div className="a-multi">
+			<div className="a-multi-box" onClick={() => setOpen(true)}>
+				{value.map((v) => (
+					<span key={v.id} className="a-chip a-chip-entity">
+						<Avatar e={v} size={18} square={v.kind === 'group'} />{v.title || v.name}
+						<button type="button" aria-label={`Remove ${v.title || v.name}`} onClick={(e) => { e.stopPropagation(); onChange(value.filter((x) => x.id !== v.id)); }}><X size={12} /></button>
+					</span>
+				))}
+				<input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder={value.length ? '' : placeholder} />
+			</div>
+			{open && list.length > 0 && (
+				<ul className="a-multi-pop">
+					{list.map((o) => (
+						<li key={o.id}>
+							<button type="button" onClick={() => { onChange([...value, o]); setQ(''); }}>
+								<Avatar e={o} size={22} square={o.kind === 'group'} />
+								<span className="a-grow a-ellipsis">{o.title || o.name}</span>
+							</button>
+						</li>
+					))}
+				</ul>
+			)}
+		</div>
+	);
+}
+
+// "Everything" or "only these", with the list editor shown for the latter.
+export function ScopeField({ label, all, onAll, children, allText }) {
+	return (
+		<fieldset className="a-scope">
+			<legend className="a-field-label">{label}</legend>
+			<div className="a-scope-opts">
+				<label className={all ? 'on' : ''}><input type="radio" checked={all} onChange={() => onAll(true)} />{allText}</label>
+				<label className={!all ? 'on' : ''}><input type="radio" checked={!all} onChange={() => onAll(false)} />Only selected</label>
+			</div>
+			{!all && children}
+		</fieldset>
+	);
+}
