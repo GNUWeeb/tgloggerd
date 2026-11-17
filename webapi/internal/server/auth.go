@@ -33,6 +33,9 @@ const loginPath = "/api/login"
 // maxLoginBody bounds a login request's body.
 const maxLoginBody = 64 << 10
 
+// maxUsername is the length of web_users.username, in characters.
+const maxUsername = 64
+
 // The messages are the Drogon login page's.
 const (
 	msgExpired  = "Your session expired. Please try again."
@@ -171,8 +174,12 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// No account has a longer name (web_users.username), so a longer
+	// one fails without a lookup, and only its first maxUsername
+	// characters key the throttle.
+	name, tooLong := cutRunes(in.Username, maxUsername)
 	ip := clientIP(r)
-	key := ip + "\n" + in.Username
+	key := ip + "\n" + name
 	if !s.limiter.Allowed(key) {
 		if err := webdb.Audit(ctx, s.app, nil, "login_ratelimited", ip, in.Username); err != nil {
 			s.internalError(w, "audit", err)
@@ -182,7 +189,10 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := webdb.FindByUsername(ctx, s.app, in.Username)
+	u, err := webdb.User{}, webdb.ErrNoUser
+	if !tooLong {
+		u, err = webdb.FindByUsername(ctx, s.app, in.Username)
+	}
 	if err != nil && !errors.Is(err, webdb.ErrNoUser) {
 		s.internalError(w, "account lookup", err)
 		return
@@ -230,4 +240,17 @@ func (s *Server) postLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cookies.Clear(w)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// cutRunes returns s cut to at most n characters, and whether it was
+// longer.
+func cutRunes(s string, n int) (string, bool) {
+	c := 0
+	for i := range s {
+		if c == n {
+			return s[:i], true
+		}
+		c++
+	}
+	return s, false
 }

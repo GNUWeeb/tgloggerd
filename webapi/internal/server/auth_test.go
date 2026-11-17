@@ -307,3 +307,34 @@ func TestSessionUnverified(t *testing.T) {
 		t.Fatalf("session with the database away: %d %+v", a.status, a.set)
 	}
 }
+
+// A username longer than any account's fails like a wrong password and
+// is audited cut to the column, instead of failing the audit insert.
+func TestLoginLongUsername(t *testing.T) {
+	db := testDB(t)
+	hash, _ := auth.HashPassword("s3cret")
+	addUser(t, db, "alice", hash, "admin", true)
+	c := &client{t: t, h: newHandler(db, 2), cookies: map[string]string{}}
+
+	long := strings.Repeat("é", 300)
+	for i := 0; i < 2; i++ {
+		if a := c.login(long, "bad"); a.status != 401 ||
+			a.body["error"] != "invalid_credentials" {
+			t.Fatalf("long username %d: %d %v", i, a.status, a.body)
+		}
+	}
+	// The throttle keys on the first maxUsername characters.
+	if a := c.login(long[:2*maxUsername]+"x", "bad"); a.status != 429 {
+		t.Fatalf("long username is not throttled: %d", a.status)
+	}
+	if a := c.login("alice", "s3cret"); a.status != 200 {
+		t.Fatalf("alice: %d", a.status)
+	}
+	rows := audits(t, db)
+	if len(rows) != 4 {
+		t.Fatalf("audit rows %+v", rows)
+	}
+	if got := []rune(rows[0].detail); len(got) != 255 || string(got) != strings.Repeat("é", 255) {
+		t.Fatalf("audit detail is %d characters", len(got))
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 // User is a web_users row.
@@ -67,6 +68,7 @@ func SessionEpoch(ctx context.Context, db *sql.DB, id uint64) (uint32, error) {
 // Audit appends a security event to web_audit. uid is nil for an
 // anonymous or failed action, such as a failed login.
 func Audit(ctx context.Context, db *sql.DB, uid *uint64, action, ip, detail string) error {
+	detail = auditDetail(detail)
 	var u any
 	if uid != nil {
 		u = *uid
@@ -75,4 +77,23 @@ func Audit(ctx context.Context, db *sql.DB, uid *uint64, action, ip, detail stri
 		"INSERT INTO web_audit (web_user_id, action, ip, detail) "+
 			"VALUES (?, ?, ?, ?)", u, action, ip, detail)
 	return err
+}
+
+// MaxAuditDetail is the length of web_audit.detail, in characters.
+const MaxAuditDetail = 255
+
+// auditDetail fits detail into web_audit.detail: invalid UTF-8 is
+// replaced and the text is cut to MaxAuditDetail characters, so an
+// over-long value (a username typed at the login form) is recorded
+// rather than failing the insert.
+func auditDetail(detail string) string {
+	detail = strings.ToValidUTF8(detail, "\uFFFD")
+	n := 0
+	for i := range detail {
+		if n == MaxAuditDetail {
+			return detail[:i]
+		}
+		n++
+	}
+	return detail
 }
