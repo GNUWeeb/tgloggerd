@@ -31,6 +31,8 @@ configurable.
   compression makes the real usage lower. Orphan blobs are not counted
   (orphan-blob-audit).
 - Stop cleanly with the daemon, mid-batch.
+- `TG_STORAGE_DRY_RUN` defaults to 1: nothing is evicted until it is
+  set to 0 (decisions/2026-11-18-janitor-dry-run-default.md).
 
 ## Depends on
 

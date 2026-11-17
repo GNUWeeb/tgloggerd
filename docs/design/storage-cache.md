@@ -231,6 +231,9 @@ missing blob as a file to fetch.
 
 `TG_STORAGE_DRY_RUN` makes a sweep report what it would evict (files
 and bytes, for retention and for the cap) without changing anything.
+It is on unless set to 0: the deployed containers rebuild and migrate
+from the checkout whenever they restart, so a janitor that evicted by
+default could delete archived bytes before anyone chose to.
 Batches are paced to avoid bursts of IO. Results are logged and
 returned by `GET /v1/storage`.
 
@@ -295,7 +298,7 @@ how `/files/<token>` behaves.
 | `TG_STORAGE_MAX_BYTES` | 0 (no cap) | 536870912000 (500 GiB) |
 | `TG_STORAGE_RETENTION_DAYS` | 90 (0 = off) | 90 |
 | `TG_STORAGE_SWEEP_SECS` | 600 | default |
-| `TG_STORAGE_DRY_RUN` | 0 | 1 for the first run, then 0 |
+| `TG_STORAGE_DRY_RUN` | 1 (report only) | 1 for the first run, then 0 |
 | `TG_SKIP_NONMEMBER_MEDIA` | 1 | default |
 | `TG_FETCH_MAX_ACTIVE` | 4 | default |
 | `TG_FETCH_CHUNK` | 16 MiB | default |
