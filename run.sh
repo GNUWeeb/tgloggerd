@@ -145,6 +145,32 @@ url_encode() {
 	printf '%s' "$out"
 }
 
+# Copy stdin to stdout with every occurrence of each non-empty argument
+# replaced by "***".
+mask() {
+	local line a
+	while IFS= read -r line || [ -n "$line" ]; do
+		for a in "$@"; do
+			[ -n "$a" ] && line="${line//"$a"/***}"
+		done
+		printf '%s\n' "$line"
+	done
+}
+
+# Run migrate against MySQL: run_migrate <user> <password> <host> <port>
+# <database> <query> <migrate args...>. <query> is the URL's query string
+# without the '?', or empty. The password is percent-encoded into the URL,
+# so '@', '/', ':' and the like cannot break it, and masked, raw and
+# encoded, in migrate's output, which prints the whole URL when it cannot
+# connect. Returns migrate's exit status.
+run_migrate() {
+	local user="$1" pw="$2" host="$3" port="$4" db="$5" query="$6" enc url
+	shift 6
+	enc="$(url_encode "$pw")"
+	url="mysql://${user}:${enc}@tcp(${host}:${port})/${db}${query:+?${query}}"
+	migrate -database "$url" "$@" 2>&1 | mask "$enc" "$pw"
+}
+
 # Give the web's read-only user its table-level write grants on logger tables
 # (docker/mysql/web-grants.sql). They cannot be given when MySQL initializes
 # its data directory, because the tables only exist once the daemon's
@@ -174,19 +200,16 @@ apply_web_grants() {
 	done
 
 	log "Applying the web table grants"
-	local dir pw url out rc=0
+	local dir rc=0
 	dir="$(mktemp -d)"
 	sed -e "s/@TG_DB_NAME@/${TG_DB_NAME}/g" \
 		-e "s/@WEB_DB_RO_USER@/${WEB_DB_RO_USER}/g" \
 		docker/mysql/web-grants.sql >"${dir}/1_web_grants.up.sql"
-	pw="$(url_encode "$MYSQL_ROOT_PASSWORD")"
-	url="mysql://root:${pw}@tcp(${TG_DB_HOST}:${TG_DB_PORT})/${WEB_DB_APP_NAME}?x-migrations-table=web_grants_version"
-	out="$({ migrate -path "$dir" -database "$url" force -- -1 &&
-		migrate -path "$dir" -database "$url" up; } 2>&1)" || rc=$?
+	local db=(root "$MYSQL_ROOT_PASSWORD" "$TG_DB_HOST" "$TG_DB_PORT"
+		"$WEB_DB_APP_NAME" x-migrations-table=web_grants_version)
+	{ run_migrate "${db[@]}" -path "$dir" force -- -1 &&
+		run_migrate "${db[@]}" -path "$dir" up; } || rc=$?
 	rm -rf "${dir:?}"
-	# migrate prints the whole database URL when it cannot connect; keep the
-	# root password out of the log.
-	[ -z "$out" ] || printf '%s\n' "${out//"$pw"/***}"
 	if [ "$rc" -ne 0 ]; then
 		echo "run.sh: WARNING: the web table grants were not applied; the web cannot change integrations, routes, bots or the MCP allowlist (see web/README.web)" >&2
 	fi
@@ -207,8 +230,8 @@ daemon)
 
 	wait_for_mysql "$TG_DB_HOST" "$TG_DB_PORT"
 	log "Applying daemon migrations"
-	migrate -path migrations \
-		-database "mysql://${TG_DB_USER}:${TG_DB_PASSWORD}@tcp(${TG_DB_HOST}:${TG_DB_PORT})/${TG_DB_NAME}" up
+	run_migrate "$TG_DB_USER" "$TG_DB_PASSWORD" "$TG_DB_HOST" "$TG_DB_PORT" \
+		"$TG_DB_NAME" "" -path migrations up
 	apply_web_grants
 
 	log "Starting tgloggerd"
@@ -229,8 +252,8 @@ web)
 	# web_app owns tgloggerd_web, so it can run the web migrations; at run time
 	# it performs only DML.
 	log "Applying web migrations"
-	migrate -path web/migrations \
-		-database "mysql://${WEB_DB_APP_USER}:${WEB_DB_APP_PASSWORD}@tcp(${WEB_DB_HOST}:${WEB_DB_PORT})/${WEB_DB_APP_NAME}" up
+	run_migrate "$WEB_DB_APP_USER" "$WEB_DB_APP_PASSWORD" "$WEB_DB_HOST" \
+		"$WEB_DB_PORT" "$WEB_DB_APP_NAME" "" -path web/migrations up
 
 	log "Starting tgloggerd_web"
 	exec web/build/tgloggerd_web
