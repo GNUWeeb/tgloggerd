@@ -107,7 +107,6 @@ The file store as a capped cache in front of Telegram:
 
 ## Logging
 
-- [`discord-sender-own-name`](todo/discord-sender-own-name.md): Show a sender's own name, not the account's contact name, in messages forwarded to Discord.
 
 ## Web backend in Go
 
