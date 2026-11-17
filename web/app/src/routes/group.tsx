@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { MessageCircle, Type, AtSign, Quote, Image, ShieldCheck, Hash, CalendarDays, Users as UsersIcon, Globe, Crown, EyeOff, History as HistoryIcon } from 'lucide-react';
+import { MessageCircle, Type, AtSign, Quote, Image, ShieldCheck, Hash, CalendarDays, Users as UsersIcon, Globe, Crown, EyeOff, History as HistoryIcon, Pin, PinOff } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
-import { Link } from '../nav.tsx';
+import { Link, useNav } from '../nav.tsx';
+import { ApiError, api, ok } from '../api/client.ts';
 import { Avatar, Btn, Card, Empty, KV, Pill, Stat, Tabs } from '../ui/primitives.tsx';
 import { Bar, Sparkline, UserCell } from '../ui/bits.tsx';
 import { MonthTimeline, Timeline, type TlItem } from '../ui/timeline.tsx';
@@ -18,6 +19,29 @@ const KIND = {
 	title: [Type, 'Title changed'], description: [Quote, 'Description changed'], username: [AtSign, 'Username'],
 	photo: [Image, 'Group photo'], admin: [ShieldCheck, 'Admin'],
 } as const;
+
+// Pin or unpin the group in the sidebar. The sidebar follows once the
+// page data (and its viewer.pinned) is fetched again.
+function PinButton({ id, title }: { id: number; title: string }) {
+	const { viewer, refresh } = useNav();
+	const server = !!viewer.pinned?.some((p) => p.id === id);
+	const [busy, setBusy] = useState(false);
+	const [err, setErr] = useState('');
+	if (!viewer.signed_in) return null;
+	const toggle = async () => {
+		setBusy(true); setErr('');
+		try {
+			const req = { params: { path: { group_id: id } } };
+			await ok(server ? api.DELETE('/api/account/pinned/{group_id}', req) : api.PUT('/api/account/pinned/{group_id}', req));
+			await refresh();
+		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); } finally { setBusy(false); }
+	};
+	return (
+		<Btn ghost icon={server ? PinOff : Pin} disabled={busy} aria-pressed={server} title={err || (server ? `Unpin ${title} from the sidebar` : `Pin ${title} to the sidebar`)} onClick={() => void toggle()}>
+			{server ? 'Unpin' : 'Pin'}
+		</Btn>
+	);
+}
 
 function histItem(e: GroupHistoryEntry): TlItem {
 	const [icon, title] = KIND[e.kind];
@@ -90,7 +114,7 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 						{g.exposed && <Pill tone="ok"><Globe size={11} />public</Pill>}
 					</div>
 				</div>
-				<div className="a-head-actions"><Btn primary to={`${base}/chat`} icon={MessageCircle}>Open chat</Btn></div>
+				<div className="a-head-actions"><PinButton id={g.id} title={g.title} /><Btn primary to={`${base}/chat`} icon={MessageCircle}>Open chat</Btn></div>
 			</div>
 			{g.exposed && <div className="a-banner"><Globe size={15} /><span>This group is exposed through MCP, so its chat and files are also readable on the web without signing in.</span></div>}
 			<Tabs items={[

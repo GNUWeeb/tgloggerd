@@ -49,7 +49,7 @@ function Users({ page }: { page: PageData<UsersProps> }) {
 	return (
 		<Shell crumbs={[['Users', null]]}>
 			<PageHead title="Users" sub={full && page.props.archive_total ? `${fmt(page.props.archive_total)} users seen across all logged chats` : `${fmt(L.total)} people in your groups`} />
-			<FilterBar L={L} fields={full ? FIELDS : FIELDS.filter((f) => ['id', 'name', 'username'].includes(f.key))} placeholder="Name, @username or ID" quick={full ? QUICK : undefined} />
+			<FilterBar L={L} fields={full ? FIELDS : FIELDS.filter((f) => ['id', 'name', 'username'].includes(f.key))} placeholder="Name, @username or ID" name="Users" quick={full ? QUICK : undefined} />
 			<DataTable
 				L={L} cols={cols} noun="users" empty="No users match these filters."
 				href={(u) => `/users/${u.id}`}

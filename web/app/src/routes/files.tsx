@@ -95,7 +95,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 	return (
 		<Shell crumbs={[['Files', null]]}>
 			<PageHead title="Files" sub={member ? 'Files shared in your groups' : `${fmt(page.props.archive_total ?? L.total)} files${page.props.stored_bytes ? `, ${bytes(page.props.stored_bytes)} stored on disk` : ''}`} actions={toggle} />
-			<FilterBar L={L} fields={FIELDS} placeholder="File name, chat or ID" quick={QUICK} />
+			<FilterBar L={L} fields={FIELDS} placeholder="File name, chat or ID" name="Files" quick={QUICK} />
 			{grid ? (
 				<div className="a-card a-tablecard">
 					<div className="a-filegrid">{L.rows.map((f) => (

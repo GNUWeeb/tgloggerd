@@ -78,7 +78,7 @@ function Messages({ page }: { page: PageData<MessagesProps> }) {
 	return (
 		<Shell crumbs={[[title, null]]}>
 			<PageHead title={title} sub={v.account?.role === 'member' ? 'Messages in your groups. Full-text search over text and captions.' : `${fmt(page.props.archive_total ?? L.total)} messages. Full-text search over text and captions.`} />
-			<FilterBar L={L} fields={FIELDS[scope]} placeholder="Search message text" quick={QUICK[scope]} />
+			<FilterBar L={L} fields={FIELDS[scope]} placeholder="Search message text" name={title} quick={QUICK[scope]} />
 			<DataTable L={L} cols={cols} noun="messages" empty="No messages match. Full-text search matches whole words."
 				href={(m) => `/messages/${scope}/${m.id}`}
 				mobile={(m) => ({

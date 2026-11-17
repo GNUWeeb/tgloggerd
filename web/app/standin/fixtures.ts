@@ -578,3 +578,9 @@ export function liveVisible(persona: Persona, e: { kind: string; chat_id?: numbe
 	if (e.user_id !== undefined) { const u = getUser(e.user_id); return !!u && s.user(u); }
 	return true;
 }
+
+// A group the persona may see, for the pin endpoint.
+export function groupFor(persona: Persona, id: string) {
+	const g = getGroup(id);
+	return g && scopeOf(persona).group(g) ? g : null;
+}
