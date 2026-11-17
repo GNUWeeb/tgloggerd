@@ -1,11 +1,11 @@
 tgd web design prototype
 ========================
 
-A clickable React prototype of three design directions for the web UI
-rework, covering the users table, the user profile and the user's
-change history. It is a design aid only: all data is synthetic
-(src/data.js, generated from a fixed seed), nothing talks to the
-backend, and none of it is built into the web image.
+A clickable React prototype of the reworked web UI, in the "Console"
+design direction (sidebar, dense tables, light and dark themes, usable
+on phones). It is a design aid only: all data is synthetic (src/data,
+generated from fixed seeds), nothing talks to the backend, and none of
+it is built into the web image.
 
 Run it:
 
@@ -13,15 +13,18 @@ Run it:
     npm ci
     npm run dev
 
-then open the printed address. The root page lists the directions:
+then open the printed address.
 
-  A - Console      admin console: sidebar, dense table, filter chips
-  B - Messenger    Telegram-like: contact-style list, info sheet,
-                   history as service messages
-  C - Data desk    query bar, dense grid, profile in a side panel
+Screens live at the same paths the production server answers (/users,
+/users/<id>/history, /groups/<id>/chat, ...), never behind a fragment,
+because the production pages will be server-rendered from those URLs.
+List state (search, filters, sort, page) is kept in the query string.
+Fonts are bundled from npm (@fontsource), so nothing is fetched from a
+CDN at runtime.
 
-Every screen has a real path (/a/users, /a/users/<id>/history, ...)
-rather than a fragment, matching how the production pages will be
-server-rendered. The pill at the bottom switches direction on the same
-screen and cycles the theme (system, light, dark). Fonts are bundled
-from npm (@fontsource), so nothing is fetched from a CDN at runtime.
+Layout:
+
+  src/data/    synthetic data per entity, and the query helper
+  src/ui/      shell, table, filter bar, timeline and small parts
+  src/pages/   one module per page
+  src/styles/  stylesheets

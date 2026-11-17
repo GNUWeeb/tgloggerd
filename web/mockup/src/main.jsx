@@ -6,10 +6,8 @@ import '@fontsource-variable/jetbrains-mono';
 import '@fontsource/roboto/400.css';
 import '@fontsource/roboto/500.css';
 import '@fontsource/roboto/700.css';
-import './base.css';
-import './a/console.css';
-import './b/telegram.css';
-import './c/data.css';
+import './styles/base.css';
+import './styles/app.css';
 
 createRoot(document.getElementById('root')).render(
 	<StrictMode>
