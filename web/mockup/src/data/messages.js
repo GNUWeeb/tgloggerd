@@ -46,12 +46,16 @@ export function chatStream(chat) {
 	const ppl = members(chat);
 	const n = chat.kind === 'user' ? 140 : 260;
 	const out = [];
-	let t = NOW - Math.floor(n * 0.09 * DAY) - Math.floor(g() * DAY);
+	// Send times first, shifted so the newest message is minutes old.
+	const ts = [];
+	let acc = 0;
+	for (let i = 0; i < n; i++) { acc += Math.floor(g() < 0.15 ? g() * DAY * 0.6 : g() * 900000); ts.push(acc); }
+	const shift = NOW - Math.floor(g() * 1800000) - 120000 - acc;
+	let t;
 	let msgId = 400000 + Math.floor(g() * 300000);
 	let prevSender = null;
 	for (let i = 0; i < n; i++) {
-		t += Math.floor(g() < 0.15 ? g() * DAY * 0.6 : g() * 900000);
-		if (t > NOW) t = NOW - (n - i) * 40000;
+		t = ts[i] + shift;
 		msgId += 1 + Math.floor(g() * 3);
 		const outgoing = chat.kind === 'user' && g() < 0.45;
 		let sender = chat.kind === 'user' ? (outgoing ? null : chat) : (g() < 0.5 && prevSender ? prevSender : pick(ppl));

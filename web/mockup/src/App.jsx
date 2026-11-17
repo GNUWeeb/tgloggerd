@@ -6,6 +6,8 @@ import Group from './pages/Group.jsx';
 import Files from './pages/Files.jsx';
 import Messages from './pages/Messages.jsx';
 import Message from './pages/Message.jsx';
+import Chat from './pages/Chat.jsx';
+import { useQuery } from './router.jsx';
 import NotFound, { Pending } from './pages/NotFound.jsx';
 
 // The same paths the production server answers, so each screen here maps
@@ -24,15 +26,18 @@ const ROUTES = [
 	[/^\/private_messages$/, () => <Messages scope="private" key="private" />],
 	[/^\/messages\/(group|private)$/, (m) => <Messages scope={m[1]} key={m[1]} />],
 	[/^\/messages\/(group|private)\/(\d+)$/, (m) => <Message scope={m[1]} id={m[2]} />],
-	[/^\/(groups\/-?\d+\/chat|platform-fwd|mcp-admin|settings|login|users\/-?\d+\/chat)(\/.*)?$/, (m) => <Pending title={m[1]} />],
+	[/^\/groups\/(-?\d+)\/chat$/, (m, q) => <Chat kind="group" id={m[1]} key={m[1]} publicView={q.public === '1'} />],
+	[/^\/users\/(-?\d+)\/chat$/, (m) => <Chat kind="user" id={m[1]} key={m[1]} />],
+	[/^\/(platform-fwd|mcp-admin|settings|login)(\/.*)?$/, (m) => <Pending title={m[1]} />],
 ];
 
 function Routes() {
 	const { path } = useRouter();
+	const [q] = useQuery();
 	const p = path.length > 1 ? path.replace(/\/+$/, '') : path;
 	for (const [re, render] of ROUTES) {
 		const m = p.match(re);
-		if (m) return render(m);
+		if (m) return render(m, q);
 	}
 	return <NotFound />;
 }

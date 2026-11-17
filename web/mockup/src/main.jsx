@@ -8,6 +8,7 @@ import '@fontsource/roboto/500.css';
 import '@fontsource/roboto/700.css';
 import './styles/base.css';
 import './styles/app.css';
+import './styles/chat.css';
 
 createRoot(document.getElementById('root')).render(
 	<StrictMode>
