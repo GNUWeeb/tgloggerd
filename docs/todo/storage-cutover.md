@@ -58,11 +58,21 @@ step needs care, and the last one needs the owner's go.
     401 without the bearer (docs/internal-api.md) and the file's
     status with it; `POST /v1/files/access` with an id last accessed
     over an hour ago moves its `accessed_at` but not its `updated_at`.
+  - `storage-janitor`: the log has `storage: janitor started:` with
+    the configured cap, retention and "(dry run: reporting only)",
+    then a `storage: dry-run sweep done` line a minute later;
+    `GET /v1/storage` shows the same numbers in `last_sweep`, and
+    `POST /v1/storage/sweep {"dry_run": false}` is refused with 403
+    while `TG_STORAGE_DRY_RUN=1`. Shutting the daemon down during a
+    sweep logs `stopped at shutdown` and exits promptly. After
+    `TG_STORAGE_DRY_RUN=0`, once the first real sweep is done,
+    `bytes` and `last_sweep.bytes_after` are at most
+    `low_watermark`, and a few evicted files (`on_disk = 0`) have no
+    blob left while their `updated_at` is unchanged.
 
 ## Depends on
 
 - `file-fetch-on-demand`
-- `storage-janitor`
 - `web-access-reporting`
 - `web-fetch-unstored-media`
 
