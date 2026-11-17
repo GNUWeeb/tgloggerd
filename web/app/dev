@@ -8,7 +8,8 @@
 #   ./dev up              start the development stand-in (fixture data from
 #                         ../mockup, hot reload) on 127.0.0.1:$APP_PORT
 #                         (default 51738); ?as=admin, ?as=member or
-#                         ?as=public views as another sample account
+#                         ?as=public views as another sample account,
+#                         ?as=noemail as one with no email address yet
 #                         TGD_STANDIN_TICK=<ms> ./dev up also emits a live
 #                         message into an open chat that often
 #   ./dev down | logs     stop it, or follow its output

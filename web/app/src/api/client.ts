@@ -46,6 +46,23 @@ export const api = createClient<paths>({
 });
 api.use(csrf);
 
+// An account without a verified email address may only add one: every
+// other call answers 403 email_required. The application then fetches
+// the page data again, which brings up the add-your-email page.
+let emailRequired: (() => void) | null = null;
+export function onEmailRequired(fn: (() => void) | null): void {
+	emailRequired = fn;
+}
+api.use({
+	async onResponse({ response }) {
+		if (response.status === 403 && emailRequired) {
+			const body = (await response.clone().json().catch(() => null)) as { error?: string } | null;
+			if (body?.error === 'email_required') emailRequired();
+		}
+		return response;
+	},
+});
+
 // The data of a successful call, or an ApiError.
 export async function ok<T>(call: Promise<{ data?: T; error?: unknown; response: Response }>): Promise<T> {
 	const { data, error, response } = await call;

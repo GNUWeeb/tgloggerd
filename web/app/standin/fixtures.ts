@@ -15,7 +15,9 @@ import type { PageData, Viewer } from '../src/page.ts';
 const NOW = '2026-11-17T16:00:00Z';
 const iso = (s: string) => s.replace(' ', 'T') + 'Z';
 
-export const PERSONAS = { superadmin: 1, admin: 3, member: 5 } as const;
+// noemail is the sample superadmin "ops", which has no email address
+// yet, so every page asks for one first.
+export const PERSONAS = { superadmin: 1, admin: 3, member: 5, noemail: 2 } as const;
 // 'public' is a signed-out visitor: only exposed groups' chats exist.
 export type Persona = keyof typeof PERSONAS | 'public';
 
@@ -150,6 +152,8 @@ export function load(url: string, persona: Persona): Loaded {
 	if (path === '/password/forgot') return { route: 'password_forgot', status: 200, props: {} };
 	if (path === '/password/set') return { route: 'password_set', status: 200, props: {} };
 	if (path === '/account/email/verify') return { route: 'email_verify', status: 200, props: {} };
+	const acct = persona === 'public' ? null : accounts.find((a) => a.id === PERSONAS[persona]);
+	if (acct && !(acct.email && acct.verified)) return { route: 'email_required', status: 200, props: { pending: acct.pendingEmail ?? null, next: path + u.search } };
 	if (persona === 'public' && !/^\/groups\/-?\d+\/chat$/.test(path)) return notFound;
 	if (path === '/') {
 		const vis = groups.slice(0, 12).filter(s.group);
@@ -586,4 +590,19 @@ export function liveVisible(persona: Persona, e: { kind: string; chat_id?: numbe
 export function groupFor(persona: Persona, id: string) {
 	const g = getGroup(id);
 	return g && scopeOf(persona).group(g) ? g : null;
+}
+
+// The add-your-email step: whether a persona must add an address first,
+// an address added and waiting for its link, and the link followed.
+export function needsEmail(persona: Persona): boolean {
+	if (persona === 'public') return false;
+	const a = accounts.find((x) => x.id === PERSONAS[persona]);
+	return !!a && !(a.email && a.verified);
+}
+export function setPendingEmail(persona: Persona, email: string): void {
+	const a = persona === 'public' ? null : accounts.find((x) => x.id === PERSONAS[persona]);
+	if (a && !(a.email && a.verified)) a.pendingEmail = email;
+}
+export function verifyPendingEmails(): void {
+	for (const a of accounts) if (a.pendingEmail) { a.email = a.pendingEmail; a.verified = true; a.pendingEmail = null; }
 }

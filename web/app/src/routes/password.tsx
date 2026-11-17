@@ -39,7 +39,7 @@ const LINK_MESSAGES: Record<string, string> = {
 };
 const errText = (x: unknown) => (x instanceof ApiError ? LINK_MESSAGES[x.code] ?? x.message : 'The server could not be reached.');
 
-function AuthCard({ page, title, sub, children, onSubmit }: { page: PageData; title: string; sub: ReactNode; children: ReactNode; onSubmit?: (e: FormEvent<HTMLFormElement>) => void }) {
+export function AuthCard({ page, title, sub, children, onSubmit }: { page: PageData; title: string; sub: ReactNode; children: ReactNode; onSubmit?: (e: FormEvent<HTMLFormElement>) => void }) {
 	return (
 		<div className="app a-loginpage">
 			<form className="a-card a-login" onSubmit={onSubmit ?? ((e) => e.preventDefault())}>
@@ -53,8 +53,8 @@ function AuthCard({ page, title, sub, children, onSubmit }: { page: PageData; ti
 	);
 }
 
-const Alert = ({ text }: { text: string }) => <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{text}</span></div>;
-const Done = ({ children }: { children: ReactNode }) => <div className="a-banner ok" role="status"><CircleCheck size={15} /><span>{children}</span></div>;
+export const Alert = ({ text }: { text: string }) => <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{text}</span></div>;
+export const Done = ({ children }: { children: ReactNode }) => <div className="a-banner ok" role="status"><CircleCheck size={15} /><span>{children}</span></div>;
 const BadLink = () => <Alert text="This link is incomplete. Open it from the email again, or ask for a new one." />;
 
 function ForgotPassword({ page }: { page: PageData<NoProps> }) {

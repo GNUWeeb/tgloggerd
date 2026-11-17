@@ -4,6 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type AnchorHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import type { PageData, Viewer } from './page.ts';
 import { fetchPage } from './api/page.ts';
+import { onEmailRequired } from './api/client.ts';
 
 interface Nav {
 	page: PageData;
@@ -70,6 +71,11 @@ export function NavProvider({ initial, children }: { initial: PageData; children
 			if (r.kind === 'page' && !ac.signal.aborted && current.current === url) setPage(r.page);
 		} catch { /* the next event or poll tries again */ }
 	}, []);
+
+	useEffect(() => {
+		onEmailRequired(() => void refresh());
+		return () => onEmailRequired(null);
+	}, [refresh]);
 
 	return <Ctx.Provider value={{ page, viewer: page.viewer, loading, navigate, refresh }}>{children}</Ctx.Provider>;
 }
