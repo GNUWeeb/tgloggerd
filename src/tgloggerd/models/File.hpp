@@ -54,6 +54,23 @@ struct KnownFile {
 	bool		meta_only = false;
 };
 
+/*
+ * Where a file can be found on Telegram again: something that references
+ * it and can be fetched afresh, which hands TDLib a valid file reference
+ * (storage-cache.md section 8).
+ */
+struct FileSource {
+	enum class Kind {
+		Message,	/* the attachment of (chat_id, message_id) */
+		LinkPreview,	/* the preview image of (chat_id, message_id) */
+		GroupPhoto,	/* chat_id's current photo */
+		UserPhoto,	/* user chat_id's current profile photo */
+	};
+	Kind		kind = Kind::Message;
+	int64_t		chat_id = 0;	/* the user id for UserPhoto */
+	int64_t		message_id = 0;	/* server message id, as stored */
+};
+
 } /* namespace models */
 } /* namespace tgloggerd */
 
