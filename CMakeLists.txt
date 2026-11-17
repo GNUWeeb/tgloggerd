@@ -48,6 +48,7 @@ add_executable(tgloggerd
 	src/tgloggerd/models/File.hpp
 	src/tgloggerd/models/File.cpp
 	src/tgloggerd/models/FileAccess.cpp
+	src/tgloggerd/models/FileEvict.cpp
 	src/tgloggerd/models/Group.hpp
 	src/tgloggerd/models/Group.cpp
 	src/tgloggerd/models/Message.hpp
@@ -79,6 +80,8 @@ add_executable(tgloggerd
 	src/tgloggerd/DiscordForwarder.cpp
 	src/tgloggerd/DiscordForwarder.hpp
 	src/tgloggerd/StoragePath.hpp
+	src/tgloggerd/StorageJanitor.cpp
+	src/tgloggerd/StorageJanitor.hpp
 	src/tgloggerd/tgloggerd_extern.cpp
 	src/tgloggerd/tgloggerd_extern.h
 	src/tgloggerd/TgLoggerd.cpp

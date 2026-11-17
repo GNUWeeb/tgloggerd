@@ -97,6 +97,22 @@ struct FileStatus {
 	int64_t			accessed_at = 0;	/* Unix seconds */
 };
 
+/* What the store holds: telegram_files rows with on_disk = 1. */
+struct StoreTotals {
+	uint64_t	files = 0;
+	uint64_t	bytes = 0;	/* SUM(file_size), the logical size */
+};
+
+/* A stored file the StorageJanitor may evict. */
+struct EvictCandidate {
+	uint64_t	id = 0;
+	std::string	sha256;		/* empty if NULL (no blob to unlink) */
+	std::string	ext;		/* may be empty */
+	uint64_t	file_size = 0;
+	/* As the database printed it; the eviction guard compares it back. */
+	std::string	accessed_at;
+};
+
 /* A Discord message the forwarder posted, for applying a later edit/delete. */
 /*
  * The Discord message a Telegram message was bridged FROM.
@@ -190,6 +206,32 @@ public:
 	 * updated_at (an access is not a change). Returns the rows moved.
 	 */
 	uint64_t touchFiles(const std::vector<uint64_t> &files_ids);
+
+	/*
+	 * StorageJanitor queries (models/FileEvict.cpp). Times are DATETIME
+	 * strings as the database prints them, so they compare back exactly.
+	 */
+	/* Stored files; before non-empty: only accessed_at < before. */
+	StoreTotals storedTotals(const std::string &before = std::string());
+	/* NOW() - INTERVAL days DAY, the retention cutoff. */
+	std::string retentionCutoff(uint32_t days);
+	/*
+	 * Up to limit stored files, least recently accessed first, ordered by
+	 * (accessed_at, id) and strictly after (after_at, after_id) unless
+	 * after_at is empty. before non-empty: only accessed_at < before;
+	 * from non-empty: only accessed_at >= from.
+	 */
+	std::vector<EvictCandidate> listEvictCandidates(const std::string &before,
+							const std::string &from,
+							const std::string &after_at,
+							uint64_t after_id,
+							size_t limit);
+	/*
+	 * Clear on_disk for one row, keeping updated_at, if it is still stored
+	 * and its accessed_at is still the one listed. True when it changed the
+	 * row; only then may the blob be unlinked.
+	 */
+	bool evictFile(uint64_t files_id, const std::string &accessed_at);
 	/* The source message's text/reply/file, to re-render it for a tombstone. */
 	std::optional<MessageForward> getMessageForward(int64_t chat_id,
 							int64_t message_id);

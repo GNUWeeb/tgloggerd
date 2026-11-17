@@ -7,6 +7,7 @@
 #include <tgloggerd/InternalApi.hpp>
 #include <tgloggerd/FileApi.hpp>
 #include <tgloggerd/StoragePath.hpp>
+#include <tgloggerd/StorageJanitor.hpp>
 #include <stdexcept>
 #include <cstdlib>
 #include <cstring>
@@ -159,11 +160,12 @@ int TgLoggerd::start(void)
 	if (api_threads < 1)
 		api_threads = 1;
 	size_t api_conns = api_listen.empty() ? 0 : api_threads;
-	/* +1 over file_threads for serial_, +1 for the Discord refresh thread. */
-	std::string db_pool_def = std::to_string(file_threads + 3 + api_conns);
+	/* +1 over file_threads for serial_, +1 for the Discord refresh thread,
+	 * +1 for the storage janitor. */
+	std::string db_pool_def = std::to_string(file_threads + 4 + api_conns);
 	size_t db_pool = (size_t)atoi(env("TG_DB_POOL", db_pool_def.c_str()).c_str());
-	if (db_pool < file_threads + 2 + api_conns)
-		db_pool = file_threads + 2 + api_conns;
+	if (db_pool < file_threads + 3 + api_conns)
+		db_pool = file_threads + 3 + api_conns;
 	db_cfg.pool_size = db_pool;
 
 	size_t queue_max = (size_t)strtoull(
@@ -584,6 +586,22 @@ int TgLoggerd::start(void)
 	}
 
 	/*
+	 * The storage janitor (docs/design/storage-cache.md section 9). It
+	 * only reports what it would evict unless TG_STORAGE_DRY_RUN=0.
+	 */
+	StorageJanitor::Config sj_cfg;
+	sj_cfg.storage_dir = storage_dir_;
+	sj_cfg.max_bytes = strtoull(env("TG_STORAGE_MAX_BYTES", "0").c_str(),
+				    nullptr, 10);
+	sj_cfg.retention_days = (uint32_t)strtoul(
+		env("TG_STORAGE_RETENTION_DAYS", "90").c_str(), nullptr, 10);
+	sj_cfg.sweep_secs = (uint32_t)strtoul(
+		env("TG_STORAGE_SWEEP_SECS", "600").c_str(), nullptr, 10);
+	sj_cfg.dry_run = env("TG_STORAGE_DRY_RUN", "1") != "0";
+	janitor_ = std::make_unique<StorageJanitor>(db_.get(), l_, sj_cfg);
+	janitor_->start();
+
+	/*
 	 * Last, so every handler can rely on db_ and tdlib_. A bad setting
 	 * leaves the API off but the logger running: the web treats an
 	 * absent daemon API as "fetching off".
@@ -610,10 +628,11 @@ int TgLoggerd::start(void)
 	 * destructor frees l_ before members are destroyed). files_ first so
 	 * its pending link jobs land in serial_, then serial_ drains fully.
 	 * The API goes first: its handlers post to those pools and call
-	 * TDLib.
+	 * TDLib. The janitor next: it may be mid-batch on db_.
 	 */
 	if (api_)
 		api_->stop();
+	janitor_->stop();
 	files_->shutdown();
 	serial_->shutdown();
 	/* The event loop has exited, so no more forward() calls arrive; stop the
