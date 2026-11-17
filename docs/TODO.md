@@ -107,6 +107,28 @@ The file store as a capped cache in front of Telegram:
 
 ## Logging
 
+## Message types
+
+Storing every kind of Telegram message faithfully:
+[design/message-types.md](design/message-types.md).
+
+- [`msg-expired-media-keep`](todo/msg-expired-media-keep.md): Keep the stored content of self-destructing media when a later copy arrives expired.
+- [`msg-schema-kinds`](todo/msg-schema-kinds.md): Add the new content kinds, `tdlib_type` and `content_extra` to the message, edit and file tables.
+- [`msg-classify`](todo/msg-classify.md): Give every ingested message its exact TDLib class and a content kind, keeping unmapped classes as TDLib JSON.
+- [`msg-media-detail`](todo/msg-media-detail.md): Store the detail of media messages: size, duration, MIME type, spoiler, sticker emoji and set, audio tags.
+- [`msg-structured-content`](todo/msg-structured-content.md): Store locations, venues, contacts, dice, games, shared stories, invoices, checklists, giveaways and calls.
+- [`msg-service-detail`](todo/msg-service-detail.md): Recognise every service message class and store its action's fields.
+- [`msg-message-files`](todo/msg-message-files.md): Record and download every file of a message, not just the main one.
+- [`msg-polls`](todo/msg-polls.md): Store polls and quizzes with their options and keep their latest results current.
+- [`msg-topics`](todo/msg-topics.md): Record the forum topic or thread of each group message, and the topics themselves.
+- [`msg-meta`](todo/msg-meta.md): Store pinned state, via bot, reply quotes, story replies, forward source, keyboards and the other message-level fields.
+- [`msg-link-preview-extras`](todo/msg-link-preview-extras.md): Keep a link preview's description formatting, media position and the message's preview options.
+- [`msg-forward-new-kinds`](todo/msg-forward-new-kinds.md): Forward the new content kinds to Discord as readable text plus their main file.
+- [`msg-repair-old-rows`](todo/msg-repair-old-rows.md): Re-read rows stored as unknown, and service rows without detail, with the new extraction.
+- [`msg-interaction`](todo/msg-interaction.md): Store each message's latest views, forwards, reply count and reaction totals (optional).
+- [`msg-stories`](todo/msg-stories.md): Archive stories that messages share or reply to while they are still live (optional).
+- [`web-message-types`](todo/web-message-types.md): Show the new content kinds, topics, polls and message files in the web and search API.
+
 ## Web backend in Go
 
 The web backend moves from Drogon to Go:
