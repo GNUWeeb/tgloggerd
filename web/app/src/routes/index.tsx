@@ -13,6 +13,7 @@ import { groupRoute } from './group.tsx';
 import { filesRoute } from './files.tsx';
 import { messagesRoute } from './messages.tsx';
 import { messageRoute } from './message.tsx';
+import { chatRoute } from './chat.tsx';
 
 export interface RouteDef<P = any> {
 	Page: ComponentType<{ page: PageData<P> }>;
@@ -43,5 +44,7 @@ export const routes: Record<string, RouteDef> = {
 	group_messages: messagesRoute,
 	private_messages: messagesRoute,
 	message: messageRoute,
+	group_chat: chatRoute,
+	user_chat: chatRoute,
 	not_found: { Page: NotFound, head: () => ({ title: 'Not found - tgloggerd', robots: 'noindex' }) },
 };

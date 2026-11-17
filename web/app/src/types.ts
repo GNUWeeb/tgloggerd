@@ -126,3 +126,41 @@ export interface MessageFull extends MessageRow {
 	edited_at: string | null;
 	media: { file_id: number; name: string; size: number; duration?: number; stored: boolean; thumb: string | null; url: string | null } | null;
 }
+
+export interface ChatMedia {
+	stored: boolean;
+	thumb: string | null;
+	url: string | null;
+	w?: number;
+	h?: number;
+	duration?: number;
+	name?: string;
+	size?: number;
+	emoji?: string;
+	wave?: number[];
+}
+
+export interface ChatMessage {
+	id: number;
+	message_id: number;
+	date: string;
+	scope: 'group' | 'private';
+	// null: sent by the logging account.
+	sender: UserSummary | null;
+	content_type: 'text' | 'photo' | 'video' | 'document' | 'audio' | 'voice' | 'sticker' | 'animation' | 'service' | 'unknown';
+	text: string;
+	media: ChatMedia | null;
+	album: ChatMedia[];
+	reply_to: { message_id: number; sender_id: number; sender_name: string; snippet: string } | null;
+	forward: string | null;
+	edits: { at: string; text: string }[];
+	edited_at: string | null;
+	deleted_at: string | null;
+	link_preview: { site: string; title: string; desc: string } | null;
+}
+
+export interface ChatWindow {
+	messages: ChatMessage[];
+	has_older: boolean;
+	has_newer: boolean;
+}

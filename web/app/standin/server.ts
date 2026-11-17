@@ -4,7 +4,8 @@
 // navigation. Vite serves the client modules with hot reload. Never
 // deployed; the real server is webapi/.
 //
-//   ?as=superadmin|admin|member   view as a sample account (remembered in a cookie)
+//   ?as=superadmin|admin|member|public   view as a sample account, or signed out
+//                                 (remembered in a cookie)
 //   ?ssr=0                        skip server rendering, as when the render service is down
 import { createServer as createHttp, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createVite } from 'vite';
@@ -16,12 +17,13 @@ const vite = await createVite({
 	appType: 'custom',
 });
 
-type Persona = 'superadmin' | 'admin' | 'member';
+type Persona = 'superadmin' | 'admin' | 'member' | 'public';
+const PERSONAS: Persona[] = ['superadmin', 'admin', 'member', 'public'];
 function persona(req: IncomingMessage, url: URL): Persona {
-	const q = url.searchParams.get('as');
-	if (q === 'superadmin' || q === 'admin' || q === 'member') return q;
-	const c = /(?:^|; )tgd_as=(\w+)/.exec(req.headers.cookie || '')?.[1];
-	return c === 'admin' || c === 'member' ? c : 'superadmin';
+	const q = url.searchParams.get('as') as Persona | null;
+	if (q && PERSONAS.includes(q)) return q;
+	const c = /(?:^|; )tgd_as=(\w+)/.exec(req.headers.cookie || '')?.[1] as Persona | undefined;
+	return c && PERSONAS.includes(c) ? c : 'superadmin';
 }
 
 function cleanUrl(url: URL): string {
@@ -45,6 +47,16 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 	const who = persona(req, url);
 	const cookie = `tgd_as=${who}; Path=/; SameSite=Lax`;
 	const fx = await vite.ssrLoadModule('/standin/fixtures.ts');
+	let cm;
+	if ((cm = url.pathname.match(/^\/api\/chats\/(group|private)\/(-?\d+)\/messages$/))) {
+		const chat = fx.chatFor(cm[1], cm[2], who);
+		if (!chat) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"not_found"}'); return; }
+		const num = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
+		const w = fx.chatWindow(chat, { before: num('before'), after: num('after'), at: num('around') }, num('limit') || 60);
+		res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+		res.end(JSON.stringify(w));
+		return;
+	}
 	if (url.pathname.startsWith('/api/page/') || url.pathname === '/api/page') {
 		const target = cleanUrl(new URL(url.pathname.slice('/api/page'.length) + url.search || '/', 'http://x'));
 		const page = fx.pageData(target, who);
