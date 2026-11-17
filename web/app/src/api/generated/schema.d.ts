@@ -358,7 +358,7 @@ export interface paths {
         get?: never;
         /**
          * Save the account's preferences
-         * @description Replaces every preference; null (or a missing field) is the site default.
+         * @description Replaces every preference; null (or a missing field) is the site default. A field that is not a preference, or a value its key does not take, refuses the whole body with 400 bad_request naming the key in `field`: timezone an IANA zone name, date_format 24h, 12h or iso, lang en or id, theme system, light or dark, rows_per_page 25, 50 or 100, landing a path on this site (one leading slash, at most 255 bytes), chat_media auto or click, the chat_* switches booleans. The viewer of the next page data carries the settings in effect (web/docs/settings.md).
          */
         put: operations["putPreferences"];
         post?: never;
@@ -909,6 +909,10 @@ export interface components {
             /** @description A sentence for a person to read, where there is one. */
             message?: string;
         };
+        FieldError: components["schemas"]["Error"] & {
+            /** @description The key whose value was refused, when one was. */
+            field?: string;
+        };
         LoginError: components["schemas"]["Error"] & {
             message: string;
             /** @description A fresh pre-login token, to try again with. */
@@ -956,7 +960,7 @@ export interface components {
         };
         /** @enum {string} */
         Role: "superadmin" | "admin" | "member";
-        /** @description What rendering needs to match the browser. Missing settings fall back to the site default; for a signed-out visitor account and nav are absent. */
+        /** @description What rendering needs to match the browser. The settings are the ones in effect, the account's own or the site's default, for a signed-out visitor too (web/docs/settings.md); one missing falls back to the client's built-in default. For a signed-out visitor account and nav are absent. */
         Viewer: {
             signed_in: boolean;
             account?: {
@@ -2784,7 +2788,15 @@ export interface operations {
                     };
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description A malformed body, an unknown key or a refused value (error bad_request). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldError"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             503: components["responses"]["SessionUnavailable"];

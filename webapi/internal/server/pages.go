@@ -19,6 +19,7 @@ import (
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/settings"
 )
 
 // Pages of the React application (docs/design/web-ssr.md): a page path
@@ -218,9 +219,13 @@ func (s *Server) buildPage(r *http.Request, sess *auth.Session, path string) (re
 	}
 
 	sc := s.requestScope(r, sess)
+	viewer, err := s.pageViewer(r.Context(), sess, sc)
+	if err != nil {
+		return render.Page{}, rt, pageServed, err
+	}
 	page := render.Page{
 		V: render.Protocol, URL: pageURL, Status: http.StatusOK,
-		Viewer: s.pageViewer(sess, sc),
+		Viewer: viewer,
 	}
 
 	// A signed-in account without a verified email address gets the
@@ -283,13 +288,25 @@ func (s *Server) notFoundPage(p render.Page) render.Page {
 	return p
 }
 
-// pageViewer is the viewer of the page data. Until accounts have
-// settings (web-user-settings), they are the site defaults, which both
-// sides apply to fields left out.
-func (s *Server) pageViewer(sess *auth.Session, sc scope.Scope) render.Viewer {
+// pageViewer is the viewer of the page data: the account and its menu,
+// and every display setting in effect, the account's own or the site's
+// default, so the server's render and the browser's agree. A
+// signed-out visitor gets the site's.
+func (s *Server) pageViewer(ctx context.Context, sess *auth.Session, sc scope.Scope) (render.Viewer, error) {
 	v := render.Viewer{Now: s.clock().UTC().Format(time.RFC3339)}
+	var prefs settings.Prefs
+	if sess != nil {
+		var err error
+		if prefs, err = s.viewerPrefs(ctx, sess.UID); err != nil {
+			return render.Viewer{}, err
+		}
+	}
+	e := settings.Resolve(prefs, s.defaults)
+	v.Timezone, v.DateFormat, v.Lang, v.Theme = e.Timezone, e.DateFormat, e.Lang, e.Theme
+	v.RowsPerPage = e.RowsPerPage
+	v.Chat = &e.Chat
 	if sess == nil {
-		return v
+		return v, nil
 	}
 	v.SignedIn = true
 	v.Account = &render.Account{
@@ -301,7 +318,7 @@ func (s *Server) pageViewer(sess *auth.Session, sc scope.Scope) render.Viewer {
 		Role: sess.Role,
 	}
 	v.Nav = pageNav(sc)
-	return v
+	return v, nil
 }
 
 // pageSession checks the request's session for a page: a valid one is

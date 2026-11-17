@@ -162,6 +162,7 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		Render:     renderer,
 		Assets:     assets,
 		AssetFiles: assetFiles,
+		Defaults:   cfg.Defaults,
 	})
 
 	addr := net.JoinHostPort(cfg.ListenAddr, strconv.Itoa(int(cfg.ListenPort)))

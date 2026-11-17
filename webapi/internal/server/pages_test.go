@@ -25,6 +25,7 @@ import (
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/render/rendertest"
 	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/settings"
 	"tgloggerd/webapi/internal/webdb"
 )
 
@@ -86,6 +87,9 @@ func newPagesEnv(t *testing.T, o pagesOpts) *pagesEnv {
 			Entry: "/app/assets/entry.js"},
 		AssetFiles: root,
 		pages:      o.pages,
+		prefs: func(context.Context, uint64) (settings.Prefs, error) {
+			return settings.Prefs{}, nil
+		},
 		state: func(_ context.Context, uid uint64, _ [32]byte) (webdb.SessionState, error) {
 			if e.epochErr != nil {
 				return webdb.SessionState{}, e.epochErr
@@ -204,6 +208,11 @@ func TestPageNotFoundShape(t *testing.T) {
 			"signed_in": true, "now": "",
 			"account": map[string]any{"id": 1.0, "username": "admin", "name": "admin", "role": "superadmin"},
 			"nav":     toAny(scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin, EmailVerified: true}).Nav()),
+			// The site defaults, as the account set nothing.
+			"timezone": "Asia/Jakarta", "date_format": "24h", "lang": "en", "theme": "system",
+			"rows_per_page": 25.0,
+			"chat": map[string]any{"auto_load": true, "live": true, "media": "auto",
+				"show_deleted": true, "show_edited": true, "show_service": true},
 		},
 	}
 	if got := g.page(t); !reflect.DeepEqual(got, want) {

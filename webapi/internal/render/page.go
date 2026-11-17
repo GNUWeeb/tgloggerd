@@ -10,6 +10,8 @@
 // are specified in docs/design/web-ssr.md sections 4 to 6.
 package render
 
+import "tgloggerd/webapi/internal/settings"
+
 // Protocol is the render protocol version this package speaks.
 const Protocol = 1
 
@@ -25,17 +27,34 @@ type Account struct {
 }
 
 // Viewer is what rendering needs to match the browser (the Viewer
-// schema of webapi/openapi.yaml). Settings left empty fall back to the
-// site defaults on both sides.
+// schema of webapi/openapi.yaml). The service fills in every setting,
+// the account's own or the site's default; one left empty falls back
+// to the client's built-in default.
 type Viewer struct {
 	SignedIn bool     `json:"signed_in"`
 	Account  *Account `json:"account,omitempty"`
 	// Now is the server's clock (RFC 3339, UTC), for relative times.
-	Now   string `json:"now"`
-	Lang  string `json:"lang,omitempty"`
-	Theme string `json:"theme,omitempty"`
+	Now string `json:"now"`
+	// Timezone (IANA) and DateFormat (24h, 12h, iso) are how dates,
+	// stored and sent in UTC, are shown.
+	Timezone    string `json:"timezone,omitempty"`
+	DateFormat  string `json:"date_format,omitempty"`
+	Lang        string `json:"lang,omitempty"`
+	Theme       string `json:"theme,omitempty"`
+	RowsPerPage int    `json:"rows_per_page,omitempty"`
 	// Nav lists the route ids of the pages the menu shows.
 	Nav []string `json:"nav,omitempty"`
+	// Pinned are the account's pinned groups that it may see, in the
+	// order pinned.
+	Pinned []Pin `json:"pinned,omitempty"`
+	// Chat is the chat view's settings.
+	Chat *settings.Chat `json:"chat,omitempty"`
+}
+
+// Pin is a pinned group in the menu.
+type Pin struct {
+	ID    int64  `json:"id"`
+	Title string `json:"title"`
 }
 
 // Page is the page data: the object embedded in the document, sent to

@@ -1,1 +1,5 @@
-{}
+{
+	"prefs.invalid": "The value of {key} is not one it takes.",
+	"prefs.malformed": "The body must be a JSON object of preferences.",
+	"prefs.unknown": "{key} is not a preference."
+}

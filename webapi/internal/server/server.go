@@ -24,6 +24,7 @@ import (
 	"tgloggerd/webapi/internal/live"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/settings"
 )
 
 // Deps is what the service is built from.
@@ -59,11 +60,16 @@ type Deps struct {
 	// AssetFiles is the bundle's assets/ directory, served under
 	// /app/assets/; nil answers 404 there.
 	AssetFiles *os.Root
+	// Defaults are the site's settings for what an account did not
+	// set; empty fields are settings.SiteDefaults.
+	Defaults settings.Defaults
 
-	// pages replaces the page table, and state the database's account
-	// state behind a session, for tests.
+	// pages replaces the page table, state the database's account
+	// state behind a session, and prefs the accounts' stored
+	// preferences, for tests.
 	pages []pageRoute
 	state auth.StateFunc
+	prefs func(ctx context.Context, uid uint64) (settings.Prefs, error)
 }
 
 // Server carries what the handlers share.
@@ -88,8 +94,11 @@ type Server struct {
 	render     *render.Client
 	assets     render.Assets
 	assetFiles *os.Root
-	pages      []pageRoute
-	clock      func() time.Time
+	defaults   settings.Defaults
+	// viewerPrefs reads an account's preferences (settings.Load).
+	viewerPrefs func(ctx context.Context, uid uint64) (settings.Prefs, error)
+	pages       []pageRoute
+	clock       func() time.Time
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -114,6 +123,7 @@ func New(d Deps) http.Handler {
 		render:      d.Render,
 		assets:      d.Assets,
 		assetFiles:  d.AssetFiles,
+		defaults:    d.Defaults.OrSite(),
 		pages:       d.pages,
 		clock:       time.Now,
 	}
@@ -122,6 +132,12 @@ func New(d Deps) http.Handler {
 	}
 	if d.state != nil {
 		s.verifier.State = d.state
+	}
+	s.viewerPrefs = func(ctx context.Context, uid uint64) (settings.Prefs, error) {
+		return settings.Load(ctx, s.app, uid)
+	}
+	if d.prefs != nil {
+		s.viewerPrefs = d.prefs
 	}
 
 	mux := http.NewServeMux()
@@ -162,6 +178,7 @@ func (s *Server) routes() []route {
 		{"POST /api/accounts/{id}/enable", s.RequireSession(s.enableAccount)},
 		{"POST /api/accounts/{id}/password-reset", s.RequireSession(s.resetAccountPassword)},
 		{"POST /api/accounts/{id}/sign-out-everywhere", s.RequireSession(s.signOutAccountEverywhere)},
+		{"PUT /api/account/preferences", s.RequireSession(s.putPreferences)},
 	}
 }
 
