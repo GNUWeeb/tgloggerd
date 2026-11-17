@@ -61,6 +61,16 @@ type Config struct {
 	// FetchTimeout is how long a fetch through it may take.
 	DaemonAPI    string
 	FetchTimeout time.Duration
+
+	// StorageDir is WEB_STORAGE_DIR, the file store's root; it must be
+	// the daemon's TG_STORAGE_DIR.
+	StorageDir string
+	// DataDir is the daemon's TG_DATA_DIR, whose tdlib/ holds the
+	// partial files of big fetches; "" when unset.
+	DataDir string
+	// StoreFileCap is the daemon's TG_MAX_STORE_FILE_SIZE: files under
+	// it are fetched whole into the store. 0 = no cap.
+	StoreFileCap uint64
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -180,6 +190,15 @@ func FromEnv() (*Config, error) {
 	// the daemon.
 	c.DaemonAPI = env("WEB_TGLOGGERD_API", "")
 	c.FetchTimeout = daemon.FetchTimeout(os.Getenv("TG_FETCH_TIMEOUT_SECS"))
+
+	// The store and TDLib's directory are shared with the daemon, and
+	// so are their settings, read from the same .env.
+	c.StorageDir = env("WEB_STORAGE_DIR", "data/storage/files")
+	c.DataDir = env("TG_DATA_DIR", "")
+	capStr := env("TG_MAX_STORE_FILE_SIZE", "1073741824")
+	if c.StoreFileCap, err = strconv.ParseUint(capStr, 10, 64); err != nil {
+		return nil, fmt.Errorf("TG_MAX_STORE_FILE_SIZE: %q is not a size in bytes", capStr)
+	}
 
 	return &c, nil
 }

@@ -16,6 +16,8 @@ under Authentication:
 The health endpoint needs no login and exists for probes and for
 checking the routing.
 
+It also serves the files, /files/<token>, described under Files.
+
 # Authentication
 
 Sessions, CSRF tokens, file tokens, password hashes and the daemon's
@@ -71,6 +73,75 @@ The login throttle is in the process's memory, as in Drogon, so each
 service counts failures on its own. The address logged and throttled
 on is the connection's peer, as in Drogon.
 
+# Files
+
+    GET /files/<token>   a file's bytes, from the store or fetched from
+                         Telegram through the daemon
+
+The same URL, status codes and headers as the Drogon web's
+MediaController, which it replaces; web/docs/media.md describes the
+behaviour for both. The route is public, as there: the token is the
+encrypted file id (internal/auth/filetoken.go), and a token that does
+not open answers 404 like an unknown id. In short:
+
+  - A stored file (after alias_of, one hop) is sent from WEB_STORAGE_DIR
+    by http.ServeContent: Range (206, 416, and several ranges as
+    multipart/byteranges), If-Modified-Since, If-Range, Last-Modified.
+  - Anything else is fetched through the daemon (POST
+    /v1/files/{id}/fetch): a "stored" answer is then served like a
+    stored file, a "partial" one from TDLib's cache under
+    <TG_DATA_DIR>/tdlib/ with the file's full size in Content-Range.
+  - Without a session only files under TG_MAX_STORE_FILE_SIZE are
+    fetched (403 "Sign in to load this file" otherwise); without
+    WEB_TGLOGGERD_API nothing is (404 "File not stored").
+  - Files are sent with Cache-Control: public, max-age=604800, and their
+    ids are reported to the daemon's POST /v1/files/access once a
+    minute (internal/daemon/access.go); a signed-in request writes a
+    "media" row to web_audit.
+  - Errors are small HTML pages, since a browser following a link or
+    loading an image gets them, not the JSON API.
+
+Who may see which file is decided by the request scope,
+Server.requestScope (internal/server/media.go), passed to the one
+query that looks the token's file up (logdb.GetFile). Until web-roles
+it lets every request see every file.
+
+A session counts only when it is valid, epoch included, as for the
+API; one that cannot be checked (a database error) counts as none, and
+the request is served as an anonymous one. The Drogon web checks only
+the cookie's signature and expiry here, so a session ended by a
+password change can still stream big files there, not here.
+
+## Routing /files/ through nginx
+
+While Drogon serves /files/, nothing changes. To move it, add a
+location for the prefix next to the /api/ one (web/README.web), with
+the same upstream:
+
+    location /files/ {
+        proxy_pass         http://10.0.88.7:8081;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection        "";
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # A fetch waits up to TG_FETCH_TIMEOUT_SECS plus 10 seconds for
+        # the daemon; the default 60 s covers the default 30.
+        proxy_read_timeout 120s;
+        # Stream big files through instead of spooling them to disk.
+        proxy_buffering    off;
+    }
+
+nginx passes Range and the conditional headers on by default. The
+service logs and audits the connection's peer, which is nginx, as the
+Drogon web does. The Drogon route stays in place, so moving back is
+removing the location. Both services read the same store, the same
+TDLib directory and the same .env (WEB_STORAGE_DIR, TG_DATA_DIR,
+TG_MAX_STORE_FILE_SIZE, TG_FETCH_TIMEOUT_SECS), and the webapi
+container mounts the repository at /workspace and runs from there, as
+the daemon does, so the paths the daemon answers with open in it.
+
 # Layout
 
     go.mod                 Module tgloggerd/webapi and its requirements.
@@ -83,6 +154,12 @@ on is the connection's peer, as in Drogon.
                            login throttle, as the Drogon web does them.
     internal/daemon/       Client of the daemon's internal API.
     internal/webdb/        The web's own schema: accounts and audit.
+    internal/logdb/        Reads of the logger's schema, each taking the
+                           request scope.
+    internal/scope/        The request scope (what a request may see).
+    internal/media/        The rules files are served by: store path,
+                           names and types, ranges, the fetch policy,
+                           the TDLib path check.
     vendor/                The third-party modules, committed.
     build/                 Build output (git-ignored).
 
@@ -124,7 +201,10 @@ The sign-in tests in internal/server need a MySQL database with the web
 migrations (web/migrations) applied, named in WEBAPI_TEST_APP_DSN
 (for example root:pw@tcp(127.0.0.1:3306)/tgloggerd_web_test); its name
 must contain "test", since they empty web_users and web_audit. Without
-the variable they are skipped.
+the variable they are skipped. The media tests also need one with the
+logger's migrations (migrations/) applied, named in WEBAPI_TEST_RO_DSN
+under the same rule (they empty telegram_files); they run the daemon as
+a fake on a loopback port the system picks.
 
 The service applies no migrations: the web service owns the web schema
 and the daemon the logger's.
@@ -160,6 +240,16 @@ with the same meaning, since the two must agree:
                                  leaves the client off
     TG_FETCH_TIMEOUT_SECS        the daemon's fetch limit; a fetch waits
                                  10 seconds longer
+    WEB_STORAGE_DIR              the file store, default
+                                 data/storage/files; must be the
+                                 daemon's TG_STORAGE_DIR
+    TG_DATA_DIR                  the daemon's data directory; partial
+                                 files are served only from its tdlib/
+                                 (none when unset)
+    TG_MAX_STORE_FILE_SIZE       the daemon's per-file store cap,
+                                 default 1073741824; 0 = none. A request
+                                 without a session fetches only files
+                                 under it.
 
 and its own:
 
