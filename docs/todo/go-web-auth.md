@@ -33,7 +33,7 @@ other (docs/design/web-go.md section 3).
 
 ## Depends on
 
-- `go-web-skeleton`
+Nothing.
 
 ## Done when
 

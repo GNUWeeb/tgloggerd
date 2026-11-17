@@ -139,6 +139,8 @@ WEB_SECURE_COOKIE=1.
 
 The app serves plain HTTP and is not published to the host, so the proxy
 reaches it on the container's private tgnet address (10.0.88.4:8080).
+The Go web service that is replacing it (webapi/README) serves /api/ on
+its own address (10.0.88.7:8081), and the proxy sends that prefix there.
 Terminate TLS in the proxy and keep WEB_SECURE_COOKIE=1 so the session
 cookie is only sent over HTTPS. A minimal nginx server block:
 
@@ -149,6 +151,15 @@ cookie is only sent over HTTPS. A minimal nginx server block:
         ssl_certificate     /etc/letsencrypt/live/example/fullchain.pem;
         ssl_certificate_key /etc/letsencrypt/live/example/privkey.pem;
         add_header Strict-Transport-Security "max-age=63072000" always;
+
+        # The Go web service (webapi/README) serves the JSON API.
+        location /api/ {
+            proxy_pass         http://10.0.88.7:8081;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }
 
         location / {
             proxy_pass         http://10.0.88.4:8080;

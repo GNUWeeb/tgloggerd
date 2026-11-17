@@ -7,7 +7,7 @@
 # database migrations, and then execs the binary. All configuration comes from
 # the environment -- see .env.example.
 #
-# Usage: run.sh <daemon|web|discord>
+# Usage: run.sh <daemon|web|discord|webapi>
 #
 #   daemon  Build and run the logger daemon (src/, build/). On first login it
 #           prompts on stdin for the phone number, code and 2FA password, so
@@ -17,6 +17,8 @@
 #   discord Build and run discordd, the Discord daemon: logs Discord
 #           messages and forwards them to Telegram. Shares build/ with
 #           the daemon so TDLib is compiled only once.
+#   webapi  Build and run the Go web service (webapi/, webapi/build/), which
+#           serves the JSON API under /api/ beside the web interface.
 #
 set -euo pipefail
 
@@ -195,8 +197,24 @@ discord)
 	exec build/discordd
 	;;
 
+webapi)
+	# Only vendor/ is used: GOPROXY=off makes a missing module an error
+	# instead of a download. The build cache lives in the bind-mounted
+	# webapi/build/, so a restart rebuilds incrementally.
+	export GOFLAGS=-mod=vendor GOPROXY=off GOCACHE="${PWD}/webapi/build/cache"
+
+	log "Building webapi"
+	build_cmd "cd webapi && go build -o build/webapi ./cmd/webapi"
+
+	# No migrations: the web service owns the web schema and the daemon
+	# the logger's. The pools connect lazily, so MySQL need not be up
+	# yet; /api/health reports it until it is.
+	log "Starting webapi"
+	exec webapi/build/webapi
+	;;
+
 *)
-	echo "Usage: run.sh <daemon|web|discord>" >&2
+	echo "Usage: run.sh <daemon|web|discord|webapi>" >&2
 	exit 2
 	;;
 esac

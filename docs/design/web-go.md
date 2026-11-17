@@ -1,6 +1,7 @@
 # Web backend in Go
 
-Status: decided 2026-11-18, not started. The items are in the "Web
+Status: decided 2026-11-18, in progress: the service skeleton (step 1
+of section 5) is in `webapi/` (webapi/README). The items are in the "Web
 backend in Go" section of [../TODO.md](../TODO.md); the decision is
 [decisions/2026-11-18-web-go.md](decisions/2026-11-18-web-go.md).
 
