@@ -85,8 +85,8 @@ TgLoggerd::TgLoggerd(uint32_t api_id, const char *api_hash, const char *data_dir
 
 TgLoggerd::~TgLoggerd(void)
 {
+	/* l_ stays valid until the members are gone; see log_owner_. */
 	pr_debug(l_, "Destroying TgLoggerd...");
-	pr_free(l_);
 }
 
 inline int TgLoggerd::initDataDirC(const char *dir)
@@ -689,9 +689,9 @@ int TgLoggerd::start(void)
 		pr_info(l_, "Shutdown requested; draining pending writes...");
 
 	/*
-	 * Drain before returning, while db_ and l_ are still alive (the
-	 * destructor frees l_ before members are destroyed). files_ first so
-	 * its pending link jobs land in serial_, then serial_ drains fully.
+	 * Drain before returning, in this order rather than the members'
+	 * destruction order. files_ first so its pending link jobs land in
+	 * serial_, then serial_ drains fully.
 	 * The API goes first: its handlers post to those pools and call
 	 * TDLib. Then the fetcher's reaper, which calls TDLib, and the
 	 * janitor, which may be mid-batch on db_.
@@ -1021,6 +1021,9 @@ TgLoggerd::storeDownloadedFile(const std::string &local_path,
 
 void TgLoggerd::setLogger(log_hd_t *h) noexcept
 {
+	/* Takes ownership; a different handle replaces (and frees) the old. */
+	if (h != l_)
+		log_owner_.reset(h);
 	l_ = h;
 }
 
