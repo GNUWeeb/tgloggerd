@@ -49,6 +49,7 @@ add_executable(tgloggerd
 	src/tgloggerd/models/File.cpp
 	src/tgloggerd/models/FileAccess.cpp
 	src/tgloggerd/models/FileEvict.cpp
+	src/tgloggerd/models/FileFetch.cpp
 	src/tgloggerd/models/Group.hpp
 	src/tgloggerd/models/Group.cpp
 	src/tgloggerd/models/Message.hpp
