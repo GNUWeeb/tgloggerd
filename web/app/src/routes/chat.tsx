@@ -13,14 +13,9 @@ import { TYPE_LABEL } from './groups.tsx';
 import type { PageData, Viewer } from '../page.ts';
 import type { ChatMedia, ChatMessage, GroupSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface ChatProps {
-	chat: { kind: 'group'; group: GroupSummary & { members: number; msg_count: number } } | { kind: 'user'; user: { id: number; name: string; photo: string | null }; count: number };
-	messages: ChatMessage[];
-	has_older: boolean;
-	has_newer: boolean;
-	at: number | null;
-}
+export type ChatProps = S['ChatProps'];
 
 // Telegram's palette for sender names, picked per user id.
 const NAME_COLORS = ['#e17076', '#eda86c', '#a695e7', '#7bc862', '#6ec9cb', '#65aadd', '#ee7aae'];

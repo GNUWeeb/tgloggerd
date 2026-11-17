@@ -7,42 +7,19 @@ import { Link, useNav } from '../nav.tsx';
 import { Avatar, Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
 import { Field, Switch } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { ApiError, mutate } from '../api/mutate.ts';
+import { ApiError, api, ok, setSessionCsrf } from '../api/client.ts';
 import { ago, SITE_DEFAULTS } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface AccountProps {
-	account: { username: string; name: string; role: string; email: string | null; email_verified: boolean };
-	notices: string[];
-}
+export type AccountProps = S['SettingsProps'];
 
-export interface Prefs {
-	timezone?: string | null;
-	date_format?: '24h' | '12h' | 'iso' | null;
-	lang?: 'en' | 'id' | null;
-	theme?: 'system' | 'light' | 'dark' | null;
-	rows_per_page?: number | null;
-	landing?: string | null;
-	chat_auto_load?: boolean | null;
-	chat_live?: boolean | null;
-	chat_media?: 'auto' | 'click' | null;
-	chat_show_deleted?: boolean | null;
-	chat_show_edited?: boolean | null;
-	chat_show_service?: boolean | null;
-}
+export type Prefs = S['Prefs'];
 
-export interface PreferencesProps {
-	prefs: Prefs;
-	timezones: string[];
-	landing_options: [string, string][];
-	pinned: { id: number; title: string; photo: string | null }[];
-	saved_searches: { id: number; title: string; url: string }[];
-}
+export type PreferencesProps = S['PreferencesProps'];
 
-export interface SessionsProps {
-	sessions: { id: string; device: string; ip: string; place: string; started: string; last: string; current: boolean }[];
-}
+export type SessionsProps = S['SessionsProps'];
 
 function SettingsNav({ on }: { on: 'account' | 'prefs' | 'sessions' }) {
 	return (
@@ -76,7 +53,7 @@ function ChangeEmail({ onClose }: { onClose: () => void }) {
 		const f = new FormData(e.currentTarget);
 		const email = String(f.get('email') ?? '');
 		try {
-			await mutate('POST', '/api/account/email', { email, password: String(f.get('password') ?? '') });
+			await ok(api.POST('/api/account/email', { body: { email, password: String(f.get('password') ?? '') } }));
 			setSent(email);
 		} catch (x) { setErr(errText(x)); }
 	};
@@ -107,7 +84,9 @@ function AccountPage({ page }: { page: PageData<AccountProps> }) {
 		const f = new FormData(form);
 		if (f.get('new_password') !== f.get('confirm_password')) { setMsg({ ok: false, text: 'The new passwords do not match.' }); return; }
 		try {
-			await mutate('POST', '/api/account/password', { current_password: f.get('current_password'), new_password: f.get('new_password') });
+			const r = await ok(api.POST('/api/account/password', { body: { current_password: String(f.get('current_password') ?? ''), new_password: String(f.get('new_password') ?? '') } }));
+			// The session moved to a new cookie; the old token no longer works.
+			setSessionCsrf(r.csrf);
 			form.reset();
 			setMsg({ ok: true, text: 'Password changed. Every other session has been signed out.' });
 		} catch (x) { setMsg({ ok: false, text: errText(x) }); }
@@ -173,14 +152,14 @@ function PreferencesPage({ page }: { page: PageData<PreferencesProps> }) {
 	const save = async () => {
 		setState('saving');
 		try {
-			await mutate('PUT', '/api/account/preferences', p);
+			await ok(api.PUT('/api/account/preferences', { body: p }));
 			setState('saved');
 			// The viewer (timezone, theme, menu...) comes from the server.
 			navigate(page.url, { replace: true, scroll: false });
 		} catch (x) { setState(errText(x)); }
 	};
-	const remove = async (path: string) => {
-		try { await mutate('DELETE', path); navigate(page.url, { replace: true, scroll: false }); } catch (x) { setState(errText(x)); }
+	const remove = async (call: () => Promise<unknown>) => {
+		try { await call(); navigate(page.url, { replace: true, scroll: false }); } catch (x) { setState(errText(x)); }
 	};
 	return (
 		<Frame on="prefs" title="Preferences" sub="How dates, lists and chats look for you, on every device you sign in on.">
@@ -209,14 +188,14 @@ function PreferencesPage({ page }: { page: PageData<PreferencesProps> }) {
 				<p className="a-muted sm">Pinned groups appear at the top of the sidebar. Pin a group from its page.</p>
 				{props.pinned.length ? <ul className="a-audit">{props.pinned.map((g) => (
 					<li key={g.id}><Avatar id={g.id} name={g.title} photo={g.photo} size={22} square /><Link to={`/groups/${g.id}`} className="a-grow a-rowlink">{g.title}</Link>
-						<button type="button" className="a-icon-btn sm" aria-label={`Unpin ${g.title}`} onClick={() => void remove(`/api/account/pinned/${g.id}`)}><PinOff size={13} /></button></li>
+						<button type="button" className="a-icon-btn sm" aria-label={`Unpin ${g.title}`} onClick={() => void remove(() => ok(api.DELETE('/api/account/pinned/{group_id}', { params: { path: { group_id: g.id } } })))}><PinOff size={13} /></button></li>
 				))}</ul> : <p className="a-muted">Nothing pinned.</p>}
 			</Card>
 			<Card title="Saved searches" className="a-narrow">
 				<p className="a-muted sm">Save a search from any list's filter bar.</p>
 				{props.saved_searches.length ? <ul className="a-audit">{props.saved_searches.map((s) => (
 					<li key={s.id}><Bookmark size={14} /><Link to={s.url} className="a-grow a-rowlink">{s.title}</Link>
-						<button type="button" className="a-icon-btn sm" aria-label={`Delete ${s.title}`} onClick={() => void remove(`/api/account/saved-searches/${s.id}`)}><Trash2 size={13} /></button></li>
+						<button type="button" className="a-icon-btn sm" aria-label={`Delete ${s.title}`} onClick={() => void remove(() => ok(api.DELETE('/api/account/saved-searches/{id}', { params: { path: { id: s.id } } })))}><Trash2 size={13} /></button></li>
 				))}</ul> : <p className="a-muted">No saved searches.</p>}
 			</Card>
 		</Frame>
@@ -227,13 +206,13 @@ function SessionsPage({ page }: { page: PageData<SessionsProps> }) {
 	const { navigate } = useNav();
 	const v = page.viewer;
 	const [err, setErr] = useState('');
-	const act = async (method: 'POST' | 'DELETE', path: string) => {
-		try { await mutate(method, path); navigate(page.url, { replace: true, scroll: false }); } catch (x) { setErr(errText(x)); }
+	const act = async (call: () => Promise<unknown>) => {
+		try { await call(); navigate(page.url, { replace: true, scroll: false }); } catch (x) { setErr(errText(x)); }
 	};
 	const others = page.props.sessions.some((s) => !s.current);
 	return (
 		<Frame on="sessions" title="Sessions" sub="Where your account is signed in."
-			actions={others ? <Btn ghost danger icon={LogOut} onClick={() => void act('POST', '/api/account/sessions/sign-out-others')}>Sign out all others</Btn> : undefined}>
+			actions={others ? <Btn ghost danger icon={LogOut} onClick={() => void act(() => ok(api.POST('/api/account/sessions/sign-out-others')))}>Sign out all others</Btn> : undefined}>
 			{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			<div className="a-card a-tablecard a-narrow">
 				<ul className="a-sessions">{page.props.sessions.map((s) => (
@@ -244,7 +223,7 @@ function SessionsPage({ page }: { page: PageData<SessionsProps> }) {
 							<span className="a-muted sm">{s.place} . {s.ip} . signed in {ago(s.started, v)}</span>
 						</span>
 						<span className="a-muted sm" title={s.last}>{s.current ? 'active now' : `active ${ago(s.last, v)}`}</span>
-						{!s.current && <Btn ghost onClick={() => void act('DELETE', `/api/account/sessions/${s.id}`)}>Sign out</Btn>}
+						{!s.current && <Btn ghost onClick={() => void act(() => ok(api.DELETE('/api/account/sessions/{id}', { params: { path: { id: s.id } } })))}>Sign out</Btn>}
 					</li>
 				))}</ul>
 			</div>

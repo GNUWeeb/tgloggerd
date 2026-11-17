@@ -8,33 +8,19 @@ import { Link, useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
 import { Field, MultiPicker, type PickItem } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { ApiError, mutate } from '../api/mutate.ts';
+import { ApiError, api, ok } from '../api/client.ts';
 import { searchAllChats } from '../api/search.ts';
 import { ago } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { GroupSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
 interface Person { id: number; username: string; name: string }
 
-export interface FederationRow {
-	id: number;
-	name: string;
-	default: boolean;
-	created: string | null;
-	// Only the groups the viewer can see; `group_count` counts them all.
-	groups: GroupSummary[];
-	group_count: number;
-	admins: Person[];
-	members: Person[];
-}
+export type FederationRow = S['FederationRow'];
 
-export interface FederationsProps {
-	federations: FederationRow[];
-	editable: boolean;
-	// Admins that may be given a federation.
-	admin_options: Person[];
-}
+export type FederationsProps = S['FederationsProps'];
 
 const pPick = (p: Person): PickItem => ({ id: p.id, title: p.name, kind: 'user' });
 
@@ -63,7 +49,7 @@ function Editor({ fed, props, onClose, onSaved }: { fed: FederationRow | null; p
 		if (!groups) return;
 		const body = { name, group_ids: isDefault ? undefined : groups.map((g) => g.id), admin_ids: admins.map((a) => a.id) };
 		try {
-			await (fed ? mutate('PATCH', `/api/federations/${fed.id}`, body) : mutate('POST', '/api/federations', body));
+			await (fed ? ok(api.PATCH('/api/federations/{id}', { params: { path: { id: fed.id } }, body })) : ok(api.POST('/api/federations', { body })));
 			onSaved();
 			onClose();
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }

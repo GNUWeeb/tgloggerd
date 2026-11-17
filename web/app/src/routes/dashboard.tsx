@@ -7,17 +7,12 @@ import { ago, compact, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { GroupSummary, UserSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
 // Counts cover only what the viewer may see; the server leaves out
 // what does not apply (logger status for members, private messages
 // when hidden).
-export interface DashboardProps {
-	kpis: { key: 'users' | 'groups' | 'group_messages' | 'private_messages' | 'files'; total: number; today: number }[];
-	per_day: number[];
-	busiest: (GroupSummary & { msg_count: number })[];
-	deleted: { id: number; scope: 'group' | 'private'; chat: GroupSummary; sender: UserSummary; snippet: string; deleted_at: string; message_id: number }[];
-	status?: { session: 'connected' | 'disconnected'; last_message_at: string; forwarding_active: number; store_used: string; store_total: string; store_ratio: number };
-}
+export type DashboardProps = S['DashboardProps'];
 
 const KPI = {
 	users: ['Users', '/users', Users], groups: ['Groups', '/groups', UsersRound],

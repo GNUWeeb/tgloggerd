@@ -9,8 +9,9 @@ import { ago, bytes, dateTime, fmt } from '../format.ts';
 import type { PageData, Viewer } from '../page.ts';
 import type { Cond, FieldDef, FileRow, ListProps } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export type FilesProps = ListProps<FileRow> & { preview: FileRow | null; can_fetch: boolean; archive_total?: number; stored_bytes?: number };
+export type FilesProps = S['FilesProps'];
 
 const FIELDS: FieldDef[] = [
 	{ key: 'id', label: 'File ID', type: 'number' },

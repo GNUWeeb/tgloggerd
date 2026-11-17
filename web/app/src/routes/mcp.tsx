@@ -8,15 +8,16 @@ import { Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
 import { ChatPicker, Field, type PickItem } from '../ui/forms.tsx';
 import { GroupCell } from '../ui/bits.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { ApiError, mutate } from '../api/mutate.ts';
+import { ApiError, api, ok } from '../api/client.ts';
 import { ago, compact, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { GroupSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface McpIndexProps { exposed_groups: number; exposed_messages: number; active_tokens: number; last_used: string | null; endpoint: string }
-export interface McpGroupsProps { groups: { group: GroupSummary & { msg_count: number }; public_now: boolean; note: string; added: string }[] }
-export interface McpTokensProps { tokens: { id: number; name: string; owner: string; created: string; last_used: string | null; revoked: string | null }[] }
+export type McpIndexProps = S['McpIndexProps'];
+export type McpGroupsProps = S['McpGroupsProps'];
+export type McpTokensProps = S['McpTokensProps'];
 
 function errText(x: unknown) { return x instanceof ApiError ? x.message : 'The server could not be reached.'; }
 
@@ -72,7 +73,7 @@ function McpGroups({ page }: { page: PageData<McpGroupsProps> }) {
 								<td>{e.public_now ? <Pill tone="ok">public</Pill> : <Pill tone="danger"><TriangleAlert size={11} />no longer public</Pill>}</td>
 								<td className="a-muted a-clip">{e.note}</td>
 								<td title={e.added}>{ago(e.added, v)}</td>
-								<td className="a-rowactions"><Btn ghost danger icon={Trash2} onClick={() => { if (confirm(`Stop exposing ${e.group.title}?`)) void act(() => mutate('DELETE', `/api/mcp/groups/${e.group.id}`)); }}>Remove</Btn></td>
+								<td className="a-rowactions"><Btn ghost danger icon={Trash2} onClick={() => { if (confirm(`Stop exposing ${e.group.title}?`)) void act(() => ok(api.DELETE('/api/mcp/groups/{group_id}', { params: { path: { group_id: e.group.id } } }))); }}>Remove</Btn></td>
 							</tr>
 						))}</tbody>
 					</table>
@@ -82,7 +83,7 @@ function McpGroups({ page }: { page: PageData<McpGroupsProps> }) {
 			<p className="a-muted a-foot"><b>Public on Telegram</b> says whether the group still has a public username. A group that went private stays exposed until it is removed here.</p>
 			{adding && (
 				<Modal title="Expose a group" onClose={() => setAdding(false)}
-					footer={<><span className="a-grow" /><Btn ghost onClick={() => setAdding(false)}>Cancel</Btn><Btn primary disabled={!pick} onClick={() => void act(() => mutate('POST', '/api/mcp/groups', { group_id: pick!.id, note }))}>Expose</Btn></>}>
+					footer={<><span className="a-grow" /><Btn ghost onClick={() => setAdding(false)}>Cancel</Btn><Btn primary disabled={!pick} onClick={() => void act(() => ok(api.POST('/api/mcp/groups', { body: { group_id: pick!.id, note } })))}>Expose</Btn></>}>
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 					<Field label="Group" hint="Busiest groups first. Groups already exposed are not listed."><ChatPicker value={pick} onChange={setPick} search={{ kind: 'group' }} exclude={exposed} placeholder="Search groups and channels" /></Field>
 					<Field label="Note" hint="Why it is exposed, for whoever reviews this later."><input value={note} onChange={(e) => setNote(e.target.value)} maxLength={255} /></Field>
@@ -105,11 +106,11 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 	const mint = async () => {
 		setErr('');
 		try {
-			const r = await mutate<{ token: string }>('POST', '/api/mcp/tokens', { name });
+			const r = await ok(api.POST('/api/mcp/tokens', { body: { name } }));
 			setMinting(false); setCopied(false); setMinted(r.token); setName(''); refresh();
 		} catch (x) { setErr(errText(x)); }
 	};
-	const revoke = async (id: number) => { try { await mutate('POST', `/api/mcp/tokens/${id}/revoke`); refresh(); } catch (x) { setErr(errText(x)); } };
+	const revoke = async (id: number) => { try { await ok(api.POST('/api/mcp/tokens/{id}/revoke', { params: { path: { id } } })); refresh(); } catch (x) { setErr(errText(x)); } };
 	return (
 		<Shell crumbs={[['MCP', '/mcp-admin'], ['Access tokens', null]]}>
 			<PageHead title="Access tokens" sub="A token reads every exposed group, so treat one like a password."

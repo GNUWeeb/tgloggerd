@@ -117,6 +117,11 @@ if (TICK) {
 	}, TICK);
 }
 
+// Session CSRF tokens. Pages carry standin-csrf; a password change
+// issues a new one, as the Go service does when it reissues the session.
+const csrfTokens = new Set(['standin-csrf']);
+const csrfOk = (req: IncomingMessage) => csrfTokens.has(String(req.headers['x-csrf-token'] || ''));
+
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	const url = new URL(req.url || '/', 'http://x');
 	if (url.pathname.startsWith('/app/') || url.pathname.startsWith('/@') || url.pathname.startsWith('/node_modules/')) {
@@ -150,7 +155,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		return;
 	}
 	if (url.pathname === '/api/logout' && req.method === 'POST') {
-		if (req.headers['x-csrf-token'] !== 'standin-csrf') { send(res, 403, { error: 'csrf' }); return; }
+		if (!csrfOk(req)) { send(res, 403, { error: 'csrf' }); return; }
 		res.writeHead(204, { 'set-cookie': 'tgd_as=public; Path=/; SameSite=Lax' });
 		res.end();
 		return;
@@ -163,7 +168,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 	// The account endpoints proposed for the Go service (settings pages).
 	if (url.pathname.startsWith('/api/account/')) {
 		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
-		if (req.headers['x-csrf-token'] !== 'standin-csrf') { send(res, 403, { error: 'csrf' }); return; }
+		if (!csrfOk(req)) { send(res, 403, { error: 'csrf' }); return; }
 		// Fixture state is untyped JavaScript-shaped data.
 		const st: any = fx.settingsState(who);
 		const body = req.method === 'GET' || req.method === 'DELETE' ? {} : JSON.parse((await readBody(req)) || '{}');
@@ -172,7 +177,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		if (p === 'password' && req.method === 'POST') {
 			if (body.current_password !== 'standin') { send(res, 400, { error: 'wrong_password', message: 'The current password is wrong.' }); return; }
 			st.sessions = st.sessions.filter((x: { current: boolean }) => x.current);
-			res.writeHead(204); res.end(); return;
+			const csrf = `standin-csrf-${csrfTokens.size}`;
+			csrfTokens.add(csrf);
+			send(res, 200, { csrf }); return;
 		}
 		if (p === 'email' && req.method === 'POST') {
 			if (body.password !== 'standin') { send(res, 400, { error: 'wrong_password', message: 'The current password is wrong.' }); return; }
@@ -204,7 +211,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 	}
 	if (/^\/api\/(accounts|federations|forwarding|join-chat|mcp)(\/|$)/.test(url.pathname)) {
 		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
-		if (req.method !== 'GET' && req.headers['x-csrf-token'] !== 'standin-csrf') { send(res, 403, { error: 'csrf' }); return; }
+		if (req.method !== 'GET' && !csrfOk(req)) { send(res, 403, { error: 'csrf' }); return; }
 		const body = req.method === 'GET' ? {} : JSON.parse((await readBody(req)) || '{}');
 		const [status, out] = fx.adminApi(req.method || 'GET', url.pathname.slice('/api/'.length), body, who);
 		if (status === 204) { res.writeHead(204); res.end(); } else send(res, status, out);
@@ -226,7 +233,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		return;
 	}
 	if (url.pathname.startsWith('/api/page/') || url.pathname === '/api/page') {
-		const target = cleanUrl(new URL(url.pathname.slice('/api/page'.length) + url.search || '/', 'http://x'));
+		// The path's slashes may come encoded as %2F, as the client sends them.
+		const target = cleanUrl(new URL(url.pathname.slice('/api/page'.length).replace(/%2F/gi, '/') + url.search || '/', 'http://x'));
 		const page = fx.pageData(target, who);
 		res.writeHead(page.status, { 'content-type': 'application/json', 'set-cookie': cookie, 'cache-control': 'no-store' });
 		res.end(JSON.stringify(page));

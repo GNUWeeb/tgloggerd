@@ -22,11 +22,14 @@ host:
     ./dev npm run typecheck
     ./dev npm test
     ./dev npm run build
+    ./dev npm run check:api
 
 `npm run build` writes the client bundle to dist/client (content-hashed
 files and the manifest the Go service reads) and the render entry to
 dist/server. TGD_BUILD sets the build id both carry.
 
-The API client is generated from the Go service's OpenAPI description
-into src/api/generated/ by `npm run gen:api`; until that description
-exists the directory is empty.
+The API's types are generated from the Go service's OpenAPI
+description, ../../webapi/openapi.yaml, into src/api/generated/ by
+`npm run gen:api`, and committed. After changing the description, run
+it and commit the result with the change; `npm run check:api` fails
+while the committed file differs from what the description gives.

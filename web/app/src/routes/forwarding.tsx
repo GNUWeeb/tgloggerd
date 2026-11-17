@@ -8,22 +8,25 @@ import { Link, useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
 import { ChatPicker, CheckChips, Field, Seg, Switch, type PickItem } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { ApiError, mutate } from '../api/mutate.ts';
+import { ApiError, api, ok } from '../api/client.ts';
 import { ago, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-interface Person { id: number; name: string; role?: string; active?: boolean }
-interface Owned { id: number; owner: Person & { active: boolean }; federation: { id: number; name: string }; transfer_candidates: Person[] }
-export interface T2DRoute extends Owned { chat: PickItem; url_masked: string; types: string[]; enabled: boolean; sent: number; last_sent: string | null }
-export interface D2TRoute extends Owned { channel_id: string; channel_name: string; chat: PickItem; bot: string; types: string[]; enabled: boolean; sent: number }
+type Person = S['FwdPerson'];
+type Owned = S['Owned'];
+export type T2DRoute = S['T2DRoute'];
+export type D2TRoute = S['D2TRoute'];
 
-export interface ForwardingIndexProps { t2d: { active: number; total: number; sent: number }; d2t: { active: number; total: number; sent: number } }
-export interface T2DProps { routes: T2DRoute[]; federations: { id: number; name: string }[] }
-export interface D2TProps { routes: D2TRoute[]; federations: { id: number; name: string }[] }
+export type ForwardingIndexProps = S['ForwardingIndexProps'];
+export type T2DProps = S['T2DProps'];
+export type D2TProps = S['D2TProps'];
 
-const KINDS: [string, string][] = [['sticker', 'Sticker'], ['text', 'Text message'], ['photo', 'Photo'], ['video', 'Video'], ['document', 'Document'], ['other', 'Others']];
-const D2T_KINDS = KINDS.filter((k) => k[0] !== 'other');
+type T2DKind = S['T2DRoute']['types'][number];
+type D2TKind = S['D2TRoute']['types'][number];
+const KINDS: [T2DKind, string][] = [['sticker', 'Sticker'], ['text', 'Text message'], ['photo', 'Photo'], ['video', 'Video'], ['document', 'Document'], ['other', 'Others']];
+const D2T_KINDS = KINDS.filter((k): k is [D2TKind, string] => k[0] !== 'other');
 const LABEL = Object.fromEntries(KINDS);
 
 function errText(x: unknown) { return x instanceof ApiError ? x.message : 'The server could not be reached.'; }
@@ -53,11 +56,17 @@ function OwnerCell({ r }: { r: Owned }) {
 }
 
 // The owner today; editors and viewers can join this list later.
-function Access({ r, base, title, canTransfer, onClose, onSaved }: { r: Owned; base: string; title: string; canTransfer: boolean; onClose: () => void; onSaved: () => void }) {
+type Dir = 'telegram-discord' | 'discord-telegram';
+
+function Access({ r, dir, title, canTransfer, onClose, onSaved }: { r: Owned; dir: Dir; title: string; canTransfer: boolean; onClose: () => void; onSaved: () => void }) {
 	const [to, setTo] = useState('');
 	const [err, setErr] = useState('');
 	const transfer = async () => {
-		try { await mutate('POST', `${base}/${r.id}/transfer`, { owner_id: Number(to) }); onSaved(); onClose(); } catch (x) { setErr(errText(x)); }
+		try {
+			const req = { params: { path: { id: r.id } }, body: { owner_id: Number(to) } };
+			await ok(dir === 'telegram-discord' ? api.POST('/api/forwarding/telegram-discord/{id}/transfer', req) : api.POST('/api/forwarding/discord-telegram/{id}/transfer', req));
+			onSaved(); onClose();
+		} catch (x) { setErr(errText(x)); }
 	};
 	return (
 		<Modal title={`People with access: ${title}`} icon={<Users size={16} />} onClose={onClose}
@@ -133,20 +142,19 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 	const member = v.account?.role === 'member';
 	const [own, setOwn] = useState('all');
 	const [access, setAccess] = useState<T2DRoute | null>(null);
-	type Draft = { id?: number; chat: PickItem | null; url: string; types: string[]; enabled: boolean; federation_id: number | null };
+	type Draft = { id?: number; chat: PickItem | null; url: string; types: T2DRoute['types']; enabled: boolean; federation_id: number | null };
 	const [edit, setEdit] = useState<Draft | null>(null);
 	const [show, setShow] = useState(false);
 	const [err, setErr] = useState('');
 	const [note, setNote] = useState('');
-	const base = '/api/forwarding/telegram-discord';
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
 	const act = async (fn: () => Promise<unknown>, done?: string) => {
 		setErr(''); setNote('');
 		try { await fn(); if (done) setNote(done); else { setEdit(null); } refresh(); } catch (x) { setErr(errText(x)); }
 	};
 	const save = (d: Draft) => act(() => (d.id
-		? mutate('PATCH', `${base}/${d.id}`, { types: d.types, enabled: d.enabled, ...(d.url ? { webhook_url: d.url } : {}) })
-		: mutate('POST', base, { chat_id: d.chat?.id, chat_kind: d.chat?.kind, webhook_url: d.url, types: d.types, enabled: d.enabled, federation_id: d.federation_id })));
+		? ok(api.PATCH('/api/forwarding/telegram-discord/{id}', { params: { path: { id: d.id } }, body: { types: d.types, enabled: d.enabled, ...(d.url ? { webhook_url: d.url } : {}) } }))
+		: ok(api.POST('/api/forwarding/telegram-discord', { body: { chat_id: d.chat!.id, chat_kind: d.chat!.kind, webhook_url: d.url, types: d.types, enabled: d.enabled, federation_id: d.federation_id ?? undefined } }))));
 	const rows = byOwner(page.props.routes, own, meId);
 	return (
 		<Shell crumbs={[['Platform forwarding', '/platform-fwd'], ['Telegram to Discord', null]]}>
@@ -166,11 +174,11 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 								<td><OwnerCell r={r} /></td>
 								<td className="a-hide-md"><Pill><Network size={11} />{r.federation.name}</Pill></td>
 								<td className="r num" title={r.last_sent ? `last sent ${ago(r.last_sent, v)}` : 'never sent'}>{fmt(r.sent)}</td>
-								<td><span className="a-statuscell"><Switch checked={r.enabled} onChange={(on) => void act(() => mutate('PATCH', `${base}/${r.id}`, { enabled: on }))} /><span className={r.enabled ? 'a-ok' : 'a-muted'}>{r.enabled ? 'On' : 'Off'}</span></span></td>
+								<td><span className="a-statuscell"><Switch checked={r.enabled} onChange={(on) => void act(() => ok(api.PATCH('/api/forwarding/telegram-discord/{id}', { params: { path: { id: r.id } }, body: { enabled: on } })))} /><span className={r.enabled ? 'a-ok' : 'a-muted'}>{r.enabled ? 'On' : 'Off'}</span></span></td>
 								<td className="a-rowactions">
 									<button type="button" className="a-icon-btn" aria-label="People with access" onClick={() => setAccess(r)}><Users size={15} /></button>
 									<button type="button" className="a-icon-btn" aria-label="Edit" onClick={() => setEdit({ id: r.id, chat: r.chat, url: '', types: r.types, enabled: r.enabled, federation_id: r.federation.id })}><Pencil size={15} /></button>
-									<button type="button" className="a-icon-btn a-danger-hover" aria-label="Delete" onClick={() => { if (confirm(`Delete the webhook for ${r.chat.title}?`)) void act(() => mutate('DELETE', `${base}/${r.id}`)); }}><Trash2 size={15} /></button>
+									<button type="button" className="a-icon-btn a-danger-hover" aria-label="Delete" onClick={() => { if (confirm(`Delete the webhook for ${r.chat.title}?`)) void act(() => ok(api.DELETE('/api/forwarding/telegram-discord/{id}', { params: { path: { id: r.id } } }))); }}><Trash2 size={15} /></button>
 								</td>
 							</tr>
 						))}</tbody>
@@ -181,7 +189,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 			{edit && (
 				<Modal title={edit.id ? 'Edit webhook' : 'Add webhook'} onClose={() => { setEdit(null); setErr(''); setNote(''); }}
 					footer={<>
-						<Btn ghost icon={Send} disabled={!edit.id && !edit.url} onClick={() => void act(() => mutate('POST', `${base}/test`, edit.id && !edit.url ? { id: edit.id } : { webhook_url: edit.url }), 'Test message sent.')}>Send test message</Btn>
+						<Btn ghost icon={Send} disabled={!edit.id && !edit.url} onClick={() => void act(() => ok(api.POST('/api/forwarding/telegram-discord/test', { body: edit.id && !edit.url ? { id: edit.id } : { webhook_url: edit.url } })), 'Test message sent.')}>Send test message</Btn>
 						<span className="a-grow" /><Btn ghost onClick={() => setEdit(null)}>Cancel</Btn><Btn primary onClick={() => void save(edit)}>Save</Btn>
 					</>}>
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
@@ -202,7 +210,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 					<Switch checked={edit.enabled} onChange={(on) => setEdit({ ...edit, enabled: on })} label="Enabled" />
 				</Modal>
 			)}
-			{access && <Access r={access} base={base} title={access.chat.title} canTransfer={!member} onClose={() => setAccess(null)} onSaved={refresh} />}
+			{access && <Access r={access} dir="telegram-discord" title={access.chat.title} canTransfer={!member} onClose={() => setAccess(null)} onSaved={refresh} />}
 		</Shell>
 	);
 }
@@ -214,18 +222,17 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 	const member = v.account?.role === 'member';
 	const [own, setOwn] = useState('all');
 	const [access, setAccess] = useState<D2TRoute | null>(null);
-	type Draft = { id?: number; channel_id: string; chat: PickItem | null; token: string; bot?: string; types: string[]; enabled: boolean; federation_id: number | null };
+	type Draft = { id?: number; channel_id: string; chat: PickItem | null; token: string; bot?: string; types: D2TRoute['types']; enabled: boolean; federation_id: number | null };
 	const [edit, setEdit] = useState<Draft | null>(null);
 	const [err, setErr] = useState('');
-	const base = '/api/forwarding/discord-telegram';
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
 	const act = async (fn: () => Promise<unknown>) => {
 		setErr('');
 		try { await fn(); setEdit(null); refresh(); } catch (x) { setErr(errText(x)); }
 	};
 	const save = (d: Draft) => act(() => (d.id
-		? mutate('PATCH', `${base}/${d.id}`, { types: d.types, enabled: d.enabled, ...(d.token ? { bot_token: d.token } : {}) })
-		: mutate('POST', base, { discord_channel_id: d.channel_id, chat_id: d.chat?.id, bot_token: d.token, types: d.types, enabled: d.enabled, federation_id: d.federation_id })));
+		? ok(api.PATCH('/api/forwarding/discord-telegram/{id}', { params: { path: { id: d.id } }, body: { types: d.types, enabled: d.enabled, ...(d.token ? { bot_token: d.token } : {}) } }))
+		: ok(api.POST('/api/forwarding/discord-telegram', { body: { discord_channel_id: d.channel_id, chat_id: d.chat!.id, bot_token: d.token, types: d.types, enabled: d.enabled, federation_id: d.federation_id ?? undefined } }))));
 	const rows = byOwner(page.props.routes, own, meId);
 	return (
 		<Shell crumbs={[['Platform forwarding', '/platform-fwd'], ['Discord to Telegram', null]]}>
@@ -247,11 +254,11 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 								<td><OwnerCell r={r} /></td>
 								<td className="a-hide-md"><Pill><Network size={11} />{r.federation.name}</Pill></td>
 								<td className="r num">{fmt(r.sent)}</td>
-								<td><span className="a-statuscell"><Switch checked={r.enabled} onChange={(on) => void act(() => mutate('PATCH', `${base}/${r.id}`, { enabled: on }))} /><span className={r.enabled ? 'a-ok' : 'a-muted'}>{r.enabled ? 'On' : 'Off'}</span></span></td>
+								<td><span className="a-statuscell"><Switch checked={r.enabled} onChange={(on) => void act(() => ok(api.PATCH('/api/forwarding/discord-telegram/{id}', { params: { path: { id: r.id } }, body: { enabled: on } })))} /><span className={r.enabled ? 'a-ok' : 'a-muted'}>{r.enabled ? 'On' : 'Off'}</span></span></td>
 								<td className="a-rowactions">
 									<button type="button" className="a-icon-btn" aria-label="People with access" onClick={() => setAccess(r)}><Users size={15} /></button>
 									<button type="button" className="a-icon-btn" aria-label="Edit" onClick={() => setEdit({ id: r.id, channel_id: r.channel_id, chat: r.chat, token: '', bot: r.bot, types: r.types, enabled: r.enabled, federation_id: r.federation.id })}><Pencil size={15} /></button>
-									<button type="button" className="a-icon-btn a-danger-hover" aria-label="Delete" onClick={() => { if (confirm(`Delete the route from ${r.channel_name}?`)) void act(() => mutate('DELETE', `${base}/${r.id}`)); }}><Trash2 size={15} /></button>
+									<button type="button" className="a-icon-btn a-danger-hover" aria-label="Delete" onClick={() => { if (confirm(`Delete the route from ${r.channel_name}?`)) void act(() => ok(api.DELETE('/api/forwarding/discord-telegram/{id}', { params: { path: { id: r.id } } }))); }}><Trash2 size={15} /></button>
 								</td>
 							</tr>
 						))}</tbody>
@@ -277,7 +284,7 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 					<Switch checked={edit.enabled} onChange={(on) => setEdit({ ...edit, enabled: on })} label="Enabled" />
 				</Modal>
 			)}
-			{access && <Access r={access} base={base} title={access.channel_name} canTransfer={!member} onClose={() => setAccess(null)} onSaved={refresh} />}
+			{access && <Access r={access} dir="discord-telegram" title={access.channel_name} canTransfer={!member} onClose={() => setAccess(null)} onSaved={refresh} />}
 		</Shell>
 	);
 }

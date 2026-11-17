@@ -8,39 +8,17 @@ import { useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
 import { Field, MultiPicker, Seg, Switch, type PickItem } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { ApiError, mutate } from '../api/mutate.ts';
+import { ApiError, api, ok } from '../api/client.ts';
 import { ago } from '../format.ts';
 import type { PageData, Role } from '../page.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface Fed { id: number; name: string; default: boolean }
+export type Fed = S['Fed'];
 
-export interface AccountRow {
-	id: number;
-	username: string;
-	name: string;
-	email: string | null;
-	email_verified: boolean;
-	invited: boolean;
-	role: Role;
-	active: boolean;
-	last_signin: string | null;
-	last_superadmin: boolean;
-	admin_of: number[];
-	// Groups come with their names for the chips; saving sends ids.
-	restrict: { hide_private: boolean; hide_groups: PickItem[]; join_chat: boolean } | null;
-	grants: { fed: number; groups: PickItem[] }[];
-	abilities: string[];
-	audit: { what: string; by: string; at: string }[];
-}
+export type AccountRow = S['AccountRow'];
 
-export interface AccountsProps {
-	accounts: AccountRow[];
-	// Federations the viewer may manage, with how many groups it can see
-	// in each; the groups themselves come from the chat search.
-	federations: (Fed & { group_count: number })[];
-	all_federations: Fed[];
-}
+export type AccountsProps = S['AccountsProps'];
 
 const ROLE_ICON = { superadmin: Crown, admin: ShieldCheck, member: UserIcon } as const;
 const ROLES: [Role, string, string][] = [
@@ -48,7 +26,7 @@ const ROLES: [Role, string, string][] = [
 	['admin', 'Admin', 'Everything except what a superadmin restricts. Manages members of its federations only.'],
 	['member', 'Member', 'Only the groups granted in its federations, and the abilities given.'],
 ];
-const ABILITIES: [string, string, string][] = [
+const ABILITIES: [S['Ability'], string, string][] = [
 	['forward', 'Set up forwarding', 'Own Telegram and Discord forwarding for its granted groups.'],
 	['fetch_files', 'Fetch files from Telegram', 'Download media the archive did not store.'],
 ];
@@ -104,22 +82,44 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }
 	};
 	const save = () => call(() => (isNew
-		? mutate('POST', '/api/accounts', { username: a.username, name: a.name, email: a.email, role: a.role })
-		: mutate('PATCH', `/api/accounts/${a.id}`, {
+		? ok(api.POST('/api/accounts', { body: { username: a.username, name: a.name, email: a.email ?? '', role: a.role, ...(a.role === 'member' && a.grants.length ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })) } : {}) } }))
+		: ok(api.PATCH('/api/accounts/{id}', { params: { path: { id: a.id } }, body: {
 			name: a.name, role: a.role,
-			...(a.email !== init.email ? { email: a.email } : {}),
-			...(a.role === 'admin' ? { admin_of: a.admin_of, restrict: a.restrict && { ...a.restrict, hide_groups: a.restrict.hide_groups.map((g) => g.id) } } : {}),
+			...(a.email !== init.email ? { email: a.email ?? '' } : {}),
+			...(a.role === 'admin' ? { admin_of: a.admin_of, ...(a.restrict ? { restrict: { ...a.restrict, hide_groups: a.restrict.hide_groups.map((g) => g.id) } } : {}) } : {}),
 			...(a.role === 'member' ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })), abilities: a.abilities } : {}),
-		})), 'close');
+		} }))), 'close');
 	const restrict = a.restrict ?? { hide_private: false, hide_groups: [], join_chat: false };
+	// A member's groups per federation: on the Access tab, and when
+	// creating a member (an admin must grant at least one federation).
+	const grantsBlock = (
+		<>
+			<h3 className="a-sec">Groups, per federation</h3>
+			<p className="a-muted sm">A member sees only the groups granted here, and people only as they appear in those groups. Members never see private messages.</p>
+			{props.federations.map((f) => {
+				const g = grantOf(f.id);
+				return (
+					<section key={f.id} className={`a-fedgrant ${g ? 'on' : ''}`}>
+						<header>
+							<Switch checked={!!g} onChange={() => set({ grants: g ? a.grants.filter((x) => x.fed !== f.id) : [...a.grants, { fed: f.id, groups: [] }] })} label={<><Network size={14} /> {f.name}</>} />
+							{g && <span className="a-muted sm">{g.groups.length} of {f.group_count} groups</span>}
+						</header>
+						{g && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={{ kind: 'group', federation: f.id }} placeholder={`Add a group of ${f.name}...`} />}
+					</section>
+				);
+			})}
+		</>
+	);
+	const grantRequired = isNew && !isSuper && a.role === 'member' && a.grants.length === 0;
 	return (
 		<Modal wide title={isNew ? 'New account' : init.name} icon={!isNew ? <Avatar id={init.id} name={init.name} size={24} /> : undefined} onClose={onClose}
 			footer={<>
-				{!isNew && !init.last_superadmin && <Btn ghost danger icon={Ban} onClick={() => void call(() => mutate('POST', `/api/accounts/${a.id}/${a.active ? 'disable' : 'enable'}`), 'close')}>{a.active ? 'Disable account' : 'Enable account'}</Btn>}
+				{!isNew && !init.last_superadmin && <Btn ghost danger icon={Ban} onClick={() => void call(() => ok(a.active ? api.POST('/api/accounts/{id}/disable', { params: { path: { id: a.id } } }) : api.POST('/api/accounts/{id}/enable', { params: { path: { id: a.id } } })), 'close')}>{a.active ? 'Disable account' : 'Enable account'}</Btn>}
 				{init.last_superadmin && <span className="a-muted sm a-note"><Info size={13} />The last active superadmin cannot be disabled or demoted.</span>}
 				<span className="a-grow" />
 				<Btn ghost onClick={onClose}>Cancel</Btn>
-				<Btn primary onClick={() => void save()}>{isNew ? 'Create and email link' : 'Save changes'}</Btn>
+				{grantRequired && <span className="a-muted sm a-note"><Info size={13} />Grant at least one federation.</span>}
+				<Btn primary disabled={grantRequired} onClick={() => void save()}>{isNew ? 'Create and email link' : 'Save changes'}</Btn>
 			</>}>
 			{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			{note && <div className="a-banner" role="status"><MailCheck size={15} /><span>{note}</span></div>}
@@ -150,9 +150,9 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 						)}
 						{isNew ? <div className="a-banner"><Mail size={15} /><span>The account gets an email with a one-time link to choose its own password. No password is ever shown here or sent by email.</span></div> : (
 							<div className="a-btnrow">
-								{a.invited ? <Btn ghost icon={Send} onClick={() => void call(() => mutate('POST', `/api/accounts/${a.id}/resend-invite`), 'A new set-password link is on its way.')}>Resend set-password link</Btn>
-									: <Btn ghost icon={KeyRound} disabled={!a.email_verified} onClick={() => void call(() => mutate('POST', `/api/accounts/${a.id}/password-reset`), 'A password reset link is on its way.')}>Send password reset link</Btn>}
-								<Btn ghost icon={LogOut} onClick={() => void call(() => mutate('POST', `/api/accounts/${a.id}/sign-out-everywhere`), 'Every session of this account has been signed out.')}>Sign out everywhere</Btn>
+								{a.invited ? <Btn ghost icon={Send} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/resend-invite', { params: { path: { id: a.id } } })), 'A new set-password link is on its way.')}>Resend set-password link</Btn>
+									: <Btn ghost icon={KeyRound} disabled={!a.email_verified} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/password-reset', { params: { path: { id: a.id } } })), 'A password reset link is on its way.')}>Send password reset link</Btn>}
+								<Btn ghost icon={LogOut} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/sign-out-everywhere', { params: { path: { id: a.id } } })), 'Every session of this account has been signed out.')}>Sign out everywhere</Btn>
 							</div>
 						)}
 					</section>
@@ -168,7 +168,8 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 								</label>
 							);
 						})}</div>
-						{isNew && a.role !== 'superadmin' && <p className="a-muted sm">Federations, restrictions and grants are set on the Access tab once the account exists.</p>}
+						{isNew && a.role === 'admin' && <p className="a-muted sm">Federations and restrictions are set on the Access tab once the account exists.</p>}
+						{isNew && a.role === 'member' && <p className="a-muted sm">Abilities are set on the Access tab once the account exists.</p>}
 					</section>
 				</div>
 			)}
@@ -202,22 +203,11 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 				</div>
 			)}
 
+			{isNew && a.role === 'member' && <div className="a-form">{grantsBlock}</div>}
+
 			{!isNew && tab === 'access' && a.role === 'member' && (
 				<div className="a-form">
-					<h3 className="a-sec">Groups, per federation</h3>
-					<p className="a-muted sm">A member sees only the groups granted here, and people only as they appear in those groups. Members never see private messages.</p>
-					{props.federations.map((f) => {
-						const g = grantOf(f.id);
-						return (
-							<section key={f.id} className={`a-fedgrant ${g ? 'on' : ''}`}>
-								<header>
-									<Switch checked={!!g} onChange={() => set({ grants: g ? a.grants.filter((x) => x.fed !== f.id) : [...a.grants, { fed: f.id, groups: [] }] })} label={<><Network size={14} /> {f.name}</>} />
-									{g && <span className="a-muted sm">{g.groups.length} of {f.group_count} groups</span>}
-								</header>
-								{g && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={{ kind: 'group', federation: f.id }} placeholder={`Add a group of ${f.name}...`} />}
-							</section>
-						);
-					})}
+					{grantsBlock}
 					<h3 className="a-sec">Abilities</h3>
 					<ul className="a-perms">{ABILITIES.map(([k, t, d]) => (
 						<li key={k}><label><input type="checkbox" checked={a.abilities.includes(k)} onChange={() => set({ abilities: a.abilities.includes(k) ? a.abilities.filter((x) => x !== k) : [...a.abilities, k] })} /><span><b>{t}</b><span className="a-muted sm">{d}</span></span></label></li>

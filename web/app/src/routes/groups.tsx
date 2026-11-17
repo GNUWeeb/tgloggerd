@@ -7,9 +7,10 @@ import { ago, compact, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { Cond, FieldDef, GroupSummary, ListProps } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export type GroupRow = GroupSummary & { msg_count: number; admin_count: number; description: string; created_at: string };
-export type GroupsProps = ListProps<GroupRow> & { archive_total?: number };
+export type GroupRow = S['GroupsProps']['rows'][number];
+export type GroupsProps = S['GroupsProps'];
 
 export const TYPE_LABEL: Record<GroupSummary['type'], string> = { supergroup: 'supergroup', basic_group: 'basic group', channel: 'channel' };
 

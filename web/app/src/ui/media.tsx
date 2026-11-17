@@ -1,8 +1,9 @@
 // Media thumbnails and type icons. Real thumbnails come from the server
 // (`thumb`, a /files/<token> URL); without one, an icon stands in.
 import { FileText, Image, Video, Mic, Music, Sticker, Film, Play, CloudOff, Type as TextIcon, Info } from 'lucide-react';
+import type { S } from '../api/schema.ts';
 
-export type ContentType = 'text' | 'photo' | 'video' | 'document' | 'audio' | 'voice' | 'sticker' | 'animation' | 'service' | 'unknown';
+export type ContentType = S['ContentType'];
 
 const ICON = { text: TextIcon, photo: Image, video: Video, document: FileText, audio: Music, voice: Mic, sticker: Sticker, animation: Film, service: Info, unknown: FileText };
 

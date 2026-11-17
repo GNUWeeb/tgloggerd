@@ -2,33 +2,15 @@
 // the browser and (as JSON) the Go service. Specification:
 // docs/design/web-ssr.md sections 4 and 5.
 
+import type { S } from './api/schema.ts';
+
 export const PROTOCOL = 1;
 
-export type Role = 'superadmin' | 'admin' | 'member';
+export type Role = S['Role'];
 
 // Everything optional falls back to the site default: until per-account
 // settings exist the server sends defaults or leaves fields out.
-export interface Viewer {
-	signed_in: boolean;
-	account?: { id: number; username: string; name: string; role: Role };
-	now: string;
-	timezone?: string;
-	date_format?: '24h' | '12h' | 'iso';
-	lang?: 'en' | 'id';
-	theme?: 'system' | 'light' | 'dark';
-	sidebar?: 'open' | 'collapsed';
-	rows_per_page?: number;
-	nav?: string[];
-	pinned?: { id: number; title: string }[];
-	chat?: {
-		auto_load?: boolean;
-		live?: boolean;
-		media?: 'auto' | 'click';
-		show_deleted?: boolean;
-		show_edited?: boolean;
-		show_service?: boolean;
-	};
-}
+export type Viewer = S['Viewer'];
 
 export interface PageData<P = unknown> {
 	v: number;

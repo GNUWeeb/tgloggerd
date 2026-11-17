@@ -120,7 +120,7 @@ export function MultiPicker({ value, onChange, options, search, placeholder = 'A
 	);
 }
 
-export function CheckChips({ items, value, onChange }: { items: [string, ReactNode][]; value: string[]; onChange: (v: string[]) => void }) {
+export function CheckChips<K extends string>({ items, value, onChange }: { items: [K, ReactNode][]; value: K[]; onChange: (v: K[]) => void }) {
 	return (
 		<div className="a-checkgrid">
 			{items.map(([k, label]) => {

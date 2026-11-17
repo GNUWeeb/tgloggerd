@@ -10,14 +10,9 @@ import { ago, compact, dateTime, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { GroupAdmin, GroupFull, GroupHistoryEntry, UserSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface GroupProps {
-	group: GroupFull;
-	admins: GroupAdmin[];
-	history: GroupHistoryEntry[];
-	top_posters: { user: UserSummary; msgs: number }[];
-	activity: number[];
-}
+export type GroupProps = S['GroupProps'];
 
 const KIND = {
 	title: [Type, 'Title changed'], description: [Quote, 'Description changed'], username: [AtSign, 'Username'],

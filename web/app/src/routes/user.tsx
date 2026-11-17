@@ -8,20 +8,13 @@ import { ago, dateTime, fmt } from '../format.ts';
 import type { PageData, Viewer } from '../page.ts';
 import type { GroupSummary, HistoryEntry, UserSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface UserFull extends UserSummary {
-	first_name: string;
-	last_name: string;
-	bio: string;
-	phone: string;
-	usernames: { username: string; active: boolean }[];
-}
+export type UserFull = S['UserFull'];
 
 // Full-access viewers get the profile; a member gets only the groups it
 // shares with the person (`limited`), web-accounts.md section 5.
-export type UserProps =
-	| { limited?: false; user: UserFull; groups: (GroupSummary & { msgs: number })[]; history: HistoryEntry[]; activity: number[]; can_private: boolean }
-	| { limited: true; user: UserSummary; shared_groups: GroupSummary[] };
+export type UserProps = S['UserProps'];
 
 const KIND = {
 	name: [Type, 'Name changed'], username: [AtSign, 'Username'], bio: [Quote, 'Bio changed'],

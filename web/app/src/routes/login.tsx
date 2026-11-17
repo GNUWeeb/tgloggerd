@@ -4,8 +4,9 @@ import { ThemeButton } from '../ui/Shell.tsx';
 import { login, loginToken } from '../api/auth.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface LoginProps { next: string | null }
+export type LoginProps = S['LoginProps'];
 
 // Only same-site paths are followed after signing in.
 function safeNext(n: string | null): string {
