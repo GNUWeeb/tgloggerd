@@ -100,7 +100,6 @@ touches the list.
 The file store as a capped cache in front of Telegram:
 [design/storage-cache.md](design/storage-cache.md).
 
-- [`web-fetch-unstored-media`](todo/web-fetch-unstored-media.md): Serve unstored files by fetching them through the daemon, with byte ranges, and show them as loadable.
 - [`storage-cutover`](todo/storage-cutover.md): Deploy the storage cache, dry-run the first sweep, and enable eviction once the owner agrees.
 - [`photo-download-index`](todo/photo-download-index.md): Stop re-downloading user and group photos that are already stored (optional).
 - [`download-failure-handling`](todo/download-failure-handling.md): Notice failed or cancelled TDLib downloads and drop their pending entries (optional).

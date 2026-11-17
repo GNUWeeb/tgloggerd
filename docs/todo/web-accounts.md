@@ -35,7 +35,8 @@ web UI (mockup approved by the project owner on 2026-11-18, pages
 - `web/docs/` describes accounts, roles, permissions and the API, in
   the same commits.
 - Not in scope: access scopes (web-access-scopes); the fetch action
-  itself (web-fetch-unstored-media).
+  itself (web-fetch-permission, on the fetch path that is already
+  there).
 
 ## Design notes
 

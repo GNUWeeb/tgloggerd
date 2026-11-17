@@ -90,10 +90,21 @@ step needs care, and the last one needs the owner's go.
     unchanged; `/files/<token>` answers `Cache-Control: public,
     max-age=604800`; with tgloggerd stopped, stored files are still
     served and the web logs one "access report failed" line.
+  - `web-fetch-unstored-media` (web/docs/media.md): at
+    tgd.gnuweeb.org, signed in, an over-cap video in a chat shows
+    "Load from Telegram", plays, and seeks (206s with
+    `Content-Range: bytes a-b/<full size>`); an evicted or
+    metadata-only photo shows and its row then has `on_disk = 1`;
+    `/files/<token>` of an over-cap file without a session answers
+    403 and of a small one 200; the public view of an exposed group
+    offers small files only; with tgloggerd stopped, an unstored file
+    answers 503 with `Retry-After` while stored files are still
+    served; the web logs no "partial path outside the TDLib directory"
+    line (it would mean `TG_DATA_DIR` differs between the containers).
 
 ## Depends on
 
-- `web-fetch-unstored-media`
+Nothing.
 
 ## Done when
 

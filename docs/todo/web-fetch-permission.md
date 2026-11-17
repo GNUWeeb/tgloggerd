@@ -27,11 +27,16 @@ to do it, not something every page view triggers.
 - Builds on the fetch path of web-fetch-unstored-media and the
   permissions of web-accounts; agree the exact rule for page views and
   tokens with the project owner before building.
+- The fetch decision is one function, `media::mayFetch()` in
+  `web/src/media/Fetch.cpp`: `/files/<token>` asks it before calling
+  the daemon, and the chat pages set `fetchable` from it
+  (`media::markFetchable()`), so gating it there gates both. Today it
+  allows any signed-in request and, without a session, files under
+  `TG_MAX_STORE_FILE_SIZE` (web/docs/media.md).
 
 ## Depends on
 
 - `web-accounts`
-- `web-fetch-unstored-media`
 
 ## Done when
 
