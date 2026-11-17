@@ -121,7 +121,11 @@ export interface paths {
          * A page's data
          * @description The data of the page at /<path>, the same object the server embeds in the page's HTML on a first load (web-ssr.md sections 5 and 7), for navigation in the browser. `path` is the page's path without its leading slash (empty for the dashboard at /); its slashes may be sent as they are or encoded as %2F. The page's query string (search, filters, sort, page) is passed on as the query string of this request.
          *
-         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens.
+         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
+         *
+         *     password_forgot, password_set and email_verify are served to signed-out and signed-in visitors alike, and their GETs change nothing: the link token travels in the URL's fragment, which never reaches the server, and is posted only when the person acts on the page.
+         *
+         *     A signed-in account with no verified email address (web-accounts.md section 8) gets the email_required route for every page path except those three, until an address is verified; its API operations answer 403 email_required, except session, logout, the account's email operations and the three link operations.
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist.
          */
@@ -225,7 +229,7 @@ export interface paths {
         put?: never;
         /**
          * Verify an email address
-         * @description Takes the token of a verification link (web-accounts.md section 8). Links are single-use and expire. Needs no session: the link may be opened in another browser.
+         * @description Takes the token of a verification link (web-accounts.md section 8), <site>/account/email/verify#token=<token>. Links are single-use and expire. Needs no session: the link may be opened in another browser.
          */
         post: operations["verifyEmail"];
         delete?: never;
@@ -265,7 +269,7 @@ export interface paths {
         put?: never;
         /**
          * Set a password from a link
-         * @description Takes the token of a set-password link (a new account's invitation, or a reset) and the new password. Every session of the account ends.
+         * @description Takes the token of a set-password link (a new account's invitation, or a reset), <site>/password/set#token=<token>, and the new password. Every session of the account ends.
          */
         post: operations["setPassword"];
         delete?: never;
@@ -929,7 +933,17 @@ export interface components {
             props?: Record<string, never>;
         };
         /** @description The page data; `route` says which props it carries. */
-        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"];
+        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PageEmailRequired"];
+        PageLinkPage: components["schemas"]["PageBase"] & {
+            /** @enum {unknown} */
+            route: "password_forgot" | "password_set" | "email_verify";
+            props: Record<string, never>;
+        };
+        PageEmailRequired: components["schemas"]["PageBase"] & {
+            /** @enum {unknown} */
+            route: "email_required";
+            props: components["schemas"]["EmailRequiredProps"];
+        };
         PageLogin: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
             route: "login";
@@ -1299,6 +1313,12 @@ export interface components {
              * @description Everything in the archive; full-access viewers only.
              */
             archive_total?: number;
+        };
+        EmailRequiredProps: {
+            /** @description An address added but not verified yet, to which a verification link was sent; null when none was added. */
+            pending: string | null;
+            /** @description The page that was asked for, to go on to once verified. */
+            next: string;
         };
         LoginProps: {
             /** @description Where to go after signing in; same-site paths only. */

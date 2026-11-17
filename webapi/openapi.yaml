@@ -479,7 +479,25 @@ paths:
         join_chat /join-chat;
         mcp /mcp-admin;
         mcp_groups /mcp-admin/groups;
-        mcp_tokens /mcp-admin/tokens.
+        mcp_tokens /mcp-admin/tokens;
+        password_forgot /password/forgot;
+        password_set /password/set;
+        email_verify /account/email/verify.
+
+
+        password_forgot, password_set and email_verify are served to
+        signed-out and signed-in visitors alike, and their GETs change
+        nothing: the link token travels in the URL's fragment, which
+        never reaches the server, and is posted only when the person
+        acts on the page.
+
+
+        A signed-in account with no verified email address
+        (web-accounts.md section 8) gets the email_required route for
+        every page path except those three, until an address is
+        verified; its API operations answer 403 email_required, except
+        session, logout, the account's email operations and the three
+        link operations.
 
 
         A path the service does not serve as a React page yet answers
@@ -768,8 +786,9 @@ paths:
       summary: Verify an email address
       description: >-
         Takes the token of a verification link (web-accounts.md
-        section 8). Links are single-use and expire. Needs no session:
-        the link may be opened in another browser.
+        section 8), <site>/account/email/verify#token=<token>. Links
+        are single-use and expire. Needs no session: the link may be
+        opened in another browser.
       security: []
       requestBody:
         required: true
@@ -838,8 +857,8 @@ paths:
       summary: Set a password from a link
       description: >-
         Takes the token of a set-password link (a new account's
-        invitation, or a reset) and the new password. Every session of
-        the account ends.
+        invitation, or a reset), <site>/password/set#token=<token>, and
+        the new password. Every session of the account ends.
       security: []
       requestBody:
         required: true
@@ -2234,6 +2253,29 @@ components:
         - $ref: '#/components/schemas/PageMcp'
         - $ref: '#/components/schemas/PageMcpGroups'
         - $ref: '#/components/schemas/PageMcpTokens'
+        - $ref: '#/components/schemas/PageLinkPage'
+        - $ref: '#/components/schemas/PageEmailRequired'
+    PageLinkPage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          required: [route, props]
+          properties:
+            route:
+              enum: [password_forgot, password_set, email_verify]
+            props:
+              type: object
+              additionalProperties: false
+    PageEmailRequired:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          required: [route, props]
+          properties:
+            route:
+              enum: [email_required]
+            props:
+              $ref: '#/components/schemas/EmailRequiredProps'
     PageLogin:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -2976,6 +3018,18 @@ components:
           description: Everything in the archive; full-access viewers only.
 
     # Page props, one per route (web/app/src/routes/).
+    EmailRequiredProps:
+      type: object
+      required: [pending, next]
+      properties:
+        pending:
+          type: [string, 'null']
+          description: >-
+            An address added but not verified yet, to which a
+            verification link was sent; null when none was added.
+        next:
+          type: string
+          description: The page that was asked for, to go on to once verified.
     LoginProps:
       type: object
       required: [next]
