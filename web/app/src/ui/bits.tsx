@@ -2,6 +2,7 @@ import { BadgeCheck } from 'lucide-react';
 import { Link } from '../nav.tsx';
 import { Avatar, Pill, type Tone } from './primitives.tsx';
 import type { GroupSummary, UserSummary } from '../types.ts';
+import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
 
 export function userFlags(u: UserSummary): [string, Tone][] {
 	const f: [string, Tone][] = [];
@@ -19,7 +20,8 @@ export function Flags({ flags }: { flags: [string, Tone][] }) {
 	return <>{flags.map(([t, tone]) => <Pill key={t} tone={tone}>{t}</Pill>)}</>;
 }
 
-export function UserCell({ u, size = 28 }: { u: UserSummary; size?: number }) {
+export function UserCell({ u: page, size = 28 }: { u: UserSummary; size?: number }) {
+	const u = useFreshUser(page);
 	return (
 		<Link to={`/users/${u.id}`} className="a-usercell">
 			<Avatar id={u.id} name={u.name} photo={u.photo} size={size} deleted={u.type === 'deleted'} />
@@ -31,7 +33,8 @@ export function UserCell({ u, size = 28 }: { u: UserSummary; size?: number }) {
 	);
 }
 
-export function GroupCell({ g, size = 28 }: { g: GroupSummary; size?: number }) {
+export function GroupCell({ g: page, size = 28 }: { g: GroupSummary; size?: number }) {
+	const g = useFreshGroup(page);
 	return (
 		<Link to={`/groups/${g.id}`} className="a-usercell">
 			<Avatar id={g.id} name={g.title} photo={g.photo} size={size} square />

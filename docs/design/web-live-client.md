@@ -1,7 +1,9 @@
 # Live updates in the React application
 
-Status: designed 2026-11-18, not implemented. The browser side of
-[web-live.md](web-live.md): how the React application in `web/app/`
+Status: built in `web/app/` and tested against the development
+stand-in; the Go service's event stream and entity lookup are still to
+come (items web-live-events and daemon-event-stream). The browser side
+of [web-live.md](web-live.md): how the React application in `web/app/`
 subscribes to `GET /api/events`, what each event refreshes, how
 refreshes are throttled, and what happens without the stream.
 
@@ -20,27 +22,25 @@ refreshes are throttled, and what happens without the stream.
 
 ## 2. Data layer
 
-Server data lives in one query cache: TanStack Query (MIT, pinned in
-`web/app/package-lock.json`, bundled), which gives keyed caching,
-de-duplication of identical requests, refetching only of mounted
-queries, and invalidation by key prefix. Every request goes through the
-generated client in `web/app/src/api/generated/`.
+Server data stays where it is loaded: a page's data in the navigation
+state (`src/nav.tsx`), a chat's window of messages in the chat view.
+Every request goes through the generated client in
+`web/app/src/api/`. Live updates refetch through the same calls:
 
-Query keys:
-
-| Key | Data | Source |
+| Data | Refetched by | Through |
 |---|---|---|
-| `['page', path]` | a page's props (path includes the query) | `GET /api/page/<path>` |
-| `['chat', chatId, 'window', anchor]` | a window of messages | the chat API, cursors |
-| `['message', scope, id]` | one message | the message endpoint |
-| `['entity', 'user', id]` | name, username, photo, contact name, counters | entity endpoint (section 7) |
-| `['entity', 'group', id]` | title, username, photo, counters | entity endpoint |
-| `['stats', 'dashboard']` | dashboard totals and charts | dashboard data |
+| a page's props | `refresh()` in `src/nav.tsx`, throttled per page | `GET /api/page/{path}` |
+| a chat's newer messages, or one message | the chat view, from its cursor | `GET /api/chats/{scope}/{id}/messages` |
+| a user's or a group's display fields and counters | the entity cache (`src/live/entities.ts`) | `GET /api/entities` |
 
-Page props hold rows that refer to users and groups by id plus an
-`entities` map; components read names and photos from the entity
-cache, seeded from that map on load. A renamed user is then fixed in
-every list, bubble and header by refetching one entity, not every page.
+The entity cache holds the users and groups that were fetched again
+because an event named them, at most 2000 of each, least recently used
+first out. Lists, cells, chat bubbles and the chat header show the
+cached value where it is newer than the page's data, and the page's
+otherwise, so a renamed user is fixed in every list, bubble and header
+by fetching one entity, not every page, and a list keeps its order.
+Only ids on screen are fetched; ids the server leaves out (hidden or
+unknown) are not asked for again until the next page load.
 
 ## 3. Subscription manager
 
@@ -71,12 +71,12 @@ every list, bubble and header by refetching one entity, not every page.
 |---|---|---|
 | `message.new` | open chat on `chat_id` | at the live edge: fetch newer from the cursor and append; scrolled up: show "N new messages" below, nothing moves |
 | | message search lists (`messages` topic) | mark page 1 stale and show "New messages, refresh"; never reorder rows on their own |
-| `message.edited` | the message, wherever loaded | refetch `['message', ...]` or the chat window holding it; the bubble updates in place with its edit marker |
+| `message.edited` | the message, wherever loaded | refetch that message in the open chat window, or the message page; the bubble updates in place with its edit marker |
 | `message.deleted` | the message, wherever loaded | as edited; the bubble is struck through, not removed |
-| `user.updated` | `['entity', 'user', id]` | one batched entity fetch; every name, photo and username shown for that user updates; on that user's own page, also its page data (bio, history) |
-| `group.updated` | `['entity', 'group', id]` | as users; on the group's page, also its page data (description, admins, usernames) |
+| `user.updated` | the user in the entity cache | one batched entity fetch; every name, photo and username shown for that user updates; on that user's own page, also its page data (bio, history) |
+| `group.updated` | the group in the entity cache | as users; on the group's page, also its page data (description, admins, usernames) |
 | `file.stored` | the bubble and file card of that file | refetch the message or the file row; a "Not stored" placeholder becomes the media |
-| `stats.changed` | `['stats', 'dashboard']`; entities of the listed `chat_ids` and `user_ids` that are on screen | counters update in place; a list sorted by a counter keeps its order until refreshed |
+| `stats.changed` | the dashboard; entities of the listed `chat_ids` and `user_ids` that are on screen | counters update in place; a list sorted by a counter keeps its order until refreshed |
 | `resync` | every mounted query | refetch all, chats from their cursors |
 | `session` | the whole app | `scope_changed`: refetch everything, a page now hidden becomes 404; `revoked`: go to the sign-in page |
 

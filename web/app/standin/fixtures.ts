@@ -570,7 +570,14 @@ export function liveChange(kind: string, b: { chat_id?: number; message_id?: num
 		g.title = g.title.replace(/ \(renamed \d+\)$/, '') + ` (renamed ${Math.floor(Math.random() * 900 + 100)})`;
 		return { kind, chat_id: g.id, fields: ['title'] };
 	}
-	if (kind === 'stats.changed') return { kind, chat_ids: b.chat_id ? [b.chat_id] : [], user_ids: b.user_id ? [b.user_id] : [] };
+	if (kind === 'stats.changed') {
+		// Counters move: one more message for the named chat and user.
+		const g = b.chat_id ? getGroup(Number(b.chat_id)) : null;
+		const u = b.user_id ? getUser(Number(b.user_id)) : null;
+		if (g) g.msg_count += 1;
+		if (u) u.msg_count += 1;
+		return { kind, chat_ids: g ? [g.id] : [], user_ids: u ? [u.id] : [] };
+	}
 	return null;
 }
 
@@ -605,4 +612,18 @@ export function setPendingEmail(persona: Persona, email: string): void {
 }
 export function verifyPendingEmails(): void {
 	for (const a of accounts) if (a.pendingEmail) { a.email = a.pendingEmail; a.verified = true; a.pendingEmail = null; }
+}
+
+// Stand-in for GET /api/entities: display fields and counters of the
+// users and groups the persona may see; the others are left out.
+export function entities(persona: Persona, q: URLSearchParams): [number, unknown] {
+	const s = scopeOf(persona);
+	if (s.role === 'public') return [401, { error: 'unauthenticated' }];
+	const ids = (k: string) => (q.get(k) || '').split(',').filter(Boolean).map(Number);
+	const users = ids('users'), groups = ids('groups');
+	if (users.length > 200 || groups.length > 200 || [...users, ...groups].some((n) => !Number.isFinite(n))) return [400, { error: 'bad_request', message: 'At most 200 numeric ids per list.' }];
+	return [200, {
+		users: users.map((id) => getUser(id)).filter((u) => u && s.user(u)).map((u) => userSummary(u, s.fullUser)),
+		groups: groups.map((id) => getGroup(id)).filter((g) => g && s.group(g)).map((g) => ({ ...groupSummary(g), ...(s.role === 'member' ? {} : { msg_count: g.msg_count }) })),
+	}];
 }

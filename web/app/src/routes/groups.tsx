@@ -2,6 +2,7 @@ import { Globe } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Avatar, PageHead, Pill } from '../ui/primitives.tsx';
 import { DataTable, FilterBar, useListNav, type Col } from '../ui/list.tsx';
+import { useFreshRows } from '../live/useEntities.tsx';
 import { Bar, GroupCell } from '../ui/bits.tsx';
 import { ago, compact, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
@@ -30,7 +31,8 @@ const QUICK: [string, Cond[]][] = [
 ];
 
 function Groups({ page }: { page: PageData<GroupsProps> }) {
-	const L = useListNav(page.props);
+	const rows = useFreshRows('group', page.props.rows);
+	const L = useListNav({ ...page.props, rows });
 	const v = page.viewer;
 	const member = v.account?.role === 'member';
 	const max = Math.max(1, ...L.rows.map((g) => g.msg_count));
