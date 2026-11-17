@@ -98,3 +98,20 @@ exposed through MCP); React then takes over in the browser.
 Rule for every port: same URLs and JSON shapes as the Drogon endpoint
 it replaces unless the API is deliberately versioned, and the matching
 `web/docs/` page moves or is updated in the same series.
+
+## 6. Every feature has an API
+
+Every feature of the web that reads from or acts on the backend is an
+operation of the JSON API under `/api/`, described in the OpenAPI
+description, not only a page or an HTML form post. The React
+application is one client of that API; native clients (Android, iOS)
+or scripts must be able to do everything the dashboard does through
+the same operations, with the same request scope.
+
+- A page's data comes from its loader, which is also an API operation
+  (`GET /api/page/<path>`, section 4); every action on a page (save,
+  delete, join, transfer, fetch) is an operation of its own.
+- Clients other than a browser need a way to authenticate without
+  cookies and CSRF tokens (per-account API tokens, web-accounts.md
+  section 7); until then, the cookie session is the only one.
+- A port is done only when its operations are in the description.
