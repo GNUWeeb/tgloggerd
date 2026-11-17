@@ -28,6 +28,10 @@ namespace tgweb::auth::session {
 
 constexpr const char *kCookie = "tgw_session";
 
+/* The latest expiry a session is given when sessions never expire: the last
+ * second of the year 9999, as in the Go service (auth.NeverExpires). */
+constexpr int64_t kNeverExpires = 253402300799;
+
 struct Session {
 	uint64_t    uid = 0;
 	std::string username;
