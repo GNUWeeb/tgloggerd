@@ -155,19 +155,22 @@ page the id and thumbnail cells link to the tokenized media download
 | `ext` | Extension | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
 | `size` | Size | int | C | `= != < > <= >=` — bytes (displayed human-readable) |
 | `hits` | Hits | int | C | `= != < > <= >=` — times this content (SHA-256) was seen |
-| `stored` | Stored | bool | C | `= !=` — `0` = metadata-only (too large), re-downloadable |
+| `stored` | Stored | bool | C | `= !=` — `0` = the bytes are not in the store (evicted, never fetched, or over the per-file cap), fetchable from Telegram |
 | `tg_file_id` | TG file id | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
 | `sha256` | SHA-256 | text | C | `= !=` — full hex digest (upper/lower); matched as `sha256 = UNHEX(?)` so it uses the unique index. Exact only (no prefix); invalid hex matches nothing |
 | `created_at` | Created | datetime | C | `= != < > <= >=` |
 | `updated_at` | Updated | datetime | C | `= != < > <= >=` |
+| `accessed_at` | Last access | datetime | C | `= != < > <= >=` — last use of the file (ingested again, served); eviction takes the least recent first |
 
-Sortable keys: `id, file_type, name, ext, size, hits, created_at`.
+Sortable keys: `id, file_type, name, ext, size, hits, created_at, updated_at,
+accessed_at`.
 
 The table also shows two identifier columns, both searchable (above): the
 `tg_file_id` (its full value is truncated in the table — click the cell to see
 the full id in a modal) and the `sha256` content digest (an uppercase hex
-string). The thumbnail is display-only. Neither identifier column is sortable;
-`sha256` searches an exact digest through the unique index (`= UNHEX(?)`).
+string, empty for a file whose bytes were never seen). The thumbnail is
+display-only. Neither identifier column is sortable; `sha256` searches an exact
+digest through the unique index (`= UNHEX(?)`).
 
 ## Private messages field registry
 
