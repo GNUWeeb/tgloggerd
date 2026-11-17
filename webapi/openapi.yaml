@@ -1,0 +1,3918 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# The API contract of the Go web service (webapi/). Every route the
+# service serves is described here, and every operation described is
+# served unless it carries `x-tgd-status: planned`;
+# internal/server/openapi_test.go checks both. The React application
+# generates its client from this file (web/app, `npm run gen:api`).
+#
+# The test reads the file with a small reader of its own, so keep to
+# this layout: two-space indentation, block mappings, sequences
+# indented under their key, flow collections ([a, b], {}) on one line,
+# and long text as a block scalar (>- or |), never a plain scalar
+# continued on the next line.
+openapi: 3.1.0
+info:
+  title: tgloggerd web API
+  version: 0.1.0
+  license:
+    name: GPL-2.0-or-later
+    identifier: GPL-2.0-or-later
+  description: >-
+    The JSON API of the tgloggerd web service, and the file URLs it
+    serves. The React dashboard is one client of it; every feature of
+    the dashboard that reads from or acts on the backend is an
+    operation here, so other clients can do the same through the same
+    operations and the same request scope (docs/design/web-go.md
+    section 6).
+
+
+    Operations marked `x-tgd-status: planned` are designed but not
+    served yet; until they are, they answer 404 like any unknown
+    path. Their shapes follow the React pages that already call them
+    and docs/design/web-accounts.md, and may still change when they
+    are built.
+
+
+    Authentication is the browser session: the signed cookie
+    tgw_session, set by POST /api/login. Every state-changing request
+    carries a CSRF token in the X-CSRF-Token header: for a signed-in
+    request the token GET /api/session or POST /api/login answers; for
+    POST /api/login the pre-login token of GET /api/login. A signed-in
+    page also carries the session's token in its csrf-token meta tag.
+    Per-account bearer tokens for clients that cannot keep cookies
+    (native apps, scripts) are planned (web-accounts.md section 7); see
+    the apiToken scheme.
+
+
+    Errors of the JSON operations are an object with a machine-readable
+    `error` code and, where a person may read it, a `message`
+    sentence (the Error schema). Visibility follows the request scope
+    of web-accounts.md section 9: something the viewer may not see
+    answers exactly like something that does not exist, 404
+    not_found, never 403.
+servers:
+  - url: /
+security:
+  - session: []
+tags:
+  - name: service
+    description: Health of the service.
+  - name: auth
+    description: Signing in and out, the current session.
+  - name: files
+    description: File bytes behind /files/<token> links.
+  - name: pages
+    description: Page data for the React application (docs/design/web-ssr.md).
+  - name: chats
+    description: Chat message windows and the chat search of the pickers.
+  - name: account
+    description: The signed-in account's own settings.
+  - name: accounts
+    description: Administration of accounts and federations.
+  - name: forwarding
+    description: Telegram to Discord and Discord to Telegram forwarding.
+  - name: join-chat
+    description: Joining Telegram groups and channels with the logging account.
+  - name: mcp
+    description: Administration of the MCP endpoint's exposed groups and tokens.
+
+paths:
+
+  /api/health:
+    get:
+      operationId: getHealth
+      tags: [service]
+      summary: Check both database pools
+      description: >-
+        Needs no session; for probes and for checking the routing. The
+        answer says only which pool failed; the reason goes to the
+        service's log.
+      security: []
+      responses:
+        '200':
+          description: Both pools answer.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: >-
+            A pool did not answer within a few seconds; its check reads
+            "unavailable" and so does status.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  /api/login:
+    get:
+      operationId: getLogin
+      tags: [auth]
+      summary: Start a sign-in
+      description: >-
+        Answers a pre-login CSRF token and sets it as the tgw_csrf
+        cookie (path /api/login), to be sent back with POST
+        /api/login. A request whose session cookie has a valid
+        signature gets signed_in true and no token; the cookie's
+        session_epoch is not checked here, as the Drogon login page
+        does not check it either.
+      security: []
+      responses:
+        '200':
+          description: The sign-in state, and a token when signed out.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              description: tgw_csrf, the pre-login token, when signed_in is false.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginState'
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Sign in
+      description: >-
+        Checks, in this order: the pre-login CSRF token against its
+        cookie, the body, the login throttle (per client address and
+        username, in the process's memory), then the account and its
+        password. Each attempt past the CSRF check and the body is
+        audited (login_ok, login_fail or login_ratelimited). Refused
+        attempts answer a fresh pre-login token in `csrf` and set it as
+        the cookie, so the client can try again.
+      security:
+        - loginCsrf: []
+          loginCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Signed in; the session cookie is set.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              description: tgw_session, the signed session cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          description: The body is not a JSON object (error bad_request).
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: >-
+            No such account, a disabled one, or a wrong password (error
+            invalid_credentials), with a fresh token.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              $ref: '#/components/headers/LoginCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginError'
+        '403':
+          description: >-
+            The token or its cookie is missing or wrong (error csrf),
+            with a fresh token.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              $ref: '#/components/headers/LoginCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginError'
+        '429':
+          description: >-
+            Too many failures for this address and username within the
+            throttle's window (error rate_limited), with a fresh token.
+            No Retry-After is sent.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              $ref: '#/components/headers/LoginCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginError'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /api/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out this browser
+      description: >-
+        Clears the session cookie and audits a logout when the cookie
+        opens. The account's other sessions stay signed in. The CSRF
+        token must match the session cookie; a request without a
+        session cookie fails that check.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '204':
+          description: Signed out; the session cookie is cleared.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Set-Cookie:
+              description: tgw_session, expired.
+              schema:
+                type: string
+        '403':
+          description: The CSRF token is missing or wrong (error csrf).
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /api/session:
+    get:
+      operationId: getSession
+      tags: [auth]
+      summary: Who is signed in
+      description: >-
+        The account of a valid session (signature, expiry and the
+        account's session_epoch) and the CSRF token to send with it.
+      responses:
+        '200':
+          description: The session's account and CSRF token.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /files/{token}:
+    get:
+      operationId: getFile
+      tags: [files]
+      summary: A file's bytes
+      description: >-
+        Serves a logged file, from the store or fetched from Telegram
+        through the daemon; web/docs/media.md has the details. The
+        token is the encrypted file id; one that does not open answers
+        like an unknown id. The route is public: a session only allows
+        fetching big files and makes the request audited. HEAD is
+        answered like GET, without the body.
+
+
+        Error answers are small HTML pages, not JSON, since a browser
+        following a link or loading an image gets them.
+      security:
+        - {}
+        - session: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: The file token, as minted into the pages and the API.
+          schema:
+            type: string
+        - name: Range
+          in: header
+          required: false
+          description: >-
+            A byte range. A stored file honours several ranges
+            (multipart/byteranges); a partial file from TDLib's cache
+            answers at most the bytes it holds from the first range's
+            start.
+          schema:
+            type: string
+        - name: If-Range
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: If-Modified-Since
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The whole file.
+          headers:
+            Accept-Ranges:
+              $ref: '#/components/headers/AcceptRanges'
+            Cache-Control:
+              $ref: '#/components/headers/FileCacheControl'
+            Content-Disposition:
+              $ref: '#/components/headers/ContentDisposition'
+            Last-Modified:
+              description: For a stored file.
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                contentMediaType: application/octet-stream
+        '206':
+          description: >-
+            The requested range, or for a file still being fetched the
+            part of it already there; Content-Range carries the file's
+            full size.
+          headers:
+            Accept-Ranges:
+              $ref: '#/components/headers/AcceptRanges'
+            Cache-Control:
+              $ref: '#/components/headers/FileCacheControl'
+            Content-Disposition:
+              $ref: '#/components/headers/ContentDisposition'
+            Content-Range:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                contentMediaType: application/octet-stream
+            multipart/byteranges:
+              schema:
+                type: string
+        '304':
+          description: Not modified since If-Modified-Since (a stored file).
+        '403':
+          description: >-
+            Not in the store and too big to fetch without a session
+            ("Sign in to load this file").
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: >-
+            No such file, a token that does not open, or not in the
+            store while fetching from Telegram is not configured.
+          content:
+            text/html:
+              schema:
+                type: string
+        '410':
+          description: The file is no longer available on Telegram.
+          content:
+            text/html:
+              schema:
+                type: string
+        '416':
+          description: The range is outside the file.
+          headers:
+            Content-Range:
+              description: bytes */<size>, when the size is known.
+              schema:
+                type: string
+        '500':
+          description: The file could not be served.
+          content:
+            text/html:
+              schema:
+                type: string
+        '502':
+          description: The daemon answered something unexpected.
+          content:
+            text/html:
+              schema:
+                type: string
+        '503':
+          description: >-
+            The daemon is busy, unreachable or not signed in to
+            Telegram, or the file moved while it was being opened; try
+            again after Retry-After seconds.
+          headers:
+            Retry-After:
+              description: Seconds to wait before asking again.
+              schema:
+                type: integer
+          content:
+            text/html:
+              schema:
+                type: string
+        '504':
+          description: >-
+            Telegram took too long; the fetch goes on in the background.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/page/{path}:
+    get:
+      x-tgd-status: planned
+      operationId: getPage
+      tags: [pages]
+      summary: A page's data
+      description: >-
+        The data of the page at /<path>, the same object the server
+        embeds in the page's HTML on a first load (web-ssr.md sections
+        5 and 7), for navigation in the browser. `path` is the page's
+        path without its leading slash (empty for the dashboard at /);
+        its slashes may be sent as they are or encoded as %2F. The
+        page's query string (search, filters, sort, page) is passed on
+        as the query string of this request.
+
+
+        The route ids and their page paths:
+        login /login;
+        dashboard /;
+        users /users;
+        user /users/{id};
+        user_history /users/{id}/history;
+        user_chat /users/{id}/chat;
+        groups /groups;
+        group /groups/{id};
+        group_admins /groups/{id}/admins;
+        group_history /groups/{id}/history;
+        group_chat /groups/{id}/chat;
+        files /files;
+        group_messages /group_messages;
+        private_messages /private_messages;
+        message /messages/{group|private}/{id};
+        settings /settings;
+        settings_preferences /settings/preferences;
+        settings_sessions /settings/sessions;
+        accounts /settings/accounts;
+        federations /settings/federations;
+        platform_fwd /platform-fwd;
+        fwd_telegram_discord /platform-fwd/telegram-discord;
+        fwd_discord_telegram /platform-fwd/discord-telegram;
+        join_chat /join-chat;
+        mcp /mcp-admin;
+        mcp_groups /mcp-admin/groups;
+        mcp_tokens /mcp-admin/tokens.
+
+
+        A path the service does not serve as a React page yet answers
+        {"reload": true}, and the browser loads it in full. Something
+        the viewer may not see answers 404 with the not_found route,
+        exactly like something that does not exist.
+      security:
+        - {}
+        - session: []
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: The page's path without the leading slash.
+          schema:
+            type: string
+        - name: query
+          in: query
+          required: false
+          description: The page's own query string, passed on unchanged.
+          style: form
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              type: string
+      responses:
+        '200':
+          description: The page data, or a request to load the page in full.
+          headers:
+            Cache-Control:
+              description: private, no-store for a signed-in request.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/PageAnswer'
+                  - $ref: '#/components/schemas/PageReload'
+        '401':
+          description: >-
+            The page needs a session and the request has none (error
+            unauthenticated); the browser loads the page in full and
+            lands on the sign-in page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No such page or nothing the viewer may see.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageNotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/chats/{scope}/{id}/messages:
+    get:
+      x-tgd-status: planned
+      operationId: getChatMessages
+      tags: [chats]
+      summary: A window of a chat's messages
+      description: >-
+        Messages of a group or a private chat, oldest first, for
+        scrolling and live updates. At most one of before, after and
+        around is given; with none the window is the newest messages.
+        Replaces the Drogon /v1/chats/{scope}/{id}/messages with the
+        message shape of the chat pages.
+      parameters:
+        - $ref: '#/components/parameters/ChatScope'
+        - name: id
+          in: path
+          required: true
+          description: The group's chat id, or the user's id for a private chat.
+          schema:
+            type: integer
+            format: int64
+        - name: before
+          in: query
+          required: false
+          description: Messages older than this message id.
+          schema:
+            type: integer
+            format: int64
+        - name: after
+          in: query
+          required: false
+          description: Messages newer than this message id.
+          schema:
+            type: integer
+            format: int64
+        - name: around
+          in: query
+          required: false
+          description: Messages around this message id, which is included.
+          schema:
+            type: integer
+            format: int64
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 60
+      responses:
+        '200':
+          description: The window.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatWindow'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/chats/search:
+    get:
+      x-tgd-status: planned
+      operationId: searchChats
+      tags: [chats]
+      summary: Search chats for a picker
+      description: >-
+        Groups and private chats the viewer may see whose title or
+        username matches q; an empty q lists the busiest first. Without
+        kind both kinds are searched. A member, or an admin restricted
+        from private messages, gets groups only (web-accounts.md
+        sections 4 and 5). Paged by an opaque cursor.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [group, user]
+        - name: federation
+          in: query
+          required: false
+          description: Only the groups of this federation; 0 is Default.
+          schema:
+            type: integer
+            format: int64
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: The next_cursor of the previous page.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A page of matches.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSearchPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/account/password:
+    post:
+      x-tgd-status: planned
+      operationId: changePassword
+      tags: [account]
+      summary: Change the password
+      description: >-
+        Every other session of the account ends (its session_epoch
+        moves on). This one is issued a new session cookie, which
+        changes its CSRF token: the answer carries the new one.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+                  description: At least the minimum length; no maximum below the body limit.
+      responses:
+        '200':
+          description: Changed; a new session cookie is set.
+          headers:
+            Set-Cookie:
+              description: tgw_session, reissued.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrfToken'
+        '400':
+          description: >-
+            A wrong current password (error wrong_password), a new one
+            too short (error weak_password), or a malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/account/email:
+    post:
+      x-tgd-status: planned
+      operationId: changeEmail
+      tags: [account]
+      summary: Change the email address
+      description: >-
+        Sends a verification link to the new address, which is used
+        only once verified, and a notice to the old one
+        (web-accounts.md section 8).
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '202':
+          description: The verification link is on its way.
+        '400':
+          description: >-
+            A wrong password (error wrong_password), an address that is
+            not one (error bad_email), or a malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/account/email/verify:
+    post:
+      x-tgd-status: planned
+      operationId: verifyEmail
+      tags: [account]
+      summary: Verify an email address
+      description: >-
+        Takes the token of a verification link (web-accounts.md
+        section 8). Links are single-use and expire. Needs no session:
+        the link may be opened in another browser.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '204':
+          description: The address is verified.
+        '400':
+          description: The link is unknown, used or expired (error bad_link).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/password/forgot:
+    post:
+      x-tgd-status: planned
+      operationId: forgotPassword
+      tags: [account]
+      summary: Ask for a password reset link
+      description: >-
+        Sends a one-time reset link to the account's verified address
+        (web-accounts.md section 8). The answer is the same whether or
+        not such an account exists. Carries the pre-login CSRF token of
+        GET /api/login, like a sign-in.
+      security:
+        - loginCsrf: []
+          loginCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+                  description: The account's username or email address.
+      responses:
+        '202':
+          description: A link is sent if the account has a verified address.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '429':
+          description: Too many requests (error rate_limited).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/password/set:
+    post:
+      x-tgd-status: planned
+      operationId: setPassword
+      tags: [account]
+      summary: Set a password from a link
+      description: >-
+        Takes the token of a set-password link (a new account's
+        invitation, or a reset) and the new password. Every session of
+        the account ends.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        '204':
+          description: The password is set; the account can sign in with it.
+        '400':
+          description: >-
+            The link is unknown, used or expired (error bad_link), or
+            the password is too short (error weak_password).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/account/preferences:
+    put:
+      x-tgd-status: planned
+      operationId: putPreferences
+      tags: [account]
+      summary: Save the account's preferences
+      description: >-
+        Replaces every preference; null (or a missing field) is the
+        site default.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Prefs'
+      responses:
+        '200':
+          description: The saved preferences.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [prefs]
+                properties:
+                  prefs:
+                    $ref: '#/components/schemas/Prefs'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/account/pinned/{group_id}:
+    put:
+      x-tgd-status: planned
+      operationId: pinGroup
+      tags: [account]
+      summary: Pin a group
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      responses:
+        '204':
+          description: Pinned (also when it already was).
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      x-tgd-status: planned
+      operationId: unpinGroup
+      tags: [account]
+      summary: Unpin a group
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      responses:
+        '204':
+          description: Unpinned.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/account/saved-searches:
+    post:
+      x-tgd-status: planned
+      operationId: saveSearch
+      tags: [account]
+      summary: Save a search
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, url]
+              properties:
+                title:
+                  type: string
+                url:
+                  type: string
+                  description: The search page's path and query string.
+      responses:
+        '201':
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Created'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+
+  /api/account/saved-searches/{id}:
+    delete:
+      x-tgd-status: planned
+      operationId: deleteSavedSearch
+      tags: [account]
+      summary: Delete a saved search
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/account/sessions/{id}:
+    delete:
+      x-tgd-status: planned
+      operationId: endSession
+      tags: [account]
+      summary: Sign out one of the account's other sessions
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The session's id from the sessions page.
+          schema:
+            type: string
+      responses:
+        '204':
+          description: That session is signed out.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/account/sessions/sign-out-others:
+    post:
+      x-tgd-status: planned
+      operationId: endOtherSessions
+      tags: [account]
+      summary: Sign out every other session of the account
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '204':
+          description: Every other session is signed out; this one stays.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+
+  /api/accounts:
+    post:
+      x-tgd-status: planned
+      operationId: createAccount
+      tags: [accounts]
+      summary: Create an account
+      description: >-
+        Emails the new account a one-time set-password link. A
+        superadmin creates any role. An admin creates members only, and
+        must file them in at least one federation it administers
+        (grants), since it manages only the members of its federations
+        (web-accounts.md sections 2 and 3).
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountCreate'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Created'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: >-
+            The CSRF token is wrong (error csrf), or the role or a
+            federation is not the viewer's to give (error forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The username is taken (error taken).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/accounts/{id}:
+    patch:
+      x-tgd-status: planned
+      operationId: updateAccount
+      tags: [accounts]
+      summary: Change an account
+      description: >-
+        Changes the fields given. A changed email address is verified
+        by a link before use. Every change is audited.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountPatch'
+      responses:
+        '200':
+          description: The account as the accounts page shows it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountRow'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: >-
+            The CSRF token is wrong (error csrf), or the change is not
+            the viewer's to make (error forbidden).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/LastSuperadmin'
+
+  /api/accounts/{id}/disable:
+    post:
+      x-tgd-status: planned
+      operationId: disableAccount
+      tags: [accounts]
+      summary: Disable an account
+      description: >-
+        Accounts are disabled, never deleted. Its sessions end; its
+        forwarding keeps running, flagged "owner disabled".
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Disabled.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/LastSuperadmin'
+
+  /api/accounts/{id}/enable:
+    post:
+      x-tgd-status: planned
+      operationId: enableAccount
+      tags: [accounts]
+      summary: Enable a disabled account
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Enabled.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/accounts/{id}/password-reset:
+    post:
+      x-tgd-status: planned
+      operationId: resetAccountPassword
+      tags: [accounts]
+      summary: Email the account a password reset link
+      description: The administrator never sees the password or the link.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: The link is on its way.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The account has no verified address (error no_verified_email).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/accounts/{id}/resend-invite:
+    post:
+      x-tgd-status: planned
+      operationId: resendInvite
+      tags: [accounts]
+      summary: Email a new set-password link to an invited account
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: The link is on its way; earlier ones stop working.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/accounts/{id}/sign-out-everywhere:
+    post:
+      x-tgd-status: planned
+      operationId: signOutAccountEverywhere
+      tags: [accounts]
+      summary: End every session of an account
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Every session of the account has ended.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/federations:
+    post:
+      x-tgd-status: planned
+      operationId: createFederation
+      tags: [accounts]
+      summary: Create a federation
+      description: Superadmins only; anyone else gets 404.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FederationWrite'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Created'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/federations/{id}:
+    patch:
+      x-tgd-status: planned
+      operationId: updateFederation
+      tags: [accounts]
+      summary: Change a federation
+      description: >-
+        Superadmins only; anyone else gets 404. The Default federation
+        (id 0) is derived, the groups in no other federation, so it
+        takes admin_ids only.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FederationWrite'
+      responses:
+        '200':
+          description: Changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Created'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/forwarding/telegram-discord:
+    post:
+      x-tgd-status: planned
+      operationId: createT2D
+      tags: [forwarding]
+      summary: Add a Telegram to Discord webhook
+      description: >-
+        The viewer becomes its owner. federation_id is needed only when
+        more than one of the owner's federations holds the group.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/T2DCreate'
+      responses:
+        '201':
+          description: Added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Created'
+        '400':
+          $ref: '#/components/responses/BadWebhook'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/forwarding/telegram-discord/test:
+    post:
+      x-tgd-status: planned
+      operationId: testT2D
+      tags: [forwarding]
+      summary: Send a test message to a webhook
+      description: >-
+        To a saved webhook (id) or a URL being entered (webhook_url),
+        which must be a Discord webhook URL.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [id]
+                  properties:
+                    id:
+                      type: integer
+                      format: int64
+                - type: object
+                  required: [webhook_url]
+                  properties:
+                    webhook_url:
+                      type: string
+      responses:
+        '204':
+          description: Discord accepted the message.
+        '400':
+          $ref: '#/components/responses/BadWebhook'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          description: Discord refused the message or did not answer (error send_failed).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/forwarding/telegram-discord/{id}:
+    patch:
+      x-tgd-status: planned
+      operationId: updateT2D
+      tags: [forwarding]
+      summary: Change a Telegram to Discord webhook
+      description: The webhook URL is write-only; leave it out to keep it.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                types:
+                  $ref: '#/components/schemas/T2DTypes'
+                enabled:
+                  type: boolean
+                webhook_url:
+                  type: string
+      responses:
+        '204':
+          description: Changed.
+        '400':
+          $ref: '#/components/responses/BadWebhook'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      x-tgd-status: planned
+      operationId: deleteT2D
+      tags: [forwarding]
+      summary: Delete a Telegram to Discord webhook
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/forwarding/telegram-discord/{id}/transfer:
+    post:
+      x-tgd-status: planned
+      operationId: transferT2D
+      tags: [forwarding]
+      summary: Give a webhook to another owner
+      description: >-
+        Admins, between accounts of their federations, and superadmins
+        (web-accounts.md section 6); a member gets 404.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Transfer'
+      responses:
+        '204':
+          description: Transferred.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/forwarding/discord-telegram:
+    post:
+      x-tgd-status: planned
+      operationId: createD2T
+      tags: [forwarding]
+      summary: Add a Discord to Telegram route
+      description: >-
+        The viewer becomes its owner. The bot token is write-only, and
+        a bot already owned by another account is never reused or
+        shown. federation_id is needed only when more than one of the
+        owner's federations holds the group.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/D2TCreate'
+      responses:
+        '201':
+          description: Added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Created'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/forwarding/discord-telegram/{id}:
+    patch:
+      x-tgd-status: planned
+      operationId: updateD2T
+      tags: [forwarding]
+      summary: Change a Discord to Telegram route
+      description: The bot token is write-only; leave it out to keep it.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                types:
+                  $ref: '#/components/schemas/D2TTypes'
+                enabled:
+                  type: boolean
+                bot_token:
+                  type: string
+      responses:
+        '204':
+          description: Changed.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      x-tgd-status: planned
+      operationId: deleteD2T
+      tags: [forwarding]
+      summary: Delete a Discord to Telegram route
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/forwarding/discord-telegram/{id}/transfer:
+    post:
+      x-tgd-status: planned
+      operationId: transferD2T
+      tags: [forwarding]
+      summary: Give a route to another owner
+      description: >-
+        Admins, between accounts of their federations, and superadmins
+        (web-accounts.md section 6); a member gets 404.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Transfer'
+      responses:
+        '204':
+          description: Transferred.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/join-chat/preview:
+    post:
+      x-tgd-status: planned
+      operationId: previewJoin
+      tags: [join-chat]
+      summary: Look up a group or channel before joining it
+      description: >-
+        Read-only on the account, but behind CSRF since each lookup
+        costs a rate-limited Telegram request (web/docs/join-chat.md).
+        A lookup that found nothing still answers 200, with chat null
+        and the reason in message. For superadmins and admins holding
+        join_chat; anyone else gets 404.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ref]
+              properties:
+                ref:
+                  type: string
+                  description: An invite link or a public username, at most 256 bytes.
+      responses:
+        '200':
+          description: The outcome.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinOutcome'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/DaemonFailed'
+
+  /api/join-chat/join:
+    post:
+      x-tgd-status: planned
+      operationId: joinChat
+      tags: [join-chat]
+      summary: Join a group or channel
+      description: >-
+        Writes one chat_join audit row whatever comes of it. A joined
+        group is added to the chosen federations, which must be ones
+        the viewer administers; none leaves it in Default
+        (web-accounts.md section 3).
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ref]
+              properties:
+                ref:
+                  type: string
+                federation_ids:
+                  type: array
+                  items:
+                    type: integer
+                    format: int64
+      responses:
+        '200':
+          description: The outcome.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinOutcome'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/DaemonFailed'
+
+  /api/mcp/groups:
+    post:
+      x-tgd-status: planned
+      operationId: exposeMcpGroup
+      tags: [mcp]
+      summary: Expose a group through the MCP endpoint
+      description: Only groups the viewer may see (web-accounts.md section 4).
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [group_id]
+              properties:
+                group_id:
+                  type: integer
+                  format: int64
+                note:
+                  type: string
+      responses:
+        '201':
+          description: Exposed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [group_id]
+                properties:
+                  group_id:
+                    type: integer
+                    format: int64
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/mcp/groups/{group_id}:
+    delete:
+      x-tgd-status: planned
+      operationId: unexposeMcpGroup
+      tags: [mcp]
+      summary: Stop exposing a group
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      responses:
+        '204':
+          description: No longer exposed.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/mcp/tokens:
+    post:
+      x-tgd-status: planned
+      operationId: createMcpToken
+      tags: [mcp]
+      summary: Create an MCP bearer token
+      description: The token is in this answer only; it is stored as a hash.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, token]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  token:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/mcp/tokens/{id}/revoke:
+    post:
+      x-tgd-status: planned
+      operationId: revokeMcpToken
+      tags: [mcp]
+      summary: Revoke an MCP bearer token
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Revoked.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: tgw_session
+      description: >-
+        The signed session cookie, set by POST /api/login. Valid only
+        while it has not expired and its session_epoch is the
+        account's; sessions are shared with the Drogon web.
+    csrf:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: >-
+        The session's CSRF token, from GET /api/session, POST
+        /api/login or the page's csrf-token meta tag. Required with the
+        session on every state-changing request.
+    loginCsrf:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: The pre-login token from GET /api/login.
+    loginCookie:
+      type: apiKey
+      in: cookie
+      name: tgw_csrf
+      description: The pre-login cookie GET /api/login sets (path /api/login).
+    apiToken:
+      x-tgd-status: planned
+      type: http
+      scheme: bearer
+      description: >-
+        Planned, not accepted yet: per-account API tokens for clients
+        that cannot keep cookies or CSRF tokens (native apps, scripts),
+        web-accounts.md section 7. How they are issued and what they
+        look like is not designed yet; until then the cookie session
+        is the only authentication.
+
+  headers:
+    NoStore:
+      description: no-store
+      schema:
+        type: string
+    LoginCookie:
+      description: tgw_csrf, the fresh pre-login token.
+      schema:
+        type: string
+    AcceptRanges:
+      description: bytes
+      schema:
+        type: string
+    FileCacheControl:
+      description: public, max-age=604800
+      schema:
+        type: string
+    ContentDisposition:
+      description: >-
+        attachment; filename=<name>, for a file not shown inline
+        (documents and the like).
+      schema:
+        type: string
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    GroupId:
+      name: group_id
+      in: path
+      required: true
+      description: The group's Telegram chat id.
+      schema:
+        type: integer
+        format: int64
+    ChatScope:
+      name: scope
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MessageScope'
+
+  responses:
+    BadRequest:
+      description: A malformed request (error bad_request).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthenticated:
+      description: >-
+        No valid session (error unauthenticated); a revoked session
+        cookie is cleared.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    SessionUnavailable:
+      description: >-
+        The session could not be checked against the database (error
+        unavailable); the cookie is kept.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Csrf:
+      description: The CSRF token is missing or wrong (error csrf).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: >-
+        No such thing, or one the viewer may not see (error not_found).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    LastSuperadmin:
+      description: >-
+        The change would leave no active superadmin (error
+        last_superadmin).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadWebhook:
+      description: >-
+        Not a Discord webhook URL (error bad_webhook), or another
+        malformed request (error bad_request).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DaemonFailed:
+      description: >-
+        The daemon gave no outcome: its API is off or unreachable,
+        TDLib is not ready, or Telegram did not answer in time (error
+        daemon); message says what to do.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Internal:
+      description: Something failed on the server (error internal).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: A machine-readable code (csrf, not_found, ...).
+        message:
+          type: string
+          description: A sentence for a person to read, where there is one.
+    LoginError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          required: [message, csrf]
+          properties:
+            csrf:
+              type: string
+              description: A fresh pre-login token, to try again with.
+    Health:
+      type: object
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        checks:
+          type: object
+          required: [ro, app]
+          properties:
+            ro:
+              type: string
+              enum: [ok, unavailable]
+            app:
+              type: string
+              enum: [ok, unavailable]
+    LoginState:
+      type: object
+      required: [signed_in]
+      properties:
+        signed_in:
+          type: boolean
+        csrf:
+          type: string
+          description: The pre-login token; only when signed_in is false.
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    SessionUser:
+      type: object
+      required: [id, username, role]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        role:
+          type: string
+          description: >-
+            The account's role as stored (today admin or viewer;
+            superadmin, admin or member once the roles of
+            web-accounts.md land).
+    Session:
+      type: object
+      required: [user, csrf]
+      properties:
+        user:
+          $ref: '#/components/schemas/SessionUser'
+        csrf:
+          type: string
+          description: The session's CSRF token.
+    CsrfToken:
+      type: object
+      required: [csrf]
+      properties:
+        csrf:
+          type: string
+          description: The session's CSRF token from now on.
+    Created:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+
+    # Page data (web-ssr.md section 5) and the viewer.
+    Role:
+      type: string
+      enum: [superadmin, admin, member]
+    Viewer:
+      type: object
+      description: >-
+        What rendering needs to match the browser. Missing settings
+        fall back to the site default; for a signed-out visitor
+        account and nav are absent.
+      required: [signed_in, now]
+      properties:
+        signed_in:
+          type: boolean
+        account:
+          type: object
+          required: [id, username, name, role]
+          properties:
+            id:
+              type: integer
+              format: int64
+            username:
+              type: string
+            name:
+              type: string
+            role:
+              $ref: '#/components/schemas/Role'
+        now:
+          type: string
+          format: date-time
+          description: The server's clock, for relative times.
+        timezone:
+          type: string
+        date_format:
+          type: string
+          enum: [24h, 12h, iso]
+        lang:
+          type: string
+          enum: [en, id]
+        theme:
+          type: string
+          enum: [system, light, dark]
+        sidebar:
+          type: string
+          enum: [open, collapsed]
+        rows_per_page:
+          type: integer
+        nav:
+          type: array
+          description: The route ids of the pages the menu shows.
+          items:
+            type: string
+        pinned:
+          type: array
+          items:
+            type: object
+            required: [id, title]
+            properties:
+              id:
+                type: integer
+                format: int64
+              title:
+                type: string
+        chat:
+          type: object
+          properties:
+            auto_load:
+              type: boolean
+            live:
+              type: boolean
+            media:
+              type: string
+              enum: [auto, click]
+            show_deleted:
+              type: boolean
+            show_edited:
+              type: boolean
+            show_service:
+              type: boolean
+    PageBase:
+      type: object
+      required: [v, route, url, status, props, viewer]
+      properties:
+        v:
+          type: integer
+          const: 1
+        route:
+          type: string
+        url:
+          type: string
+          description: The page's path and query string.
+        status:
+          type: integer
+          enum: [200, 404]
+        props:
+          type: object
+        viewer:
+          $ref: '#/components/schemas/Viewer'
+    PageReload:
+      type: object
+      required: [reload]
+      properties:
+        reload:
+          type: boolean
+          const: true
+    PageNotFound:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              const: not_found
+            status:
+              const: 404
+            props:
+              type: object
+              additionalProperties: false
+    PageAnswer:
+      description: The page data; `route` says which props it carries.
+      oneOf:
+        - $ref: '#/components/schemas/PageLogin'
+        - $ref: '#/components/schemas/PageDashboard'
+        - $ref: '#/components/schemas/PageUsers'
+        - $ref: '#/components/schemas/PageUser'
+        - $ref: '#/components/schemas/PageGroups'
+        - $ref: '#/components/schemas/PageGroup'
+        - $ref: '#/components/schemas/PageFiles'
+        - $ref: '#/components/schemas/PageMessages'
+        - $ref: '#/components/schemas/PageMessage'
+        - $ref: '#/components/schemas/PageChat'
+        - $ref: '#/components/schemas/PageSettings'
+        - $ref: '#/components/schemas/PagePreferences'
+        - $ref: '#/components/schemas/PageSessions'
+        - $ref: '#/components/schemas/PageAccounts'
+        - $ref: '#/components/schemas/PageFederations'
+        - $ref: '#/components/schemas/PageForwarding'
+        - $ref: '#/components/schemas/PageT2D'
+        - $ref: '#/components/schemas/PageD2T'
+        - $ref: '#/components/schemas/PageJoinChat'
+        - $ref: '#/components/schemas/PageMcp'
+        - $ref: '#/components/schemas/PageMcpGroups'
+        - $ref: '#/components/schemas/PageMcpTokens'
+    PageLogin:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [login]
+            props:
+              $ref: '#/components/schemas/LoginProps'
+    PageDashboard:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [dashboard]
+            props:
+              $ref: '#/components/schemas/DashboardProps'
+    PageUsers:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [users]
+            props:
+              $ref: '#/components/schemas/UsersProps'
+    PageUser:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [user, user_history]
+            props:
+              $ref: '#/components/schemas/UserProps'
+    PageGroups:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [groups]
+            props:
+              $ref: '#/components/schemas/GroupsProps'
+    PageGroup:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [group, group_admins, group_history]
+            props:
+              $ref: '#/components/schemas/GroupProps'
+    PageFiles:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [files]
+            props:
+              $ref: '#/components/schemas/FilesProps'
+    PageMessages:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [group_messages, private_messages]
+            props:
+              $ref: '#/components/schemas/MessagesProps'
+    PageMessage:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [message]
+            props:
+              $ref: '#/components/schemas/MessageProps'
+    PageChat:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [group_chat, user_chat]
+            props:
+              $ref: '#/components/schemas/ChatProps'
+    PageSettings:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [settings]
+            props:
+              $ref: '#/components/schemas/SettingsProps'
+    PagePreferences:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [settings_preferences]
+            props:
+              $ref: '#/components/schemas/PreferencesProps'
+    PageSessions:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [settings_sessions]
+            props:
+              $ref: '#/components/schemas/SessionsProps'
+    PageAccounts:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [accounts]
+            props:
+              $ref: '#/components/schemas/AccountsProps'
+    PageFederations:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [federations]
+            props:
+              $ref: '#/components/schemas/FederationsProps'
+    PageForwarding:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [platform_fwd]
+            props:
+              $ref: '#/components/schemas/ForwardingIndexProps'
+    PageT2D:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [fwd_telegram_discord]
+            props:
+              $ref: '#/components/schemas/T2DProps'
+    PageD2T:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [fwd_discord_telegram]
+            props:
+              $ref: '#/components/schemas/D2TProps'
+    PageJoinChat:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [join_chat]
+            props:
+              $ref: '#/components/schemas/JoinChatProps'
+    PageMcp:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [mcp]
+            props:
+              $ref: '#/components/schemas/McpIndexProps'
+    PageMcpGroups:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [mcp_groups]
+            props:
+              $ref: '#/components/schemas/McpGroupsProps'
+    PageMcpTokens:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            route:
+              enum: [mcp_tokens]
+            props:
+              $ref: '#/components/schemas/McpTokensProps'
+
+    # Shapes shared by the pages and the chat operations.
+    UserSummary:
+      type: object
+      required: [id, name, username, type, photo]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        username:
+          type: string
+        type:
+          type: string
+          enum: [regular, bot, deleted, unknown]
+        photo:
+          type: [string, 'null']
+          description: A /files/<token> URL.
+        contact_name:
+          type: string
+        msg_count:
+          type: integer
+          description: Full-access viewers only; absent for members.
+        is_verified:
+          type: boolean
+        is_premium:
+          type: boolean
+        is_scam:
+          type: boolean
+        is_fake:
+          type: boolean
+        is_support:
+          type: boolean
+        language:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    UserFull:
+      allOf:
+        - $ref: '#/components/schemas/UserSummary'
+        - type: object
+          required: [first_name, last_name, bio, phone, usernames]
+          properties:
+            first_name:
+              type: string
+            last_name:
+              type: string
+            bio:
+              type: string
+            phone:
+              type: string
+            usernames:
+              type: array
+              items:
+                type: object
+                required: [username, active]
+                properties:
+                  username:
+                    type: string
+                  active:
+                    type: boolean
+    GroupSummary:
+      type: object
+      required: [id, title, username, type, photo]
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        username:
+          type: string
+        type:
+          type: string
+          enum: [supergroup, basic_group, channel]
+        photo:
+          type: [string, 'null']
+        msg_count:
+          type: integer
+        exposed:
+          type: boolean
+    GroupCounted:
+      allOf:
+        - $ref: '#/components/schemas/GroupSummary'
+        - type: object
+          required: [msg_count]
+    GroupFull:
+      allOf:
+        - $ref: '#/components/schemas/GroupSummary'
+        - type: object
+          required: [description, members, msg_count, admin_count, created_at, updated_at]
+          properties:
+            description:
+              type: string
+            members:
+              type: integer
+            msg_count:
+              type: integer
+            admin_count:
+              type: integer
+            created_at:
+              type: string
+            updated_at:
+              type: string
+    GroupAdmin:
+      type: object
+      required: [user, status, custom_title, is_anonymous, perms, since]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserSummary'
+        status:
+          type: string
+          enum: [creator, administrator]
+        custom_title:
+          type: string
+        is_anonymous:
+          type: boolean
+        perms:
+          type: array
+          items:
+            type: string
+        since:
+          type: string
+    HistoryEntry:
+      type: object
+      required: [kind, at]
+      properties:
+        kind:
+          type: string
+          enum: [name, username, bio, phone, photo]
+        at:
+          type: string
+        detail:
+          type: string
+        action:
+          type: string
+          enum: [added, removed]
+        photo:
+          type: [string, 'null']
+        removed:
+          type: boolean
+    GroupHistoryEntry:
+      type: object
+      required: [kind, at]
+      properties:
+        kind:
+          type: string
+          enum: [title, description, username, photo, admin]
+        at:
+          type: string
+        detail:
+          type: string
+        action:
+          type: string
+        photo:
+          type: [string, 'null']
+        removed:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/UserSummary'
+    MessageScope:
+      type: string
+      enum: [group, private]
+    ContentType:
+      type: string
+      enum: [text, photo, video, document, audio, voice, sticker, animation, service, unknown]
+    ChatRef:
+      type: object
+      required: [id, title, kind, photo]
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        kind:
+          type: string
+          enum: [group, user]
+        photo:
+          type: [string, 'null']
+    PickItem:
+      type: object
+      description: A chat as the pickers show it; sub is a short second line.
+      required: [id, title, kind]
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        kind:
+          type: string
+          enum: [group, user]
+        sub:
+          type: string
+        photo:
+          type: [string, 'null']
+    ChatSearchPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PickItem'
+        next_cursor:
+          type: [string, 'null']
+    FileRow:
+      type: object
+      required: [id, file_type, name, ext, size, hits, stored, created_at, tg_file_id, url, thumb, chat, sender, message]
+      properties:
+        id:
+          type: integer
+          format: int64
+        file_type:
+          type: string
+          enum: [photo, video, document, audio, voice, sticker, animation]
+        name:
+          type: string
+        ext:
+          type: string
+        size:
+          type: integer
+          format: int64
+        hits:
+          type: integer
+        stored:
+          type: boolean
+        created_at:
+          type: string
+        duration:
+          type: integer
+        tg_file_id:
+          type: string
+        url:
+          type: [string, 'null']
+        thumb:
+          type: [string, 'null']
+        chat:
+          type: object
+          required: [id, title, kind]
+          properties:
+            id:
+              type: integer
+              format: int64
+            title:
+              type: string
+            kind:
+              type: string
+              enum: [group, user]
+        sender:
+          oneOf:
+            - $ref: '#/components/schemas/IdName'
+            - type: 'null'
+        message:
+          $ref: '#/components/schemas/MessageRef'
+    IdName:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+    MessageRef:
+      type: object
+      required: [scope, id]
+      properties:
+        scope:
+          $ref: '#/components/schemas/MessageScope'
+        id:
+          type: integer
+          format: int64
+    MessageRow:
+      type: object
+      required: [id, scope, message_id, date, chat, sender, content_type, snippet, forwarded, edited, deleted_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        scope:
+          $ref: '#/components/schemas/MessageScope'
+        message_id:
+          type: integer
+          format: int64
+        date:
+          type: string
+        chat:
+          $ref: '#/components/schemas/ChatRef'
+        sender:
+          description: null for messages the logging account sent.
+          oneOf:
+            - $ref: '#/components/schemas/UserSummary'
+            - type: 'null'
+        content_type:
+          $ref: '#/components/schemas/ContentType'
+        snippet:
+          type: string
+        forwarded:
+          type: [string, 'null']
+        edited:
+          type: boolean
+        deleted_at:
+          type: [string, 'null']
+    Edit:
+      type: object
+      required: [at, text]
+      properties:
+        at:
+          type: string
+        text:
+          type: string
+    MessageFull:
+      allOf:
+        - $ref: '#/components/schemas/MessageRow'
+        - type: object
+          required: [text, reply_to, edits, edited_at, media]
+          properties:
+            text:
+              type: string
+            reply_to:
+              oneOf:
+                - type: object
+                  required: [scope, id, sender_name, snippet]
+                  properties:
+                    scope:
+                      $ref: '#/components/schemas/MessageScope'
+                    id:
+                      type: integer
+                      format: int64
+                    sender_name:
+                      type: string
+                    snippet:
+                      type: string
+                - type: 'null'
+            edits:
+              type: array
+              items:
+                $ref: '#/components/schemas/Edit'
+            edited_at:
+              type: [string, 'null']
+            media:
+              oneOf:
+                - type: object
+                  required: [file_id, name, size, stored, thumb, url]
+                  properties:
+                    file_id:
+                      type: integer
+                      format: int64
+                    name:
+                      type: string
+                    size:
+                      type: integer
+                      format: int64
+                    duration:
+                      type: integer
+                    stored:
+                      type: boolean
+                    thumb:
+                      type: [string, 'null']
+                    url:
+                      type: [string, 'null']
+                - type: 'null'
+    ChatMedia:
+      type: object
+      required: [stored, thumb, url]
+      properties:
+        stored:
+          type: boolean
+        thumb:
+          type: [string, 'null']
+        url:
+          type: [string, 'null']
+        w:
+          type: integer
+        h:
+          type: integer
+        duration:
+          type: integer
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        emoji:
+          type: string
+        wave:
+          type: array
+          items:
+            type: integer
+    ChatMessage:
+      type: object
+      required: [id, message_id, date, scope, sender, content_type, text, media, album, reply_to, forward, edits, edited_at, deleted_at, link_preview]
+      properties:
+        id:
+          type: integer
+          format: int64
+        message_id:
+          type: integer
+          format: int64
+        date:
+          type: string
+        scope:
+          $ref: '#/components/schemas/MessageScope'
+        sender:
+          description: null when the logging account sent it.
+          oneOf:
+            - $ref: '#/components/schemas/UserSummary'
+            - type: 'null'
+        content_type:
+          $ref: '#/components/schemas/ContentType'
+        text:
+          type: string
+        media:
+          oneOf:
+            - $ref: '#/components/schemas/ChatMedia'
+            - type: 'null'
+        album:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMedia'
+        reply_to:
+          oneOf:
+            - type: object
+              required: [message_id, sender_id, sender_name, snippet]
+              properties:
+                message_id:
+                  type: integer
+                  format: int64
+                sender_id:
+                  type: integer
+                  format: int64
+                sender_name:
+                  type: string
+                snippet:
+                  type: string
+            - type: 'null'
+        forward:
+          type: [string, 'null']
+        edits:
+          type: array
+          items:
+            $ref: '#/components/schemas/Edit'
+        edited_at:
+          type: [string, 'null']
+        deleted_at:
+          type: [string, 'null']
+        link_preview:
+          oneOf:
+            - type: object
+              required: [site, title, desc]
+              properties:
+                site:
+                  type: string
+                title:
+                  type: string
+                desc:
+                  type: string
+            - type: 'null'
+    ChatWindow:
+      type: object
+      description: Messages oldest first, and whether more lie either side.
+      required: [messages, has_older, has_newer]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        has_older:
+          type: boolean
+        has_newer:
+          type: boolean
+
+    # Lists: the rows of a list page and its state from the query string.
+    Cond:
+      type: object
+      required: [field, op, value]
+      properties:
+        field:
+          type: string
+        op:
+          type: string
+          enum: ['=', '!=', '>', '<', contains, empty, is]
+        value:
+          type: string
+    ListState:
+      type: object
+      required: [total, page, pages, per, sort, dir, q, conds]
+      properties:
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        pages:
+          type: integer
+        per:
+          type: integer
+        sort:
+          type: string
+        dir:
+          type: string
+          enum: [asc, desc]
+        q:
+          type: string
+        conds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Cond'
+        archive_total:
+          type: integer
+          format: int64
+          description: Everything in the archive; full-access viewers only.
+
+    # Page props, one per route (web/app/src/routes/).
+    LoginProps:
+      type: object
+      required: [next]
+      properties:
+        next:
+          type: [string, 'null']
+          description: Where to go after signing in; same-site paths only.
+    DashboardProps:
+      type: object
+      required: [kpis, per_day, busiest, deleted]
+      properties:
+        kpis:
+          type: array
+          items:
+            type: object
+            required: [key, total, today]
+            properties:
+              key:
+                type: string
+                enum: [users, groups, group_messages, private_messages, files]
+              total:
+                type: integer
+                format: int64
+              today:
+                type: integer
+                format: int64
+        per_day:
+          type: array
+          items:
+            type: integer
+        busiest:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupCounted'
+        deleted:
+          type: array
+          items:
+            type: object
+            required: [id, scope, chat, sender, snippet, deleted_at, message_id]
+            properties:
+              id:
+                type: integer
+                format: int64
+              scope:
+                $ref: '#/components/schemas/MessageScope'
+              chat:
+                $ref: '#/components/schemas/GroupSummary'
+              sender:
+                $ref: '#/components/schemas/UserSummary'
+              snippet:
+                type: string
+              deleted_at:
+                type: string
+              message_id:
+                type: integer
+                format: int64
+        status:
+          type: object
+          required: [session, last_message_at, forwarding_active, store_used, store_total, store_ratio]
+          properties:
+            session:
+              type: string
+              enum: [connected, disconnected]
+            last_message_at:
+              type: string
+            forwarding_active:
+              type: integer
+            store_used:
+              type: string
+            store_total:
+              type: string
+            store_ratio:
+              type: number
+    UsersProps:
+      allOf:
+        - $ref: '#/components/schemas/ListState'
+        - type: object
+          required: [rows]
+          properties:
+            rows:
+              type: array
+              items:
+                $ref: '#/components/schemas/UserSummary'
+    UserProps:
+      description: >-
+        A full-access viewer gets the profile; a member only the groups
+        it shares with the person (limited), web-accounts.md section 5.
+      oneOf:
+        - type: object
+          required: [user, groups, history, activity, can_private]
+          properties:
+            limited:
+              type: boolean
+              const: false
+            user:
+              $ref: '#/components/schemas/UserFull'
+            groups:
+              type: array
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/GroupSummary'
+                  - type: object
+                    required: [msgs]
+                    properties:
+                      msgs:
+                        type: integer
+            history:
+              type: array
+              items:
+                $ref: '#/components/schemas/HistoryEntry'
+            activity:
+              type: array
+              items:
+                type: integer
+            can_private:
+              type: boolean
+        - type: object
+          required: [limited, user, shared_groups]
+          properties:
+            limited:
+              type: boolean
+              const: true
+            user:
+              $ref: '#/components/schemas/UserSummary'
+            shared_groups:
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupSummary'
+    GroupsProps:
+      allOf:
+        - $ref: '#/components/schemas/ListState'
+        - type: object
+          required: [rows]
+          properties:
+            rows:
+              type: array
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/GroupSummary'
+                  - type: object
+                    required: [msg_count, admin_count, description, created_at]
+                    properties:
+                      admin_count:
+                        type: integer
+                      description:
+                        type: string
+                      created_at:
+                        type: string
+    GroupProps:
+      type: object
+      required: [group, admins, history, top_posters, activity]
+      properties:
+        group:
+          $ref: '#/components/schemas/GroupFull'
+        admins:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupAdmin'
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupHistoryEntry'
+        top_posters:
+          type: array
+          items:
+            type: object
+            required: [user, msgs]
+            properties:
+              user:
+                $ref: '#/components/schemas/UserSummary'
+              msgs:
+                type: integer
+        activity:
+          type: array
+          items:
+            type: integer
+    FilesProps:
+      allOf:
+        - $ref: '#/components/schemas/ListState'
+        - type: object
+          required: [rows, preview, can_fetch]
+          properties:
+            rows:
+              type: array
+              items:
+                $ref: '#/components/schemas/FileRow'
+            preview:
+              oneOf:
+                - $ref: '#/components/schemas/FileRow'
+                - type: 'null'
+            can_fetch:
+              type: boolean
+            stored_bytes:
+              type: integer
+              format: int64
+    MessagesProps:
+      allOf:
+        - $ref: '#/components/schemas/ListState'
+        - type: object
+          required: [rows, scope]
+          properties:
+            rows:
+              type: array
+              items:
+                $ref: '#/components/schemas/MessageRow'
+            scope:
+              $ref: '#/components/schemas/MessageScope'
+    MessageProps:
+      type: object
+      required: [message]
+      properties:
+        message:
+          $ref: '#/components/schemas/MessageFull'
+    ChatProps:
+      type: object
+      required: [chat, messages, has_older, has_newer, at]
+      properties:
+        chat:
+          oneOf:
+            - type: object
+              required: [kind, group]
+              properties:
+                kind:
+                  const: group
+                group:
+                  allOf:
+                    - $ref: '#/components/schemas/GroupSummary'
+                    - type: object
+                      required: [members, msg_count]
+                      properties:
+                        members:
+                          type: integer
+            - type: object
+              required: [kind, user, count]
+              properties:
+                kind:
+                  const: user
+                user:
+                  type: object
+                  required: [id, name, photo]
+                  properties:
+                    id:
+                      type: integer
+                      format: int64
+                    name:
+                      type: string
+                    photo:
+                      type: [string, 'null']
+                count:
+                  type: integer
+                  format: int64
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        has_older:
+          type: boolean
+        has_newer:
+          type: boolean
+        at:
+          type: [integer, 'null']
+          format: int64
+          description: The message the page was opened at, if any.
+    SettingsProps:
+      type: object
+      required: [account, notices]
+      properties:
+        account:
+          type: object
+          required: [username, name, role, email, email_verified]
+          properties:
+            username:
+              type: string
+            name:
+              type: string
+            role:
+              type: string
+            email:
+              type: [string, 'null']
+            email_verified:
+              type: boolean
+        notices:
+          type: array
+          items:
+            type: string
+    Prefs:
+      type: object
+      description: Every field null or absent is the site default.
+      properties:
+        timezone:
+          type: [string, 'null']
+        date_format:
+          type: [string, 'null']
+          enum: [24h, 12h, iso, null]
+        lang:
+          type: [string, 'null']
+          enum: [en, id, null]
+        theme:
+          type: [string, 'null']
+          enum: [system, light, dark, null]
+        rows_per_page:
+          type: [integer, 'null']
+        landing:
+          type: [string, 'null']
+        chat_auto_load:
+          type: [boolean, 'null']
+        chat_live:
+          type: [boolean, 'null']
+        chat_media:
+          type: [string, 'null']
+          enum: [auto, click, null]
+        chat_show_deleted:
+          type: [boolean, 'null']
+        chat_show_edited:
+          type: [boolean, 'null']
+        chat_show_service:
+          type: [boolean, 'null']
+    PreferencesProps:
+      type: object
+      required: [prefs, timezones, landing_options, pinned, saved_searches]
+      properties:
+        prefs:
+          $ref: '#/components/schemas/Prefs'
+        timezones:
+          type: array
+          items:
+            type: string
+        landing_options:
+          type: array
+          description: Pairs of [path, label].
+          items:
+            type: array
+            prefixItems:
+              - type: string
+              - type: string
+            minItems: 2
+            maxItems: 2
+        pinned:
+          type: array
+          items:
+            type: object
+            required: [id, title, photo]
+            properties:
+              id:
+                type: integer
+                format: int64
+              title:
+                type: string
+              photo:
+                type: [string, 'null']
+        saved_searches:
+          type: array
+          items:
+            type: object
+            required: [id, title, url]
+            properties:
+              id:
+                type: integer
+                format: int64
+              title:
+                type: string
+              url:
+                type: string
+    SessionsProps:
+      type: object
+      required: [sessions]
+      properties:
+        sessions:
+          type: array
+          items:
+            type: object
+            required: [id, device, ip, place, started, last, current]
+            properties:
+              id:
+                type: string
+              device:
+                type: string
+              ip:
+                type: string
+              place:
+                type: string
+              started:
+                type: string
+              last:
+                type: string
+              current:
+                type: boolean
+
+    # Accounts and federations.
+    Ability:
+      type: string
+      enum: [forward, fetch_files]
+    Fed:
+      type: object
+      required: [id, name, default]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        default:
+          type: boolean
+    Restrict:
+      type: object
+      description: An admin's restrictions (web-accounts.md section 4).
+      required: [hide_private, hide_groups, join_chat]
+      properties:
+        hide_private:
+          type: boolean
+        hide_groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/PickItem'
+        join_chat:
+          type: boolean
+          description: Whether the admin may join chats; off by default.
+    AccountRow:
+      type: object
+      required: [id, username, name, email, email_verified, invited, role, active, last_signin, last_superadmin, admin_of, restrict, grants, abilities, audit]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        name:
+          type: string
+        email:
+          type: [string, 'null']
+        email_verified:
+          type: boolean
+        invited:
+          type: boolean
+          description: Has not set a password from its invitation yet.
+        role:
+          $ref: '#/components/schemas/Role'
+        active:
+          type: boolean
+        last_signin:
+          type: [string, 'null']
+        last_superadmin:
+          type: boolean
+        admin_of:
+          type: array
+          items:
+            type: integer
+            format: int64
+        restrict:
+          oneOf:
+            - $ref: '#/components/schemas/Restrict'
+            - type: 'null'
+        grants:
+          type: array
+          items:
+            type: object
+            required: [fed, groups]
+            properties:
+              fed:
+                type: integer
+                format: int64
+              groups:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PickItem'
+        abilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ability'
+        audit:
+          type: array
+          items:
+            type: object
+            required: [what, by, at]
+            properties:
+              what:
+                type: string
+              by:
+                type: string
+              at:
+                type: string
+    GrantWrite:
+      type: object
+      required: [fed, group_ids]
+      properties:
+        fed:
+          type: integer
+          format: int64
+        group_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+    AccountCreate:
+      type: object
+      required: [username, name, email, role]
+      properties:
+        username:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/Role'
+        grants:
+          type: array
+          description: >-
+            A member's federations and groups. Required, with at least
+            one federation the viewer administers, when an admin
+            creates the member.
+          items:
+            $ref: '#/components/schemas/GrantWrite'
+    AccountPatch:
+      type: object
+      description: The fields to change; the others stay.
+      properties:
+        name:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        email:
+          type: string
+          format: email
+        admin_of:
+          type: array
+          description: An admin's federations; superadmins only.
+          items:
+            type: integer
+            format: int64
+        restrict:
+          type: object
+          description: An admin's restrictions; superadmins only.
+          required: [hide_private, hide_groups, join_chat]
+          properties:
+            hide_private:
+              type: boolean
+            hide_groups:
+              type: array
+              items:
+                type: integer
+                format: int64
+            join_chat:
+              type: boolean
+        grants:
+          type: array
+          description: >-
+            A member's grants. An admin changes only those in its own
+            federations; the others stay.
+          items:
+            $ref: '#/components/schemas/GrantWrite'
+        abilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ability'
+    AccountsProps:
+      type: object
+      required: [accounts, federations, all_federations]
+      properties:
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountRow'
+        federations:
+          type: array
+          description: >-
+            The federations the viewer may manage, with how many groups
+            it can see in each; the groups come from the chat search.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Fed'
+              - type: object
+                required: [group_count]
+                properties:
+                  group_count:
+                    type: integer
+        all_federations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Fed'
+    FedPerson:
+      type: object
+      required: [id, username, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        name:
+          type: string
+    FederationRow:
+      type: object
+      required: [id, name, default, created, groups, group_count, admins, members]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        default:
+          type: boolean
+        created:
+          type: [string, 'null']
+        groups:
+          type: array
+          description: Only the groups the viewer can see; group_count counts them all.
+          items:
+            $ref: '#/components/schemas/GroupSummary'
+        group_count:
+          type: integer
+        admins:
+          type: array
+          items:
+            $ref: '#/components/schemas/FedPerson'
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/FedPerson'
+    FederationsProps:
+      type: object
+      required: [federations, editable, admin_options]
+      properties:
+        federations:
+          type: array
+          items:
+            $ref: '#/components/schemas/FederationRow'
+        editable:
+          type: boolean
+        admin_options:
+          type: array
+          description: Admins that may be given a federation.
+          items:
+            $ref: '#/components/schemas/FedPerson'
+    FederationWrite:
+      type: object
+      properties:
+        name:
+          type: string
+        group_ids:
+          type: array
+          description: Not for the Default federation.
+          items:
+            type: integer
+            format: int64
+        admin_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    # Forwarding.
+    T2DTypes:
+      type: array
+      description: The message kinds forwarded.
+      items:
+        type: string
+        enum: [sticker, text, photo, video, document, other]
+    D2TTypes:
+      type: array
+      description: The message kinds forwarded.
+      items:
+        type: string
+        enum: [sticker, text, photo, video, document]
+    FwdPerson:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        role:
+          type: string
+        active:
+          type: boolean
+    Owned:
+      type: object
+      required: [id, owner, federation, transfer_candidates]
+      properties:
+        id:
+          type: integer
+          format: int64
+        owner:
+          allOf:
+            - $ref: '#/components/schemas/FwdPerson'
+            - type: object
+              required: [active]
+        federation:
+          $ref: '#/components/schemas/FedRef'
+        transfer_candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/FwdPerson'
+    FedRef:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+    T2DRoute:
+      allOf:
+        - $ref: '#/components/schemas/Owned'
+        - type: object
+          required: [chat, url_masked, types, enabled, sent, last_sent]
+          properties:
+            chat:
+              $ref: '#/components/schemas/PickItem'
+            url_masked:
+              type: string
+              description: The webhook URL with its secret part cut off.
+            types:
+              $ref: '#/components/schemas/T2DTypes'
+            enabled:
+              type: boolean
+            sent:
+              type: integer
+              format: int64
+            last_sent:
+              type: [string, 'null']
+    D2TRoute:
+      allOf:
+        - $ref: '#/components/schemas/Owned'
+        - type: object
+          required: [channel_id, channel_name, chat, bot, types, enabled, sent]
+          properties:
+            channel_id:
+              type: string
+            channel_name:
+              type: string
+            chat:
+              $ref: '#/components/schemas/PickItem'
+            bot:
+              type: string
+              description: The sending bot's username; never its token.
+            types:
+              $ref: '#/components/schemas/D2TTypes'
+            enabled:
+              type: boolean
+            sent:
+              type: integer
+              format: int64
+    FwdCounts:
+      type: object
+      required: [active, total, sent]
+      properties:
+        active:
+          type: integer
+        total:
+          type: integer
+        sent:
+          type: integer
+          format: int64
+    ForwardingIndexProps:
+      type: object
+      required: [t2d, d2t]
+      properties:
+        t2d:
+          $ref: '#/components/schemas/FwdCounts'
+        d2t:
+          $ref: '#/components/schemas/FwdCounts'
+    T2DProps:
+      type: object
+      required: [routes, federations]
+      properties:
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/T2DRoute'
+        federations:
+          type: array
+          items:
+            $ref: '#/components/schemas/FedRef'
+    D2TProps:
+      type: object
+      required: [routes, federations]
+      properties:
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/D2TRoute'
+        federations:
+          type: array
+          items:
+            $ref: '#/components/schemas/FedRef'
+    T2DCreate:
+      type: object
+      required: [chat_id, chat_kind, webhook_url, types, enabled]
+      properties:
+        chat_id:
+          type: integer
+          format: int64
+        chat_kind:
+          type: string
+          enum: [group, user]
+        webhook_url:
+          type: string
+          description: A Discord webhook URL; anything else is 400 bad_webhook.
+        types:
+          $ref: '#/components/schemas/T2DTypes'
+        enabled:
+          type: boolean
+        federation_id:
+          type: [integer, 'null']
+          format: int64
+    D2TCreate:
+      type: object
+      required: [discord_channel_id, chat_id, bot_token, types, enabled]
+      properties:
+        discord_channel_id:
+          type: string
+        chat_id:
+          type: integer
+          format: int64
+        bot_token:
+          type: string
+        types:
+          $ref: '#/components/schemas/D2TTypes'
+        enabled:
+          type: boolean
+        federation_id:
+          type: [integer, 'null']
+          format: int64
+    Transfer:
+      type: object
+      required: [owner_id]
+      properties:
+        owner_id:
+          type: integer
+          format: int64
+
+    # Join chat.
+    JoinChat:
+      type: object
+      required: [chat_id, title, type, member_count, username, is_member, needs_approval]
+      properties:
+        chat_id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        type:
+          type: string
+        member_count:
+          type: integer
+        username:
+          type: string
+        is_member:
+          type: boolean
+        needs_approval:
+          type: boolean
+        banned:
+          type: boolean
+        paid:
+          type: boolean
+    JoinOutcome:
+      type: object
+      required: [outcome, message, chat]
+      properties:
+        outcome:
+          type: string
+          description: >-
+            The daemon's outcome: ok (a preview that found the chat),
+            joined, already_member, request_sent, approval_required,
+            declined, not_a_group, not_found, link_invalid, flood_wait,
+            banned, too_many_chats or error.
+        message:
+          type: string
+          description: The sentence to show; empty for ok.
+        chat:
+          oneOf:
+            - $ref: '#/components/schemas/JoinChat'
+            - type: 'null'
+        ref:
+          type: string
+          description: The reference as the daemon normalised it.
+        retry_after:
+          type: integer
+          description: Seconds to wait, with flood_wait.
+    JoinChatProps:
+      type: object
+      required: [federations, recent]
+      properties:
+        federations:
+          type: array
+          description: Federations the viewer may file a joined group into.
+          items:
+            $ref: '#/components/schemas/FedRef'
+        recent:
+          type: array
+          items:
+            type: object
+            required: [at, by, ref, title, outcome]
+            properties:
+              at:
+                type: string
+              by:
+                type: string
+              ref:
+                type: string
+              title:
+                type: string
+              outcome:
+                type: string
+
+    # MCP administration.
+    McpIndexProps:
+      type: object
+      required: [exposed_groups, exposed_messages, active_tokens, last_used, endpoint]
+      properties:
+        exposed_groups:
+          type: integer
+        exposed_messages:
+          type: integer
+          format: int64
+        active_tokens:
+          type: integer
+        last_used:
+          type: [string, 'null']
+        endpoint:
+          type: string
+    McpGroupsProps:
+      type: object
+      required: [groups]
+      properties:
+        groups:
+          type: array
+          items:
+            type: object
+            required: [group, public_now, note, added]
+            properties:
+              group:
+                $ref: '#/components/schemas/GroupCounted'
+              public_now:
+                type: boolean
+              note:
+                type: string
+              added:
+                type: string
+    McpTokensProps:
+      type: object
+      required: [tokens]
+      properties:
+        tokens:
+          type: array
+          items:
+            type: object
+            required: [id, name, owner, created, last_used, revoked]
+            properties:
+              id:
+                type: integer
+                format: int64
+              name:
+                type: string
+              owner:
+                type: string
+              created:
+                type: string
+              last_used:
+                type: [string, 'null']
+              revoked:
+                type: [string, 'null']
