@@ -7,6 +7,7 @@
 
 #include <mysql/Database.hpp>
 #include <tgloggerd/models/User.hpp>
+#include <tgloggerd/models/ContactName.hpp>
 #include <tgloggerd/models/File.hpp>
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
@@ -445,6 +446,10 @@ private:
 	void upsertUserExtraFromFullInfo(mysql::Transaction &tx,
 					 const models::UserFullInfo &fi);
 	void pruneUserExtraIfEmpty(mysql::Transaction &tx, int64_t user_id);
+	/* Own-name backfill for a contact stored before the contact split. */
+	std::optional<models::Name> ownNameFromHistory(mysql::Transaction &tx,
+							int64_t user_id,
+							const models::Name &contact);
 	void syncGroupUsernames(mysql::Transaction &tx, const models::Group &g);
 	void trackGroupPhotoChange(mysql::Transaction &tx,
 				   int64_t group_id, uint64_t file_id);

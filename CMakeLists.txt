@@ -45,6 +45,8 @@ add_executable(tgloggerd
 	src/tgloggerd/DB.hpp
 	src/tgloggerd/models/User.hpp
 	src/tgloggerd/models/User.cpp
+	src/tgloggerd/models/ContactName.hpp
+	src/tgloggerd/models/ContactName.cpp
 	src/tgloggerd/models/File.hpp
 	src/tgloggerd/models/File.cpp
 	src/tgloggerd/models/FileAccess.cpp

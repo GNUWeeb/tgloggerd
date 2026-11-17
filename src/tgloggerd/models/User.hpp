@@ -54,6 +54,14 @@ struct User {
 	bool		is_premium = false;
 	bool		is_support = false;
 
+	/*
+	 * The logging account has the user as a contact. Then first_name and
+	 * last_name are the name the account saved them under, not their
+	 * own (models/ContactName.hpp).
+	 */
+	bool		is_contact = false;
+	bool		is_mutual_contact = false;
+
 	std::string	restriction_reason;
 	bool		has_sensitive_content = false;
 
