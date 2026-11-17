@@ -19,6 +19,8 @@
 
 namespace tgloggerd {
 
+class InternalApi;
+
 class TgLoggerd {
 public:
 	TgLoggerd(uint32_t api_id, const char *api_hash, const char *data_dir) noexcept;
@@ -83,6 +85,13 @@ private:
 	 */
 	std::unique_ptr<ThreadPool> serial_;
 	std::unique_ptr<ThreadPool> files_;
+
+	/*
+	 * The internal HTTP API for the web (docs/internal-api.md). Its
+	 * handlers use db_ and tdlib_, so start() stops it before draining
+	 * the pools; declared last so it is also destroyed first.
+	 */
+	std::unique_ptr<InternalApi> api_;
 };
 
 } /* namespace tgloggerd */

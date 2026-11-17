@@ -4,6 +4,7 @@
  */
 #include <tgloggerd/helpers/common.h>
 #include <tgloggerd/TgLoggerd.hpp>
+#include <tgloggerd/InternalApi.hpp>
 #include <stdexcept>
 #include <cstdlib>
 #include <cstring>
@@ -150,11 +151,17 @@ int TgLoggerd::start(void)
 	size_t file_threads = (size_t)atoi(env("TG_FILE_THREADS", "4").c_str());
 	if (file_threads < 1)
 		file_threads = 1;
+	/* Internal API handler threads each may hold a connection too. */
+	std::string api_listen = env("TG_API_LISTEN", "");
+	size_t api_threads = (size_t)atoi(env("TG_API_THREADS", "4").c_str());
+	if (api_threads < 1)
+		api_threads = 1;
+	size_t api_conns = api_listen.empty() ? 0 : api_threads;
 	/* +1 over file_threads for serial_, +1 for the Discord refresh thread. */
-	std::string db_pool_def = std::to_string(file_threads + 3);
+	std::string db_pool_def = std::to_string(file_threads + 3 + api_conns);
 	size_t db_pool = (size_t)atoi(env("TG_DB_POOL", db_pool_def.c_str()).c_str());
-	if (db_pool < file_threads + 2)
-		db_pool = file_threads + 2;
+	if (db_pool < file_threads + 2 + api_conns)
+		db_pool = file_threads + 2 + api_conns;
 	db_cfg.pool_size = db_pool;
 
 	size_t queue_max = (size_t)strtoull(
@@ -548,6 +555,21 @@ int TgLoggerd::start(void)
 		}
 	}
 
+	/*
+	 * Last, so every handler can rely on db_ and tdlib_. A bad setting
+	 * leaves the API off but the logger running: the web treats an
+	 * absent daemon API as "fetching off".
+	 */
+	if (!api_listen.empty()) {
+		api_ = std::make_unique<InternalApi>(l_);
+		InternalApi::Config api_cfg;
+		api_cfg.listen = api_listen;
+		api_cfg.threads = api_threads;
+		api_cfg.web_app_key = web_app_key;
+		if (api_->start(api_cfg) < 0)
+			api_.reset();
+	}
+
 	pr_info(l_, "Listening for incoming messages...");
 	while (!tdlib_->isStopped() && !g_tgld_stop)
 		tdlib_->loop(10);
@@ -558,7 +580,11 @@ int TgLoggerd::start(void)
 	 * Drain before returning, while db_ and l_ are still alive (the
 	 * destructor frees l_ before members are destroyed). files_ first so
 	 * its pending link jobs land in serial_, then serial_ drains fully.
+	 * The API goes first: its handlers post to those pools and call
+	 * TDLib.
 	 */
+	if (api_)
+		api_->stop();
 	files_->shutdown();
 	serial_->shutdown();
 	/* The event loop has exited, so no more forward() calls arrive; stop the
