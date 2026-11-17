@@ -8,10 +8,20 @@
 ## endif
 		<h1>{{ user.name }} <span class="muted">#{{ user.id }}</span></h1>
 	</div>
+## if user.contact_name != ""
+## if user.own_name_known
+	<p class="muted">Saved by the logging account as <b>{{ user.contact_name }}</b>; the name above is the user's own{% if user.own_name_checked_at != "" %}, looked up {{ user.own_name_checked_at }}{% else %}, as last seen before they became a contact{% endif %}.</p>
+## else
+	<p class="muted">This is the name the logging account saved them under as a contact; their own name was never seen.</p>
+## endif
+## endif
 
 	<p class="detail-actions"><a class="btn" href="/users/{{ user.id }}/chat">💬 Chat history</a> <a class="btn" href="/users/{{ user.id }}/history">🕑 Change history</a></p>
 
 	<div class="badges">
+## if user.is_contact
+		<span class="badge">{% if user.is_mutual_contact %}mutual contact{% else %}contact{% endif %}</span>
+## endif
 ## if user.is_premium
 		<span class="badge">premium</span>
 ## endif
@@ -40,6 +50,12 @@
 		<tr><th>Messages sent</th><td>{{ user.msg_count }}</td></tr>
 		<tr><th>First name</th><td>{{ user.first_name }}</td></tr>
 		<tr><th>Last name</th><td>{{ user.last_name }}</td></tr>
+## if user.contact_name != ""
+		<tr><th>Contact name</th><td>{{ user.contact_name }}</td></tr>
+## endif
+## if user.own_name_checked_at != ""
+		<tr><th>Own name looked up</th><td>{{ user.own_name_checked_at }}</td></tr>
+## endif
 		<tr><th>Phone</th><td>{% if user.phone_number != "" %}{{ user.phone_number }}{% else %}<span class="muted">—</span>{% endif %}</td></tr>
 		<tr><th>Bio</th><td>{% if user.bio != "" %}{{ user.bio }}{% else %}<span class="muted">—</span>{% endif %}</td></tr>
 		<tr><th>Language</th><td>{% if user.language_code != "" %}{{ user.language_code }}{% else %}<span class="muted">—</span>{% endif %}</td></tr>
