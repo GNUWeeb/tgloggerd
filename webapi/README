@@ -55,7 +55,11 @@ minted by one opens in the other. Tests check this against values the
 Drogon code produced (internal/auth/testdata).
 
 The session is the signed cookie tgw_session. Each request with one is
-checked against web_users.session_epoch, as Drogon's AuthFilter does.
+checked against web_users.session_epoch, as Drogon's AuthFilter does,
+and against is_active, which Drogon does not check (disabling an
+account bumps the epoch as well, so it ends there too). The role and
+the forced password change are read from that row, not from the
+cookie, so a change applies to the next request.
 State-changing requests carry a CSRF token in the X-CSRF-Token header:
 for a signed-in request the token GET /api/session or POST /api/login
 answers, which is the same token the Drogon pages put in their forms;

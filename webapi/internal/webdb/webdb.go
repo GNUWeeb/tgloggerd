@@ -24,25 +24,27 @@ type User struct {
 	Role         string // "superadmin", "admin" or "member"
 	IsActive     bool
 	Epoch        uint32 // session_epoch: bumped to end every session
+	// MustChangePassword: the password was set for the account (a
+	// temporary one); it must choose its own before anything else.
+	MustChangePassword bool
 }
 
 // ErrNoUser is returned when no account matches.
 var ErrNoUser = errors.New("no such account")
 
 const userColumns = "SELECT id, username, password_hash, role, is_active, " +
-	"session_epoch FROM web_users "
+	"session_epoch, must_change_password FROM web_users "
 
 func scanUser(row *sql.Row) (User, error) {
 	var u User
-	var active int
-	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &active, &u.Epoch)
+	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.IsActive,
+		&u.Epoch, &u.MustChangePassword)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNoUser
 	}
 	if err != nil {
 		return User{}, err
 	}
-	u.IsActive = active != 0
 	return u, nil
 }
 
@@ -53,29 +55,64 @@ func FindByUsername(ctx context.Context, db *sql.DB, username string) (User, err
 	return scanUser(db.QueryRowContext(ctx, userColumns+"WHERE username = ?", username))
 }
 
-// SessionEpoch is an account's session_epoch, or ErrNoUser when the
-// account is gone.
-func SessionEpoch(ctx context.Context, db *sql.DB, id uint64) (uint32, error) {
-	var epoch uint32
+// FindByID looks an account up by id.
+func FindByID(ctx context.Context, db *sql.DB, id uint64) (User, error) {
+	return scanUser(db.QueryRowContext(ctx, userColumns+"WHERE id = ?", id))
+}
+
+// SessionState is what every signed-in request reads of its account:
+// the cookie's epoch is checked against Epoch, and the role and flags
+// come from here, not from the cookie, so a change applies at once.
+type SessionState struct {
+	Epoch              uint32
+	Role               string
+	Active             bool
+	MustChangePassword bool
+}
+
+// LoadSessionState is an account's SessionState, or ErrNoUser when the
+// account is gone. One primary-key lookup per request.
+func LoadSessionState(ctx context.Context, db *sql.DB, id uint64) (SessionState, error) {
+	var st SessionState
 	err := db.QueryRowContext(ctx,
-		"SELECT session_epoch FROM web_users WHERE id = ?", id).Scan(&epoch)
+		"SELECT session_epoch, role, is_active, must_change_password "+
+			"FROM web_users WHERE id = ?", id).
+		Scan(&st.Epoch, &st.Role, &st.Active, &st.MustChangePassword)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrNoUser
+		return SessionState{}, ErrNoUser
 	}
-	return epoch, err
+	return st, err
+}
+
+// Execer is a pool or a transaction.
+type Execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // Audit appends a security event to web_audit. uid is nil for an
 // anonymous or failed action, such as a failed login.
-func Audit(ctx context.Context, db *sql.DB, uid *uint64, action, ip, detail string) error {
+func Audit(ctx context.Context, db Execer, uid *uint64, action, ip, detail string) error {
+	return audit(ctx, db, uid, nil, action, ip, detail)
+}
+
+// AuditAccount appends an account change to web_audit: who made it
+// (actor) and the account it applied to (target).
+func AuditAccount(ctx context.Context, db Execer, actor, target uint64, action, ip, detail string) error {
+	return audit(ctx, db, &actor, &target, action, ip, detail)
+}
+
+func audit(ctx context.Context, db Execer, uid, target *uint64, action, ip, detail string) error {
 	detail = auditDetail(detail)
-	var u any
+	var u, t any
 	if uid != nil {
 		u = *uid
 	}
+	if target != nil {
+		t = *target
+	}
 	_, err := db.ExecContext(ctx,
-		"INSERT INTO web_audit (web_user_id, action, ip, detail) "+
-			"VALUES (?, ?, ?, ?)", u, action, ip, detail)
+		"INSERT INTO web_audit (web_user_id, target_user_id, action, ip, detail) "+
+			"VALUES (?, ?, ?, ?, ?)", u, t, action, ip, detail)
 	return err
 }
 

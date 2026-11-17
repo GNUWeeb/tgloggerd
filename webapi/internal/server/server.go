@@ -73,7 +73,7 @@ func New(d Deps) http.Handler {
 		cookies:     d.Cookies,
 		limiter:     d.Limiter,
 		acctLimiter: d.AcctLimiter,
-		verifier:    &auth.Verifier{Cookies: d.Cookies, Epoch: auth.DBEpoch(d.App)},
+		verifier:    &auth.Verifier{Cookies: d.Cookies, State: auth.DBState(d.App)},
 		daemon:      d.Daemon,
 		tokens:      d.Tokens,
 		access:      d.Access,

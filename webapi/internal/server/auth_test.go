@@ -382,3 +382,28 @@ func TestLoginAccountCap(t *testing.T) {
 		t.Fatalf("unknown name not capped: %d", a.status)
 	}
 }
+
+// The role and the disabled flag are read from the account on every
+// request, not from the cookie: a change applies to the next request.
+func TestSessionFollowsAccount(t *testing.T) {
+	db := testDB(t)
+	hash, _ := auth.HashPassword("s3cret")
+	id := addUser(t, db, "alice", hash, "member", true)
+	c := &client{t: t, h: newHandler(db, 5), cookies: map[string]string{}}
+	if a := c.login("alice", "s3cret"); a.status != 200 {
+		t.Fatalf("login: %d", a.status)
+	}
+	if _, err := db.Exec("UPDATE web_users SET role = 'admin' WHERE id = ?", id); err != nil {
+		t.Fatal(err)
+	}
+	a := c.do("GET", "/api/session", "", nil)
+	if a.status != 200 || a.body["user"].(map[string]any)["role"] != "admin" {
+		t.Fatalf("session after a role change: %d %v", a.status, a.body)
+	}
+	if _, err := db.Exec("UPDATE web_users SET is_active = 0 WHERE id = ?", id); err != nil {
+		t.Fatal(err)
+	}
+	if a := c.do("GET", "/api/session", "", nil); a.status != 401 || c.cookies["tgw_session"] != "" {
+		t.Fatalf("session of a disabled account: %d", a.status)
+	}
+}

@@ -77,7 +77,7 @@ export interface paths {
         };
         /**
          * Who is signed in
-         * @description The account of a valid session (signature, expiry and the account's session_epoch) and the CSRF token to send with it.
+         * @description The account of a valid session (signature, expiry, the account's session_epoch, and an account that is not disabled) and the CSRF token to send with it. The role is the account's current one, read on every request, not the one the cookie was issued with.
          */
         get: operations["getSession"];
         put?: never;

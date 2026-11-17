@@ -31,14 +31,14 @@ const (
 	Unverified
 )
 
-// EpochFunc reads an account's session_epoch; webdb.ErrNoUser means
+// StateFunc reads an account's session state; webdb.ErrNoUser means
 // the account is gone.
-type EpochFunc func(ctx context.Context, uid uint64) (uint32, error)
+type StateFunc func(ctx context.Context, uid uint64) (webdb.SessionState, error)
 
-// DBEpoch reads the epoch from the web's own database.
-func DBEpoch(db *sql.DB) EpochFunc {
-	return func(ctx context.Context, uid uint64) (uint32, error) {
-		return webdb.SessionEpoch(ctx, db, uid)
+// DBState reads the state from the web's own database.
+func DBState(db *sql.DB) StateFunc {
+	return func(ctx context.Context, uid uint64) (webdb.SessionState, error) {
+		return webdb.LoadSessionState(ctx, db, uid)
 	}
 }
 
@@ -46,26 +46,34 @@ func DBEpoch(db *sql.DB) EpochFunc {
 // web/src/auth/AuthFilter.cpp does: the cookie's signature and expiry,
 // then its epoch against web_users.session_epoch, so a password change
 // on either service signs the account out of both.
+//
+// Unlike the Drogon filter it also refuses a disabled account, and it
+// takes the role and the forced password change from the account, not
+// from the cookie, so a role change or a disable applies to the very
+// next request.
 type Verifier struct {
 	Cookies *Cookies
-	Epoch   EpochFunc
+	State   StateFunc
 }
 
 // Verify checks the request's session. The session is returned for
-// every outcome but None.
+// every outcome but None; when Valid, its Role and MustChangePassword
+// are the account's own.
 func (v *Verifier) Verify(ctx context.Context, r *http.Request) (Session, Check) {
 	s, ok := v.Cookies.Current(r)
 	if !ok {
 		return Session{}, None
 	}
-	epoch, err := v.Epoch(ctx, s.UID)
+	st, err := v.State(ctx, s.UID)
 	switch {
 	case errors.Is(err, webdb.ErrNoUser):
 		return s, Revoked
 	case err != nil:
 		return s, Unverified
-	case epoch != s.Epoch:
+	case st.Epoch != s.Epoch || !st.Active:
 		return s, Revoked
 	}
+	s.Role = st.Role
+	s.MustChangePassword = st.MustChangePassword
 	return s, Valid
 }

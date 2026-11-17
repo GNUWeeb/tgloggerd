@@ -62,12 +62,12 @@ func TestParseSessionLikeStoull(t *testing.T) {
 		ok   bool
 		want Session
 	}{
-		{"5\n0\n3\nadmin\nbob", true, Session{5, "bob", "admin", 0, 3}},
-		{"5\n0\n3\nadmin\nx\ny", true, Session{5, "x\ny", "admin", 0, 3}},
-		{"-1\n0\n3\nadmin\nbob", true, Session{1<<64 - 1, "bob", "admin", 0, 3}},
-		{" 5x\n +0\n+3y\nadmin\nbob", true, Session{5, "bob", "admin", 0, 3}},
-		{"5\n0\n4294967296\nadmin\nbob", true, Session{5, "bob", "admin", 0, 0}},
-		{"5\n0\n-1\nadmin\nbob", true, Session{5, "bob", "admin", 0, 1<<32 - 1}},
+		{"5\n0\n3\nadmin\nbob", true, Session{5, "bob", "admin", 0, 3, false}},
+		{"5\n0\n3\nadmin\nx\ny", true, Session{5, "x\ny", "admin", 0, 3, false}},
+		{"-1\n0\n3\nadmin\nbob", true, Session{1<<64 - 1, "bob", "admin", 0, 3, false}},
+		{" 5x\n +0\n+3y\nadmin\nbob", true, Session{5, "bob", "admin", 0, 3, false}},
+		{"5\n0\n4294967296\nadmin\nbob", true, Session{5, "bob", "admin", 0, 0, false}},
+		{"5\n0\n-1\nadmin\nbob", true, Session{5, "bob", "admin", 0, 1<<32 - 1, false}},
 		{"18446744073709551616\n0\n3\nadmin\nbob", false, Session{}},
 		{"5\n9223372036854775808\n3\nadmin\nbob", false, Session{}},
 		{"\n0\n3\nadmin\nbob", false, Session{}},
@@ -100,7 +100,7 @@ func TestIssueAndCurrent(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.AddCookie(&http.Cookie{Name: SessionCookie, Value: v})
 	s, ok := c.Current(r)
-	want := Session{7, "bob", "viewer", now.Unix() + 43200, 2}
+	want := Session{7, "bob", "viewer", now.Unix() + 43200, 2, false}
 	if !ok || s != want {
 		t.Fatalf("Current = %+v, %v; want %+v", s, ok, want)
 	}
