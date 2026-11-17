@@ -29,9 +29,9 @@ nginx still sends every page path to the Drogon web.
   table, and the path then follows here.
 - The email address gate has its hook in `Server.emailRequired`
   (pages.go), filled in by `web-email`.
-- The build id is configured (`WEBAPI_APP_BUILD`), since the Vite
-  manifest carries none; it must be the `TGD_BUILD` the bundle and the
-  render service were built with.
+- The build id comes from the bundle's `build.json`, which the build
+  writes for the client bundle and the render entry alike;
+  `WEBAPI_APP_BUILD` overrides it.
 - Needs the render service deployed (`ssr-render-service`, which lists
   this item as its dependency for the Go side) before the route moves.
 

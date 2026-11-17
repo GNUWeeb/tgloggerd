@@ -7,7 +7,9 @@ package render
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -36,11 +38,52 @@ type manifestChunk struct {
 	IsEntry bool     `json:"isEntry"`
 }
 
+// BuildFile is the file in the client bundle's directory where the
+// build (web/app/scripts/build.ts) records the build id it gave the
+// client bundle and the render entry alike.
+const BuildFile = "build.json"
+
+// DevBuild is the build id of a bundle that recorded none: what Vite
+// gives both bundles when they are built without the build script.
+const DevBuild = "dev"
+
+// ReadBuild returns the build id recorded in dist's BuildFile, or
+// DevBuild when there is no such file. A file that is there but does
+// not hold an id is an error, since guessing would only make every
+// render fail with a build mismatch.
+func ReadBuild(dist string) (string, error) {
+	raw, err := os.ReadFile(filepath.Join(dist, BuildFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return DevBuild, nil
+	}
+	if err != nil {
+		return DevBuild, err
+	}
+	var b struct {
+		Build string `json:"build"`
+	}
+	if err := json.Unmarshal(raw, &b); err != nil {
+		return DevBuild, fmt.Errorf("%s: %w", BuildFile, err)
+	}
+	if b.Build == "" {
+		return DevBuild, fmt.Errorf("%s: no build id", BuildFile)
+	}
+	return b.Build, nil
+}
+
 // LoadAssets reads the client bundle's manifest in dist (the
 // directory `vite build` wrote, web/app/dist/client) and lists what a
 // page links: the entry script, the styles of the entry and of every
-// chunk it imports, and those chunks as module preloads.
+// chunk it imports, and those chunks as module preloads. build is the
+// bundle's build id; empty means the one the build recorded
+// (ReadBuild).
 func LoadAssets(dist, build string) (Assets, error) {
+	if build == "" {
+		var err error
+		if build, err = ReadBuild(dist); err != nil {
+			return Assets{Build: build}, err
+		}
+	}
 	raw, err := os.ReadFile(filepath.Join(dist, ".vite", "manifest.json"))
 	if err != nil {
 		return Assets{Build: build}, err

@@ -215,12 +215,13 @@ markup:
 - `vite build` produces the client bundle in `web/app/dist/client/`
   (content-hashed files under `/app/assets/`) and the server bundle in
   `web/app/dist/server/`, from the same commit, with the same build id
-  (the short commit hash, or a hash of the inputs).
+  (a hash of the inputs, or `TGD_BUILD`; web/app/scripts/build.ts).
 - The Go service reads `dist/client/.vite/manifest.json` at start for
   the entry script, styles and preloads. The manifest carries no
-  build id, so the Go service is given it (`WEBAPI_APP_BUILD`, the
-  `TGD_BUILD` of the build). It serves
-  `/app/assets/` with `Cache-Control: public, max-age=31536000,
+  build id, so the build records it in `dist/client/build.json`
+  (`{"build": "<id>"}`, written after both bundles), and the Go
+  service reads it from there (`WEBAPI_APP_BUILD` overrides it). It
+  serves `/app/assets/` with `Cache-Control: public, max-age=31536000,
   immutable` (or nginx does).
 - Fonts and every other asset come from npm packages inside the bundle;
   dependencies are pinned in `web/app/package-lock.json` and installed
