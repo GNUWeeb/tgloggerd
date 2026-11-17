@@ -232,6 +232,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search/{entity}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Advanced search over one entity
+         * @description The advanced search of web/docs/search-api.md: a flat chain of conditions over the entity's field registry, sorted and paged, with the rows as arrays aligned to `cols`. The same parameters and the same answer as the Drogon web's GET /v1/search/{entity}, which it ports; it is under /api/ like the rest of this service, while the Drogon pages keep calling their own until they move here.
+         *
+         *     Everything is read through the request scope. Private messages do not exist (404) for a viewer who may not see private chats. The other entities' rows are limited in the query itself, so rows, totals and estimates count only what the viewer may see: a member sees the users of its visible groups by id, name, username, type and photo only (`fields` and `cols` shrink to those), and the files and messages of its visible groups. A total is the storage engine's estimate of a whole table (total_exact false) only for a viewer who sees that whole table.
+         *
+         *     String cells are HTML-escaped, as Drogon sends them; photo cells are /files/<token> URLs, or "" for none.
+         */
+        get: operations["searchEntity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/entities": {
         parameters: {
             query?: never;
@@ -1310,6 +1334,65 @@ export interface components {
         ChatSearchPage: {
             items: components["schemas"]["PickItem"][];
             next_cursor: string | null;
+        };
+        /** @description A searchable field of the registry. */
+        SearchField: {
+            key: string;
+            label: string;
+            /** @enum {string} */
+            type: "text" | "int" | "bool" | "datetime" | "enum";
+            sortable: boolean;
+            operators: ("=" | "!=" | "<" | ">" | "<=" | ">=" | "LIKE" | "NOT LIKE" | "%LIKE%" | "NOT %LIKE%" | "matches" | "IS NULL" | "IS NOT NULL")[];
+            /** @description An enum field's values, comma-separated. */
+            enum?: string;
+        };
+        /** @description A displayed column: its render type, and the field key a click on its header sorts by ("" for none). */
+        SearchCol: {
+            key: string;
+            label: string;
+            /** @enum {string} */
+            type: "photo" | "filethumb" | "id" | "name" | "username" | "bool" | "int" | "datetime" | "text" | "longtext" | "party" | "fileid" | "hash";
+            sort: string;
+        };
+        /** @description A message row's linked avatar and name; strings HTML-escaped. */
+        SearchParty: {
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            kind: "user" | "group" | "self" | "none";
+            name: string;
+            /** @description A /files/<token> URL, or "". */
+            photo: string;
+            username: string;
+        };
+        SearchAnswer: {
+            fields: components["schemas"]["SearchField"][];
+            cols: components["schemas"]["SearchCol"][];
+            /** @description One array per row, aligned to cols: id cells are numbers, bool cells booleans, party cells SearchParty objects, every other cell a string, already HTML-escaped. */
+            rows: (string | number | boolean | components["schemas"]["SearchParty"])[][];
+            /** Format: int64 */
+            total: number;
+            /** @description false when total is an estimate: the table's row estimate for a viewer who sees the whole table and gave no condition, or, when counting ran out of time, what the page proves (offset plus its rows, plus one when it is full). */
+            total_exact: boolean;
+            limit: number;
+            offset: number;
+            /** @description The deepest offset a request can reach. */
+            max_offset: number;
+            /** @description The field key sorted by; "" for the default or relevance. */
+            sort: string;
+            /** @enum {string} */
+            order: "asc" | "desc";
+            debug?: components["schemas"]["SearchDebug"];
+        };
+        /** @description The page query, the count, their values and the plan; HTML-escaped. */
+        SearchDebug: {
+            sql: string;
+            count_sql: string;
+            bind: string[];
+            explain: {
+                columns: string[];
+                rows: string[][];
+            };
         };
         FileRow: {
             /** Format: int64 */
@@ -2562,6 +2645,54 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    searchEntity: {
+        parameters: {
+            query?: {
+                /** @description A JSON array of conditions {c, o, v, n} (field key, operator, value, connector AND or OR to the next one), at most 8 KB; empty is every row. */
+                search?: string;
+                /** @description Read as C's atoi and clamped to 1 to 1000. */
+                limit?: number;
+                /** @description Read as C's atoi and clamped to 0 to 500000. */
+                offset?: number;
+                /** @description A sortable field key; anything else is the default order. Without one, a search with a fulltext condition is ordered by relevance. */
+                sort?: string;
+                order?: "asc" | "desc";
+                /** @description 1 adds the SQL, its values and its plan, for superadmins and admins; it is ignored for anyone else. */
+                debug?: "1";
+            };
+            header?: never;
+            path: {
+                entity: "users" | "groups" | "files" | "private_messages" | "group_messages";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of rows. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchAnswer"];
+                };
+            };
+            /** @description A search the registry refuses (error bad_search: an unknown field, an operator the field does not take, a malformed value or JSON, too many conditions), or one that ran out of time (error search_timeout); message is Drogon's sentence. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Gate"];
+            404: components["responses"]["NotFound"];
             503: components["responses"]["SessionUnavailable"];
         };
     };

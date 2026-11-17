@@ -25,6 +25,9 @@ And the chat windows and the entity summaries, GET
 /api/chats/{scope}/{id}/messages and GET /api/entities, described under
 Chats.
 
+And the advanced search, GET /api/search/{entity}, described under
+Search.
+
 # The API contract
 
 openapi.yaml (OpenAPI 3.1) is the contract of the service's API: every
@@ -393,6 +396,36 @@ the user appears in one of its visible groups, as a sender or an
 admin, and then by name and photo only: no counts, contact name, bio,
 history or other groups (logdb.VisibleUsers). Users and groups the
 pages show come with the same rule.
+
+# Search
+
+    GET /api/search/{entity}   the advanced search of the Drogon web's
+                               GET /v1/search/{entity}
+
+The port of the Drogon web's advanced search, with the same
+parameters, field registries and answers (web/docs/search-api.md, which
+lists what differs). internal/logdb/search.go is the engine and
+internal/logdb/search_entities.go the five entities (users, groups,
+files, private_messages, group_messages), each with its displayed
+columns and its condition of the request scope. It is under /api/
+rather than at the Drogon path: nginx already sends /api/ here, and the
+Drogon pages keep calling their own /v1/search, which answers a
+signed-out request with a redirect and knows no request scope, until
+they move.
+
+  - The scope is in the SQL: the entity's condition (GroupFilter over
+    the group column, or EXISTS over the messages of visible groups
+    for users and files) is ANDed with the request's conditions, so
+    rows, totals and EXPLAIN count only visible rows. Private messages
+    are 404 without SeesPrivate. A member sees users by id, name,
+    username, type and photo only; the other fields and columns are
+    not listed and not accepted.
+  - The total is exact when counting fits the 3-second statement
+    limit; otherwise, and for group_messages without conditions, it is
+    an estimate (total_exact false). The table's row estimate is used
+    only when the scope adds no condition, so it never counts rows
+    the viewer may not see.
+  - debug=1 is for superadmins and admins.
 
 # The request scope
 

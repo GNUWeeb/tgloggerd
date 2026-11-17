@@ -50,6 +50,14 @@ func openPool(log *slog.Logger, c config.DB) (*sql.DB, error) {
 	mc.User = c.User
 	mc.Passwd = c.Password
 	mc.DBName = c.DBName
+	// Values are put into the statement by the driver, as the Drogon
+	// web's client does, instead of preparing it on the server. The
+	// search's relevance sort needs that: MySQL orders by the fulltext
+	// index only when the MATCH of ORDER BY is the one of WHERE, which
+	// two placeholders of a prepared statement are not, so it would
+	// sort every hit instead. It also saves the prepare and close round
+	// trips of every query with values.
+	mc.InterpolateParams = true
 
 	connector, err := mysql.NewConnector(mc)
 	if err != nil {

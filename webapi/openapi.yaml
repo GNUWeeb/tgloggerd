@@ -89,6 +89,8 @@ tags:
     description: Administration of the MCP endpoint's exposed groups and tokens.
   - name: live
     description: Live updates as Server-Sent Events.
+  - name: search
+    description: The advanced search over the logged users, groups, files and messages.
 
 paths:
 
@@ -890,6 +892,118 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/search/{entity}:
+    get:
+      operationId: searchEntity
+      tags: [search]
+      summary: Advanced search over one entity
+      description: >-
+        The advanced search of web/docs/search-api.md: a flat chain of
+        conditions over the entity's field registry, sorted and paged,
+        with the rows as arrays aligned to `cols`. The same parameters
+        and the same answer as the Drogon web's GET /v1/search/{entity},
+        which it ports; it is under /api/ like the rest of this
+        service, while the Drogon pages keep calling their own until
+        they move here.
+
+
+        Everything is read through the request scope. Private messages
+        do not exist (404) for a viewer who may not see private chats.
+        The other entities' rows are limited in the query itself, so
+        rows, totals and estimates count only what the viewer may see:
+        a member sees the users of its visible groups by id, name,
+        username, type and photo only (`fields` and `cols` shrink to
+        those), and the files and messages of its visible groups. A
+        total is the storage engine's estimate of a whole table
+        (total_exact false) only for a viewer who sees that whole
+        table.
+
+
+        String cells are HTML-escaped, as Drogon sends them; photo
+        cells are /files/<token> URLs, or "" for none.
+      parameters:
+        - name: entity
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [users, groups, files, private_messages, group_messages]
+        - name: search
+          in: query
+          required: false
+          description: >-
+            A JSON array of conditions {c, o, v, n} (field key,
+            operator, value, connector AND or OR to the next one), at
+            most 8 KB; empty is every row.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Read as C's atoi and clamped to 1 to 1000.
+          schema:
+            type: integer
+            default: 10
+        - name: offset
+          in: query
+          required: false
+          description: Read as C's atoi and clamped to 0 to 500000.
+          schema:
+            type: integer
+            default: 0
+        - name: sort
+          in: query
+          required: false
+          description: >-
+            A sortable field key; anything else is the default order.
+            Without one, a search with a fulltext condition is ordered
+            by relevance.
+          schema:
+            type: string
+        - name: order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+        - name: debug
+          in: query
+          required: false
+          description: >-
+            1 adds the SQL, its values and its plan, for superadmins
+            and admins; it is ignored for anyone else.
+          schema:
+            type: string
+            enum: ['1']
+      responses:
+        '200':
+          description: A page of rows.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchAnswer'
+        '400':
+          description: >-
+            A search the registry refuses (error bad_search: an unknown
+            field, an operator the field does not take, a malformed
+            value or JSON, too many conditions), or one that ran out of
+            time (error search_timeout); message is Drogon's sentence.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Gate'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
@@ -3224,6 +3338,141 @@ components:
             $ref: '#/components/schemas/PickItem'
         next_cursor:
           type: [string, 'null']
+    SearchField:
+      type: object
+      description: A searchable field of the registry.
+      required: [key, label, type, sortable, operators]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        type:
+          type: string
+          enum: [text, int, bool, datetime, enum]
+        sortable:
+          type: boolean
+        operators:
+          type: array
+          items:
+            type: string
+            enum: ['=', '!=', '<', '>', '<=', '>=', LIKE, NOT LIKE, '%LIKE%', 'NOT %LIKE%', matches, IS NULL, IS NOT NULL]
+        enum:
+          type: string
+          description: An enum field's values, comma-separated.
+    SearchCol:
+      type: object
+      description: >-
+        A displayed column: its render type, and the field key a click
+        on its header sorts by ("" for none).
+      required: [key, label, type, sort]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        type:
+          type: string
+          enum: [photo, filethumb, id, name, username, bool, int, datetime, text, longtext, party, fileid, hash]
+        sort:
+          type: string
+    SearchParty:
+      type: object
+      description: A message row's linked avatar and name; strings HTML-escaped.
+      required: [id, kind, name, photo, username]
+      properties:
+        id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+          enum: [user, group, self, none]
+        name:
+          type: string
+        photo:
+          type: string
+          description: A /files/<token> URL, or "".
+        username:
+          type: string
+    SearchAnswer:
+      type: object
+      required: [fields, cols, rows, total, total_exact, limit, offset, max_offset, sort, order]
+      properties:
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchField'
+        cols:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchCol'
+        rows:
+          type: array
+          description: >-
+            One array per row, aligned to cols: id cells are numbers,
+            bool cells booleans, party cells SearchParty objects, every
+            other cell a string, already HTML-escaped.
+          items:
+            type: array
+            items:
+              oneOf:
+                - type: string
+                - type: integer
+                  format: int64
+                - type: boolean
+                - $ref: '#/components/schemas/SearchParty'
+        total:
+          type: integer
+          format: int64
+        total_exact:
+          type: boolean
+          description: >-
+            false when total is an estimate: the table's row estimate
+            for a viewer who sees the whole table and gave no
+            condition, or, when counting ran out of time, what the page
+            proves (offset plus its rows, plus one when it is full).
+        limit:
+          type: integer
+        offset:
+          type: integer
+        max_offset:
+          type: integer
+          description: The deepest offset a request can reach.
+        sort:
+          type: string
+          description: The field key sorted by; "" for the default or relevance.
+        order:
+          type: string
+          enum: [asc, desc]
+        debug:
+          $ref: '#/components/schemas/SearchDebug'
+    SearchDebug:
+      type: object
+      description: The page query, the count, their values and the plan; HTML-escaped.
+      required: [sql, count_sql, bind, explain]
+      properties:
+        sql:
+          type: string
+        count_sql:
+          type: string
+        bind:
+          type: array
+          items:
+            type: string
+        explain:
+          type: object
+          required: [columns, rows]
+          properties:
+            columns:
+              type: array
+              items:
+                type: string
+            rows:
+              type: array
+              items:
+                type: array
+                items:
+                  type: string
     FileRow:
       type: object
       required: [id, file_type, name, ext, size, hits, stored, created_at, tg_file_id, url, thumb, chat, sender, message]
