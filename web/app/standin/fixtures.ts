@@ -3,8 +3,9 @@
 // mockup's modules. Development only: the Go service is the real source.
 // @ts-nocheck: the mockup data is untyped JavaScript.
 import { users, getUser, getUserHistory, getUsernames, getActivity, queryUsers, TOTAL_USERS } from '../../mockup/src/data/users.js';
-import { groups, getGroupsOfUser } from '../../mockup/src/data/groups.js';
-import { groupMessages, senderOf } from '../../mockup/src/data/messages.js';
+import { groups, getGroupsOfUser, queryGroups, getGroup, getAdmins, getGroupHistory, getTopPosters } from '../../mockup/src/data/groups.js';
+import { queryFiles, files } from '../../mockup/src/data/files.js';
+import { groupMessages, senderOf, queryMessages, getMessage } from '../../mockup/src/data/messages.js';
 import { accounts, federations } from '../../mockup/src/data/accounts.js';
 import { buildScope, allowed } from '../../mockup/src/viewer.jsx';
 import { TOTALS } from '../../mockup/src/data/totals.js';
@@ -43,6 +44,27 @@ function userSummary(u, full: boolean) {
 }
 
 const groupSummary = (g) => ({ id: g.id, title: g.title, username: g.username, type: g.type, photo: null, exposed: g.exposed });
+
+const chatRef = (c) => ({ id: c.id, title: c.title || c.name, kind: c.kind, photo: null });
+
+function messageRow(m) {
+	const s = senderOf(m);
+	return {
+		id: m.id, scope: m.scope, message_id: m.message_id, date: iso(m.date), chat: chatRef(m.chat),
+		sender: m.is_outgoing ? null : userSummary(s, false), content_type: m.content_type,
+		snippet: m.content_type === 'service' ? m.text : m.text || m.media?.name || `[${m.content_type}]`,
+		forwarded: m.forward?.from ?? null, edited: !!m.edits, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
+	};
+}
+
+function fileRow(f) {
+	return {
+		id: f.id, file_type: f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored,
+		created_at: iso(f.created_at), duration: f.duration, tg_file_id: f.tg_file_id, url: f.stored ? `/files/standin-${f.id}` : null, thumb: null,
+		chat: { id: f.msg.chat.id, title: f.chat_title, kind: f.msg.chat.kind }, sender: f.sender_id ? { id: f.sender_id, name: f.sender_name } : null,
+		message: { scope: f.msg.scope, id: f.msg.id },
+	};
+}
 
 type Loaded = { route: string; status: 200 | 404; props: unknown };
 const notFound: Loaded = { route: 'not_found', status: 404, props: {} };
@@ -101,6 +123,55 @@ export function load(url: string, persona: Persona): Loaded {
 				history: getUserHistory(usr).map((e) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, photo: null, removed: e.kind === 'photo' ? true : undefined })),
 				activity: getActivity(usr.id, usr.msg_count),
 				can_private: allowed(s, 'private_messages'),
+			},
+		};
+	}
+	if (path === '/groups') {
+		const st = listState(u.searchParams, 'msg_count');
+		const r = queryGroups(st, s.role === 'superadmin' ? null : s.group);
+		return { route: 'groups', status: 200, props: { ...st, ...r, rows: r.rows.map((g) => ({ ...groupSummary(g), msg_count: g.msg_count, admin_count: g.admin_count, description: g.description, created_at: iso(g.created_at) })), archive_total: s.role === 'member' ? undefined : TOTALS.groups } };
+	}
+	if ((m = path.match(/^\/groups\/(-\d+)(\/admins|\/history)?$/))) {
+		const g = getGroup(m[1]);
+		if (!g || !s.group(g)) return notFound;
+		return {
+			route: m[2] === '/admins' ? 'group_admins' : m[2] === '/history' ? 'group_history' : 'group', status: 200, props: {
+				group: { ...groupSummary(g), description: g.description, members: g.members, msg_count: g.msg_count, admin_count: g.admin_count, created_at: iso(g.created_at), updated_at: iso(g.updated_at) },
+				admins: getAdmins(g).map((a) => ({ user: userSummary(a.user, false), status: a.status, custom_title: a.custom_title, is_anonymous: a.is_anonymous, perms: a.perms, since: iso(a.since) })),
+				history: getGroupHistory(g).map((e) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, photo: null, removed: e.kind === 'photo' ? true : undefined, user: e.user ? userSummary(e.user, false) : undefined })),
+				top_posters: getTopPosters(g).map((p) => ({ user: userSummary(p.user, false), msgs: p.msgs })),
+				activity: getActivity(-g.id, g.msg_count / 40),
+			},
+		};
+	}
+	if (path === '/files') {
+		const st = listState(u.searchParams, 'created_at');
+		const canSee = (f) => (f.msg.scope === 'group' ? s.group(f.msg.chat) : allowed(s, 'private_messages'));
+		const r = queryFiles({ ...st, per: Number(u.searchParams.get('per')) || 50 }, canSee);
+		const want = u.searchParams.get('file');
+		const pv = want ? files().find((f) => String(f.id) === want && canSee(f)) : null;
+		return { route: 'files', status: 200, props: { ...st, ...r, per: Number(u.searchParams.get('per')) || 50, rows: r.rows.map(fileRow), preview: pv ? fileRow(pv) : null, can_fetch: s.canFetch, archive_total: s.role === 'member' ? undefined : TOTALS.files, stored_bytes: s.role === 'member' ? undefined : 5.3 * 2 ** 40 } };
+	}
+	if (path === '/group_messages' || path === '/private_messages' || path === '/messages/group' || path === '/messages/private') {
+		const scope = path.includes('private') ? 'private' : 'group';
+		if (!allowed(s, scope === 'group' ? 'group_messages' : 'private_messages')) return notFound;
+		const st = listState(u.searchParams, 'date');
+		const per = Number(u.searchParams.get('per')) || 50;
+		const r = queryMessages(scope, { ...st, per }, scope === 'group' && s.role !== 'superadmin' ? (x) => s.group(x.chat) : null);
+		return { route: scope === 'group' ? 'group_messages' : 'private_messages', status: 200, props: { ...st, ...r, per, scope, rows: r.rows.map(messageRow), archive_total: s.role === 'member' ? undefined : scope === 'group' ? TOTALS.group_messages : TOTALS.private_messages } };
+	}
+	if ((m = path.match(/^\/messages\/(group|private)\/(\d+)$/))) {
+		if (!allowed(s, m[1] === 'group' ? 'group_messages' : 'private_messages')) return notFound;
+		const x = getMessage(m[1], m[2]);
+		if (!x || (m[1] === 'group' && !s.group(x.chat))) return notFound;
+		const media = x.media ? { file_id: x.media.fileId, name: x.media.name || '', size: x.media.size || 0, duration: x.media.duration, stored: x.media.stored !== false, thumb: null, url: null } : null;
+		return {
+			route: 'message', status: 200, props: {
+				message: {
+					...messageRow(x), text: x.content_type === 'service' ? x.text : x.text,
+					reply_to: x.reply_to ? { scope: x.scope, id: x.reply_to.id, sender_name: senderOf(x.reply_to)?.name ?? '', snippet: x.reply_to.text || `[${x.reply_to.content_type}]` } : null,
+					edits: (x.edits || []).map((e) => ({ at: iso(e.at), text: e.text })), edited_at: x.edited_at ? iso(x.edited_at) : null, media,
+				},
 			},
 		};
 	}

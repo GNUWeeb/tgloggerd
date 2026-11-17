@@ -604,3 +604,5 @@
 .app .a-notices { margin: 8px 0 0; padding-left: 18px; color: var(--fg-2); display: grid; gap: 4px; }
 .app .a-login .a-banner { margin: 0; }
 .app .a-uname .a-verified { margin-left: 4px; vertical-align: -2px; }
+.app .a-thumb img { display: block; }
+.app .a-thumb-play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; background: rgb(0 0 0 / .25); }

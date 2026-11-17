@@ -8,6 +8,11 @@ import type { Head } from '../head.ts';
 import { dashboardRoute } from './dashboard.tsx';
 import { usersRoute } from './users.tsx';
 import { userRoute } from './user.tsx';
+import { groupsRoute } from './groups.tsx';
+import { groupRoute } from './group.tsx';
+import { filesRoute } from './files.tsx';
+import { messagesRoute } from './messages.tsx';
+import { messageRoute } from './message.tsx';
 
 export interface RouteDef<P = any> {
 	Page: ComponentType<{ page: PageData<P> }>;
@@ -30,5 +35,13 @@ export const routes: Record<string, RouteDef> = {
 	users: usersRoute,
 	user: userRoute,
 	user_history: userRoute,
+	groups: groupsRoute,
+	group: groupRoute,
+	group_admins: groupRoute,
+	group_history: groupRoute,
+	files: filesRoute,
+	group_messages: messagesRoute,
+	private_messages: messagesRoute,
+	message: messageRoute,
 	not_found: { Page: NotFound, head: () => ({ title: 'Not found - tgloggerd', robots: 'noindex' }) },
 };
