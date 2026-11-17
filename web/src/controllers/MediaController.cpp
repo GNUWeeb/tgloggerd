@@ -155,23 +155,38 @@ MediaController::serve(drogon::HttpRequestPtr req, std::string token)
 
 	auto ro = drogon::app().getDbClient("ro");
 	auto meta = co_await dao::browse::getFile(ro, fid);
-	if (!meta || !isHex64(meta->hex))
+	if (!meta)
 		co_return renderStatus(req, drogon::k404NotFound, "File not found",
 				       "No file exists with that id.");
 
+	/*
+	 * A row whose bytes turned out to be another row's points at that row
+	 * (alias_of) instead of holding the sha256 itself; follow it one hop
+	 * for the bytes, as the daemon does. The name and type shown stay this
+	 * row's, the one the token was minted for.
+	 */
+	std::optional<dao::browse::FileMeta> target;
+	if (meta->aliasOf)
+		target = co_await dao::browse::getFile(ro,
+						       (int64_t)meta->aliasOf);
+	const dao::browse::FileMeta &blob = target ? *target : *meta;
+
 	/* Too large to keep: only the metadata was recorded. */
-	if (!meta->onDisk)
+	if (!blob.onDisk)
 		co_return renderStatus(req, drogon::k404NotFound,
 				       "File not stored",
 				       "This file was too large to keep in "
 				       "storage; only its metadata was recorded.");
+	if (!isHex64(blob.hex))
+		co_return renderStatus(req, drogon::k404NotFound, "File not found",
+				       "No file exists with that id.");
 
 	/* DB-derived path only: <dir>/aa/bb/cc/dd/ee/<hex>[.ext]. */
-	std::string ext = safeExt(meta->ext);
+	std::string ext = safeExt(blob.ext);
 	std::filesystem::path path = storageDir();
 	for (int i = 0; i < 5; i++)
-		path /= meta->hex.substr((size_t)i * 2, 2);
-	std::string name = meta->hex;
+		path /= blob.hex.substr((size_t)i * 2, 2);
+	std::string name = blob.hex;
 	if (!ext.empty())
 		name += "." + ext;
 	path /= name;
