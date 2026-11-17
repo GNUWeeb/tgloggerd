@@ -13,11 +13,15 @@ Server rendering of the React pages needs Node
 - Node, version pinned, in the build image or an image of its own;
   dependencies installed from `web/app/package-lock.json` at build
   time, nothing fetched at run time.
-- A `render` compose service listening on a Unix socket in a directory
-  shared with the Go service, with no database access, cookies or
-  secrets in its environment, restarted on failure.
+- A `render` compose service as docs/design/web-ssr.md section 8
+  describes: the socket directory as its only shared volume,
+  `network_mode: none`, read-only file system, non-root, no secrets,
+  restarted on failure.
 - Health and timing logs; the Go service's fallback covers it being
   down.
+- The client bundle (`web/app/dist/client/`) built in the same step
+  with the same build id, for the Go service to serve under
+  `/app/assets/` (docs/design/web-ssr.md section 6).
 
 ## Design notes
 

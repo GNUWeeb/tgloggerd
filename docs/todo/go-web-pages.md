@@ -24,9 +24,20 @@ takes over (docs/design/web-go.md section 4).
 
 ## Design notes
 
+- The protocol, document template, caching and `/api/page` answers
+  are specified in docs/design/web-ssr.md (sections 3 to 7): route ids
+  shared with the React route registry, HTTP/1.1 over the Unix socket
+  `RENDER_SOCKET`, `POST /render` version 1, `GET /health`,
+  `RENDER_TIMEOUT` and `RENDER_BACKOFF`, one Go template for rendered
+  and fallback pages, page data in `<script type="application/json"
+  id="__tgd">` via `encoding/json` with HTML escaping, the CSRF meta
+  tag added by Go only, `{"reload": true}` for paths still served by
+  Drogon.
+- Until web-user-settings exists, the viewer's settings are the site
+  defaults; `nav` comes from the request scope.
 - The render service and its React entry point are the React
-  application's (`web/app/`); this item defines and tests the protocol
-  with a stand-in renderer.
+  application's (`web/app/`); this item tests the protocol with a
+  stand-in renderer.
 
 ## Depends on
 
