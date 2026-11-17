@@ -57,6 +57,10 @@ type Config struct {
 	// within LoginWindow (WEB_LOGIN_MAX_ATTEMPTS, WEB_LOGIN_WINDOW).
 	LoginMaxAttempts int
 	LoginWindow      time.Duration
+	// LoginMaxPerAccount failed logins per account, from all addresses
+	// together, are allowed within LoginWindow
+	// (WEB_LOGIN_MAX_ATTEMPTS_PER_ACCOUNT); 0 turns the cap off.
+	LoginMaxPerAccount int
 
 	// DaemonAPI is WEB_TGLOGGERD_API, "" when the daemon API is off;
 	// FetchTimeout is how long a fetch through it may take.
@@ -216,6 +220,9 @@ func FromEnv() (*Config, error) {
 		return nil, err
 	}
 	c.LoginWindow = time.Duration(window) * time.Second
+	if c.LoginMaxPerAccount, err = integer("WEB_LOGIN_MAX_ATTEMPTS_PER_ACCOUNT", "20"); err != nil {
+		return nil, err
+	}
 
 	// A malformed WEB_TGLOGGERD_API only turns the daemon client off
 	// (cmd/webapi logs it), as in the Drogon web, which works without

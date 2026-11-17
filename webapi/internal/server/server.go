@@ -30,7 +30,10 @@ type Deps struct {
 	Signer  *auth.Signer
 	Cookies *auth.Cookies
 	Limiter *auth.RateLimiter
-	Daemon  *daemon.Client // nil when the daemon API is off
+	// AcctLimiter caps failed logins per account from all addresses;
+	// nil leaves only Limiter, per address and name.
+	AcctLimiter *auth.RateLimiter
+	Daemon      *daemon.Client // nil when the daemon API is off
 	// Tokens opens the /files/<token> tokens.
 	Tokens *auth.FileTokens
 	// Access collects the ids of the files served for the daemon; nil
@@ -44,36 +47,38 @@ type Deps struct {
 
 // Server carries what the handlers share.
 type Server struct {
-	log      *slog.Logger
-	ro       *sql.DB
-	app      *sql.DB
-	signer   *auth.Signer
-	cookies  *auth.Cookies
-	limiter  *auth.RateLimiter
-	verifier *auth.Verifier
-	daemon   *daemon.Client
-	tokens   *auth.FileTokens
-	access   *daemon.AccessReporter
-	media    MediaConfig
-	proxies  TrustedProxies
+	log         *slog.Logger
+	ro          *sql.DB
+	app         *sql.DB
+	signer      *auth.Signer
+	cookies     *auth.Cookies
+	limiter     *auth.RateLimiter
+	acctLimiter *auth.RateLimiter
+	verifier    *auth.Verifier
+	daemon      *daemon.Client
+	tokens      *auth.FileTokens
+	access      *daemon.AccessReporter
+	media       MediaConfig
+	proxies     TrustedProxies
 }
 
 // New returns the service's handler: the routes wrapped in request
 // logging.
 func New(d Deps) http.Handler {
 	s := &Server{
-		log:      d.Log,
-		ro:       d.RO,
-		app:      d.App,
-		signer:   d.Signer,
-		cookies:  d.Cookies,
-		limiter:  d.Limiter,
-		verifier: &auth.Verifier{Cookies: d.Cookies, Epoch: auth.DBEpoch(d.App)},
-		daemon:   d.Daemon,
-		tokens:   d.Tokens,
-		access:   d.Access,
-		media:    d.Media,
-		proxies:  d.Proxies,
+		log:         d.Log,
+		ro:          d.RO,
+		app:         d.App,
+		signer:      d.Signer,
+		cookies:     d.Cookies,
+		limiter:     d.Limiter,
+		acctLimiter: d.AcctLimiter,
+		verifier:    &auth.Verifier{Cookies: d.Cookies, Epoch: auth.DBEpoch(d.App)},
+		daemon:      d.Daemon,
+		tokens:      d.Tokens,
+		access:      d.Access,
+		media:       d.Media,
+		proxies:     d.Proxies,
 	}
 
 	mux := http.NewServeMux()

@@ -78,8 +78,10 @@ text) and a fresh pre-login "csrf" token on refused logins.
                       403 csrf: the token or its cookie is missing or
                       wrong. 400 bad_request: the body is not JSON.
                       429 rate_limited: WEB_LOGIN_MAX_ATTEMPTS failures
-                      for this address and username within
-                      WEB_LOGIN_WINDOW. 401 invalid_credentials: no such
+                      for this address and username, or
+                      WEB_LOGIN_MAX_ATTEMPTS_PER_ACCOUNT for the account
+                      from all addresses, within WEB_LOGIN_WINDOW.
+                      401 invalid_credentials: no such
                       account, a disabled one, or a wrong password.
                       Checked in that order; web_audit gets login_ok,
                       login_fail or login_ratelimited, as from Drogon.
@@ -264,7 +266,14 @@ with the same meaning, since the two must agree:
     WEB_SECURE_COOKIE            "0" drops the cookies' Secure flag
     WEB_LOGIN_MAX_ATTEMPTS, WEB_LOGIN_WINDOW
                                  the login throttle, default 5 failures
-                                 per 900 seconds
+                                 per address and username per 900
+                                 seconds
+    WEB_LOGIN_MAX_ATTEMPTS_PER_ACCOUNT
+                                 failures per account from all
+                                 addresses in the same window, default
+                                 20; 0 turns this cap off. Anyone who
+                                 knows a name can use it up and lock
+                                 the account's logins for the window
     WEB_TGLOGGERD_API            the daemon's internal API as
                                  http://host:port; empty or malformed
                                  leaves the client off

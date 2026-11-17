@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/webdb"
@@ -186,9 +188,30 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "account lookup", err)
 		return
 	}
+
+	// The account cap counts failures per account from every address,
+	// so guesses spread over many addresses still stop. It keys on the
+	// account the name found, since the name column matches without
+	// regard to case or accents; a name that finds none keys on itself.
+	acctKey := "name\n" + strings.ToLower(name)
+	if err == nil {
+		acctKey = "id\n" + strconv.FormatUint(u.ID, 10)
+	}
+	if s.acctLimiter != nil && !s.acctLimiter.Allowed(acctKey) {
+		if err := webdb.Audit(ctx, s.app, nil, "login_ratelimited", ip, in.Username); err != nil {
+			s.internalError(w, "audit", err)
+			return
+		}
+		s.loginFailure(w, http.StatusTooManyRequests, "rate_limited", msgThrottle)
+		return
+	}
+
 	ok := err == nil && u.IsActive && auth.VerifyPassword(u.PasswordHash, in.Password)
 	if !ok {
 		s.limiter.RecordFailure(key)
+		if s.acctLimiter != nil {
+			s.acctLimiter.RecordFailure(acctKey)
+		}
 		if err := webdb.Audit(ctx, s.app, nil, "login_fail", ip, in.Username); err != nil {
 			s.internalError(w, "audit", err)
 			return
@@ -198,6 +221,9 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.limiter.Reset(key)
+	if s.acctLimiter != nil {
+		s.acctLimiter.Reset(acctKey)
+	}
 	if err := webdb.Audit(ctx, s.app, &u.ID, "login_ok", ip, u.Username); err != nil {
 		s.internalError(w, "audit", err)
 		return

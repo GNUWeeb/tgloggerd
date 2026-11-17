@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -70,6 +71,7 @@ type client struct {
 	t       *testing.T
 	h       http.Handler
 	cookies map[string]string
+	addr    string // the connection's peer, "" for httptest's default
 }
 
 type answer struct {
@@ -87,6 +89,9 @@ func (c *client) do(method, path, csrf string, body any) answer {
 		rd = bytes.NewReader(b)
 	}
 	r := httptest.NewRequest(method, path, rd)
+	if c.addr != "" {
+		r.RemoteAddr = c.addr
+	}
 	for k, v := range c.cookies {
 		r.AddCookie(&http.Cookie{Name: k, Value: v})
 	}
@@ -336,5 +341,44 @@ func TestLoginLongUsername(t *testing.T) {
 	}
 	if got := []rune(rows[0].detail); len(got) != 255 || string(got) != strings.Repeat("é", 255) {
 		t.Fatalf("audit detail is %d characters", len(got))
+	}
+}
+
+// The account cap stops guesses spread over many addresses, and counts
+// the spellings of a name that find the same account together.
+func TestLoginAccountCap(t *testing.T) {
+	db := testDB(t)
+	hash, _ := auth.HashPassword("s3cret")
+	addUser(t, db, "alice", hash, "admin", true)
+	signer := auth.NewSigner(testKey)
+	h := New(Deps{
+		Log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		RO:          db,
+		App:         db,
+		Signer:      signer,
+		Cookies:     &auth.Cookies{Signer: signer, Timeout: 3600, Secure: true},
+		Limiter:     auth.NewRateLimiter(100, time.Hour),
+		AcctLimiter: auth.NewRateLimiter(3, time.Hour),
+	})
+	from := func(i int) *client {
+		return &client{t: t, h: h, cookies: map[string]string{},
+			addr: fmt.Sprintf("192.0.2.%d:4000", i)}
+	}
+
+	for i, name := range []string{"alice", "ALICE", "\u00e1lice"} {
+		if a := from(i+1).login(name, "bad"); a.status != 401 {
+			t.Fatalf("failure %d (%s): %d %v", i, name, a.status, a.body)
+		}
+	}
+	if a := from(9).login("alice", "s3cret"); a.status != 429 {
+		t.Fatalf("account not capped from a new address: %d %v", a.status, a.body)
+	}
+
+	// A name that finds no account is capped on the name itself.
+	for i := 0; i < 3; i++ {
+		from(20+i).login("nobody", "bad")
+	}
+	if a := from(30).login("NOBODY", "bad"); a.status != 429 {
+		t.Fatalf("unknown name not capped: %d", a.status)
 	}
 }

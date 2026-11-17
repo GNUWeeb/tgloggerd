@@ -97,6 +97,10 @@ func run(log *slog.Logger, cfg *config.Config) error {
 	}
 
 	signer := auth.NewSigner(cfg.AppKey)
+	var acctLimiter *auth.RateLimiter
+	if cfg.LoginMaxPerAccount > 0 {
+		acctLimiter = auth.NewRateLimiter(cfg.LoginMaxPerAccount, cfg.LoginWindow)
+	}
 	handler := server.New(server.Deps{
 		Log:    log,
 		RO:     ro,
@@ -107,10 +111,11 @@ func run(log *slog.Logger, cfg *config.Config) error {
 			Timeout: cfg.SessionTimeout,
 			Secure:  cfg.SecureCookie,
 		},
-		Limiter: auth.NewRateLimiter(cfg.LoginMaxAttempts, cfg.LoginWindow),
-		Daemon:  dc,
-		Tokens:  auth.NewFileTokens(cfg.AppKey),
-		Access:  access,
+		Limiter:     auth.NewRateLimiter(cfg.LoginMaxAttempts, cfg.LoginWindow),
+		AcctLimiter: acctLimiter,
+		Daemon:      dc,
+		Tokens:      auth.NewFileTokens(cfg.AppKey),
+		Access:      access,
 		Media: server.MediaConfig{
 			StorageDir:   cfg.StorageDir,
 			TDLibDir:     tdlib,
