@@ -119,6 +119,7 @@ func subscribe(t *testing.T, h *live.Hub, last uint64, m live.Match) (*live.Sub,
 }
 
 func TestHubDownUntilHello(t *testing.T) {
+	t.Parallel()
 	e := start(t, live.Options{})
 	if _, _, err := e.hub.Subscribe(0, all); !errors.Is(err, live.ErrDown) {
 		t.Fatalf("before the hello: %v, want ErrDown", err)
@@ -132,6 +133,7 @@ func TestHubDownUntilHello(t *testing.T) {
 }
 
 func TestHubFanOutAndMatch(t *testing.T) {
+	t.Parallel()
 	e := start(t, live.Options{})
 	c := e.connect("", 100)
 	a, _ := subscribe(t, e.hub, 0, all)
@@ -158,6 +160,7 @@ func TestHubFanOutAndMatch(t *testing.T) {
 }
 
 func TestHubResumeFromHistory(t *testing.T) {
+	t.Parallel()
 	e := start(t, live.Options{History: 3})
 	c := e.connect("", 100)
 	watch, _ := subscribe(t, e.hub, 0, all)
@@ -192,6 +195,7 @@ func TestHubResumeFromHistory(t *testing.T) {
 }
 
 func TestHubReconnectResumes(t *testing.T) {
+	t.Parallel()
 	e := start(t, live.Options{Grace: 5 * time.Second})
 	c := e.connect("", 100)
 	s, _ := subscribe(t, e.hub, 0, all)
@@ -230,6 +234,7 @@ func TestHubReconnectResumes(t *testing.T) {
 }
 
 func TestHubResyncMidStream(t *testing.T) {
+	t.Parallel()
 	e := start(t, live.Options{})
 	c := e.connect("", 100)
 	s, _ := subscribe(t, e.hub, 0, all)
@@ -240,6 +245,7 @@ func TestHubResyncMidStream(t *testing.T) {
 }
 
 func TestHubDaemonDown(t *testing.T) {
+	t.Parallel()
 	e := start(t, live.Options{Grace: 100 * time.Millisecond})
 	c := e.connect("", 100)
 	s, _ := subscribe(t, e.hub, 0, all)
@@ -271,6 +277,7 @@ func TestHubDaemonDown(t *testing.T) {
 }
 
 func TestHubGraceKeepsSubscribers(t *testing.T) {
+	t.Parallel()
 	e := start(t, live.Options{Grace: time.Hour})
 	c := e.connect("", 100)
 	s, _ := subscribe(t, e.hub, 0, all)
@@ -288,6 +295,7 @@ func TestHubGraceKeepsSubscribers(t *testing.T) {
 }
 
 func TestHubSlowSubscriber(t *testing.T) {
+	t.Parallel()
 	e := start(t, live.Options{Buffer: 2})
 	c := e.connect("", 100)
 	slow, _ := subscribe(t, e.hub, 0, all)
@@ -314,6 +322,7 @@ func TestHubSlowSubscriber(t *testing.T) {
 }
 
 func TestHubSubscriberCap(t *testing.T) {
+	t.Parallel()
 	e := start(t, live.Options{MaxSubscribers: 2})
 	e.connect("", 100)
 	a, _ := subscribe(t, e.hub, 0, all)
@@ -330,6 +339,7 @@ func TestHubSubscriberCap(t *testing.T) {
 }
 
 func TestHubStopEndsSubscribers(t *testing.T) {
+	t.Parallel()
 	d := livetest.New(t, testKey)
 	dc, _ := daemon.New(d.URL, testKey, time.Second)
 	hub := live.NewHub(live.DaemonSource{Client: dc, Log: quiet}, live.Options{Log: quiet})
@@ -355,6 +365,7 @@ func TestHubStopEndsSubscribers(t *testing.T) {
 }
 
 func TestDaemonSourceFraming(t *testing.T) {
+	t.Parallel()
 	d := livetest.New(t, testKey)
 	dc, _ := daemon.New(d.URL, testKey, time.Second)
 	src := live.DaemonSource{Client: dc, Log: quiet}
@@ -394,6 +405,7 @@ func TestDaemonSourceFraming(t *testing.T) {
 }
 
 func TestDaemonSourceIdle(t *testing.T) {
+	t.Parallel()
 	d := livetest.New(t, testKey)
 	dc, _ := daemon.New(d.URL, testKey, time.Second)
 	src := live.DaemonSource{Client: dc, Log: quiet, Idle: 100 * time.Millisecond}
@@ -411,6 +423,7 @@ func TestDaemonSourceIdle(t *testing.T) {
 }
 
 func TestDaemonSourceRefused(t *testing.T) {
+	t.Parallel()
 	d := livetest.New(t, testKey)
 	d.Refuse(http.StatusServiceUnavailable)
 	dc, _ := daemon.New(d.URL, testKey, time.Second)
@@ -425,6 +438,7 @@ func TestDaemonSourceRefused(t *testing.T) {
 }
 
 func TestEventJSON(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		e    live.Event
 		want string

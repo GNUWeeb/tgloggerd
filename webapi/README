@@ -18,6 +18,8 @@ checking the routing.
 
 It also serves the files, /files/<token>, described under Files.
 
+And the live updates, GET /api/events, described under Live updates.
+
 # The API contract
 
 openapi.yaml (OpenAPI 3.1) is the contract of the service's API: every
@@ -173,6 +175,100 @@ TG_MAX_STORE_FILE_SIZE, TG_FETCH_TIMEOUT_SECS), and the webapi
 container mounts the repository at /workspace and runs from there, as
 the daemon does, so the paths the daemon answers with open in it.
 
+# Live updates
+
+    GET /api/events?topics=<list>&last=<seq>
+                      text/event-stream, for as long as it stays open
+
+Pages update as things happen (docs/design/web-live.md,
+docs/design/web-live-client.md). The daemon publishes what changes on
+its GET /v1/events (docs/internal-api.md); the service holds ONE
+subscription to it and fans it out to every browser, so the daemon's
+own subscriber limit is never reached. internal/live has the hub and
+the source; the daemon's stream is the only source today, and a broker
+(several web instances, several publishers) would be another
+live.Source, leaving the fan-out as it is.
+
+  - A session is required (401 without one). Topics: chat:<chat_id>
+    (message.new, message.edited, message.deleted, file.stored of one
+    chat), messages (the same for every visible chat), user:<id>
+    (user.updated), group:<chat_id> (group.updated), stats
+    (stats.changed). Repeats count once; more than 2000 topics, an
+    unknown topic or a malformed last is 400 bad_request.
+  - Framing: "retry: 3000" first, then one frame per event: "id:" the
+    seq, "event:" the kind, "data:" the event's JSON (with seq). The
+    first event is hello (the events after its seq follow) or resync
+    (refetch what is shown). ": keepalive" every 15 seconds.
+  - Resuming: Last-Event-ID (the browser's own reconnect), else last=.
+    The hub keeps WEBAPI_LIVE_HISTORY recent events; a seq inside them
+    is resumed with the missed events replayed, anything else (too old,
+    from before a daemon restart, not a seq) starts with a resync. The
+    hub itself resumes from its last seq whenever its connection to the
+    daemon drops; a daemon that cannot resume (restarted) answers
+    resync, which every open stream passes on.
+  - Each event passes the stream's topics, then the request scope:
+    eventInScope (internal/server/events.go) is the one place the
+    scope from Server.requestScope decides it, for every event and
+    every stream, so activity in a hidden chat never reaches a viewer.
+    A stats.changed keeps only the visible chat and user ids and is
+    dropped when none is left. Kinds the service does not know are
+    dropped, since nobody can say who may see them. Until web-roles
+    the scope hides nothing.
+  - Every WEBAPI_LIVE_RECHECK seconds an open stream checks its session
+    again. Revoked, expired or the account gone: a "session" event with
+    reason "revoked", then the stream closes. A different request
+    scope: reason "scope_changed". The session event has no id, so the
+    browser's Last-Event-ID stays the last real seq.
+  - A stream gets a buffer of WEBAPI_LIVE_BUFFER events. A browser that
+    reads slower than events arrive loses what is queued and gets a
+    resync instead, so one slow reader costs bounded memory and slows
+    nobody else.
+  - Refusals, never an empty stream: 503 live_off when live updates
+    are off (WEBAPI_LIVE=0 or no WEB_TGLOGGERD_API) or the daemon's
+    stream is not connected; 503 unavailable with
+    WEBAPI_LIVE_MAX_SUBSCRIBERS streams open. Both carry Retry-After.
+    When the daemon's stream drops, open streams stay for 5 seconds in
+    case it comes straight back, then close; their clients reconnect,
+    are refused and poll until it is back.
+  - On SIGTERM the hub stops first and every stream closes, so open
+    streams do not hold the shutdown up.
+
+## Routing /api/events through nginx
+
+nginx buffers proxied answers by default, which would hold every event
+back until a buffer fills. The service sends X-Accel-Buffering: no on
+the stream, but give the path its own location next to /api/ as well,
+so the settings do not depend on that header:
+
+    location = /api/events {
+        proxy_pass         http://10.0.88.7:8081;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection        "";
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # Pass each frame on as it comes.
+        proxy_buffering    off;
+        proxy_cache        off;
+        # The stream stays open; a keepalive comes every 15 seconds,
+        # so this only ends streams that are really dead.
+        proxy_read_timeout 1h;
+    }
+
+A list page subscribes to every user and group on screen, and its
+request line can run to 16 KB and more. nginx's default
+large_client_header_buffers (4 8k) refuses that with 414, so raise it
+in the server (or http) block, where the directive belongs:
+
+    large_client_header_buffers 4 32k;
+
+The Go server's own header limit is the standard library's default,
+1 MB, which leaves room. Serve the site over HTTP/2 (listen 443 ssl;
+http2 on;): browsers allow six HTTP/1.1 connections per host and each
+tab holds one for its stream, so with a few tabs open page requests
+would queue.
+
 # Layout
 
     openapi.yaml           The API description (see The API contract).
@@ -185,6 +281,9 @@ the daemon does, so the paths the daemon answers with open in it.
     internal/auth/         Sessions, CSRF, file tokens, passwords, the
                            login throttle, as the Drogon web does them.
     internal/daemon/       Client of the daemon's internal API.
+    internal/live/         Live updates: the daemon's event stream, the
+                           hub that fans it out (livetest: a fake
+                           daemon stream for tests).
     internal/webdb/        The web's own schema: accounts and audit.
     internal/logdb/        Reads of the logger's schema, each taking the
                            request scope.
@@ -237,6 +336,9 @@ the variable they are skipped. The media tests also need one with the
 logger's migrations (migrations/) applied, named in WEBAPI_TEST_RO_DSN
 under the same rule (they empty telegram_files); they run the daemon as
 a fake on a loopback port the system picks.
+The live update tests (internal/live, events_test.go in
+internal/server) need no database: they run livetest's fake daemon
+stream on a loopback port the system picks, and run in parallel.
 
 The service applies no migrations: the web service owns the web schema
 and the daemon the logger's.
@@ -295,6 +397,15 @@ and its own:
     WEBAPI_LISTEN_ADDR   default 127.0.0.1
     WEBAPI_LISTEN_PORT   default 8081
     WEBAPI_LOG_LEVEL     debug, info (default), warn or error
+    WEBAPI_LIVE          "0" turns live updates (GET /api/events) off;
+                         they also need WEB_TGLOGGERD_API
+    WEBAPI_LIVE_MAX_SUBSCRIBERS   open event streams at most, default 256
+    WEBAPI_LIVE_BUFFER   events queued per stream before it gets a
+                         resync instead, default 256
+    WEBAPI_LIVE_HISTORY  recent events kept for streams that reconnect,
+                         default 4096
+    WEBAPI_LIVE_RECHECK  seconds between two session checks of an open
+                         stream, default 30
 
 An empty value counts as unset. A malformed number stops the service at
 start. Logs are structured (log/slog, key=value) on stderr, one line per

@@ -25,6 +25,7 @@ import (
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/config"
 	"tgloggerd/webapi/internal/daemon"
+	"tgloggerd/webapi/internal/live"
 	"tgloggerd/webapi/internal/media"
 	"tgloggerd/webapi/internal/server"
 )
@@ -96,6 +97,25 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		log.Warn("TG_DATA_DIR is not set; big files cannot be streamed from TDLib")
 	}
 
+	// One subscription to the daemon's events feeds every browser's
+	// GET /api/events. The hub stops with ctx, before the server's
+	// shutdown, so open streams do not hold the shutdown up.
+	var hub *live.Hub
+	switch {
+	case !cfg.Live:
+		log.Info("live updates are off (WEBAPI_LIVE=0)")
+	case !dc.Enabled():
+		log.Warn("live updates are off: they need WEB_TGLOGGERD_API")
+	default:
+		hub = live.NewHub(live.DaemonSource{Client: dc, Log: log}, live.Options{
+			History:        cfg.LiveHistory,
+			Buffer:         cfg.LiveBuffer,
+			MaxSubscribers: cfg.LiveMaxSubscribers,
+			Log:            log,
+		})
+		go hub.Run(ctx)
+	}
+
 	signer := auth.NewSigner(cfg.AppKey)
 	var acctLimiter *auth.RateLimiter
 	if cfg.LoginMaxPerAccount > 0 {
@@ -122,6 +142,8 @@ func run(log *slog.Logger, cfg *config.Config) error {
 			StoreFileCap: cfg.StoreFileCap,
 		},
 		Proxies: server.TrustedProxies(cfg.TrustedProxies),
+		Live:    hub,
+		LiveCfg: server.LiveConfig{Recheck: cfg.LiveRecheck},
 	})
 
 	addr := net.JoinHostPort(cfg.ListenAddr, strconv.Itoa(int(cfg.ListenPort)))
