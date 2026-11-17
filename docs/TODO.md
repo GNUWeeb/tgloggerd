@@ -111,9 +111,18 @@ The file store as a capped cache in front of Telegram:
 
 ## Web interface
 
-- [`web-accounts`](todo/web-accounts.md): Let an admin create and manage several web accounts with roles and permissions.
-- [`web-access-scopes`](todo/web-access-scopes.md): Limit a member account to some pages, groups and users, enforced in every query.
-- [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action gated by the fetch_files permission.
+Accounts, roles and federations:
+[design/web-accounts.md](design/web-accounts.md).
+
+- [`web-roles`](todo/web-roles.md): Give the web several accounts with the roles superadmin, admin and member.
+- [`web-federations`](todo/web-federations.md): Let superadmins define federations of groups that limit what each admin manages.
+- [`web-admin-restrictions`](todo/web-admin-restrictions.md): Let a superadmin hide private messages and specific groups from an admin, with 404 everywhere.
+- [`web-member-access`](todo/web-member-access.md): Limit a member to its granted groups and show users only as they appear in them.
+- [`web-ownership`](todo/web-ownership.md): Record which account owns which resource, in a table built to take more relations later.
+- [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
+- [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
+- [`web-user-settings`](todo/web-user-settings.md): Keep settings per account, starting with the timezone dates are shown in.
+- [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
 
 ## Operations
 

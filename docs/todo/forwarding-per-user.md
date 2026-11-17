@@ -1,0 +1,42 @@
+# forwarding-per-user
+
+Redesign platform forwarding so that each configuration has an owner
+and a federation, and members can set up their own.
+
+## Why
+
+Forwarding is a shared admin page today; the project owner wants
+per-user configurations (docs/design/web-accounts.md section 6).
+
+## Scope
+
+- Owner and federation for Telegram to Discord webhooks, Discord to
+  Telegram routes and Telegram bots, through web-ownership.
+- A member with `forward` creates configurations for its granted
+  groups only and sees only its own; bot tokens never reveal or reuse
+  another owner's bot.
+- Admins see all configurations except those touching a group hidden
+  from them (404), and transfer ownership within their federations;
+  superadmins see and transfer all.
+- A disabled owner's configurations keep running, flagged "owner
+  disabled".
+- Existing configurations become owned by the superadmin, in the
+  Default federation.
+- `web/docs/platform-forwarding.md` updated.
+
+## Design notes
+
+- The daemons keep reading the same tables; only the web changes,
+  unless an owner or federation column in the logger DB proves
+  simpler (decide when building, additive migration).
+
+## Depends on
+
+- `web-ownership`
+- `web-member-access`
+
+## Done when
+
+- A member creates a route for a granted group and cannot see another
+  member's; an admin transfers it; disabling its owner flags it and it
+  keeps forwarding.
