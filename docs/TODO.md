@@ -105,6 +105,7 @@ The file store as a capped cache in front of Telegram:
 - [`download-failure-handling`](todo/download-failure-handling.md): Notice failed or cancelled TDLib downloads and drop their pending entries (optional).
 - [`orphan-blob-audit`](todo/orphan-blob-audit.md): Act on the store audit's list of blobs no row describes, as the owner agrees (optional).
 - [`shared-download-prune-race`](todo/shared-download-prune-race.md): Keep one message's store job from deleting the TDLib file another message's job still has to hash.
+- [`file-index-unique-id`](todo/file-index-unique-id.md): Look message media up in the file index by unique id too, and index alias rows as their target (optional).
 
 ## Logging
 
