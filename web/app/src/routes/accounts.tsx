@@ -11,7 +11,6 @@ import { Modal } from '../ui/Modal.tsx';
 import { ApiError, mutate } from '../api/mutate.ts';
 import { ago } from '../format.ts';
 import type { PageData, Role } from '../page.ts';
-import type { GroupSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 
 export interface Fed { id: number; name: string; default: boolean }
@@ -28,19 +27,19 @@ export interface AccountRow {
 	last_signin: string | null;
 	last_superadmin: boolean;
 	admin_of: number[];
-	restrict: { hide_private: boolean; hide_groups: number[]; join_chat: boolean } | null;
-	grants: { fed: number; group_ids: number[] }[];
+	// Groups come with their names for the chips; saving sends ids.
+	restrict: { hide_private: boolean; hide_groups: PickItem[]; join_chat: boolean } | null;
+	grants: { fed: number; groups: PickItem[] }[];
 	abilities: string[];
 	audit: { what: string; by: string; at: string }[];
 }
 
 export interface AccountsProps {
 	accounts: AccountRow[];
-	// Federations the viewer may manage, with the groups it can see in each.
-	federations: (Fed & { groups: GroupSummary[] })[];
+	// Federations the viewer may manage, with how many groups it can see
+	// in each; the groups themselves come from the chat search.
+	federations: (Fed & { group_count: number })[];
 	all_federations: Fed[];
-	// Groups a superadmin may hide from an admin.
-	group_options: GroupSummary[];
 }
 
 const ROLE_ICON = { superadmin: Crown, admin: ShieldCheck, member: UserIcon } as const;
@@ -69,11 +68,9 @@ function accessSummary(a: AccountRow): string {
 		if (r?.join_chat) parts.push('can join chats');
 		return parts.length ? parts.join(', ') : 'No restrictions';
 	}
-	const n = a.grants.reduce((x, g) => x + g.group_ids.length, 0);
+	const n = a.grants.reduce((x, g) => x + g.groups.length, 0);
 	return [`${n} group${n === 1 ? '' : 's'}`, ...a.abilities.map((k) => (k === 'forward' ? 'forwarding' : 'fetch files'))].join(', ');
 }
-
-const asPick = (g: GroupSummary): PickItem => ({ id: g.id, title: g.title, kind: 'group', photo: g.photo });
 
 function EmailLine({ a }: { a: AccountRow }) {
 	if (!a.email) return <span className="a-emailline a-warn"><MailWarning size={14} />No address yet; asked for one at the next sign-in</span>;
@@ -111,8 +108,8 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 		: mutate('PATCH', `/api/accounts/${a.id}`, {
 			name: a.name, role: a.role,
 			...(a.email !== init.email ? { email: a.email } : {}),
-			...(a.role === 'admin' ? { admin_of: a.admin_of, restrict: a.restrict } : {}),
-			...(a.role === 'member' ? { grants: a.grants, abilities: a.abilities } : {}),
+			...(a.role === 'admin' ? { admin_of: a.admin_of, restrict: a.restrict && { ...a.restrict, hide_groups: a.restrict.hide_groups.map((g) => g.id) } } : {}),
+			...(a.role === 'member' ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })), abilities: a.abilities } : {}),
 		})), 'close');
 	const restrict = a.restrict ?? { hide_private: false, hide_groups: [], join_chat: false };
 	return (
@@ -198,7 +195,7 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 						<ul className="a-perms">
 							<li><label><input type="checkbox" checked={restrict.hide_private} onChange={() => set({ restrict: { ...restrict, hide_private: !restrict.hide_private } })} /><span><b>Hide private messages</b><span className="a-muted sm">No private-message menu, pages or API; their URLs answer 404.</span></span></label></li>
 							<li><div className="a-restrict"><span><b>Hide groups</b><span className="a-muted sm">The groups, their messages, members, files, forwarding and MCP exposure become invisible.</span></span>
-								<MultiPicker value={props.group_options.filter((g) => restrict.hide_groups.includes(g.id)).map(asPick)} onChange={(gs) => set({ restrict: { ...restrict, hide_groups: gs.map((g) => g.id) } })} options={props.group_options.map(asPick)} placeholder="Add a group to hide..." /></div></li>
+								<MultiPicker value={restrict.hide_groups} onChange={(gs) => set({ restrict: { ...restrict, hide_groups: gs } })} search={{ kind: 'group' }} placeholder="Add a group to hide..." /></div></li>
 							<li><label><input type="checkbox" checked={restrict.join_chat} onChange={() => set({ restrict: { ...restrict, join_chat: !restrict.join_chat } })} /><span><b>Allow Join chat</b><span className="a-muted sm">Make the logging account join groups, and add them to its federations.</span></span></label></li>
 						</ul>
 					</section>
@@ -214,18 +211,10 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 						return (
 							<section key={f.id} className={`a-fedgrant ${g ? 'on' : ''}`}>
 								<header>
-									<Switch checked={!!g} onChange={() => set({ grants: g ? a.grants.filter((x) => x.fed !== f.id) : [...a.grants, { fed: f.id, group_ids: [] }] })} label={<><Network size={14} /> {f.name}</>} />
-									{g && <span className="a-muted sm">{g.group_ids.length} of {f.groups.length} groups</span>}
+									<Switch checked={!!g} onChange={() => set({ grants: g ? a.grants.filter((x) => x.fed !== f.id) : [...a.grants, { fed: f.id, groups: [] }] })} label={<><Network size={14} /> {f.name}</>} />
+									{g && <span className="a-muted sm">{g.groups.length} of {f.group_count} groups</span>}
 								</header>
-								{g && <div className="a-checkgrid">{f.groups.map((grp) => {
-									const on = g.group_ids.includes(grp.id);
-									return (
-										<label key={grp.id} className={`a-checkchip ${on ? 'on' : ''}`}>
-											<input type="checkbox" checked={on} onChange={() => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, group_ids: on ? x.group_ids.filter((y) => y !== grp.id) : [...x.group_ids, grp.id] })) })} />
-											<Avatar id={grp.id} name={grp.title} photo={grp.photo} size={16} square />{grp.title}
-										</label>
-									);
-								})}</div>}
+								{g && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={{ kind: 'group', federation: f.id }} placeholder={`Add a group of ${f.name}...`} />}
 							</section>
 						);
 					})}

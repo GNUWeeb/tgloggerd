@@ -126,6 +126,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		if (status === 204) { res.writeHead(204); res.end(); } else send(res, status, out);
 		return;
 	}
+	if (url.pathname === '/api/chats/search' && req.method === 'GET') {
+		const [status, out] = fx.searchChats(who, url.searchParams);
+		send(res, status, out);
+		return;
+	}
 	let cm;
 	if ((cm = url.pathname.match(/^\/api\/chats\/(group|private)\/(-?\d+)\/messages$/))) {
 		const chat = fx.chatFor(cm[1], cm[2], who);

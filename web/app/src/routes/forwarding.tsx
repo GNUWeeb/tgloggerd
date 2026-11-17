@@ -19,8 +19,8 @@ export interface T2DRoute extends Owned { chat: PickItem; url_masked: string; ty
 export interface D2TRoute extends Owned { channel_id: string; channel_name: string; chat: PickItem; bot: string; types: string[]; enabled: boolean; sent: number }
 
 export interface ForwardingIndexProps { t2d: { active: number; total: number; sent: number }; d2t: { active: number; total: number; sent: number } }
-export interface T2DProps { routes: T2DRoute[]; chat_options: PickItem[]; federations: { id: number; name: string }[] }
-export interface D2TProps { routes: D2TRoute[]; chat_options: PickItem[]; federations: { id: number; name: string }[] }
+export interface T2DProps { routes: T2DRoute[]; federations: { id: number; name: string }[] }
+export interface D2TProps { routes: D2TRoute[]; federations: { id: number; name: string }[] }
 
 const KINDS: [string, string][] = [['sticker', 'Sticker'], ['text', 'Text message'], ['photo', 'Photo'], ['video', 'Video'], ['document', 'Document'], ['other', 'Others']];
 const D2T_KINDS = KINDS.filter((k) => k[0] !== 'other');
@@ -187,7 +187,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 					{note && <div className="a-banner" role="status"><span>{note}</span></div>}
 					<Field label="Telegram chat" hint={member ? 'One of the groups granted to you.' : 'A group, channel or user the logger has already seen.'}>
-						{edit.id ? <ChatCell c={edit.chat!} /> : <ChatPicker value={edit.chat} onChange={(c) => setEdit({ ...edit, chat: c })} options={page.props.chat_options} />}
+						{edit.id ? <ChatCell c={edit.chat!} /> : <ChatPicker value={edit.chat} onChange={(c) => setEdit({ ...edit, chat: c })} search={{ kind: 'any' }} />}
 					</Field>
 					{!edit.id && <FederationSelect value={edit.federation_id} onChange={(f) => setEdit({ ...edit, federation_id: f })} options={page.props.federations} />}
 					<Field label="Discord webhook URL" hint={edit.id ? 'Stored and never shown again; enter a new URL to replace it.' : 'Discord: channel settings, Integrations, Webhooks, Copy Webhook URL.'}>
@@ -267,7 +267,7 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 						<input value={edit.channel_id} onChange={(e) => setEdit({ ...edit, channel_id: e.target.value })} inputMode="numeric" disabled={!!edit.id} />
 					</Field>
 					<Field label="Telegram chat">
-						{edit.id ? <ChatCell c={edit.chat!} /> : <ChatPicker value={edit.chat} onChange={(c) => setEdit({ ...edit, chat: c })} options={page.props.chat_options.filter((c) => c.kind === 'group')} />}
+						{edit.id ? <ChatCell c={edit.chat!} /> : <ChatPicker value={edit.chat} onChange={(c) => setEdit({ ...edit, chat: c })} search={{ kind: 'group' }} placeholder="Search groups and channels" />}
 					</Field>
 					{!edit.id && <FederationSelect value={edit.federation_id} onChange={(f) => setEdit({ ...edit, federation_id: f })} options={page.props.federations} />}
 					<Field label="Bot token" hint={edit.id ? `Stored for ${edit.bot}; never shown again. Leave empty to keep it.` : 'From @BotFather; the bot must already be a member of the chat. A token is owned like a route and never reuses another owner\'s bot.'}>

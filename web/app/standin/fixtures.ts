@@ -54,6 +54,7 @@ function userSummary(u, full: boolean) {
 }
 
 const pick = (c) => ({ id: c.id, title: c.title || c.name, kind: c.kind === 'user' ? 'user' : 'group', sub: c.kind === 'user' ? 'private chat' : c.type, photo: null });
+const DISCORD_WEBHOOK = /^https:\/\/(?:(?:canary|ptb)\.)?discord(?:app)?\.com\/api(?:\/v\d+)?\/webhooks\/\d+\/[\w-]+$/;
 const JOIN_LOG = [
 	{ at: '2026-11-17T13:00:00Z', by: 'gw_admin', ref: '@asm_lounge', title: 'Assembly Lounge', outcome: 'joined' },
 	{ at: '2026-11-16T14:00:00Z', by: 'admin', ref: 'https://t.me/+AbCdEfGhIjKl', title: 'Homelab & Self-hosting', outcome: 'request_sent' },
@@ -265,14 +266,13 @@ export function load(url: string, persona: Persona): Loaded {
 			const cands = s.role === 'superadmin' ? accounts.filter((a) => a.active) : [...fedAdmins(f), ...fedMembers(f)].filter((a) => a.active && (a.role !== 'member' || a.abilities.includes('forward')));
 			return { id: r.id, owner: { id: o.id, name: o.name, active: o.active }, federation: { id: f.id, name: f.name }, transfer_candidates: cands.map((a) => ({ id: a.id, name: a.name, role: a.role })) };
 		};
-		const chatOpts = chatOptions.filter((c) => (c.kind === 'group' ? s.group(c) : s.role !== 'member' && allowed(s, 'private_messages'))).map(pick);
 		const myFeds = s.role === 'superadmin' ? allFeds() : s.role === 'admin' ? s.manageableFeds : allFeds().filter((f) => s.acct.grants.some((g) => g.fed === f.id));
 		const fedList = myFeds.map((f) => ({ id: f.id, name: f.name }));
 		if (path === '/platform-fwd/telegram-discord') {
-			return { route: 'fwd_telegram_discord', status: 200, props: { chat_options: chatOpts, federations: fedList, routes: vis(t2d).map((r) => ({ ...owned(r), chat: pick(r.chat), url_masked: r.url.slice(0, r.url.lastIndexOf('/') + 5) + '...', types: r.types, enabled: r.enabled, sent: r.sent, last_sent: r.last ? iso(r.last) : null })) } };
+			return { route: 'fwd_telegram_discord', status: 200, props: { federations: fedList, routes: vis(t2d).map((r) => ({ ...owned(r), chat: pick(r.chat), url_masked: r.url.slice(0, r.url.lastIndexOf('/') + 5) + '...', types: r.types, enabled: r.enabled, sent: r.sent, last_sent: r.last ? iso(r.last) : null })) } };
 		}
 		if (path === '/platform-fwd/discord-telegram') {
-			return { route: 'fwd_discord_telegram', status: 200, props: { chat_options: chatOpts, federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: pick(r.chat), channel_id: r.channel, channel_name: r.channel_name, bot: r.bot, types: r.types, enabled: r.enabled, sent: r.sent })) } };
+			return { route: 'fwd_discord_telegram', status: 200, props: { federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: pick(r.chat), channel_id: r.channel, channel_name: r.channel_name, bot: r.bot, types: r.types, enabled: r.enabled, sent: r.sent })) } };
 		}
 		return notFound;
 	}
@@ -289,7 +289,7 @@ export function load(url: string, persona: Persona): Loaded {
 			return { route: 'mcp', status: 200, props: { exposed_groups: ex.length, exposed_messages: ex.reduce((a, e) => a + e.group.msg_count, 0), active_tokens: live.length, last_used: live[0]?.last_used ? iso(live[0].last_used) : null, endpoint: 'https://tgd.example.org/mcp' } };
 		}
 		if (path === '/mcp-admin/groups') {
-			return { route: 'mcp_groups', status: 200, props: { groups: ex.map((e) => ({ group: { ...groupSummary(e.group), msg_count: e.group.msg_count }, public_now: e.public_now, note: e.note, added: iso(e.added) })), group_options: groups.filter((g) => !g.exposed && s.group(g)).slice(0, 40).map(pick) } };
+			return { route: 'mcp_groups', status: 200, props: { groups: ex.map((e) => ({ group: { ...groupSummary(e.group), msg_count: e.group.msg_count }, public_now: e.public_now, note: e.note, added: iso(e.added) })) } };
 		}
 		if (path === '/mcp-admin/tokens') {
 			return { route: 'mcp_tokens', status: 200, props: { tokens: mcpTokens.map((t) => ({ id: t.id, name: t.name, owner: t.owner, created: iso(t.created), last_used: t.last_used ? iso(t.last_used) : null, revoked: t.revoked ? iso(t.revoked) : null })) } };
@@ -303,9 +303,8 @@ export function load(url: string, persona: Persona): Loaded {
 		return {
 			route: 'accounts', status: 200, props: {
 				accounts: list.map(accountRow),
-				federations: feds.map((f) => ({ id: f.id, name: f.name, default: f.id === 0, groups: fedGroups(f).filter(s.group).slice(0, 10).map(groupSummary) })),
+				federations: feds.map((f) => ({ id: f.id, name: f.name, default: f.id === 0, group_count: fedGroups(f).filter(s.group).length })),
 				all_federations: allFeds().map((f) => ({ id: f.id, name: f.name, default: f.id === 0 })),
-				group_options: groups.slice(0, 60).map(groupSummary),
 			},
 		};
 	}
@@ -369,8 +368,8 @@ export function accountRow(a) {
 		id: a.id, username: a.username, name: a.name, email: a.email || null, email_verified: !!a.verified, invited: !!a.invited,
 		role: a.role, active: a.active, last_signin: a.last ? iso(a.last) : null,
 		last_superadmin: a.role === 'superadmin' && a.active && activeSuperadmins().length === 1,
-		admin_of: a.adminOf || [], restrict: a.restrict ? { hide_private: a.restrict.hide_private, hide_groups: a.restrict.hide_groups, join_chat: a.restrict.join_chat } : null,
-		grants: (a.grants || []).map((g) => ({ fed: g.fed, group_ids: g.groupIds })), abilities: a.abilities || [],
+		admin_of: a.adminOf || [], restrict: a.restrict ? { hide_private: a.restrict.hide_private, hide_groups: a.restrict.hide_groups.map((id) => pick(getGroup(id))), join_chat: a.restrict.join_chat } : null,
+		grants: (a.grants || []).map((g) => ({ fed: g.fed, groups: g.groupIds.map((id) => pick(getGroup(id))) })), abilities: a.abilities || [],
 		audit: auditFor(a).map((r) => ({ ...r, at: iso(r.at) })),
 	};
 }
@@ -413,10 +412,18 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 	if ((m = p.match(/^forwarding\/(telegram-discord|discord-telegram)(?:\/(\d+|test))?(?:\/(transfer))?$/))) {
 		if (!allowed(s, 'platform_fwd')) return [404, { error: 'not_found' }];
 		const list = m[1] === 'telegram-discord' ? t2d : d2t;
-		if (m[2] === 'test') return [204, null];
+		const vis = (l) => (s.role === 'member' ? l.filter((r) => r.owner === PERSONAS[persona]) : l);
+		// The server POSTs to a webhook URL it is given, so a raw URL must be
+		// a Discord webhook, on test as on save.
+		const badHook = (u) => u !== undefined && m[1] === 'telegram-discord' && !DISCORD_WEBHOOK.test(String(u));
+		if (badHook(body.webhook_url)) return [400, { error: 'bad_webhook', message: 'That is not a Discord webhook URL.' }];
+		if (m[2] === 'test') {
+			if (body.id !== undefined && !vis(list).some((r) => r.id === body.id)) return [404, { error: 'not_found' }];
+			return [204, null];
+		}
 		if (!m[2] && method === 'POST') {
-			const chat = chatOptions.find((c) => c.id === body.chat_id);
-			if (!chat) return [400, { error: 'bad_request', message: 'Choose a chat.' }];
+			const chat = body.chat_kind === 'user' ? chatOptions.find((c) => c.id === body.chat_id && c.kind === 'user') : getGroup(body.chat_id);
+			if (!chat || (chat.kind === 'group' && !s.group(chat))) return [400, { error: 'bad_request', message: 'Choose a chat.' }];
 			const id = Math.max(0, ...list.map((r) => r.id)) + 1;
 			const fed = body.federation_id ?? 0;
 			list.push(m[1] === 'telegram-discord'
@@ -492,3 +499,22 @@ export function pageData(url: string, persona: Persona): PageData {
 }
 
 export { federations };
+
+// Stand-in for GET /api/chats/search: the viewer's chats, busiest first,
+// matched on title or username, paged by an offset cursor.
+export function searchChats(persona: Persona, q: URLSearchParams): [number, unknown] {
+	const s = scopeOf(persona);
+	if (s.role === 'public') return [401, { error: 'unauthenticated' }];
+	const kind = q.get('kind') || 'any';
+	const text = (q.get('q') || '').toLowerCase();
+	const fed = q.get('federation');
+	const limit = Math.min(200, Math.max(1, Number(q.get('limit')) || 20));
+	const off = Number(q.get('cursor')) || 0;
+	let pool = kind === 'user' ? [] : (fed !== null ? (fedById(Number(fed)) ? fedGroups(fedById(Number(fed))) : []) : groups).filter(s.group);
+	if (kind !== 'group' && fed === null && s.role !== 'member' && allowed(s, 'private_messages')) pool = [...pool, ...chatOptions.filter((c) => c.kind === 'user')];
+	const hits = pool
+		.filter((c) => !text || (c.title || c.name || '').toLowerCase().includes(text) || (c.username || '').toLowerCase().includes(text))
+		.sort((x, y) => (y.msg_count || 0) - (x.msg_count || 0));
+	const page = hits.slice(off, off + limit);
+	return [200, { items: page.map(pick), next_cursor: off + limit < hits.length ? String(off + limit) : null }];
+}
