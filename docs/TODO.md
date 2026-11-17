@@ -112,6 +112,10 @@ The file store as a capped cache in front of Telegram:
 - [`download-failure-handling`](todo/download-failure-handling.md): Notice failed or cancelled TDLib downloads and drop their pending entries (optional).
 - [`orphan-blob-audit`](todo/orphan-blob-audit.md): Find blobs in the store that no row describes, and deal with them as agreed (optional).
 
+## Logging
+
+- [`contact-real-name`](todo/contact-real-name.md): Log a user's own name rather than the account's contact name for them, keeping the contact name apart.
+
 ## Web interface
 
 - [`web-join-chat`](todo/web-join-chat.md): Let an admin make the logging account join a group or channel by invite link or username from the dashboard.
