@@ -1024,3 +1024,10 @@ img.msg-media { cursor: zoom-in; object-fit: contain; }
 .lp-desc  { font-size: .88em; opacity: .85; white-space: pre-wrap; }
 .lp-image { display: block; margin-top: 6px; max-width: 100%;
 	    max-height: 260px; border-radius: 4px; }
+
+/* /join-chat: the preview card reuses .rt-form-wrap; the facts table is a
+ * narrow key/value grid. */
+.jc-preview { margin-top: 1rem; }
+.jc-facts { margin-bottom: 0.9rem; width: auto; }
+.jc-facts th { text-align: left; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.jc-facts td { overflow-wrap: anywhere; }

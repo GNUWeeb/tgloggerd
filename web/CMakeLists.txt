@@ -145,6 +145,8 @@ add_executable(tgloggerd_web
 	src/controllers/DashboardController.hpp
 	src/controllers/DiscordTelegramController.cpp
 	src/controllers/DiscordTelegramController.hpp
+	src/controllers/JoinChatController.cpp
+	src/controllers/JoinChatController.hpp
 	src/controllers/McpAdminController.cpp
 	src/controllers/McpAdminController.hpp
 	src/controllers/McpController.cpp
