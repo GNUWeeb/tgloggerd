@@ -3278,12 +3278,17 @@ void TDLib::Impl::handle_file_update(const td_api::file &f)
 		~IngestSync() { impl->ingest_download_done(id); }
 	} ingest_sync{ this, f.id_ };
 
+	/*
+	 * One file can wait in several maps: the message that set a chat's
+	 * photo carries the same file as the photo itself. Every use gets
+	 * it; each emit queues its own store job, and the store holds prune
+	 * TDLib's copy after the last of them.
+	 */
 	auto it = pending_photo_.find(f.id_);
 	if (it != pending_photo_.end()) {
 		int64_t user_id = it->second;
 		pending_photo_.erase(it);
 		emit_photo(user_id, f);
-		return;
 	}
 
 	auto git = pending_group_photo_.find(f.id_);
@@ -3291,7 +3296,6 @@ void TDLib::Impl::handle_file_update(const td_api::file &f)
 		int64_t group_id = git->second;
 		pending_group_photo_.erase(git);
 		emit_group_photo(group_id, f);
-		return;
 	}
 
 	auto range = pending_message_file_.equal_range(f.id_);
@@ -3303,7 +3307,6 @@ void TDLib::Impl::handle_file_update(const td_api::file &f)
 		pending_message_file_.erase(range.first, range.second);
 		for (const auto &ref : refs)
 			emit_message_file(ref, f);
-		return;
 	}
 }
 
