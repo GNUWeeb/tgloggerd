@@ -1,8 +1,8 @@
 # Decision log: 2026-11-18, Expired media never replaces stored content
 
-Proposed by the TDLib session on 2026-11-18, for
-[../message-types.md](../message-types.md) section 2.1; takes effect
-when the plan is approved:
+Decided by the TDLib session on 2026-11-18 and approved by the
+project owner the same day, for
+[../message-types.md](../message-types.md) section 2.1:
 
 - When an ingested copy of a message is `messageExpired*` and a row
   already exists, the stored content columns stay as they are; only

@@ -125,8 +125,7 @@ Storing every kind of Telegram message faithfully:
 - [`msg-link-preview-extras`](todo/msg-link-preview-extras.md): Keep a link preview's description formatting, media position and the message's preview options.
 - [`msg-forward-new-kinds`](todo/msg-forward-new-kinds.md): Forward the new content kinds to Discord as readable text plus their main file.
 - [`msg-repair-old-rows`](todo/msg-repair-old-rows.md): Re-read rows stored as unknown, and service rows without detail, with the new extraction.
-- [`msg-interaction`](todo/msg-interaction.md): Store each message's latest views, forwards, reply count and reaction totals (optional).
-- [`msg-stories`](todo/msg-stories.md): Archive stories that messages share or reply to while they are still live (optional).
+- [`msg-interaction`](todo/msg-interaction.md): Store each message's latest views, forwards, reply count and reaction totals.
 - [`web-message-types`](todo/web-message-types.md): Show the new content kinds, topics, polls and message files in the web and search API.
 
 ## Web backend in Go

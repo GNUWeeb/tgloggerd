@@ -17,8 +17,8 @@ what they showed (message-types.md section 3.2).
   record them as versions (remove `messageLiveLocation` and
   `messageLocation` from `is_server_churn_content`), coalesced to at
   most one version per message per minute.
-- A shared story keeps its reference only (open question 3 of the
-  design).
+- A shared story keeps its reference only (decision
+  [2026-11-18-msg-stories-reference-only](../design/decisions/2026-11-18-msg-stories-reference-only.md)).
 
 ## Design notes
 

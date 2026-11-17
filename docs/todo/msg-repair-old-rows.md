@@ -13,8 +13,8 @@ Rows written before the change say nothing about what they were.
   such row, re-ingested through the normal path; rows TDLib cannot
   return keep what they have.
 - Progress is resumable across restarts and reported in the log.
-- Media rows are left out unless open question 4 of the design says
-  otherwise.
+- Media rows are left out (decision
+  [2026-11-18-msg-repair-scope](../design/decisions/2026-11-18-msg-repair-scope.md)).
 
 ## Design notes
 

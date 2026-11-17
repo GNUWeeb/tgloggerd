@@ -1,8 +1,8 @@
 # Decision log: 2026-11-18, An animated emoji is stored as a text message
 
-Proposed by the TDLib session on 2026-11-18, for
-[../message-types.md](../message-types.md) section 3.1; takes effect
-when the plan is approved:
+Decided by the TDLib session on 2026-11-18 and approved by the
+project owner the same day, for
+[../message-types.md](../message-types.md) section 3.1:
 
 - `messageAnimatedEmoji` is stored with `content_type = 'text'` and the
   emoji as its text; `tdlib_type` keeps the class, and the animation

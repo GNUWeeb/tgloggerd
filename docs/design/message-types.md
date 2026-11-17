@@ -1,7 +1,6 @@
 # Message types: storing every kind of Telegram message faithfully
 
-Status: planned 2026-11-18, not implemented; awaiting approval of the
-plan. The items that implement it are in the "Message types" section
+Status: planned and approved 2026-11-18, not implemented. The items that implement it are in the "Message types" section
 of [../TODO.md](../TODO.md); the decisions behind it are under
 [decisions/](decisions/) (files named `2026-11-18-msg-*.md`).
 
@@ -377,17 +376,19 @@ self-destruct timer, paid star count, sender boosts and tag, fact
 check, import info, restriction info. `is_pinned TINYINT` becomes a
 column, kept current by `updateMessageIsPinned`.
 
-### 4.7 Views and reactions (needs a decision)
+### 4.7 Views and reactions
 
 `interaction_info` (views, forwards, reply count, reaction totals)
-changes constantly on busy channels. Proposed: columns `view_count`,
+changes constantly on busy channels. Columns `view_count`,
 `forward_count`, `reply_count` and `reactions JSON` (latest totals per
 reaction) updated in place from `updateMessageInteractionInfo` and
 `updateMessageReactions`, coalesced per message so a busy channel
 causes at most one write per message per minute. Who reacted with what
 is available only through `getMessageAddedReactions` and only where
-the chat allows it; it is left out. Whether to store these at all, and
-how often to write them, is open (section 6).
+the chat allows it; it is left out, and so is the history of the
+counters (decision
+[2026-11-18-msg-interaction-latest-totals](decisions/2026-11-18-msg-interaction-latest-totals.md)).
+The coalescing interval is set after measuring the update rate.
 
 ### 4.8 Link previews
 
@@ -402,9 +403,9 @@ Rows stored as `unknown` before the change, and service rows without
 `content_extra`, are re-read with `getMessage` through the existing
 rate-limited relink re-fetch path and stored again with the new
 extraction. A row whose message TDLib cannot return any more keeps
-what it has, with `tdlib_type` left NULL. Re-reading the media rows
-too (for the detail of section 4.2) is optional and much larger
-(section 6).
+what it has, with `tdlib_type` left NULL. Media rows are not re-read
+for the detail of section 4.2 (decision
+[2026-11-18-msg-repair-scope](decisions/2026-11-18-msg-repair-scope.md)).
 
 ### 4.10 Forwarding to Discord
 
@@ -426,18 +427,17 @@ a dice as its value) plus the main file where there is one.
 - The MCP exposure allowlist decides separately whether the new
   columns are exposed.
 
-## 6. Open questions
+## 6. Settled questions
 
-1. Raw TDLib JSON for every message, not only for classes without a
-   curated mapping: the most faithful archive and lets any later
-   mapping be rebuilt from the database alone, at the cost of roughly
-   one to two kilobytes per message on top of the current row size.
-   Proposed: no, curated plus raw only for unmapped classes.
-2. Views and reactions (section 4.7): store the latest totals, or not
-   at all; and whether to keep their history.
-3. Stories shared in messages (`messageStory`) and story replies: keep
-   only the reference (proposed), or also fetch the story with
-   `getStory` while it is still live and archive its media, which is
-   a new table and more storage.
-4. Repair scope (section 4.9): only `unknown` and service rows
-   (proposed), or also every media row for its detail.
+The questions left open by the first draft were settled on 2026-11-18:
+
+1. Raw TDLib JSON is stored only for classes without a curated
+   mapping, not for every message
+   ([2026-11-18-msg-raw-json-unmapped-only](decisions/2026-11-18-msg-raw-json-unmapped-only.md)).
+2. Views, forwards, replies and reactions are stored as latest totals,
+   without history (section 4.7).
+3. Shared and replied stories are kept as references only; stories are
+   not fetched or archived
+   ([2026-11-18-msg-stories-reference-only](decisions/2026-11-18-msg-stories-reference-only.md)).
+4. The repair pass covers `unknown` and service rows only (section
+   4.9).

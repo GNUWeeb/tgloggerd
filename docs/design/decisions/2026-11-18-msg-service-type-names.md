@@ -1,8 +1,8 @@
 # Decision log: 2026-11-18, Service type names follow the TDLib class
 
-Proposed by the TDLib session on 2026-11-18, for
-[../message-types.md](../message-types.md) section 3.5; takes effect
-when the plan is approved:
+Decided by the TDLib session on 2026-11-18 and approved by the
+project owner the same day, for
+[../message-types.md](../message-types.md) section 3.5:
 
 - The `service_type` of every newly recognised service message is its
   TDLib class name without the `message` prefix, in snake case

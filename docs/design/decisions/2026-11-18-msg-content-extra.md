@@ -1,8 +1,8 @@
 # Decision log: 2026-11-18, Structured content detail in one JSON column
 
-Proposed by the TDLib session on 2026-11-18, for
-[../message-types.md](../message-types.md) section 4.2; takes effect
-when the plan is approved:
+Decided by the TDLib session on 2026-11-18 and approved by the
+project owner the same day, for
+[../message-types.md](../message-types.md) section 4.2:
 
 - The detail of each content class (coordinates, contact, sticker
   emoji, media size and duration, a service action's users and ids)
