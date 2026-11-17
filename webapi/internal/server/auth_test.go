@@ -14,47 +14,22 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
-
 	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/testdb"
 )
 
-// These tests sign in against a real web schema. They run only when
-// WEBAPI_TEST_APP_DSN names a MySQL database whose name contains
-// "test", with the web migrations (web/migrations) applied; they
-// empty web_users and web_audit in it.
+// These tests sign in against a real web schema, each in a database of
+// its own (internal/testdb). They run only when WEBAPI_TEST_MYSQL_DSN
+// names a test MySQL.
 
 var testKey = []byte("0123456789abcdef0123456789abcdef")
 
 func testDB(t *testing.T) *sql.DB {
-	dsn := os.Getenv("WEBAPI_TEST_APP_DSN")
-	if dsn == "" {
-		t.Skip("WEBAPI_TEST_APP_DSN is not set")
-	}
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(cfg.DBName, "test") {
-		t.Fatalf("refusing to empty tables in %q: not a test database", cfg.DBName)
-	}
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	for _, q := range []string{"DELETE FROM web_mcp_tokens", "DELETE FROM web_audit",
-		"DELETE FROM web_users"} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return db
+	return testdb.New(t, testdb.Web).DB
 }
 
 func addUser(t *testing.T, db *sql.DB, name, hash, role string, active bool) uint64 {
@@ -155,6 +130,7 @@ func (c *client) login(user, pw string) answer {
 }
 
 func TestLoginSessionLogout(t *testing.T) {
+	t.Parallel()
 	db := testDB(t)
 	hash, _ := auth.HashPassword("s3cret")
 	alice := addUser(t, db, "alice", hash, "viewer", true)
@@ -273,6 +249,7 @@ func TestLoginSessionLogout(t *testing.T) {
 }
 
 func TestLoginRateLimit(t *testing.T) {
+	t.Parallel()
 	db := testDB(t)
 	hash, _ := auth.HashPassword("s3cret")
 	addUser(t, db, "alice", hash, "admin", true)
@@ -298,6 +275,7 @@ func TestLoginRateLimit(t *testing.T) {
 }
 
 func TestSessionUnverified(t *testing.T) {
+	t.Parallel()
 	db := testDB(t)
 	hash, _ := auth.HashPassword("s3cret")
 	addUser(t, db, "alice", hash, "admin", true)
@@ -316,6 +294,7 @@ func TestSessionUnverified(t *testing.T) {
 // A username longer than any account's fails like a wrong password and
 // is audited cut to the column, instead of failing the audit insert.
 func TestLoginLongUsername(t *testing.T) {
+	t.Parallel()
 	db := testDB(t)
 	hash, _ := auth.HashPassword("s3cret")
 	addUser(t, db, "alice", hash, "admin", true)
@@ -347,6 +326,7 @@ func TestLoginLongUsername(t *testing.T) {
 // The account cap stops guesses spread over many addresses, and counts
 // the spellings of a name that find the same account together.
 func TestLoginAccountCap(t *testing.T) {
+	t.Parallel()
 	db := testDB(t)
 	hash, _ := auth.HashPassword("s3cret")
 	addUser(t, db, "alice", hash, "admin", true)

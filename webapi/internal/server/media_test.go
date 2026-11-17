@@ -23,45 +23,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
-
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/media"
+	"tgloggerd/webapi/internal/testdb"
 )
 
-// These tests serve files from a real logger schema. They run only when
-// WEBAPI_TEST_RO_DSN names a MySQL database whose name contains "test",
-// with the logger's migrations (migrations/) applied, and
-// WEBAPI_TEST_APP_DSN one with the web's (see auth_test.go); they empty
-// telegram_files in the first and web_users and web_audit in the
-// second. The daemon is a fake on a loopback port the OS picks.
+// These tests serve files from a real logger schema and audit into a
+// real web schema, each in databases of its own (internal/testdb). They
+// run only when WEBAPI_TEST_MYSQL_DSN names a test MySQL. The daemon is
+// a fake on a loopback port the OS picks.
 
 func testRODB(t *testing.T) *sql.DB {
-	dsn := os.Getenv("WEBAPI_TEST_RO_DSN")
-	if dsn == "" {
-		t.Skip("WEBAPI_TEST_RO_DSN is not set")
-	}
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(cfg.DBName, "test") {
-		t.Fatalf("refusing to empty tables in %q: not a test database", cfg.DBName)
-	}
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	// Aliases first: alias_of references the table itself.
-	for _, q := range []string{"UPDATE telegram_files SET alias_of = NULL",
-		"DELETE FROM telegram_files"} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return db
+	return testdb.New(t, testdb.Logger).DB
 }
 
 // fakeDaemon answers POST /v1/files/{id}/fetch from a table, and
@@ -301,6 +275,7 @@ func expectHeader(t *testing.T, g got, k, v string) {
 }
 
 func TestMediaStored(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{})
 	photo := []byte("a photo's bytes, stored")
 	tok := e.addFile(fileRow{id: 10, data: photo, ext: "jpg", typ: "photo", onDisk: true})
@@ -343,6 +318,7 @@ func TestMediaStored(t *testing.T) {
 }
 
 func TestMediaTokens(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{})
 	e.addFile(fileRow{id: 11, data: []byte("x"), ext: "jpg", typ: "photo", onDisk: true})
 	good := e.tokens.Encrypt(11)
@@ -367,6 +343,7 @@ func TestMediaTokens(t *testing.T) {
 }
 
 func TestMediaNamesAndTypes(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{})
 	doc := []byte("%PDF-1.7 a document")
 	tok := e.addFile(fileRow{id: 20, data: doc, ext: "pdf", typ: "document",
@@ -398,6 +375,7 @@ func TestMediaNamesAndTypes(t *testing.T) {
 }
 
 func TestMediaAlias(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{})
 	data := []byte("the same bytes under two rows")
 	e.addFile(fileRow{id: 30, data: data, ext: "pdf", typ: "document", name: "holder.pdf", onDisk: true})
@@ -418,6 +396,7 @@ func TestMediaAlias(t *testing.T) {
 }
 
 func TestMediaFetchStored(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{cap: 1 << 20})
 	data := []byte("fetched now, stored under another row")
 	// Row 41 is not stored; the daemon fetches it, finds the bytes are
@@ -452,6 +431,7 @@ func TestMediaFetchStored(t *testing.T) {
 }
 
 func TestMediaPartial(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{cap: 100})
 	cookie, uid := e.signIn("alice")
 	// TDLib's partial file: 64 bytes there, of a 1000-byte file.
@@ -529,6 +509,7 @@ func TestMediaPartial(t *testing.T) {
 }
 
 func TestMediaPartialRefused(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{cap: 100})
 	cookie, _ := e.signIn("bob")
 	outside := filepath.Join(filepath.Dir(e.tdlib), "secret.mp4")
@@ -568,6 +549,7 @@ func TestMediaPartialRefused(t *testing.T) {
 }
 
 func TestMediaDaemonErrors(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{cap: 100})
 	tok := e.addFile(fileRow{id: 70, typ: "photo", size: 10})
 	for _, c := range []struct {
@@ -605,6 +587,7 @@ func TestMediaDaemonErrors(t *testing.T) {
 }
 
 func TestMediaDaemonAway(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{cap: 100})
 	tok := e.addFile(fileRow{id: 80, typ: "photo", size: 10})
 	// A daemon that closes the connection without an answer.
@@ -621,6 +604,7 @@ func TestMediaDaemonAway(t *testing.T) {
 }
 
 func TestMediaNoDaemon(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{noDaemon: true, cap: 100})
 	cookie, _ := e.signIn("carol")
 	tok := e.addFile(fileRow{id: 90, typ: "photo", size: 10})
@@ -637,6 +621,7 @@ func TestMediaNoDaemon(t *testing.T) {
 }
 
 func TestMediaAnonymousSmallFiles(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{cap: 100})
 	data := []byte("small enough")
 	e.addFile(fileRow{id: 100, data: data, typ: "photo", ext: "png", onDisk: true})
@@ -679,6 +664,7 @@ func TestMediaAnonymousSmallFiles(t *testing.T) {
 }
 
 func TestMediaAuditSignedIn(t *testing.T) {
+	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{})
 	cookie, uid := e.signIn("erin")
 	tok := e.addFile(fileRow{id: 110, data: []byte("seen"), typ: "photo", onDisk: true})
