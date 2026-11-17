@@ -109,6 +109,7 @@ The file store as a capped cache in front of Telegram:
 ## Logging
 
 - [`contact-real-name`](todo/contact-real-name.md): Log a user's own name rather than the account's contact name for them, keeping the contact name apart.
+- [`discord-sender-own-name`](todo/discord-sender-own-name.md): Show a sender's own name, not the account's contact name, in messages forwarded to Discord.
 
 ## Web interface
 
