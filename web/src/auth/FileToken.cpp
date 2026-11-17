@@ -47,13 +47,21 @@ std::optional<std::vector<unsigned char>> b64decodeAny(const std::string &s)
 	return std::nullopt;
 }
 
-/* A 32-byte subkey = keyed BLAKE2b of a domain-separation label. */
-void deriveSubkey(unsigned char out[32], const std::vector<unsigned char> &key,
+/*
+ * A 32-byte subkey = keyed BLAKE2b of a domain-separation label. Fails
+ * for a key BLAKE2b cannot take (longer than crypto_generichash_KEYBYTES_MAX),
+ * leaving out zeroed rather than unset.
+ */
+bool deriveSubkey(unsigned char out[32], const std::vector<unsigned char> &key,
 		  const char *label)
 {
-	crypto_generichash(out, 32,
-			   reinterpret_cast<const unsigned char *>(label),
-			   std::strlen(label), key.data(), key.size());
+	if (crypto_generichash(out, 32,
+			       reinterpret_cast<const unsigned char *>(label),
+			       std::strlen(label), key.data(), key.size()) != 0) {
+		sodium_memzero(out, 32);
+		return false;
+	}
+	return true;
 }
 
 void putLE64(unsigned char b[8], uint64_t v)
@@ -84,8 +92,12 @@ bool init(void)
 	if (!raw || raw->size() < 16)
 		return false;
 
-	deriveSubkey(g_mac, *raw, "tgloggerd:file-token:mac:v1");
-	deriveSubkey(g_enc, *raw, "tgloggerd:file-token:enc:v1");
+	if (!deriveSubkey(g_mac, *raw, "tgloggerd:file-token:mac:v1") ||
+	    !deriveSubkey(g_enc, *raw, "tgloggerd:file-token:enc:v1")) {
+		sodium_memzero(g_mac, sizeof(g_mac));
+		sodium_memzero(g_enc, sizeof(g_enc));
+		return false;
+	}
 	g_ready = true;
 	return true;
 }
@@ -101,7 +113,9 @@ std::string encrypt(uint64_t file_id)
 	unsigned char raw[kRaw];
 	/* Synthetic nonce/tag: deterministic in the id, so the token is stable;
 	 * BLAKE2b's avalanche makes adjacent ids produce unrelated tags. */
-	crypto_generichash(raw, kTag, plain, kPlain, g_mac, sizeof(g_mac));
+	if (crypto_generichash(raw, kTag, plain, kPlain, g_mac,
+			       sizeof(g_mac)) != 0)
+		return std::string();
 	/* Encrypt the id under that nonce. */
 	crypto_stream_xchacha20_xor(raw + kTag, plain, kPlain, raw, g_enc);
 
@@ -127,7 +141,9 @@ std::optional<uint64_t> decrypt(std::string_view hex)
 	 * was not produced with our key (a guessed or tampered one) fails here
 	 * in constant time. */
 	unsigned char tag[kTag];
-	crypto_generichash(tag, kTag, plain, kPlain, g_mac, sizeof(g_mac));
+	if (crypto_generichash(tag, kTag, plain, kPlain, g_mac,
+			       sizeof(g_mac)) != 0)
+		return std::nullopt;
 	if (sodium_memcmp(tag, raw, kTag) != 0)
 		return std::nullopt;
 

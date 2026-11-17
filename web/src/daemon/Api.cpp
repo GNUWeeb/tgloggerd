@@ -110,9 +110,16 @@ bool init(void)
 	}
 
 	unsigned char raw[32];
-	crypto_generichash(raw, sizeof(raw),
-			   reinterpret_cast<const unsigned char *>(kBearerLabel),
-			   std::strlen(kBearerLabel), key->data(), key->size());
+	if (crypto_generichash(raw, sizeof(raw),
+			       reinterpret_cast<const unsigned char *>(kBearerLabel),
+			       std::strlen(kBearerLabel), key->data(),
+			       key->size()) != 0) {
+		sodium_memzero(key->data(), key->size());
+		fprintf(stderr, "tgloggerd-api: WEB_APP_KEY decodes to more "
+			"than %u bytes; the daemon API stays off\n",
+			(unsigned)crypto_generichash_KEYBYTES_MAX);
+		return false;
+	}
 	char hex[sizeof(raw) * 2 + 1];
 	sodium_bin2hex(hex, sizeof(hex), raw, sizeof(raw));
 	sodium_memzero(raw, sizeof(raw));
