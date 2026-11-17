@@ -100,6 +100,7 @@ add_executable(tgloggerd
 	src/tgloggerd/StorageJanitor.hpp
 	src/tgloggerd/StorageApi.cpp
 	src/tgloggerd/StorageApi.hpp
+	src/tgloggerd/StoreHolds.hpp
 	src/tgloggerd/tgloggerd_extern.cpp
 	src/tgloggerd/tgloggerd_extern.h
 	src/tgloggerd/TgLoggerd.cpp

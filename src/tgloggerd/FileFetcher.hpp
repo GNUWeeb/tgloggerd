@@ -69,6 +69,11 @@ public:
 	/* Whether the store holds the blob (sha256 hex, extension). */
 	using BlobFn = std::function<bool(const std::string &,
 					  const std::string &)>;
+	/*
+	 * Whether an ingest store job still has to read TDLib's copy of
+	 * local file @fid (TgLoggerd's StoreHolds); ingest prunes it then.
+	 */
+	using HeldFn = std::function<bool(int32_t)>;
 
 	struct Result {
 		bool		stored = false;
@@ -81,7 +86,7 @@ public:
 	};
 
 	FileFetcher(DB &db, TDLib &tdlib, log_hd_t *l, Config cfg,
-		    StoreFn store, BlobFn blob_present);
+		    StoreFn store, BlobFn blob_present, HeldFn ingest_held);
 	~FileFetcher(void);
 
 	FileFetcher(const FileFetcher &) = delete;
@@ -128,6 +133,7 @@ private:
 	void rememberFid(uint64_t id, int32_t fid);
 	void forgetFid(uint64_t id);
 	void reaperLoop(void);
+	bool ingestNeeds(int32_t fid) const;
 
 	DB			&db_;
 	TDLib			&tdlib_;
@@ -135,6 +141,7 @@ private:
 	Config			cfg_;
 	StoreFn			store_;
 	BlobFn			blob_present_;
+	HeldFn			ingest_held_;
 
 	fetch::GoneCache	gone_;
 	fetch::ActiveLimit	limit_;

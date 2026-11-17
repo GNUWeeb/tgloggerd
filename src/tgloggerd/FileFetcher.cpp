@@ -129,9 +129,11 @@ void FileFetcher::Config::loadEnv(void)
 }
 
 FileFetcher::FileFetcher(DB &db, TDLib &tdlib, log_hd_t *l, Config cfg,
-			 StoreFn store, BlobFn blob_present)
+			 StoreFn store, BlobFn blob_present,
+			 HeldFn ingest_held)
 	: db_(db), tdlib_(tdlib), l_(l), cfg_(std::move(cfg)),
 	  store_(std::move(store)), blob_present_(std::move(blob_present)),
+	  ingest_held_(std::move(ingest_held)),
 	  gone_(std::chrono::hours(1)), limit_(cfg_.max_active ? cfg_.max_active : 1)
 {
 	if (cfg_.chunk == 0)
@@ -175,7 +177,8 @@ bool FileFetcher::isGone(uint64_t id)
 /*
  * Delete what nobody needs any more: partial files idle for
  * TG_FETCH_IDLE_SECS and stored small files past their grace time. A file
- * ingest is downloading is left alone; ingest prunes it itself.
+ * ingest is downloading or still storing is left alone; ingest prunes it
+ * itself.
  */
 void FileFetcher::reaperLoop(void)
 {
@@ -188,7 +191,7 @@ void FileFetcher::reaperLoop(void)
 		lk.unlock();
 		auto now = Clock::now();
 		leases_.reap(now, cfg_.idle, [this](int32_t fid) {
-			if (tdlib_.isIngestDownloading(fid))
+			if (ingestNeeds(fid))
 				return;
 			tdlib_.deleteLocalFile(fid);
 			pr_debug(l_, "fetch: deleted TDLib's copy of file %d",
@@ -197,6 +200,16 @@ void FileFetcher::reaperLoop(void)
 		gone_.purge(now);
 		lk.lock();
 	}
+}
+
+/*
+ * Whether ingest still needs TDLib's copy of @fid: downloading it, or
+ * done downloading with store jobs left that have to read it.
+ */
+bool FileFetcher::ingestNeeds(int32_t fid) const
+{
+	return tdlib_.isIngestDownloading(fid) ||
+	       (ingest_held_ && ingest_held_(fid));
 }
 
 void FileFetcher::rememberFid(uint64_t id, int32_t fid)
@@ -485,7 +498,7 @@ FileFetcher::fetchWhole(const FetchRow &row, int32_t fid, int64_t size,
 		auto sid = store_(path, row.tg_file_id, unique_id, fsize,
 				  row.file_type, row.orig_file_name);
 		if (sid) {
-			if (cfg_.prune_stored && !tdlib_.isIngestDownloading(fid))
+			if (cfg_.prune_stored && !ingestNeeds(fid))
 				prune_at = Clock::now() + kPruneGrace;
 			try {
 				db_.touchFiles({ row.id, *sid });
