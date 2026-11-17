@@ -26,7 +26,6 @@ A superadmin needs to keep some data from some admins
 
 ## Depends on
 
-- `go-port-chat-api`
 - `go-port-search`
 
 ## Done when

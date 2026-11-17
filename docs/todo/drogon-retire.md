@@ -18,7 +18,6 @@ Two web services are a transition, not a destination.
 
 - `go-port-media`
 - `go-port-search`
-- `go-port-chat-api`
 - `go-port-admin`
 - `go-port-mcp`
 
