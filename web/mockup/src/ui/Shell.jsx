@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
 	LayoutDashboard, Users, UsersRound, MessagesSquare, MessageCircle, FileText,
 	ArrowLeftRight, Bot, Settings, Search, Menu, LogOut, Sun, Moon, Monitor,
+	PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { Link, useRouter } from '../router.jsx';
 import { useTheme } from './hooks.js';
@@ -46,23 +47,32 @@ export function ThemeButton() {
 export default function Shell({ crumbs = [], flush = false, children }) {
 	const { path } = useRouter();
 	const [open, setOpen] = useState(false);
+	// Collapsed sidebar (icons only). The real app would keep this in a
+	// cookie so the server renders the right width with no flash.
+	const [collapsed, setCollapsed] = useState(() => {
+		try { return localStorage.getItem('tgd-side') === 'collapsed'; } catch { return false; }
+	});
+	const toggle = () => setCollapsed((c) => {
+		try { localStorage.setItem('tgd-side', c ? 'open' : 'collapsed'); } catch { /* private mode */ }
+		return !c;
+	});
 	return (
 		<div className="app">
-			<div className={`a-shell ${open ? 'nav-open' : ''} ${flush ? 'a-flush' : ''}`}>
+			<div className={`a-shell ${open ? 'nav-open' : ''} ${flush ? 'a-flush' : ''} ${collapsed ? 'a-collapsed' : ''}`}>
 				<aside className="a-side" onClick={(e) => e.target.closest('a') && setOpen(false)}>
 					<Link to="/" className="a-brand">
 						<span className="a-logo">tg</span>
-						<span>tgloggerd</span>
+						<span className="a-label">tgloggerd</span>
 					</Link>
 					<nav aria-label="Main">
 						{NAV.map((g, i) => (
 							<div key={i} className="a-navgroup">
-								{g.label && <div className="a-navlabel">{g.label}</div>}
+								{g.label && <div className="a-navlabel"><span className="a-label">{g.label}</span></div>}
 								{g.items.map(([href, label, Icon, n]) => (
-									<Link key={label} to={href} className={`a-navitem ${isOn(path, href) ? 'on' : ''}`} aria-current={isOn(path, href) ? 'page' : undefined}>
+									<Link key={label} to={href} className={`a-navitem ${isOn(path, href) ? 'on' : ''}`} aria-current={isOn(path, href) ? 'page' : undefined} title={collapsed ? label : undefined}>
 										<Icon size={16} strokeWidth={1.8} />
-										<span>{label}</span>
-										{n !== undefined && <span className="a-navcount">{compact(n)}</span>}
+										<span className="a-label">{label}</span>
+										{n !== undefined && <span className="a-navcount a-label">{compact(n)}</span>}
 									</Link>
 								))}
 							</div>
@@ -70,7 +80,7 @@ export default function Shell({ crumbs = [], flush = false, children }) {
 					</nav>
 					<div className="a-me">
 						<span className="a-me-av">A</span>
-						<span className="a-grow">admin</span>
+						<span className="a-grow a-label">admin</span>
 						<ThemeButton />
 						<Link to="/login" className="a-icon-btn" title="Sign out" aria-label="Sign out"><LogOut size={15} /></Link>
 					</div>
@@ -79,6 +89,9 @@ export default function Shell({ crumbs = [], flush = false, children }) {
 				<div className="a-main">
 					<header className="a-top">
 						<button type="button" className="a-icon-btn a-menu" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={18} /></button>
+						<button type="button" className="a-icon-btn a-collapse" onClick={toggle} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-pressed={collapsed}>
+							{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+						</button>
 						<nav className="a-crumbs" aria-label="Breadcrumb">
 							{crumbs.map(([t, h], i) => (
 								<span key={i} className="a-crumb">
