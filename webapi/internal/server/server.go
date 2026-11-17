@@ -169,6 +169,7 @@ func (s *Server) routes() []route {
 		{"GET /api/chats/{scope}/{id}/messages", s.getChatMessages},
 		{"GET /api/entities", s.RequireSession(s.getEntities)},
 		{"GET /api/search/{entity}", s.RequireSession(s.searchEntity)},
+		{"GET /api/chats/search", s.RequireSession(s.searchChats)},
 	}
 }
 

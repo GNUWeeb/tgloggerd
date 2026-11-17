@@ -25,8 +25,8 @@ And the chat windows and the entity summaries, GET
 /api/chats/{scope}/{id}/messages and GET /api/entities, described under
 Chats.
 
-And the advanced search, GET /api/search/{entity}, described under
-Search.
+And the advanced search, GET /api/search/{entity}, and the chat
+search of the pickers, GET /api/chats/search, described under Search.
 
 # The API contract
 
@@ -38,9 +38,9 @@ should they and the description ever differ, that is a bug in one of
 them, fixed in both at once.
 
 Operations designed but not served yet are in the description too,
-marked `x-tgd-status: planned`: the chat search, and the account,
-forwarding, Join chat and MCP administration actions. A port serves
-the operation and drops the marker in the same change. A per-account
+marked `x-tgd-status: planned`: the account, forwarding, Join chat
+and MCP administration actions. A port serves the operation and drops
+the marker in the same change. A per-account
 bearer-token scheme for clients without cookies is reserved there
 (apiToken) and planned as well.
 
@@ -426,6 +426,15 @@ they move.
     only when the scope adds no condition, so it never counts rows
     the viewer may not see.
   - debug=1 is for superadmins and admins.
+
+    GET /api/chats/search      the groups and private chats a picker
+                               offers (internal/logdb/chatsearch.go)
+
+The groups the scope shows (GroupFilter) and, for a viewer who sees
+private chats, the people the logging account has private messages
+with, matched on title, name or username, busiest first, paged by an
+opaque cursor. federation=0 is Default, which holds every group until
+web-federations adds federations; any other id holds no group yet.
 
 # The request scope
 
