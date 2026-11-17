@@ -241,8 +241,8 @@ live.Source, leaving the fan-out as it is.
     every stream, so activity in a hidden chat never reaches a viewer.
     A stats.changed keeps only the visible chat and user ids and is
     dropped when none is left. Kinds the service does not know are
-    dropped, since nobody can say who may see them. Until web-roles
-    the scope hides nothing.
+    dropped, since nobody can say who may see them. A member sees
+    the events of no chat or user until grants exist.
   - Every WEBAPI_LIVE_RECHECK seconds an open stream checks its session
     again. Revoked, expired or the account gone: a "session" event with
     reason "revoked", then the stream closes. A different request

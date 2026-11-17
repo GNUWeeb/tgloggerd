@@ -130,16 +130,13 @@ func (t *topics) wants(e live.Event) bool {
 }
 
 // eventInScope is the one place the request scope decides which live
-// events a viewer gets; GET /api/events calls it for every event. The
-// scope hides nothing until accounts get restrictions (web-roles and
-// the items after it in docs/TODO.md), so every chat and user passes;
-// once scope.Scope can tell whether a chat or a user is visible, those
-// checks replace the two predicates below. They run for every event and
-// subscriber under the hub's lock, so they must answer from memory.
+// events a viewer gets; GET /api/events calls it for every event. A
+// chat's events reach only viewers who see that chat, a user's only
+// those who see that user (scope.SeesChat, scope.SeesUser). They run
+// for every event and subscriber under the hub's lock, so the scope
+// answers them from memory.
 func eventInScope(sc scope.Scope, e live.Event) (live.Event, bool) {
-	_ = sc
-	visible := func(int64) bool { return true }
-	return filterEvent(e, visible, visible)
+	return filterEvent(e, sc.SeesChat, sc.SeesUser)
 }
 
 // filterEvent applies visibility to one event: chatOK for a chat id

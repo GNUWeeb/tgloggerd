@@ -587,3 +587,26 @@ func TestEventsManyTopics(t *testing.T) {
 	st.expect("101", "user.updated")
 	st.expect("102", "group.updated")
 }
+
+// eventInScope follows the roles: a superadmin gets every chat's and
+// user's events, a member none until grants exist.
+func TestEventInScopeRoles(t *testing.T) {
+	t.Parallel()
+	super := scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin, EmailVerified: true})
+	member := scope.For(scope.Viewer{ID: 2, Role: scope.Member, EmailVerified: true})
+	events := []live.Event{
+		{Kind: live.KindMessageNew, ChatID: -1001, MessageID: 5},
+		{Kind: live.KindMessageNew, ChatID: 4242, MessageID: 6},
+		{Kind: live.KindUserUpdated, UserID: 4242},
+		{Kind: live.KindGroupUpdated, ChatID: -1001},
+		{Kind: live.KindStatsChanged, ChatIDs: []int64{-1001}, UserIDs: []int64{4242}},
+	}
+	for _, e := range events {
+		if _, ok := eventInScope(super, e); !ok {
+			t.Errorf("superadmin misses %+v", e)
+		}
+		if _, ok := eventInScope(member, e); ok {
+			t.Errorf("member gets %+v", e)
+		}
+	}
+}
