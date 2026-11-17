@@ -272,6 +272,68 @@ bool is_private_chat(int64_t chat_id)
 }
 
 /*
+ * Whether the account is a member of a group chat, as far as TDLib has
+ * told us. Unknown until a supergroup or basic group update arrives;
+ * is_member_chat() treats it as a member, so a chat whose status has not
+ * arrived yet keeps today's behaviour.
+ */
+enum class Membership : uint8_t {
+	Unknown,
+	Member,
+	NotMember,
+};
+
+const char *membership_name(Membership m)
+{
+	switch (m) {
+	case Membership::Member:
+		return "member";
+	case Membership::NotMember:
+		return "not a member";
+	default:
+		return "unknown";
+	}
+}
+
+/*
+ * Map the account's status in a supergroup, channel or basic group to a
+ * member flag (storage-cache.md section 5). A creator counts as a member
+ * whatever its is_member says, like an administrator.
+ */
+Membership membership_from_status(const td_api::ChatMemberStatus *s)
+{
+	if (!s)
+		return Membership::Unknown;
+
+	switch (s->get_id()) {
+	case td_api::chatMemberStatusCreator::ID:
+	case td_api::chatMemberStatusAdministrator::ID:
+	case td_api::chatMemberStatusMember::ID:
+		return Membership::Member;
+	case td_api::chatMemberStatusRestricted::ID:
+		return static_cast<const td_api::chatMemberStatusRestricted &>(
+			       *s).is_member_ ?
+			       Membership::Member : Membership::NotMember;
+	case td_api::chatMemberStatusLeft::ID:
+	case td_api::chatMemberStatusBanned::ID:
+		return Membership::NotMember;
+	default:
+		return Membership::Unknown;
+	}
+}
+
+/*
+ * A basic group that is no longer active (deactivated, or upgraded to a
+ * supergroup) has no members to speak of: nothing new arrives in it.
+ */
+Membership basic_group_membership(const td_api::basicGroup &bg)
+{
+	if (!bg.is_active_)
+		return Membership::NotMember;
+	return membership_from_status(bg.status_.get());
+}
+
+/*
  * Whether the user actually keeps this chat in their Main or Archive chat
  * list: a private chat they have a history with, or a group/channel they
  * joined. Chats seen only incidentally -- the origin of a forward, the
@@ -1126,6 +1188,9 @@ struct TDLib::Impl {
 	int64_t		user_id_ = 0;
 	std::uint64_t	current_query_id_ = 0;
 
+	/* The daemon's log; nullptr logs nothing (see setLogger()). */
+	log_hd_t	*l_ = nullptr;
+
 	/*
 	 * Query-id counter for fire-and-forget requests issued off the loop
 	 * thread (deleteLocalFile). Seeded high so it never collides with the
@@ -1172,6 +1237,7 @@ struct TDLib::Impl {
 		std::vector<std::string>	disabled;
 		std::vector<std::string>	collectible;
 		bool				is_channel = false;
+		Membership			member = Membership::Unknown;
 	};
 
 	/* Assembled group state, merged from the chat/supergroup/full info. */
@@ -1184,9 +1250,12 @@ struct TDLib::Impl {
 		std::vector<std::string>	disabled_usernames;
 		std::vector<std::string>	collectible_usernames;
 		bool				chat_seen = false;
+		Membership			member = Membership::Unknown;
 	};
 
 	std::unordered_map<int64_t, SgInfo>		supergroups_;
+	/* Basic group membership, awaiting the chat like SgInfo. */
+	std::unordered_map<int64_t, Membership>		basic_groups_;
 	std::unordered_map<int64_t, GroupState>		group_state_;
 	std::unordered_map<int64_t, int64_t>		chat_to_group_;
 	std::unordered_map<int32_t, int64_t>		pending_group_photo_;
@@ -1353,6 +1422,10 @@ struct TDLib::Impl {
 	void poll_admin_batch(void);
 	void maybe_download_group_photo(int64_t group_id,
 					const td_api::chatPhotoInfo *photo);
+	void set_membership(GroupState &st, Membership m);
+	void update_group_membership(int64_t group_id, bool is_basic,
+				     Membership m);
+	bool is_member_chat(int64_t chat_id) const;
 	void emit_group(int64_t group_id);
 	void emit_group_photo(int64_t group_id, const td_api::file &f);
 
@@ -1524,7 +1597,11 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 					info.collectible = sg.usernames_->collectible_usernames_;
 				}
 				info.is_channel = sg.is_channel_;
+				info.member = membership_from_status(
+					sg.status_.get());
 				supergroups_[sg.id_] = info;
+				update_group_membership(sg.id_, false,
+							info.member);
 
 				auto it = group_state_.find(sg.id_);
 				if (it == group_state_.end())
@@ -1545,6 +1622,14 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 					u.supergroup_full_info_->description_;
 				if (st.chat_seen)
 					emit_group(u.supergroup_id_);
+			},
+			[this](td_api::updateBasicGroup &u) {
+				if (!u.basic_group_)
+					return;
+				const auto &bg = *u.basic_group_;
+				Membership m = basic_group_membership(bg);
+				basic_groups_[bg.id_] = m;
+				update_group_membership(bg.id_, true, m);
 			},
 			[this](td_api::updateBasicGroupFullInfo &u) {
 				if (!u.basic_group_full_info_)
@@ -2773,6 +2858,19 @@ void TDLib::Impl::handle_new_chat(const td_api::chat &chat, bool from_chat_list)
 			st.type = models::GroupType::Channel;
 	}
 
+	/*
+	 * Membership cached from the supergroup or basic group update, which
+	 * TDLib sends before the chat. Supergroup and basic group ids are
+	 * separate id spaces, so take it only from the cache of this type.
+	 */
+	if (type == models::GroupType::BasicGroup) {
+		auto bg = basic_groups_.find(group_id);
+		if (bg != basic_groups_.end())
+			set_membership(st, bg->second);
+	} else if (sg != supergroups_.end()) {
+		set_membership(st, sg->second.member);
+	}
+
 	emit_group(group_id);
 
 	/* Request full info so the description arrives via its update. */
@@ -3151,6 +3249,53 @@ void TDLib::Impl::emit_backfill_state(int64_t chat_id)
 	backfill_state_handler_(st);
 }
 
+/* Record a group chat's member flag, logging when it changes. */
+void TDLib::Impl::set_membership(GroupState &st, Membership m)
+{
+	if (st.member == m)
+		return;
+	pr_debug(l_, "membership: chat %lld: %s -> %s",
+		 (long long)st.chat_id, membership_name(st.member),
+		 membership_name(m));
+	st.member = m;
+}
+
+/*
+ * Apply a supergroup or basic group status update to its chat, if the chat
+ * has been seen; otherwise handle_new_chat() picks it up from the cache.
+ */
+void TDLib::Impl::update_group_membership(int64_t group_id, bool is_basic,
+					  Membership m)
+{
+	auto it = group_state_.find(group_id);
+	if (it == group_state_.end() || !it->second.chat_seen)
+		return;
+	/* Supergroup and basic group ids share group_state_'s key space. */
+	if ((it->second.type == models::GroupType::BasicGroup) != is_basic)
+		return;
+	set_membership(it->second, m);
+}
+
+/*
+ * Whether the account is a member of a chat (storage-cache.md section 5).
+ * Private chats always are; a group chat is unless its status says
+ * otherwise, so a chat not seen yet or without a status counts as one.
+ * Loop thread only.
+ */
+bool TDLib::Impl::is_member_chat(int64_t chat_id) const
+{
+	if (is_private_chat(chat_id))
+		return true;
+
+	auto cit = chat_to_group_.find(chat_id);
+	if (cit == chat_to_group_.end())
+		return true;
+	auto git = group_state_.find(cit->second);
+	if (git == group_state_.end() || git->second.chat_id != chat_id)
+		return true;
+	return git->second.member != Membership::NotMember;
+}
+
 void TDLib::Impl::maybe_download_group_photo(int64_t group_id,
 					     const td_api::chatPhotoInfo *photo)
 {
@@ -3209,6 +3354,11 @@ TDLib::TDLib(uint32_t api_id, const char *api_hash, const char *data_dir)
 }
 
 TDLib::~TDLib(void) = default;
+
+void TDLib::setLogger(log_hd_t *l)
+{
+	impl_->l_ = l;
+}
 
 void TDLib::setMessageHandler(std::function<void(const TextMessage &)> cb)
 {

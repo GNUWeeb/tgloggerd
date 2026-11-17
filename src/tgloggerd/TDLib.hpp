@@ -19,6 +19,8 @@
 #include <tgloggerd/models/GroupAdmin.hpp>
 #include <tgloggerd/models/Backfill.hpp>
 
+#include "helpers/log.h"
+
 #include <utility>
 #include <vector>
 
@@ -167,6 +169,13 @@ public:
 
 	TDLib(const TDLib &) = delete;
 	TDLib &operator=(const TDLib &) = delete;
+
+	/*
+	 * Set the log handle for the daemon's own messages (not TDLib's). The
+	 * handle must outlive this object; nullptr, the default, logs nothing.
+	 * Must be called before loop().
+	 */
+	void setLogger(log_hd_t *l);
 
 	/*
 	 * Set the callback invoked for every incoming text message.

@@ -250,6 +250,7 @@ int TgLoggerd::start(void)
 
 	tdlib_ = std::make_unique<TDLib>(this->api_id_, this->api_hash_,
 					 tdlib_path);
+	tdlib_->setLogger(l_);
 	tdlib_->setPruneOnStart(env("TG_PRUNE_TDLIB_ON_START", "1") != "0");
 	/*
 	 * Opt-in, one-off repair: re-fetch every message that has media but no

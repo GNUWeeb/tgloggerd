@@ -30,12 +30,16 @@ step needs care, and the last one needs the owner's go.
   the production configuration.
 - Follow the data-preserving cutover procedure: stop, migrate, verify,
   start.
+- Checks of items already done, whose files are gone:
+  - `chat-membership-tracking`: with `TG_LOG_LEVEL=debug`, the log
+    has `membership: chat <id>: ... -> member` and `-> not a member`
+    lines; a spot check of a few chats against the Telegram client
+    agrees.
 
 ## Depends on
 
 - `files-cache-schema`
 - `tdlib-cross-thread-request`
-- `chat-membership-tracking`
 - `media-record-without-download`
 - `internal-api-server`
 - `seed-file-access`
