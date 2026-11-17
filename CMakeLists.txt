@@ -76,6 +76,10 @@ add_executable(tgloggerd
 	src/tgloggerd/InternalApi.hpp
 	src/tgloggerd/FileApi.cpp
 	src/tgloggerd/FileApi.hpp
+	src/tgloggerd/FetchState.cpp
+	src/tgloggerd/FetchState.hpp
+	src/tgloggerd/FileFetcher.cpp
+	src/tgloggerd/FileFetcher.hpp
 	src/tgloggerd/DiscordClient.cpp
 	src/tgloggerd/DiscordClient.hpp
 	src/tgloggerd/DiscordForwarder.cpp
