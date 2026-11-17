@@ -102,7 +102,6 @@ The file store as a capped cache in front of Telegram:
 
 - [`media-record-without-download`](todo/media-record-without-download.md): Record media from non-member chats and over the per-file cap without downloading it.
 - [`internal-api-server`](todo/internal-api-server.md): Give tgloggerd an authenticated internal HTTP API for the web, with file status and access recording.
-- [`seed-file-access`](todo/seed-file-access.md): Seed each file's last access from the web audit, newest referencing message and Discord forwards.
 - [`file-fetch-on-demand`](todo/file-fetch-on-demand.md): Fetch a file from Telegram when asked, whole into the store if small, by byte range if big.
 - [`storage-janitor`](todo/storage-janitor.md): Evict files by retention and by the total cap, with a dry run and a status endpoint.
 - [`web-access-reporting`](todo/web-access-reporting.md): Report the files the web serves to the daemon in batches, and cache them for a week, not a year.
