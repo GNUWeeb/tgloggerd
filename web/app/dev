@@ -28,6 +28,8 @@ PORT=${APP_PORT:-51738}
 CACHE=${APP_NPM_CACHE:-$HOME/.cache/tgd-app-npm}
 DIR=$(cd "$(dirname "$0")" && pwd)
 WEB=$(cd "$DIR/.." && pwd)
+# The API description, read by npm run gen:api as ../../webapi/openapi.yaml.
+API=$(cd "$DIR/../../webapi" && pwd)
 
 mkdir -p "$CACHE"
 tty=()
@@ -36,7 +38,7 @@ tty=()
 node_run() {
 	docker run --rm --init "${tty[@]}" -u "$(id -u):$(id -g)" \
 		-e HOME=/tmp -e npm_config_cache=/cache \
-		-v "$DIR:/app" -v "$CACHE:/cache" -w /app "$@"
+		-v "$DIR:/app" -v "$API:/webapi:ro" -v "$CACHE:/cache" -w /app "$@"
 }
 
 cmd=${1:-}
