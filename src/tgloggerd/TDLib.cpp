@@ -80,6 +80,26 @@ inline int64_t to_server_msg_id(int64_t td_id)
 	return td_id;
 }
 
+/*
+ * Whether a TDLib message id names a message that exists on the server.
+ *
+ * The others exist only inside this TDLib instance: a message still being
+ * sent, which gets its real id once the server accepts it, and a "local"
+ * message TDLib makes up itself and shows in a chat (seen in practice as a
+ * sticker authored by the group, appearing in groups the account has just
+ * been let into). Neither has a server id, and neither is anything a member
+ * of the chat sent, so they are not logged.
+ *
+ * Storing one is worse than noise. Its raw id is kept as it is, and such ids
+ * are either huge, so the message sorts as the newest in the chat for ever,
+ * or tiny (2, for the first local message of an empty chat), so it collides
+ * with the real server message of that number and is merged into its row.
+ */
+inline bool is_server_msg_id(int64_t td_id)
+{
+	return td_id != 0 && (td_id % kTdMsgIdShift) == 0;
+}
+
 models::User map_user(const td_api::user &u)
 {
 	models::User m;
@@ -1544,9 +1564,26 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 						*u.basic_group_full_info_);
 			},
 			[this](td_api::updateNewMessage &u) {
+				/* Not a message of the chat: see
+				 * is_server_msg_id. One of ours that is still
+				 * being sent arrives below once it is real. */
+				if (!is_server_msg_id(u.message_->id_))
+					return;
+				handle_new_message(*u.message_);
+			},
+			[this](td_api::updateMessageSendSucceeded &u) {
+				/*
+				 * A message this account sent has reached the
+				 * server and now has its server id; until now
+				 * it was skipped above under a temporary one.
+				 */
+				if (!is_server_msg_id(u.message_->id_))
+					return;
 				handle_new_message(*u.message_);
 			},
 			[this](td_api::updateMessageContent &u) {
+				if (!is_server_msg_id(u.message_id_))
+					return;
 				handle_update_message_content(u.chat_id_,
 					u.message_id_, u.new_content_.get());
 			},
@@ -1557,6 +1594,8 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				 * fetched. This is the path that captures
 				 * essentially every real edit.
 				 */
+				if (!is_server_msg_id(u.message_id_))
+					return;
 				refetch_edited_message(u.chat_id_, u.message_id_,
 						       true);
 			},
@@ -2168,6 +2207,14 @@ void TDLib::Impl::handle_delete_messages(int64_t chat_id,
 		return;
 
 	for (auto msg_id : message_ids) {
+		/*
+		 * A local message going away (its temporary id is retired
+		 * when a sent message becomes real) deletes nothing on the
+		 * server. Its raw id must not be taken for a server id: a
+		 * small one would tombstone the real message of that number.
+		 */
+		if (!is_server_msg_id(msg_id))
+			continue;
 		int64_t sid = to_server_msg_id(msg_id);
 		if (priv) {
 			models::PrivateMessage pm;
