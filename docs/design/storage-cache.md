@@ -309,7 +309,7 @@ how `/files/<token>` behaves.
 |---|---|---|
 | `TG_API_LISTEN` | empty (off) | `0.0.0.0:8091` |
 | `TG_API_THREADS` | 4 | default |
-| `TG_STORAGE_MAX_BYTES` | 0 (no cap) | 536870912000 (500 GiB) |
+| `TG_STORAGE_MAX_BYTES` | 0 (no cap) | sized to the disk |
 | `TG_STORAGE_RETENTION_DAYS` | 90 (0 = off) | 90 |
 | `TG_STORAGE_SWEEP_SECS` | 600 (0 = on request only) | default |
 | `TG_STORAGE_DRY_RUN` | 1 (report only) | 1 for the first run, then 0 |

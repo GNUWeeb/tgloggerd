@@ -109,5 +109,5 @@ Nothing.
 ## Done when
 
 - All the checks pass in production, the owner has agreed to the
-  eviction, the store is at most 95% of 500 GiB, and the daily growth
+  eviction, the store is at most 95% of the cap, and the daily growth
   has dropped.

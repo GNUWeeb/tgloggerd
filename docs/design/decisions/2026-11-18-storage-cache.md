@@ -7,7 +7,7 @@ Decided with the project owner on 2026-11-18, for
   with least-recently-accessed eviction, a retention period, fetch on
   demand (with byte ranges for big files), and no downloads from chats
   the account is not a member of.
-- Cap for this deployment: 500 GiB, evicting down to 95% of it.
+- A total cap, set per deployment, evicting down to 95% of it.
 - Retention: 90 days by default. Existing files start from their
   created time, raised to the latest recorded sign of use (web audit
   views, newest referencing message, Discord forwards).
