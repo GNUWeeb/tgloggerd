@@ -109,7 +109,6 @@ terms, and a binary distribution must carry them.
     golang.org/x/crypto (webapi/vendor)  BSD-3-Clause
     golang.org/x/sys (webapi/vendor)     BSD-3-Clause
     React, react-dom, scheduler          MIT (bundled by web/app)
-    TanStack Query (react, core)         MIT (bundled by web/app)
     openapi-fetch and its helpers        MIT (bundled by web/app)
     lucide-react                         ISC (bundled by web/app)
     Inter, JetBrains Mono, Roboto        OFL-1.1 (fontsource, web/app)
