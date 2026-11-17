@@ -11,6 +11,7 @@
 #include "controllers/Common.hpp"
 #include "dao/Browse.hpp"
 #include "dao/Audit.hpp"
+#include "daemon/AccessReport.hpp"
 
 #include <cctype>
 #include <cstdint>
@@ -195,6 +196,10 @@ MediaController::serve(drogon::HttpRequestPtr req, std::string token)
 	if (!std::filesystem::is_regular_file(path, ec))
 		co_return renderStatus(req, drogon::k404NotFound, "File not found",
 				       "The file is recorded but not in storage.");
+
+	/* Count the use for eviction: the row whose bytes are served, which
+	 * is the one the store keeps or evicts. Never waits on the daemon. */
+	daemon::access::record(target ? meta->aliasOf : (uint64_t)fid);
 
 	/* Audit only authenticated access. The route is public, so anonymous
 	 * hits (hotlinked images, crawlers) must not flood the audit log. */

@@ -20,6 +20,7 @@
 #include "auth/Password.hpp"
 #include "auth/Token.hpp"
 #include "auth/FileToken.hpp"
+#include "daemon/AccessReport.hpp"
 #include "daemon/Api.hpp"
 #include "dao/Accounts.hpp"
 #include "views/Render.hpp"
@@ -177,6 +178,7 @@ int main(int argc, char **argv)
 	if (tgweb::daemon::api::init() && tgweb::daemon::api::enabled())
 		fprintf(stderr, "tgloggerd-api: using %s\n",
 			tgweb::daemon::api::baseUrl().c_str());
+	tgweb::daemon::access::start();
 
 	/* Template rendering and static assets. */
 	tgweb::views::Render::init(tgweb::env("WEB_TEMPLATE_DIR", "views/templates"),

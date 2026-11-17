@@ -9,6 +9,9 @@ Developer docs for the tgloggerd web UI (Drogon + MySQL).
   is gated to an admin-curated allowlist, bearer-token auth, the AND/OR/NOT
   filter grammar, the Telegram tools, and the two query-plan traps that make
   full-text search and recent-message listing fast.
+- [media.md](media.md) — how `/files/<token>` serves stored files: tokens,
+  `alias_of`, byte ranges, and the access reports sent to the daemon for
+  eviction.
 - [platform-forwarding.md](platform-forwarding.md) — the `/platform-fwd`
   section: how the per-direction pages are laid out and named, the Discord →
   Telegram endpoints in full, how bot tokens are kept write-only, the extra
