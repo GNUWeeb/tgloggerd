@@ -12,6 +12,10 @@
  * block on the database or on TDLib::request. A request whose handler cannot
  * be queued (too many in flight) is answered 503 at once rather than left to
  * wait behind slow fetches.
+ *
+ * Streams (streamRoute) never reach the pool: they are opened and pulled on
+ * the I/O thread, woken by their source, so subscribers hold no handler
+ * thread however long they stay.
  */
 #include "InternalApi.hpp"
 #include "ThreadPool.hpp"
@@ -22,8 +26,10 @@
 
 #include <sodium.h>
 
+#include <array>
 #include <atomic>
 #include <cctype>
+#include <cstdio>
 #include <chrono>
 #include <cstring>
 #include <mutex>
@@ -123,6 +129,9 @@ struct Route {
 	std::vector<std::string>	segs;
 	size_t				literals;
 	InternalApi::Handler		handler;
+	/* Set for a stream route instead of handler. */
+	InternalApi::StreamOpener	open;
+	std::string			content_type;
 };
 
 class Session;
@@ -189,6 +198,12 @@ public:
 	/* I/O thread only, under sessions_mtx. */
 	void close_if_idle(void)
 	{
+		if (streaming_) {
+			/* A stream is never done: end it at shutdown. */
+			if (!writing_)
+				write_stream(std::string(), true);
+			return;
+		}
 		if (!reading_)
 			return;
 		beast::error_code ec;
@@ -269,6 +284,11 @@ private:
 			return;
 		}
 
+		if (rt->open) {
+			start_stream(*rt, r, ver);
+			return;
+		}
+
 		const std::string &body = req.body();
 		if (!body.empty()) {
 			r.body = nlohmann::json::parse(body, nullptr, false);
@@ -334,11 +354,198 @@ private:
 		stream_.socket().close(ec);
 	}
 
+	/*
+	 * The wakeup handed to a stream. It holds the session weakly and
+	 * posts at most one pump at a time; the stream drops it (when it
+	 * is destroyed in end_stream()) before the io_context goes.
+	 */
+	InternalApi::Wake make_wake(void)
+	{
+		std::weak_ptr<Session> w = shared_from_this();
+		auto pending = wake_pending_;
+		auto ex = stream_.get_executor();
+		return [w, pending, ex] {
+			if (pending->exchange(true))
+				return;
+			asio::post(ex, [w, pending] {
+				pending->store(false);
+				if (auto s = w.lock())
+					s->pump();
+			});
+		};
+	}
+
+	void start_stream(const Route &rt, const InternalApi::Request &req,
+			  unsigned ver)
+	{
+		std::unique_ptr<InternalApi::Stream> st;
+		try {
+			st = rt.open(req, make_wake());
+		} catch (const InternalApi::Error &e) {
+			pr_debug(api_.l, "api: %s %s -> %d %s: %s",
+				 req.method.c_str(), req.path.c_str(),
+				 e.status(), e.code().c_str(), e.what());
+			send(error_response(e.status(), e.code(), e.what(),
+					    e.retryAfter()), false, ver);
+			return;
+		} catch (const std::exception &e) {
+			pr_error(api_.l, "api: %s %s failed: %s",
+				 req.method.c_str(), req.path.c_str(),
+				 e.what());
+			send(error_response(500, "internal", "internal error"),
+			     false, ver);
+			return;
+		}
+		pr_debug(api_.l, "api: %s %s -> stream", req.method.c_str(),
+			 req.path.c_str());
+
+		stream_obj_ = std::move(st);
+		streaming_ = true;
+		chunked_ = ver >= 11;
+		ka_timer_.emplace(stream_.get_executor());
+
+		auto res = std::make_shared<http::response<http::empty_body>>(
+			http::status::ok, ver);
+		res->set(http::field::server, "tgloggerd");
+		res->set(http::field::content_type, rt.content_type);
+		res->set(http::field::cache_control, "no-store");
+		/* nginx, should one ever sit in between: do not buffer. */
+		res->set("X-Accel-Buffering", "no");
+		res->keep_alive(false);
+		if (chunked_)
+			res->chunked(true);
+		auto sr = std::make_shared<
+			http::response_serializer<http::empty_body>>(*res);
+
+		writing_ = true;
+		stream_.expires_after(kIoTimeout);
+		auto self = shared_from_this();
+		http::async_write_header(stream_, *sr,
+			[self, res, sr](beast::error_code ec, size_t) {
+				self->writing_ = false;
+				self->stream_.expires_never();
+				if (ec || self->api_.stopping) {
+					self->end_stream();
+					return;
+				}
+				self->watch_peer();
+				self->arm_keepalive();
+				self->pump();
+			});
+	}
+
+	/* I/O thread: write whatever the stream has ready. */
+	void pump(void)
+	{
+		if (!streaming_ || writing_ || !stream_obj_)
+			return;
+		std::string out;
+		bool more = stream_obj_->pull(out);
+		if (out.empty() && more)
+			return;
+		write_stream(std::move(out), !more);
+	}
+
+	void write_stream(std::string data, bool last)
+	{
+		auto buf = std::make_shared<std::string>();
+		if (chunked_) {
+			if (!data.empty()) {
+				char hex[32];
+				snprintf(hex, sizeof(hex), "%zx\r\n",
+					 data.size());
+				*buf += hex;
+				*buf += data;
+				*buf += "\r\n";
+			}
+			if (last)
+				*buf += "0\r\n\r\n";
+		} else {
+			*buf = std::move(data);
+		}
+
+		writing_ = true;
+		stream_.expires_after(kIoTimeout);
+		auto self = shared_from_this();
+		asio::async_write(stream_, asio::buffer(*buf),
+			[self, buf, last](beast::error_code ec, size_t) {
+				self->writing_ = false;
+				self->stream_.expires_never();
+				if (ec || last) {
+					self->end_stream();
+					return;
+				}
+				if (self->api_.stopping) {
+					self->write_stream(std::string(), true);
+					return;
+				}
+				self->arm_keepalive();
+				self->pump();
+			});
+	}
+
+	/*
+	 * A subscriber sends nothing after its request; a read completing
+	 * means it closed (or misbehaves), so the stream ends at once
+	 * instead of at the next failed write. On the socket itself, so
+	 * the stream's write timeout does not apply to it.
+	 */
+	void watch_peer(void)
+	{
+		auto self = shared_from_this();
+		stream_.socket().async_read_some(asio::buffer(peer_buf_),
+			[self](beast::error_code ec, size_t) {
+				if (ec || !self->streaming_) {
+					self->end_stream();
+					return;
+				}
+				self->watch_peer();
+			});
+	}
+
+	void arm_keepalive(void)
+	{
+		if (!ka_timer_)
+			return;
+		ka_timer_->expires_after(
+			std::chrono::seconds(InternalApi::kKeepaliveSecs));
+		auto self = shared_from_this();
+		ka_timer_->async_wait([self](beast::error_code ec) {
+			if (ec || !self->streaming_ || self->writing_ ||
+			    !self->stream_obj_)
+				return;
+			self->write_stream(self->stream_obj_->keepalive(),
+					   false);
+		});
+	}
+
+	/* Idempotent. Drops the stream (and its wakeup), then the socket. */
+	void end_stream(void)
+	{
+		if (!streaming_)
+			return;
+		streaming_ = false;
+		stream_obj_.reset();
+		if (ka_timer_)
+			ka_timer_->cancel();
+		close();
+	}
+
 	ApiServer						&api_;
 	beast::tcp_stream					stream_;
 	beast::flat_buffer					buf_;
 	std::optional<http::request_parser<http::string_body>>	parser_;
 	bool							reading_ = false;
+
+	/* Stream routes only; all I/O thread except wake_pending_. */
+	std::unique_ptr<InternalApi::Stream>			stream_obj_;
+	bool							streaming_ = false;
+	bool							writing_ = false;
+	bool							chunked_ = true;
+	std::optional<asio::steady_timer>			ka_timer_;
+	std::array<char, 512>					peer_buf_;
+	std::shared_ptr<std::atomic<bool>>			wake_pending_ =
+		std::make_shared<std::atomic<bool>>(false);
 };
 
 void ApiServer::do_accept(void)
@@ -469,6 +676,21 @@ void InternalApi::route(const std::string &method, const std::string &pattern,
 	for (const auto &s : rt.segs)
 		rt.literals += is_capture(s) ? 0 : 1;
 	rt.handler = std::move(h);
+	impl_->routes.push_back(std::move(rt));
+}
+
+void InternalApi::streamRoute(const std::string &pattern,
+			      const std::string &content_type,
+			      StreamOpener open)
+{
+	Route rt;
+	rt.method = "GET";
+	rt.segs = split_path(pattern);
+	rt.literals = 0;
+	for (const auto &s : rt.segs)
+		rt.literals += is_capture(s) ? 0 : 1;
+	rt.open = std::move(open);
+	rt.content_type = content_type;
 	impl_->routes.push_back(std::move(rt));
 }
 

@@ -537,3 +537,25 @@ its own. The part of the daemon that owns an operation registers it in
   from the table above). A `nlohmann::json` type error while reading
   the body becomes a 400; any other exception a 500, logged.
 - Document the endpoint in this file in the same change.
+
+A long-lived answer, such as `GET /v1/events`, is a stream route instead:
+
+    api.streamRoute("/v1/events", "text/event-stream",
+            [](const InternalApi::Request &req, InternalApi::Wake wake) {
+                    ...
+                    return std::make_unique<MyStream>(...);
+            });
+
+- The opener and the stream's `pull()` run on the I/O thread and must
+  not block; a stream never holds a handler thread. The opener may throw
+  `InternalApi::Error` to answer an error instead.
+- The stream calls `wake()` (from any thread, cheaply) when it has
+  something new; the server then calls `pull()`, writes what it returns
+  and calls it again once the write is done. A peer that reads slowly
+  therefore only delays its own pulls, and the stream decides what to do
+  about a backlog.
+- After 15 seconds without data the server writes the stream's
+  `keepalive()`. The answer is chunked on HTTP/1.1 and delimited by the
+  close on HTTP/1.0; the connection closes when the stream ends, when
+  the peer closes or sends anything, when a write stalls for 30 seconds,
+  or at shutdown.

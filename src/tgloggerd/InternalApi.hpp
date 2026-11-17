@@ -98,6 +98,42 @@ public:
 
 	using Handler = std::function<Response(const Request &)>;
 
+	/*
+	 * A long-lived response, such as GET /v1/events. It lives on the I/O
+	 * thread and never holds a handler thread: the server pulls from it
+	 * when its wakeup fires and writes what it got, so a few subscribers
+	 * cannot starve the handlers, and a subscriber that reads slowly
+	 * only delays its own pulls.
+	 */
+	class Stream {
+	public:
+		virtual ~Stream(void) = default;
+
+		/*
+		 * I/O thread; must not block. Append what is ready to out
+		 * (already in the stream's wire format). Return false to end
+		 * the stream once out is written.
+		 */
+		virtual bool pull(std::string &out) = 0;
+
+		/* What to send after kKeepaliveSecs without data. */
+		virtual std::string keepalive(void) = 0;
+	};
+
+	/*
+	 * Tells the server that pull() has more. Callable from any thread,
+	 * cheap, never blocks; the stream must stop calling it once it is
+	 * destroyed.
+	 */
+	using Wake = std::function<void()>;
+
+	/*
+	 * Opens a stream for a request, on the I/O thread: must not block.
+	 * Throws Error to answer an error instead.
+	 */
+	using StreamOpener =
+		std::function<std::unique_ptr<Stream>(const Request &, Wake)>;
+
 	struct Config {
 		/* "host:port" or "[v6]:port"; empty = the API is off. */
 		std::string	listen;
@@ -109,6 +145,8 @@ public:
 
 	/* Request bodies above this are refused with 413. */
 	static constexpr size_t kMaxBody = 64 * 1024;
+	/* A stream silent this long gets its keepalive(). */
+	static constexpr int kKeepaliveSecs = 15;
 
 	explicit InternalApi(log_hd_t *l);
 	~InternalApi(void);
@@ -123,6 +161,14 @@ public:
 	 */
 	void route(const std::string &method, const std::string &pattern,
 		   Handler h);
+
+	/*
+	 * Register a GET route answered with a stream of content_type
+	 * (chunked on HTTP/1.1, delimited by the close on HTTP/1.0). The
+	 * connection is closed when the stream ends. Call before start().
+	 */
+	void streamRoute(const std::string &pattern,
+			 const std::string &content_type, StreamOpener open);
 
 	/*
 	 * Derive the bearer key from WEB_APP_KEY (base64, any alphabet): the
