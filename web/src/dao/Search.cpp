@@ -215,6 +215,7 @@ constexpr uint32_t INT_OPS  = OP_EQ | OP_NE | OP_LT | OP_GT | OP_LE | OP_GE;
 constexpr uint32_t DT_OPS   = INT_OPS;
 constexpr uint32_t TEXT_OPS = OP_EQ | OP_NE | OP_LIKE | OP_NLIKE |
 			      OP_CLIKE | OP_NCLIKE;
+constexpr uint32_t LIKE_OPS = OP_LIKE | OP_NLIKE | OP_CLIKE | OP_NCLIKE;
 constexpr uint32_t BOOL_OPS = OP_EQ | OP_NE;
 constexpr uint32_t ENUM_OPS = OP_EQ | OP_NE;
 constexpr uint32_t NULL_OPS = OP_ISNULL | OP_ISNOTNULL;
@@ -228,6 +229,11 @@ const SearchField kUserFields[] = {
 	{ "id",         "User ID",   FType::Int,      FKind::Column, "u.id",        "", "", "", INT_OPS,  true,  true,  "" },
 	{ "first_name", "First name", FType::Text,    FKind::Column, "u.first_name","", "", "", TEXT_OPS, true,  true,  "" },
 	{ "last_name",  "Last name",  FType::Text,    FKind::Column, "u.last_name", "", "", "", TEXT_OPS, false, true,  "" },
+	/* Own or contact name: one LIKE matches what a user is called either way. */
+	{ "any_name",   "Name (own or contact)", FType::Text, FKind::Column, "CONCAT_WS(' ', u.first_name, u.last_name, COALESCE(u.contact_first_name,''), COALESCE(u.contact_last_name,''))", "", "", "", LIKE_OPS, false, false, "" },
+	{ "contact_first_name", "Contact first name", FType::Text, FKind::Column, "COALESCE(u.contact_first_name,'')", "", "", "", TEXT_OPS, false, false, "" },
+	{ "contact_last_name",  "Contact last name",  FType::Text, FKind::Column, "COALESCE(u.contact_last_name,'')",  "", "", "", TEXT_OPS, false, false, "" },
+	{ "is_contact", "Contact",   FType::Bool,     FKind::Column, "COALESCE(u.is_contact,0)", "", "", "", BOOL_OPS, false, false, "" },
 	{ "username",   "Username (current)", FType::Text, FKind::Exists, "", "telegram_user_usernames x", "x.username", "AND x.kind='active'", EXISTS_OPS, false, true, "" },
 	{ "type",       "Type",      FType::Enum,     FKind::Column, "u.type",      "", "", "", ENUM_OPS, true,  true,  "regular,deleted,bot,unknown" },
 	{ "msg_count",  "Messages",  FType::Int,      FKind::Column, "u.msg_count", "", "", "", INT_OPS,  true,  true,  "" },
@@ -265,6 +271,7 @@ const DisplayCol kUserCols[] = {
 	{ "photo",              "",                 "photo",    ""           },
 	{ "id",                 "ID",               "id",       "id"         },
 	{ "name",               "Name",             "name",     "first_name" },
+	{ "contact_name",       "Contact name",     "text",     ""           },
 	{ "username",           "Username",         "username", ""           },
 	{ "type",               "Type",             "text",     "type"       },
 	{ "msg_count",          "Messages",         "int",      "msg_count"  },
@@ -299,6 +306,15 @@ nlohmann::json mapRowUser(const drogon::orm::Row &r)
 			    ? (int64_t)0 : r["profile_photo_file_id"].as<int64_t>());
 	a.push_back(r["id"].as<int64_t>());
 	a.push_back(displayName(r));
+	/* The name the logging account saved a contact under; "" otherwise. */
+	{
+		std::string cf = strOrEmpty("contact_first_name");
+		std::string cl = strOrEmpty("contact_last_name");
+		std::string cn = cf;
+		if (!cl.empty())
+			cn += cn.empty() ? cl : " " + cl;
+		a.push_back(Render::esc(cn));
+	}
 	a.push_back(escCol(r, "username"));
 	a.push_back(r["type"].as<std::string>());
 	a.push_back(r["msg_count"].as<std::string>());
@@ -326,7 +342,7 @@ const SearchSchema kUsersSchema = {
 	/* selectCols */ "u.id, u.first_name, u.last_name, u.type, u.is_verified, "
 			 "u.is_premium, u.is_scam, u.is_fake, u.is_support, "
 			 "u.profile_photo_file_id, u.created_at, u.updated_at, "
-			 "u.msg_count, "
+			 "u.msg_count, u.contact_first_name, u.contact_last_name, "
 			 "(SELECT un.username FROM telegram_user_usernames un "
 			 "WHERE un.user_id = u.id AND un.kind='active' "
 			 "ORDER BY un.position LIMIT 1) AS username, "

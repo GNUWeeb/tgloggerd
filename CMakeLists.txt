@@ -45,6 +45,9 @@ add_executable(tgloggerd
 	src/tgloggerd/DB.hpp
 	src/tgloggerd/models/User.hpp
 	src/tgloggerd/models/User.cpp
+	src/tgloggerd/models/ContactName.hpp
+	src/tgloggerd/models/ContactName.cpp
+	src/tgloggerd/models/ContactLookup.cpp
 	src/tgloggerd/models/File.hpp
 	src/tgloggerd/models/File.cpp
 	src/tgloggerd/models/FileAccess.cpp
@@ -84,6 +87,10 @@ add_executable(tgloggerd
 	src/tgloggerd/ChatRef.hpp
 	src/tgloggerd/ChatApi.cpp
 	src/tgloggerd/ChatApi.hpp
+	src/tgloggerd/ContactLookup.cpp
+	src/tgloggerd/ContactLookup.hpp
+	src/tgloggerd/ContactApi.cpp
+	src/tgloggerd/ContactApi.hpp
 	src/tgloggerd/DiscordClient.cpp
 	src/tgloggerd/DiscordClient.hpp
 	src/tgloggerd/DiscordForwarder.cpp

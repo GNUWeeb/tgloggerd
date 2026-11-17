@@ -22,6 +22,7 @@ namespace tgloggerd {
 class InternalApi;
 class StorageJanitor;
 class FileFetcher;
+class Contacts;
 
 class TgLoggerd {
 public:
@@ -123,6 +124,14 @@ private:
 	 * right after the API, before the pools drain.
 	 */
 	std::unique_ptr<FileFetcher> fetcher_;
+
+	/*
+	 * The real-name lookup of contacts and its boot-time restore
+	 * (ContactLookup.hpp). Uses tdlib_, db_ and serial_; stopped before
+	 * the API in start(). Declared before api_, whose handler uses
+	 * it, so it is destroyed after it.
+	 */
+	std::unique_ptr<Contacts> contacts_;
 
 	/*
 	 * The internal HTTP API for the web (docs/internal-api.md). Its

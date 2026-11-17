@@ -8,6 +8,9 @@
 #include "auth/FileToken.hpp"
 #include "auth/Session.hpp"
 #include "controllers/Common.hpp"
+#include "auth/Csrf.hpp"
+#include "daemon/Api.hpp"
+#include "dao/Audit.hpp"
 #include "dao/Browse.hpp"
 #include "dao/Search.hpp"
 #include "media/Fetch.hpp"
@@ -166,6 +169,7 @@ UsersController::detail(drogon::HttpRequestPtr req, std::string id)
 	nlohmann::json data = pageBase(req);
 	data.merge_patch(*found);
 	data["title"] = "User " + id;
+	data["looked_up"] = req->getParameter("looked_up") == "1";
 
 	co_return htmlPage(views::Render::page("user.html", data));
 }
@@ -246,6 +250,162 @@ UsersController::history(drogon::HttpRequestPtr req, std::string id)
 	data["next_offset"] = off + lim;
 
 	co_return htmlPage(views::Render::page("user_history.html", data));
+}
+
+namespace {
+
+/* A daemon answer to the lookup, as the page needs it. */
+struct LookupOutcome {
+	int		status = 0;	/* 0: not sent or not answered. */
+	std::string	error;		/* "" on success; "off", "unreachable" or the daemon's code. */
+	std::string	message;	/* unescaped */
+	int		retryAfter = 0;
+};
+
+LookupOutcome toOutcome(const daemon::api::Reply &r)
+{
+	LookupOutcome o;
+	o.status = r.status;
+	o.retryAfter = atoi(r.retryAfter.c_str());
+	if (r.ok())
+		return o;
+	if (!daemon::api::enabled()) {
+		o.error = "off";
+		o.message = "The daemon's internal API is not configured "
+			    "(WEB_TGLOGGERD_API).";
+	} else if (!r.sent) {
+		o.error = "unreachable";
+		o.message = "The daemon did not answer: " + r.error;
+	} else if (r.body.is_object()) {
+		o.error = r.body.value("error", std::string("error"));
+		o.message = r.body.value("message", std::string());
+	} else {
+		o.error = "error";
+		o.message = "Unexpected answer from the daemon.";
+	}
+	return o;
+}
+
+/* The user page data for the lookup page, or a 404 page. */
+drogon::Task<std::optional<nlohmann::json>>
+lookupPageData(const drogon::HttpRequestPtr &req, int64_t uid)
+{
+	auto db = drogon::app().getDbClient("ro");
+	auto found = co_await dao::browse::getUser(db, uid);
+	if (!found)
+		co_return std::nullopt;
+	nlohmann::json data = pageBase(req);
+	data.merge_patch(*found);
+	data["title"] = "Look up real name";
+	data["api_configured"] = daemon::api::enabled();
+	data["done"] = false;
+	data["error"] = "";
+	co_return data;
+}
+
+/* A daemon answer as one sentence for the page (unescaped). */
+std::string lookupErrorText(const LookupOutcome &o)
+{
+	auto later = [&](const char *what) {
+		std::string s = what;
+		if (o.retryAfter > 0)
+			s += " Try again in " + std::to_string(o.retryAfter) +
+			     " seconds.";
+		return s;
+	};
+	if (o.error == "off" || o.error == "unreachable")
+		return o.message;
+	if (o.error == "not_a_contact")
+		return "The logging account does not have this user as a "
+		       "contact, so there is nothing to look up.";
+	if (o.error == "unsupported")
+		return "The contact's note has formatting that could not be "
+		       "restored, so nothing was changed.";
+	if (o.error == "rate_limited")
+		return later("A lookup ran recently; Telegram limits contact "
+			     "changes, so the daemon allows one at a time with "
+			     "a pause in between. Nothing was changed.");
+	if (o.error == "flood_wait")
+		return later("Telegram refused to remove the contact (flood "
+			     "wait). Nothing was changed.");
+	if (o.error == "restore_pending")
+		return "The contact is removed and not added back yet. The "
+		       "daemon keeps it in its journal and adds it back as "
+		       "soon as Telegram lets it. (" + o.message + ")";
+	if (o.error == "timeout")
+		return "The contact was added back, but Telegram did not "
+		       "report the user's own name in time; nothing was "
+		       "stored.";
+	if (o.error == "unavailable")
+		return later("The daemon is busy or not connected to "
+			     "Telegram. Nothing was changed.");
+	return "The lookup failed (" + std::to_string(o.status) + " " +
+	       o.error + "): " + o.message;
+}
+
+} /* namespace */
+
+drogon::Task<drogon::HttpResponsePtr>
+UsersController::lookupNameForm(drogon::HttpRequestPtr req, std::string id)
+{
+	int64_t uid = strtoll(id.c_str(), nullptr, 10);
+	auto data = co_await lookupPageData(req, uid);
+	if (!data)
+		co_return renderStatus(req, drogon::k404NotFound, "User not found",
+				       "No user exists with that id.");
+	co_return htmlPage(views::Render::page("user_lookup_name.html", *data));
+}
+
+drogon::Task<drogon::HttpResponsePtr>
+UsersController::lookupName(drogon::HttpRequestPtr req, std::string id)
+{
+	if (!auth::csrf::checkSession(req, req->getParameter("csrf")))
+		co_return renderStatus(req, drogon::k403Forbidden,
+				       "Session expired",
+				       "Your session expired. Please reload "
+				       "the page and try again.");
+
+	int64_t uid = strtoll(id.c_str(), nullptr, 10);
+	auto data = co_await lookupPageData(req, uid);
+	if (!data)
+		co_return renderStatus(req, drogon::k404NotFound, "User not found",
+				       "No user exists with that id.");
+
+	/*
+	 * Only for a contact, as the daemon sees it; the daemon checks again.
+	 * The page refuses early so a stale form cannot start a cycle for a
+	 * user who is no contact any more.
+	 */
+	if (!(*data)["user"]["is_contact"].get<bool>()) {
+		(*data)["error"] = views::Render::esc(
+			"This user is not a contact of the logging account.");
+		co_return htmlPage(views::Render::page("user_lookup_name.html",
+						       *data));
+	}
+
+	daemon::api::Reply reply = co_await daemon::api::lookupRealName(uid);
+	LookupOutcome o = toOutcome(reply);
+
+	auto s = auth::session::current(req);
+	try {
+		co_await dao::audit::log(
+			drogon::app().getDbClient("app"),
+			s ? std::optional<uint64_t>(s->uid) : std::nullopt,
+			"contact_lookup", req->getPeerAddr().toIp(),
+			"user " + std::to_string(uid) + ": " +
+			(o.error.empty() ? std::string("ok") : o.error));
+	} catch (const std::exception &) {
+		/* The action ran; a lost audit row must not hide its result. */
+	}
+
+	if (!o.error.empty()) {
+		(*data)["error"] = views::Render::esc(lookupErrorText(o));
+		co_return htmlPage(views::Render::page("user_lookup_name.html",
+						       *data));
+	}
+
+	co_return drogon::HttpResponse::newRedirectionResponse(
+		"/users/" + std::to_string(uid) + "?looked_up=1");
 }
 
 } /* namespace tgweb::controllers */

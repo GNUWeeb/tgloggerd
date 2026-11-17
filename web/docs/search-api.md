@@ -87,6 +87,10 @@ the response, so a client can build its UI from the registry.
 | `id` | User ID | int | C | `= != < > <= >=` |
 | `first_name` | First name | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
 | `last_name` | Last name | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
+| `any_name` | Name (own or contact) | text | C | `LIKE NOT LIKE %LIKE% NOT %LIKE%` |
+| `contact_first_name` | Contact first name | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
+| `contact_last_name` | Contact last name | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
+| `is_contact` | Contact | bool | C | `= !=` |
 | `username` | Username (current) | text | E | `= LIKE %LIKE%` (+`!=`/`NOT LIKE`/`NOT %LIKE%` = never) |
 | `type` | Type | enum | C | `= !=` — values `regular,deleted,bot,unknown` |
 | `msg_count` | Messages | int | C | `= != < > <= >=` |
@@ -112,6 +116,14 @@ the response, so a client can build its UI from the registry.
 | `hist_last_name` | Last name (ever) | text | E | `= LIKE %LIKE%` |
 | `hist_bio` | Bio (ever) | text | E | `= LIKE %LIKE%` |
 | `hist_phone` | Phone (ever) | text | E | `= LIKE %LIKE%` |
+
+`first_name`/`last_name` are the user's own name. For a contact of the
+logging account, the name the account saved them under is
+`contact_first_name`/`contact_last_name` (`''` for a user who is not a
+contact), shown in the `contact_name` column; `any_name` matches either, so
+`any_name %LIKE% moe` finds a user by what they call themselves or by what
+the account calls them. Where no own name was ever seen (a contact since
+before logging began), `first_name`/`last_name` hold the contact name too.
 
 Column fields on `telegram_user_extra_info` are `COALESCE`'d to their schema default, so a
 user whose extra-info row is absent (the daemon deletes all-default rows) still

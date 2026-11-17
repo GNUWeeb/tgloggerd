@@ -38,13 +38,14 @@ std::string escColMulti(const drogon::orm::Row &r, const char *col)
 	return Render::escMultiline(r[col].as<std::string>());
 }
 
-/* A display name from first/last name, escaped, never empty. */
-std::string displayName(const drogon::orm::Row &r)
+/* A display name from a pair of first/last name columns, escaped, never empty. */
+std::string displayNameOf(const drogon::orm::Row &r, const char *firstCol,
+			  const char *lastCol)
 {
-	std::string first = r["first_name"].isNull()
-				    ? "" : r["first_name"].as<std::string>();
-	std::string last = r["last_name"].isNull()
-				   ? "" : r["last_name"].as<std::string>();
+	std::string first = r[firstCol].isNull()
+				    ? "" : r[firstCol].as<std::string>();
+	std::string last = r[lastCol].isNull()
+				   ? "" : r[lastCol].as<std::string>();
 	std::string name = first;
 	if (!last.empty()) {
 		if (!name.empty())
@@ -54,6 +55,12 @@ std::string displayName(const drogon::orm::Row &r)
 	if (name.empty())
 		name = "(no name)";
 	return Render::esc(name);
+}
+
+/* A display name from first/last name, escaped, never empty. */
+std::string displayName(const drogon::orm::Row &r)
+{
+	return displayNameOf(r, "first_name", "last_name");
 }
 
 /*
@@ -269,6 +276,8 @@ drogon::Task<std::optional<nlohmann::json>> getUser(drogon::orm::DbClientPtr db,
 		"u.is_premium, u.is_support, u.accent_color_id, "
 		"u.birthday_day, u.birthday_month, u.birthday_year, "
 		"u.msg_count, u.created_at, u.updated_at, "
+		"u.is_contact, u.is_mutual_contact, u.contact_first_name, "
+		"u.contact_last_name, u.own_name_known, u.own_name_checked_at, "
 		/* Sparse fields live in telegram_user_extra_info; a missing row reads as
 		 * all-default, so COALESCE to the same sentinels. */
 		"COALESCE(e.phone_number, '') AS phone_number, "
@@ -343,9 +352,38 @@ drogon::Task<std::optional<nlohmann::json>> getUser(drogon::orm::DbClientPtr db,
 	user["msg_count"]         = r["msg_count"].as<int64_t>();
 	user["created_at"]        = r["created_at"].as<std::string>();
 	user["updated_at"]        = r["updated_at"].as<std::string>();
+	/*
+	 * first_name/last_name are the user's own name; for a contact of the
+	 * logging account the name it saved them under is a label of its
+	 * own. own_name_known is false when no own name was ever seen and the
+	 * contact name stands in for it. is_contact is NULL until the daemon
+	 * has seen the user since the contact split, and reads as false.
+	 */
+	user["is_contact"] = !r["is_contact"].isNull() &&
+			     r["is_contact"].as<int>() != 0;
+	user["is_mutual_contact"] = r["is_mutual_contact"].as<int>() != 0;
+	user["own_name_known"] = r["own_name_known"].as<int>() != 0;
+	user["contact_name"] = r["contact_first_name"].isNull()
+		? std::string()
+		: displayNameOf(r, "contact_first_name", "contact_last_name");
+	user["own_name_checked_at"] = r["own_name_checked_at"].isNull()
+		? std::string() : r["own_name_checked_at"].as<std::string>();
 	if (!r["profile_photo_file_id"].isNull())
 		user["profile_photo_file_id"] =
 			r["profile_photo_file_id"].as<int64_t>();
+
+	/*
+	 * A "Look up real name" cycle that removed the contact and has not
+	 * added it back yet: the daemon keeps retrying, the page says so.
+	 */
+	auto lk = co_await db->execSqlCoro(
+		"SELECT created_at, attempts, last_error "
+		"FROM telegram_contact_lookups WHERE user_id = ?", id);
+	user["lookup_pending"] = !lk.empty();
+	if (!lk.empty()) {
+		user["lookup_pending_since"] = lk[0]["created_at"].as<std::string>();
+		user["lookup_pending_error"] = escCol(lk[0], "last_error");
+	}
 
 	nlohmann::json j;
 	j["user"] = std::move(user);

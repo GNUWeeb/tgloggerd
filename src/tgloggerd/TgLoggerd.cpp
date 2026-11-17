@@ -11,6 +11,7 @@
 #include <tgloggerd/StorageApi.hpp>
 #include <tgloggerd/FileFetcher.hpp>
 #include <tgloggerd/ChatApi.hpp>
+#include <tgloggerd/ContactApi.hpp>
 #include <stdexcept>
 #include <cstdlib>
 #include <cstring>
@@ -19,6 +20,8 @@
 #include <fstream>
 #include <algorithm>
 #include <filesystem>
+#include <future>
+#include <chrono>
 
 #include <openssl/evp.h>
 #include <csignal>
@@ -636,6 +639,36 @@ int TgLoggerd::start(void)
 	janitor_->start();
 
 	/*
+	 * Before anything else touches the contacts: a contact that an
+	 * interrupted "Look up real name" left removed is added back as soon
+	 * as TDLib is ready (ContactLookup.hpp). The looked-up name is stored
+	 * through serial_, after the user updates the lookup caused.
+	 */
+	ContactLookup::Config contact_cfg;
+	contact_cfg.min_interval = std::chrono::seconds(std::max(60,
+		atoi(env("TG_CONTACT_LOOKUP_INTERVAL", "300").c_str())));
+	contacts_ = std::make_unique<Contacts>(*tdlib_, *db_,
+		[this](int64_t user_id, const models::Name &own) {
+			auto done = std::make_shared<std::promise<void>>();
+			auto fut = done->get_future();
+			serial_->post([this, user_id, own, done] {
+				try {
+					db_->recordOwnNameLookup(user_id, own);
+					done->set_value();
+				} catch (...) {
+					done->set_exception(
+						std::current_exception());
+				}
+			});
+			if (fut.wait_for(std::chrono::seconds(30)) !=
+			    std::future_status::ready)
+				throw std::runtime_error("the write queue is"
+							 " busy");
+			fut.get();
+		}, contact_cfg, l_);
+	contacts_->lookup().startRestore();
+
+	/*
 	 * Last, so every handler can rely on db_ and tdlib_. A bad setting
 	 * leaves the API off but the logger running: the web treats an
 	 * absent daemon API as "fetching off".
@@ -670,6 +703,7 @@ int TgLoggerd::start(void)
 		registerFileApi(*api_, *db_, fetcher_.get());
 		registerStorageApi(*api_, *db_, *janitor_);
 		registerChatApi(*api_, *tdlib_);
+		registerContactApi(*api_, *contacts_);
 		InternalApi::Config api_cfg;
 		api_cfg.listen = api_listen;
 		api_cfg.threads = api_threads;
@@ -696,6 +730,13 @@ int TgLoggerd::start(void)
 	 * TDLib. Then the fetcher's reaper, which calls TDLib, and the
 	 * janitor, which may be mid-batch on db_.
 	 */
+	/*
+	 * The contact lookup before the API, so stopping the API does not
+	 * wait out a whole remove/re-add cycle: no new lookup starts, and a
+	 * running one cuts its waits short but still re-adds its contact.
+	 */
+	if (contacts_)
+		contacts_->lookup().stop();
 	if (api_)
 		api_->stop();
 	if (fetcher_)

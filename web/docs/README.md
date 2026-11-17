@@ -2,6 +2,9 @@
 
 Developer docs for the tgloggerd web UI (Drogon + MySQL).
 
+- [contact-names.md](contact-names.md) — a contact's own name versus the
+  name the logging account saved them under: what each column means, what
+  the pages show, and the admin action "Look up real name" with its routes.
 - [db-naming.md](db-naming.md) — database table naming convention: the
   per-platform prefixes (`telegram_`, `discord_`), what is and isn't prefixed,
   and the rule to follow when adding tables for a new messaging platform.

@@ -120,6 +120,8 @@ models::User map_user(const td_api::user &u)
 
 	m.is_premium = u.is_premium_;
 	m.is_support = u.is_support_;
+	m.is_contact = u.is_contact_;
+	m.is_mutual_contact = u.is_mutual_contact_;
 	m.restricts_new_chats = u.restricts_new_chats_;
 	m.paid_message_star_count = u.paid_message_star_count_;
 	m.language_code = u.language_code_;
@@ -1954,6 +1956,16 @@ void TDLib::Impl::on_authorization_state_update(void)
 							td_api::user>(obj);
 						user_id_ = u->id_;
 					});
+				/*
+				 * Have TDLib report every contact (an updateUser
+				 * comes before an id is returned), so the logger
+				 * learns who is a contact and keeps their own
+				 * name apart from the contact name at once, not
+				 * only when each next shows up. One call per
+				 * start; the answer itself is not needed.
+				 */
+				send_query(td_api::make_object<td_api::getContacts>(),
+					   nullptr);
 				/*
 				 * Reclaim TDLib's cached file backlog once per
 				 * boot. tgloggerd keeps its own copy of every

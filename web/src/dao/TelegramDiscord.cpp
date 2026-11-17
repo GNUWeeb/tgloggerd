@@ -210,9 +210,12 @@ drogon::Task<nlohmann::json> searchChats(drogon::orm::DbClientPtr db,
 	/* Then private chats (users). */
 	auto us = co_await db->execSqlCoro(
 		"SELECT id, first_name, last_name FROM telegram_users "
-		"WHERE CONCAT_WS(' ', first_name, last_name) LIKE ? OR id = ? "
+		/* Own name, or the name the logging account saved a contact under. */
+		"WHERE CONCAT_WS(' ', first_name, last_name) LIKE ? "
+		"OR CONCAT_WS(' ', contact_first_name, contact_last_name) LIKE ? "
+		"OR id = ? "
 		"ORDER BY first_name LIMIT ?",
-		like, qid, limit);
+		like, like, qid, limit);
 	for (const auto &r : us) {
 		std::string name = userName(r);
 		nlohmann::json j;

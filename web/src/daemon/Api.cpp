@@ -241,4 +241,18 @@ drogon::Task<Reply> fetch(uint64_t id, uint64_t offset, uint64_t length)
 	co_return r;
 }
 
+/*
+ * Up to 10 s for the own name and 15 s per Telegram step, a re-add sitting
+ * out a short flood wait up to twice: give it two minutes.
+ */
+drogon::Task<Reply> lookupRealName(int64_t userId)
+{
+	std::string path = "/v1/users/" + std::to_string(userId) +
+			   "/lookup-name";
+	nlohmann::json body = nlohmann::json::object();
+	Reply r = co_await call(drogon::Post, std::move(path), std::move(body),
+				120.0);
+	co_return r;
+}
+
 } /* namespace tgweb::daemon::api */

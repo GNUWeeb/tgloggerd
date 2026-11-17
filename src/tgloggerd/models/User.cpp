@@ -39,15 +39,26 @@ void DB::upsertUser(const models::User &u)
 	 * photo reference is managed after download, and the birthday arrives
 	 * with userFullInfo. The sparse attributes (phone, appearance, ...)
 	 * live in telegram_user_extra_info, written by upsertUserExtraFromUser below.
+	 *
+	 * first_name/last_name are the user's own name; for a contact, the
+	 * name TDLib reports is the account's and goes to contact_*_name
+	 * (models::planUserName decides).
 	 */
 	static const char *sql =
 		"INSERT INTO telegram_users ("
-		" id, first_name, last_name, type, accent_color_id,"
+		" id, first_name, last_name, is_contact, is_mutual_contact,"
+		" contact_first_name, contact_last_name, own_name_known,"
+		" type, accent_color_id,"
 		" is_verified, is_scam, is_fake, is_premium, is_support"
-		") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+		") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 		" AS new ON DUPLICATE KEY UPDATE"
 		" first_name = new.first_name,"
 		" last_name = new.last_name,"
+		" is_contact = new.is_contact,"
+		" is_mutual_contact = new.is_mutual_contact,"
+		" contact_first_name = new.contact_first_name,"
+		" contact_last_name = new.contact_last_name,"
+		" own_name_known = new.own_name_known,"
 		" type = new.type,"
 		" accent_color_id = new.accent_color_id,"
 		" is_verified = new.is_verified,"
@@ -58,21 +69,56 @@ void DB::upsertUser(const models::User &u)
 
 	db_.transaction([&](mysql::Transaction &tx) {
 		/*
-		 * Fetch the current name (users) and phone number
-		 * (telegram_user_extra_info) in one query so we can detect changes
-		 * (existing user) or record first-seen values (new user).
+		 * Fetch the current name and contact state (users) and phone
+		 * number (telegram_user_extra_info) in one query so we can
+		 * detect changes (existing user) or record first-seen values
+		 * (new user).
 		 */
 		auto old = tx.query(
-			"SELECT u.first_name, u.last_name, e.phone_number"
+			"SELECT u.first_name, u.last_name, e.phone_number,"
+			" u.is_contact, u.own_name_known"
 			" FROM telegram_users u"
 			" LEFT JOIN telegram_user_extra_info e ON e.user_id = u.id"
 			" WHERE u.id = ?",
 			{ (int64_t)u.id });
 
+		models::ReportedUserName now;
+		now.name = { u.first_name, u.last_name };
+		now.is_contact = u.is_contact;
+
+		models::StoredUserName stored;
+		if (!old.empty()) {
+			auto &r = old[0];
+			stored.name = { r[0].value_or(""), r[1].value_or("") };
+			if (r[3].has_value())
+				stored.is_contact = *r[3] != "0";
+			stored.own_name_known = r[4].value_or("1") != "0";
+		}
+		const models::StoredUserName *sp = old.empty() ? nullptr
+							       : &stored;
+
+		std::optional<models::Name> hist_own;
+		if (models::needsOwnNameBackfill(sp, now))
+			hist_own = ownNameFromHistory(tx, u.id, now.name);
+
+		auto plan = models::planUserName(sp, now, hist_own);
+
+		mysql::Param cf = std::monostate{};
+		mysql::Param cl = std::monostate{};
+		if (plan.contact_name) {
+			cf = plan.contact_name->first;
+			cl = plan.contact_name->second;
+		}
+
 		tx.execute(sql, {
 			(int64_t)u.id,
-			u.first_name,
-			u.last_name,
+			plan.name.first,
+			plan.name.second,
+			b(u.is_contact),
+			b(u.is_mutual_contact),
+			cf,
+			cl,
+			b(plan.own_name_known),
 			std::string(user_type_to_string(u.type)),
 			(int64_t)u.accent_color_id,
 			b(u.is_verified),
@@ -82,33 +128,22 @@ void DB::upsertUser(const models::User &u)
 			b(u.is_support),
 		});
 
-		if (old.empty()) {
-			/*
-			 * First time seeing this user - record initial
-			 * values. Runs after the UPSERT so the FK exists.
-			 */
+		/* After the UPSERT, so the FK exists for a new user. */
+		for (const auto &h : plan.hist) {
 			tx.insert("INSERT INTO telegram_user_hist_name"
 				  " (user_id, first_name, last_name)"
 				  " VALUES (?, ?, ?)",
-				  { (int64_t)u.id, u.first_name,
-				    u.last_name });
+				  { (int64_t)u.id, h.first, h.second });
+		}
+
+		if (old.empty()) {
+			/* First time seeing this user - record the initial phone. */
 			tx.insert("INSERT INTO telegram_user_hist_phone_num"
 				  " (user_id, phone_number)"
 				  " VALUES (?, ?)",
 				  { (int64_t)u.id, u.phone_number });
 		} else {
-			auto &r = old[0];
-			std::string of = r[0].value_or("");
-			std::string ol = r[1].value_or("");
-			if (of != u.first_name || ol != u.last_name) {
-				tx.insert("INSERT INTO telegram_user_hist_name"
-					  " (user_id, first_name,"
-					  " last_name)"
-					  " VALUES (?, ?, ?)",
-					  { (int64_t)u.id, of, ol });
-			}
-
-			std::string op = r[2].value_or("");
+			std::string op = old[0][2].value_or("");
 			if (op != u.phone_number) {
 				tx.insert("INSERT INTO telegram_user_hist_phone_num"
 					  " (user_id, phone_number)"
@@ -120,6 +155,27 @@ void DB::upsertUser(const models::User &u)
 		upsertUserExtraFromUser(tx, u);
 		syncUsernames(tx, u);
 	});
+}
+
+std::optional<models::Name> DB::ownNameFromHistory(mysql::Transaction &tx,
+						    int64_t user_id,
+						    const models::Name &contact)
+{
+	/*
+	 * The newest history row with a name other than the contact name.
+	 * Compared here, byte for byte: the column collation is case and
+	 * accent insensitive, and "moe" is another name than "Moe".
+	 */
+	auto rows = tx.query(
+		"SELECT first_name, last_name FROM telegram_user_hist_name"
+		" WHERE user_id = ? ORDER BY id DESC LIMIT 100",
+		{ user_id });
+	for (auto &r : rows) {
+		models::Name n{ r[0].value_or(""), r[1].value_or("") };
+		if (n != contact)
+			return n;
+	}
+	return std::nullopt;
 }
 
 void DB::upsertUserExtraFromUser(mysql::Transaction &tx, const models::User &u)

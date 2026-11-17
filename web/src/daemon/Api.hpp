@@ -85,6 +85,13 @@ drogon::Task<Reply> joinChat(std::string ref);
  */
 drogon::Task<Reply> fetch(uint64_t id, uint64_t offset, uint64_t length);
 
+/*
+ * POST /v1/users/{id}/lookup-name, the "Look up real name" admin action:
+ * the daemon removes the contact, reads the user's own name and adds the
+ * contact back, so it may take a while.
+ */
+drogon::Task<Reply> lookupRealName(int64_t userId);
+
 } /* namespace tgweb::daemon::api */
 
 #endif /* TGLOGGERD_WEB_DAEMON_API_HPP */

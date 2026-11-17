@@ -28,7 +28,7 @@ forwarded message from a contact still carries the contact name.
 
 ## Depends on
 
-- `contact-real-name`
+Nothing (contact-real-name is merged).
 
 ## Done when
 
