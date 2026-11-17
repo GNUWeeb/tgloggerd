@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Copyright (C) 2026 Alviro Iskandar Setiawan <alviro.iskandar@gnuweeb.org>
+ */
+
+package auth
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"tgloggerd/webapi/internal/webdb"
+)
+
+func TestRateLimiter(t *testing.T) {
+	now := time.Unix(1000, 0)
+	l := NewRateLimiter(2, time.Minute)
+	l.now = func() time.Time { return now }
+
+	l.RecordFailure("k")
+	if !l.Allowed("k") {
+		t.Fatal("blocked after one failure")
+	}
+	l.RecordFailure("k")
+	if l.Allowed("k") {
+		t.Fatal("allowed after two failures")
+	}
+	if !l.Allowed("other") {
+		t.Fatal("another key is blocked")
+	}
+	now = now.Add(time.Minute)
+	if !l.Allowed("k") {
+		t.Fatal("blocked after the window")
+	}
+	l.RecordFailure("k")
+	l.RecordFailure("k")
+	l.Reset("k")
+	if !l.Allowed("k") {
+		t.Fatal("blocked after a reset")
+	}
+
+	u := NewRateLimiter(-1, time.Minute)
+	for i := 0; i < 10; i++ {
+		u.RecordFailure("k")
+	}
+	if !u.Allowed("k") {
+		t.Error("a negative limit limits")
+	}
+	z := NewRateLimiter(0, time.Minute)
+	z.RecordFailure("k")
+	if z.Allowed("k") || !z.Allowed("fresh") {
+		t.Error("a zero limit is wrong")
+	}
+}
+
+func TestVerifier(t *testing.T) {
+	c := &Cookies{Signer: NewSigner(testKey), Timeout: 3600}
+	var epoch uint32
+	var dbErr error
+	v := &Verifier{Cookies: c, Epoch: func(_ context.Context, uid uint64) (uint32, error) {
+		if uid != 9 {
+			return 0, webdb.ErrNoUser
+		}
+		return epoch, dbErr
+	}}
+	req := func(cookie string) *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		if cookie != "" {
+			r.AddCookie(&http.Cookie{Name: SessionCookie, Value: cookie})
+		}
+		return r
+	}
+	ctx := context.Background()
+	good := c.Signer.EncodeSession(c.NewSession(9, "bob", "admin", 0))
+	gone := c.Signer.EncodeSession(c.NewSession(8, "eve", "admin", 0))
+
+	for _, tc := range []struct {
+		name   string
+		cookie string
+		epoch  uint32
+		err    error
+		want   Check
+	}{
+		{"no cookie", "", 0, nil, None},
+		{"forged", "eA.eA", 0, nil, None},
+		{"valid", good, 0, nil, Valid},
+		{"epoch bumped", good, 1, nil, Revoked},
+		{"account gone", gone, 0, nil, Revoked},
+		{"database down", good, 0, errors.New("down"), Unverified},
+	} {
+		epoch, dbErr = tc.epoch, tc.err
+		s, got := v.Verify(ctx, req(tc.cookie))
+		if got != tc.want {
+			t.Errorf("%s: Verify = %v, want %v", tc.name, got, tc.want)
+		}
+		if got == Valid && (s.UID != 9 || s.Username != "bob") {
+			t.Errorf("%s: session %+v", tc.name, s)
+		}
+	}
+}

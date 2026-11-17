@@ -6,13 +6,70 @@ application in web/ to this service, one feature at a time
 everything else to Drogon. Both read the same databases with the same
 users and grants.
 
-So far the service serves one endpoint:
+So far it serves a health endpoint and the sign-in endpoints described
+under Authentication:
 
     GET /api/health   200 {"status":"ok","checks":{"ro":"ok","app":"ok"}}
                       503 when a pool does not answer; that pool's check
                       reads "unavailable" and the reason is logged.
 
-It needs no login and exists for probes and for checking the routing.
+The health endpoint needs no login and exists for probes and for
+checking the routing.
+
+# Authentication
+
+Sessions, CSRF tokens, file tokens, password hashes and the daemon's
+bearer key are made exactly as the Drogon web makes them
+(web/src/auth, web/src/daemon/Api.cpp), from the same WEB_APP_KEY, so a
+session started on either service is valid on the other, a password
+change on either ends every session on both, and a /files/<token> link
+minted by one opens in the other. Tests check this against values the
+Drogon code produced (internal/auth/testdata).
+
+The session is the signed cookie tgw_session. Each request with one is
+checked against web_users.session_epoch, as Drogon's AuthFilter does.
+State-changing requests carry a CSRF token in the X-CSRF-Token header:
+for a signed-in request the token GET /api/session or POST /api/login
+answers, which is the same token the Drogon pages put in their forms;
+for POST /api/login a pre-login token from GET /api/login, which also
+sets it as the cookie tgw_csrf (path /api/login) to be sent back.
+
+Errors are {"error": "<code>"}, with "message" (the Drogon login page's
+text) and a fresh pre-login "csrf" token on refused logins.
+
+    GET /api/login    200 {"signed_in":false,"csrf":"<login token>"}
+                      and the tgw_csrf cookie; {"signed_in":true}, with
+                      no token, when the request carries a signed
+                      session cookie.
+
+    POST /api/login   X-CSRF-Token: <login token>
+                      {"username":"...","password":"..."}
+                      200 {"user":{"id":1,"username":"admin",
+                      "role":"admin"},"csrf":"<session token>"} and the
+                      tgw_session cookie.
+                      403 csrf: the token or its cookie is missing or
+                      wrong. 400 bad_request: the body is not JSON.
+                      429 rate_limited: WEB_LOGIN_MAX_ATTEMPTS failures
+                      for this address and username within
+                      WEB_LOGIN_WINDOW. 401 invalid_credentials: no such
+                      account, a disabled one, or a wrong password.
+                      Checked in that order; web_audit gets login_ok,
+                      login_fail or login_ratelimited, as from Drogon.
+
+    POST /api/logout  X-CSRF-Token: <session token>
+                      204 and the session cookie cleared; a logout row
+                      in web_audit. 403 csrf. Other sessions of the
+                      account stay signed in.
+
+    GET /api/session  200 {"user":{...},"csrf":"<session token>"}.
+                      401 unauthenticated: no valid session (a revoked
+                      cookie is cleared). 503 unavailable: the session
+                      could not be checked against the database; the
+                      cookie is kept.
+
+The login throttle is in the process's memory, as in Drogon, so each
+service counts failures on its own. The address logged and throttled
+on is the connection's peer, as in Drogon.
 
 # Layout
 
@@ -22,6 +79,10 @@ It needs no login and exists for probes and for checking the routing.
                            server, shutdown on SIGTERM.
     internal/config/       Settings from the environment.
     internal/server/       Routes and handlers.
+    internal/auth/         Sessions, CSRF, file tokens, passwords, the
+                           login throttle, as the Drogon web does them.
+    internal/daemon/       Client of the daemon's internal API.
+    internal/webdb/        The web's own schema: accounts and audit.
     vendor/                The third-party modules, committed.
     build/                 Build output (git-ignored).
 
@@ -57,6 +118,13 @@ By hand, from this directory, with the same Go version:
 
     GOFLAGS=-mod=vendor GOPROXY=off go build -o build/webapi ./cmd/webapi
     go vet ./...
+    go test ./...
+
+The sign-in tests in internal/server need a MySQL database with the web
+migrations (web/migrations) applied, named in WEBAPI_TEST_APP_DSN
+(for example root:pw@tcp(127.0.0.1:3306)/tgloggerd_web_test); its name
+must contain "test", since they empty web_users and web_audit. Without
+the variable they are skipped.
 
 The service applies no migrations: the web service owns the web schema
 and the daemon the logger's.
@@ -74,6 +142,24 @@ one .env serves both (see .env.example):
     WEB_DB_APP_NAME, _USER, _PASSWORD, _CONNS
                                  the read-write pool over the web's own
                                  schema
+
+It reads the Drogon web's authentication and daemon settings as well,
+with the same meaning, since the two must agree:
+
+    WEB_APP_KEY                  required; the service does not start
+                                 without a usable one. Base64 of 16 to
+                                 64 bytes.
+    WEB_SESSION_TIMEOUT          session lifetime in seconds, default
+                                 43200; 0 or less never expires
+    WEB_SECURE_COOKIE            "0" drops the cookies' Secure flag
+    WEB_LOGIN_MAX_ATTEMPTS, WEB_LOGIN_WINDOW
+                                 the login throttle, default 5 failures
+                                 per 900 seconds
+    WEB_TGLOGGERD_API            the daemon's internal API as
+                                 http://host:port; empty or malformed
+                                 leaves the client off
+    TG_FETCH_TIMEOUT_SECS        the daemon's fetch limit; a fetch waits
+                                 10 seconds longer
 
 and its own:
 
