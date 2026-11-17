@@ -31,6 +31,11 @@ Every account has exactly one role.
   audited with who did it.
 - Accounts are disabled, never deleted, so audit and ownership keep
   pointing at them.
+- Passwords are hashed with Argon2id in libsodium's crypto_pwhash_str
+  format, the one both web services read, never with bcrypt, which
+  silently cuts passwords at 72 bytes. Passwords have a minimum length
+  and no maximum below the request size limit, so long passphrases
+  work in full.
 - Migration of today's accounts: `admin` becomes superadmin, `viewer`
   becomes a member of the Default federation with no groups granted.
 
