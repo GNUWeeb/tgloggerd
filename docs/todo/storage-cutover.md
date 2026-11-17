@@ -14,7 +14,7 @@ step needs care, and the last one needs the owner's go.
 - Build tgloggerd, discordd and tgloggerd_web.
 - Stop tgloggerd, tgloggerd-discordd and tgloggerd-web; start
   tgloggerd so it applies 000032; run `scripts/seed_file_access.sql`
-  as root.
+  as root, first as a dry run, then with `@seed_apply = 1`.
 - Set the `.env` values of storage-cache.md section 12 with
   `TG_STORAGE_DRY_RUN=1`; recreate the containers
   (`--force-recreate`, since env changes need it).
@@ -37,12 +37,18 @@ step needs care, and the last one needs the owner's go.
     has `membership: chat <id>: ... -> member` and `-> not a member`
     lines; a spot check of a few chats against the Telegram client
     agrees.
+  - `seed-file-access`: `SELECT @@global.time_zone,
+    @@system_time_zone` is UTC (web_audit times are written in the
+    server's zone); the dry run's "files raised" and "older after"
+    figures are plausible; after applying, a second run within a
+    minute raises 0 files (a later one re-raises only the current
+    avatars, by design) and `scripts/seed_file_access_report.sql`
+    agrees with the applied run.
 
 ## Depends on
 
 - `media-record-without-download`
 - `internal-api-server`
-- `seed-file-access`
 - `file-fetch-on-demand`
 - `storage-janitor`
 - `web-access-reporting`
