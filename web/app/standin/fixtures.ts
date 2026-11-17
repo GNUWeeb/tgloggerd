@@ -6,7 +6,7 @@ import { users, getUser, getUserHistory, getUsernames, getActivity, queryUsers, 
 import { groups, getGroupsOfUser, queryGroups, getGroup, getAdmins, getGroupHistory, getTopPosters } from '../../mockup/src/data/groups.js';
 import { queryFiles, files } from '../../mockup/src/data/files.js';
 import { groupMessages, senderOf, queryMessages, getMessage, chatStream, chatOf } from '../../mockup/src/data/messages.js';
-import { accounts, federations } from '../../mockup/src/data/accounts.js';
+import { accounts, federations, mySessions, SECURITY_NOTICES } from '../../mockup/src/data/accounts.js';
 import { buildScope, allowed } from '../../mockup/src/viewer.jsx';
 import { TOTALS } from '../../mockup/src/data/totals.js';
 import type { PageData, Viewer } from '../src/page.ts';
@@ -31,12 +31,15 @@ function scopeOf(persona: Persona) {
 export function viewerOf(persona: Persona): Viewer {
 	if (persona === 'public') return { signed_in: false, now: NOW };
 	const s = scopeOf(persona);
+	const pr = settingsState(persona).prefs;
 	return {
+		timezone: pr.timezone ?? undefined, date_format: pr.date_format ?? undefined, theme: pr.theme ?? undefined,
+		rows_per_page: pr.rows_per_page ?? undefined,
 		signed_in: true,
 		account: { id: s.acct.id, username: s.acct.username, name: s.acct.name, role: s.acct.role },
 		now: NOW,
 		nav: PAGE_KEYS.filter((k) => allowed(s, k)),
-		pinned: groups.slice(0, 12).filter(s.group).slice(0, 3).map((g) => ({ id: g.id, title: g.title })),
+		pinned: settingsState(persona).pinned.map((g) => ({ id: g.id, title: g.title })),
 	};
 }
 
@@ -241,7 +244,43 @@ export function load(url: string, persona: Persona): Loaded {
 		};
 	}
 	if (persona === 'public') return notFound;
+	if (path === '/settings' || path === '/settings/preferences' || path === '/settings/sessions') {
+		const st = settingsState(persona);
+		const acct = accounts.find((a) => a.id === PERSONAS[persona]);
+		if (path === '/settings') {
+			return { route: 'settings', status: 200, props: { account: { username: acct.username, name: acct.name, role: acct.role, email: acct.email || null, email_verified: !!acct.verified }, notices: SECURITY_NOTICES } };
+		}
+		if (path === '/settings/sessions') return { route: 'settings_sessions', status: 200, props: { sessions: st.sessions } };
+		return {
+			route: 'settings_preferences', status: 200, props: {
+				prefs: st.prefs,
+				timezones: ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/Berlin', 'UTC'],
+				landing_options: [['/', 'Dashboard'], ['/groups', 'Groups'], ['/group_messages', 'Group messages'], ...st.pinned.map((g) => [`/groups/${g.id}/chat`, `${g.title} chat`])],
+				pinned: st.pinned.map((g) => ({ id: g.id, title: g.title, photo: null })),
+				saved_searches: st.saved,
+			},
+		};
+	}
 	return notFound;
+}
+
+// Per-account settings the stand-in keeps in memory (lost on reload of
+// this module); the Go service keeps them in the web database.
+const SETTINGS = new Map();
+export function settingsState(persona: Persona) {
+	if (!SETTINGS.has(persona)) {
+		const s = scopeOf(persona);
+		SETTINGS.set(persona, {
+			prefs: {},
+			pinned: groups.slice(0, 12).filter(s.group).slice(0, 3),
+			saved: [
+				{ id: 1, title: 'Deleted messages', url: '/group_messages?f=' + encodeURIComponent(JSON.stringify([{ field: 'is_deleted', op: 'is', value: 'yes' }])) },
+				{ id: 2, title: 'Premium users', url: '/users?f=' + encodeURIComponent(JSON.stringify([{ field: 'is_premium', op: 'is', value: 'yes' }])) },
+			],
+			sessions: mySessions.map((x) => ({ id: x.id, device: x.device, ip: x.ip, place: x.place, started: iso(x.started), last: iso(x.last), current: !!x.current })),
+		});
+	}
+	return SETTINGS.get(persona);
 }
 
 export function pageData(url: string, persona: Persona): PageData {
