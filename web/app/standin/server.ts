@@ -118,7 +118,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		if (p === 'sessions/sign-out-others' && req.method === 'POST') { st.sessions = st.sessions.filter((x: { current: boolean }) => x.current); res.writeHead(204); res.end(); return; }
 		send(res, 404, { error: 'not_found' }); return;
 	}
-	if (url.pathname.startsWith('/api/accounts') || url.pathname.startsWith('/api/federations')) {
+	if (/^\/api\/(accounts|federations|forwarding|join-chat|mcp)(\/|$)/.test(url.pathname)) {
 		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
 		if (req.method !== 'GET' && req.headers['x-csrf-token'] !== 'standin-csrf') { send(res, 403, { error: 'csrf' }); return; }
 		const body = req.method === 'GET' ? {} : JSON.parse((await readBody(req)) || '{}');
