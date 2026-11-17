@@ -19,6 +19,11 @@ namespace models {
 struct File {
 	/* TDLib persistent remote file identifier (remoteFile.id_). */
 	std::string	tg_file_id;
+	/*
+	 * TDLib remoteFile.unique_id_: the same for the same file across
+	 * sessions and accounts. Empty if unknown (stored as NULL).
+	 */
+	std::string	tg_unique_id;
 	/* telegram_files.file_type enum value, e.g. "photo". */
 	std::string	file_type = "unknown";
 	uint64_t	file_size = 0;
@@ -33,6 +38,20 @@ struct File {
 	 * (too large per TG_MAX_STORE_FILE_SIZE), re-downloadable by tg_file_id.
 	 */
 	bool		on_disk = true;
+};
+
+/*
+ * A telegram_files row as the daemon's in-memory index knows it, keyed by
+ * tg_file_id.
+ */
+struct KnownFile {
+	uint64_t	id = 0;
+	/*
+	 * The bytes were never seen (sha256 IS NULL): the row was recorded
+	 * metadata-only (DB::upsertFileMeta), so a chat whose media is
+	 * stored should still download it, which fills the row in.
+	 */
+	bool		meta_only = false;
 };
 
 } /* namespace models */

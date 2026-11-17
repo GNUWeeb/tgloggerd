@@ -44,10 +44,17 @@ step needs care, and the last one needs the owner's go.
     minute raises 0 files (a later one re-raises only the current
     avatars, by design) and `scripts/seed_file_access_report.sql`
     agrees with the applied run.
+  - `media-record-without-download`: new `telegram_files` rows for
+    media from non-member channels have `on_disk = 0`, `sha256` NULL
+    and `tg_unique_id` set, and the log has "Recorded file without
+    its bytes" lines; media from member chats is still stored, with
+    `tg_unique_id` set; no file at or over `TG_MAX_STORE_FILE_SIZE`
+    with a known size is downloaded (TDLib's temp dir stays small);
+    a metadata-only file later posted in a member chat is downloaded
+    and fills in its row (same id, `sha256` set, `on_disk = 1`).
 
 ## Depends on
 
-- `media-record-without-download`
 - `internal-api-server`
 - `file-fetch-on-demand`
 - `storage-janitor`

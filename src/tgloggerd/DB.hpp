@@ -206,10 +206,21 @@ public:
 	uint64_t upsertFile(const models::File &f);
 
 	/*
-	 * Load the full tg_file_id -> telegram_files.id index, so the daemon can link a
-	 * message to a file it already recorded without re-downloading it.
+	 * Record a file without its bytes (storage-cache.md section 6):
+	 * tg_file_id, tg_unique_id, type, size, extension and original name,
+	 * with sha256 NULL and on_disk = 0. f.sha256_hex and f.on_disk are
+	 * ignored. A file already recorded -- by tg_unique_id first, else by
+	 * tg_file_id, stored or not -- keeps its row, which is returned with
+	 * hit_count and accessed_at bumped; no second row is created.
 	 */
-	std::unordered_map<std::string, uint64_t> loadFileIndex(void);
+	models::KnownFile upsertFileMeta(const models::File &f);
+
+	/*
+	 * Load the full tg_file_id -> telegram_files row index, so the daemon
+	 * can link a message to a file it already recorded without
+	 * re-downloading it.
+	 */
+	std::unordered_map<std::string, models::KnownFile> loadFileIndex(void);
 
 	/* Point a user's profile_photo_file_id at a files row. */
 	void setUserProfilePhoto(int64_t user_id, uint64_t file_id);

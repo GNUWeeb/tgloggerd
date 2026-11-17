@@ -1231,8 +1231,13 @@ struct TDLib::Impl {
 	std::function<void(int64_t, int64_t, const models::MessageContent &,
 			   bool)> content_version_handler_;
 	std::function<void(const MessageFile &)>	message_file_handler_;
-	std::function<std::optional<uint64_t>(const std::string &)> file_lookup_;
+	std::function<std::optional<models::KnownFile>(const std::string &)>
+						file_lookup_;
 	std::function<void(const MessageFileLink &)>	message_file_link_handler_;
+	std::function<void(const FileMeta &)>		file_meta_handler_;
+	/* setMediaPolicy(); loop thread only after loop() starts. */
+	bool		skip_nonmember_media_ = true;
+	uint64_t	max_store_file_size_ = 0;
 	std::function<void(const MessageReply &)>	message_reply_handler_;
 	std::function<void(const models::User &)>	user_handler_;
 	std::function<void(const models::UserFullInfo &)> user_full_info_handler_;
@@ -1426,6 +1431,9 @@ struct TDLib::Impl {
 	void maybe_download_message_file(const td_api::message &message,
 					 bool is_group);
 	void emit_message_file(const PendingMsgFile &ref, const td_api::file &f);
+	bool record_without_download(int64_t chat_id, const td_api::file &f);
+	void emit_file_meta(const PendingMsgFile &ref, const td_api::file &f,
+			    bool is_group_photo);
 	void maybe_download_profile_photo(const td_api::user &u);
 	void request_user_full_info(int64_t user_id);
 	void enqueue_refetch_user(int64_t user_id);
@@ -2653,16 +2661,23 @@ void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
 			    is_group, "photo", std::string() };
 	ref.is_link_preview = true;
 
-	/* Already known: link the existing row instead of fetching again. */
+	const bool no_download = record_without_download(chat_id, *img);
+
+	/* Already known: link the existing row instead of fetching again --
+	 * unless only its metadata is known and this chat stores bytes. */
 	if (file_lookup_ && message_file_link_handler_ && img->remote_ &&
 	    !img->remote_->id_.empty()) {
 		auto fid = file_lookup_(img->remote_->id_);
-		if (fid.has_value()) {
+		if (fid.has_value() && (!fid->meta_only || no_download)) {
 			message_file_link_handler_(MessageFileLink{
 				ref.chat_id, ref.message_id, ref.is_group,
-				true, *fid });
+				true, fid->id });
 			return;
 		}
+	}
+	if (no_download) {
+		emit_file_meta(ref, *img, false);
+		return;
 	}
 	if (img->local_ && img->local_->is_downloading_completed_) {
 		emit_message_file(ref, *img);
@@ -2695,16 +2710,27 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 	 * This is what keeps the backfiller from re-fetching the whole history,
 	 * and in particular from re-downloading oversized files that are only
 	 * kept as metadata.
+	 *
+	 * A row recorded without its bytes is linked the same way, unless
+	 * this chat stores its media: then the download below fills the row
+	 * in (upsertFile matches it by unique id).
 	 */
+	const bool no_download = record_without_download(message.chat_id_, *f);
 	if (file_lookup_ && message_file_link_handler_ && f->remote_ &&
 	    !f->remote_->id_.empty()) {
 		auto fid = file_lookup_(f->remote_->id_);
-		if (fid.has_value()) {
+		if (fid.has_value() && (!fid->meta_only || no_download)) {
 			message_file_link_handler_(MessageFileLink{
 				ref.chat_id, ref.message_id, ref.is_group,
-				ref.is_link_preview, *fid });
+				ref.is_link_preview, fid->id });
 			return;
 		}
+	}
+
+	/* Not a member chat, or over the size cap: record, do not fetch. */
+	if (no_download) {
+		emit_file_meta(ref, *f, false);
+		return;
 	}
 
 	/* Already downloaded: link it immediately. */
@@ -2717,6 +2743,45 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 	pending_message_file_.emplace(f->id_, std::move(ref));
 	send_query(td_api::make_object<td_api::downloadFile>(
 			   f->id_, 1, 0, 0, false), {});
+}
+
+/*
+ * Whether a chat file is recorded without downloading it
+ * (storage-cache.md section 6): the chat is not a member chat and
+ * TG_SKIP_NONMEMBER_MEDIA is on, or the file's size is known and at least
+ * TG_MAX_STORE_FILE_SIZE, which would only be downloaded to be hashed. A
+ * size of 0 is unknown; the store then applies the cap after the download.
+ * A file without a remote id cannot be recorded, so it is downloaded.
+ */
+bool TDLib::Impl::record_without_download(int64_t chat_id,
+					  const td_api::file &f)
+{
+	if (!file_meta_handler_ || !f.remote_ || f.remote_->id_.empty())
+		return false;
+	if (skip_nonmember_media_ && !is_member_chat(chat_id))
+		return true;
+	return max_store_file_size_ != 0 && f.size_ > 0 &&
+	       (uint64_t)f.size_ >= max_store_file_size_;
+}
+
+void TDLib::Impl::emit_file_meta(const PendingMsgFile &ref,
+				 const td_api::file &f, bool is_group_photo)
+{
+	if (!file_meta_handler_ || !f.remote_)
+		return;
+
+	FileMeta m;
+	m.chat_id = ref.chat_id;
+	m.message_id = ref.message_id;
+	m.is_group = ref.is_group;
+	m.is_link_preview = ref.is_link_preview;
+	m.is_group_photo = is_group_photo;
+	m.tg_file_id = f.remote_->id_;
+	m.tg_unique_id = f.remote_->unique_id_;
+	m.file_size = f.size_ > 0 ? f.size_ : 0;
+	m.content_type = ref.content_type;
+	m.orig_file_name = ref.orig_file_name;
+	file_meta_handler_(m);
 }
 
 void TDLib::Impl::emit_message_file(const PendingMsgFile &ref,
@@ -2733,6 +2798,7 @@ void TDLib::Impl::emit_message_file(const PendingMsgFile &ref,
 	mf.is_link_preview = ref.is_link_preview;
 	mf.local_path = f.local_->path_;
 	mf.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
+	mf.tg_unique_id = f.remote_ ? f.remote_->unique_id_ : std::string();
 	mf.tg_local_file_id = f.id_;
 	mf.file_size = f.size_;
 	mf.content_type = ref.content_type;
@@ -2949,6 +3015,7 @@ void TDLib::Impl::emit_photo(int64_t user_id, const td_api::file &f)
 	p.user_id = user_id;
 	p.local_path = f.local_->path_;
 	p.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
+	p.tg_unique_id = f.remote_ ? f.remote_->unique_id_ : std::string();
 	p.tg_local_file_id = f.id_;
 	p.file_size = f.size_;
 	photo_handler_(p);
@@ -3447,6 +3514,11 @@ void TDLib::Impl::maybe_download_group_photo(int64_t group_id,
 		return;
 
 	const td_api::file &big = *photo->big_;
+	if (record_without_download(group_id, big)) {
+		PendingMsgFile ref{ group_id, 0, true, "photo", std::string() };
+		emit_file_meta(ref, big, true);
+		return;
+	}
 	if (big.local_ && big.local_->is_downloading_completed_) {
 		emit_group_photo(group_id, big);
 		return;
@@ -3486,6 +3558,7 @@ void TDLib::Impl::emit_group_photo(int64_t group_id, const td_api::file &f)
 	p.group_id = group_id;
 	p.local_path = f.local_->path_;
 	p.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
+	p.tg_unique_id = f.remote_ ? f.remote_->unique_id_ : std::string();
 	p.tg_local_file_id = f.id_;
 	p.file_size = f.size_;
 	group_photo_handler_(p);
@@ -3555,7 +3628,7 @@ void TDLib::setMessageFileHandler(std::function<void(const MessageFile &)> cb)
 }
 
 void TDLib::setFileLookup(
-	std::function<std::optional<uint64_t>(const std::string &)> cb)
+	std::function<std::optional<models::KnownFile>(const std::string &)> cb)
 {
 	impl_->file_lookup_ = std::move(cb);
 }
@@ -3564,6 +3637,17 @@ void TDLib::setMessageFileLinkHandler(
 	std::function<void(const MessageFileLink &)> cb)
 {
 	impl_->message_file_link_handler_ = std::move(cb);
+}
+
+void TDLib::setFileMetaHandler(std::function<void(const FileMeta &)> cb)
+{
+	impl_->file_meta_handler_ = std::move(cb);
+}
+
+void TDLib::setMediaPolicy(bool skip_nonmember, uint64_t max_store_file_size)
+{
+	impl_->skip_nonmember_media_ = skip_nonmember;
+	impl_->max_store_file_size_ = max_store_file_size;
 }
 
 void TDLib::setMessageReplyHandler(std::function<void(const MessageReply &)> cb)

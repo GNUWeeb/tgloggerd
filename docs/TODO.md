@@ -100,7 +100,6 @@ touches the list.
 The file store as a capped cache in front of Telegram:
 [design/storage-cache.md](design/storage-cache.md).
 
-- [`media-record-without-download`](todo/media-record-without-download.md): Record media from non-member chats and over the per-file cap without downloading it.
 - [`internal-api-server`](todo/internal-api-server.md): Give tgloggerd an authenticated internal HTTP API for the web, with file status and access recording.
 - [`file-fetch-on-demand`](todo/file-fetch-on-demand.md): Fetch a file from Telegram when asked, whole into the store if small, by byte range if big.
 - [`storage-janitor`](todo/storage-janitor.md): Evict files by retention and by the total cap, with a dry run and a status endpoint.
