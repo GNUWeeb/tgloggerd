@@ -21,6 +21,10 @@ the pages of the React application, described under Pages.
 
 And the live updates, GET /api/events, described under Live updates.
 
+And the chat windows and the entity summaries, GET
+/api/chats/{scope}/{id}/messages and GET /api/entities, described under
+Chats.
+
 # The API contract
 
 openapi.yaml (OpenAPI 3.1) is the contract of the service's API: every
@@ -31,7 +35,7 @@ should they and the description ever differ, that is a bug in one of
 them, fixed in both at once.
 
 Operations designed but not served yet are in the description too,
-marked `x-tgd-status: planned`: the chat window and search, and the account,
+marked `x-tgd-status: planned`: the chat search, and the account,
 forwarding, Join chat and MCP administration actions. A port serves
 the operation and drops the marker in the same change. A per-account
 bearer-token scheme for clients without cookies is reserved there
@@ -359,6 +363,33 @@ service must be restarted.
 internal/render/rendertest is a stand-in render service on a Unix
 socket, used by the tests.
 
+# Chats
+
+GET /api/chats/{group|private}/{id}/messages answers a window of a
+chat, oldest first, with has_older and has_newer: the newest messages,
+or those before, after or around a message id (limit 60, at most 100).
+It is the Drogon /v1/chats API (web/src/dao/Browse.cpp, chatHistory)
+with the chat pages' message shape: the same cursors, replies resolved
+within the chat, albums folded into one message (a window cut through
+an album reads the rest of it, so it folds the same way in every
+window), edits and link previews read in one query per window, media
+with stored and fetchable as web/docs/media.md describes.
+
+Signed-out visitors may read the chats of exposed groups
+(telegram_public_groups), as the public chat page does, and get 401
+for every other chat; a signed-in viewer sees a group its scope sees,
+or an exposed one, and private chats when the scope sees them, and
+gets 404 for the rest. A reply quotes another chat's message only to
+a viewer that sees that chat.
+
+GET /api/entities?users=<ids>&groups=<ids> (at most 200 each) answers
+the summaries of those the scope sees and leaves the others out. A
+viewer that does not see all users (a member) sees a user only where
+the user appears in one of its visible groups, as a sender or an
+admin, and then by name and photo only: no counts, contact name, bio,
+history or other groups (logdb.VisibleUsers). Users and groups the
+pages show come with the same rule.
+
 # The request scope
 
 Server.requestScope (internal/server/media.go) builds, once per
@@ -373,7 +404,8 @@ inside it 403.
 So far it is built from the role alone (web/docs/accounts.md has the
 table): superadmins and admins see every group, private chat and user;
 members see no group, private chat or user until grants exist
-(web-member-access); admins may do all but join chats and look up real
+(web-member-access), and then the users of their groups only by name
+and photo; admins may do all but join chats and look up real
 names. Federations, restrictions, grants and the verified-address gate
 plug into the scope without changing its callers. Without a session
 the scope sees nothing; a file token is its own authorization.

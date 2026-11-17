@@ -60,10 +60,11 @@ type Deps struct {
 	// /app/assets/; nil answers 404 there.
 	AssetFiles *os.Root
 
-	// pages replaces the page table, and state the database's account
-	// state behind a session, for tests.
+	// pages replaces the page table, state the database's account
+	// state behind a session, and clock the time, for tests.
 	pages []pageRoute
 	state auth.StateFunc
+	clock func() time.Time
 }
 
 // Server carries what the handlers share.
@@ -123,6 +124,9 @@ func New(d Deps) http.Handler {
 	if d.state != nil {
 		s.verifier.State = d.state
 	}
+	if d.clock != nil {
+		s.clock = d.clock
+	}
 
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {
@@ -162,6 +166,8 @@ func (s *Server) routes() []route {
 		{"POST /api/accounts/{id}/enable", s.RequireSession(s.enableAccount)},
 		{"POST /api/accounts/{id}/password-reset", s.RequireSession(s.resetAccountPassword)},
 		{"POST /api/accounts/{id}/sign-out-everywhere", s.RequireSession(s.signOutAccountEverywhere)},
+		{"GET /api/chats/{scope}/{id}/messages", s.getChatMessages},
+		{"GET /api/entities", s.RequireSession(s.getEntities)},
 	}
 }
 

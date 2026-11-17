@@ -197,7 +197,11 @@ export interface paths {
         };
         /**
          * A window of a chat's messages
-         * @description Messages of a group or a private chat, oldest first, for scrolling and live updates. At most one of before, after and around is given; with none the window is the newest messages. Replaces the Drogon /v1/chats/{scope}/{id}/messages with the message shape of the chat pages.
+         * @description Messages of a group or a private chat, oldest first, for scrolling and live updates. At most one of before, after and around is given; with none the window is the newest messages. Replaces the Drogon /v1/chats/{scope}/{id}/messages with the message shape of the chat pages; the cursors are the same message ids, and limit is clamped to 1..100 as there.
+         *
+         *     Messages sent as an album (consecutive rows sharing a media album id) come as one message: the first item's ids, date and sender, its media as `media` and the other items' as `album`, the caption and edits of the item that has one. A window whose edge cuts an album is extended to hold all of it, so an album always folds the same way; a window after an album's own message id therefore starts with that album again, which a client drops by `id`.
+         *
+         *     Visibility: a group the viewer's scope sees, or any exposed group (MCP exposure), whose chat is public; a private chat to a viewer that sees private messages. A signed-out visitor may read the chats of exposed groups and gets 401 for anything else, whether it exists or not; a signed-in viewer gets 404 for what it may not see. A reply quotes a message of another chat only when the viewer sees that chat (reply_to.chat_id names it); otherwise reply_to is null. Senders are shown in full (counts, contact name) only to viewers that see all users.
          */
         get: operations["getChatMessages"];
         put?: never;
@@ -1385,8 +1389,11 @@ export interface components {
                 url: string | null;
             } | null;
         };
+        /** @description A message's file (web/docs/media.md). url is the /files/<token> URL when the bytes are stored or may be fetched from Telegram, else null; thumb is the same URL for a picture. */
         ChatMedia: {
             stored: boolean;
+            /** @description The bytes are not stored and the viewer may have them fetched from Telegram: the daemon API is on, and a viewer without a session asks only for a file under the store's per-file cap. */
+            fetchable?: boolean;
             thumb: string | null;
             url: string | null;
             w?: number;
@@ -1418,6 +1425,11 @@ export interface components {
                 sender_id: number;
                 sender_name: string;
                 snippet: string;
+                /**
+                 * Format: int64
+                 * @description The chat of a target in another chat; absent for a target in this one.
+                 */
+                chat_id?: number;
             } | null;
             forward: string | null;
             edits: components["schemas"]["Edit"][];
@@ -1427,6 +1439,8 @@ export interface components {
                 site: string;
                 title: string;
                 desc: string;
+                url?: string;
+                media?: components["schemas"]["ChatMedia"];
             } | null;
         };
         /** @description Messages oldest first, and whether more lie either side. */
@@ -2504,6 +2518,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Gate"];
             404: components["responses"]["NotFound"];
             503: components["responses"]["SessionUnavailable"];
         };

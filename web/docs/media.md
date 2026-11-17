@@ -117,6 +117,13 @@ without a session, gets it only for small files). The pages render:
 - an unstored file that cannot be fetched as "not stored, only
   metadata kept".
 
+The Go service's chat API (`GET /api/chats/{scope}/{id}/messages`, and
+the React chat pages' data; webapi/openapi.yaml, ChatMedia) applies the
+same rule to message media, album items and link-preview images. Its
+media objects carry `url` only when the file is stored or fetchable
+(null otherwise), and `thumb` with the same URL for pictures. Edit
+snapshots there carry no media.
+
 ## Caching
 
 Files are sent with `Cache-Control: public, max-age=604800`: a week,
