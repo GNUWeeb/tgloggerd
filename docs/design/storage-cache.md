@@ -234,8 +234,11 @@ and bytes, for retention and for the cap) without changing anything.
 It is on unless set to 0: the deployed containers rebuild and migrate
 from the checkout whenever they restart, so a janitor that evicted by
 default could delete archived bytes before anyone chose to.
-Batches are paced to avoid bursts of IO. Results are logged and
-returned by `GET /v1/storage`.
+Batches are paced to avoid bursts of IO (a second between real
+batches). Results are logged and returned by `GET /v1/storage`. The
+first sweep runs a minute after start; `TG_STORAGE_SWEEP_SECS=0`
+leaves only the sweeps asked for over the API. A sweep stops between
+two rows when the daemon shuts down.
 
 Seeding: the migration sets `accessed_at = created_at`. A one-off
 script, run as root at the cutover because it reads both schemas,
@@ -297,7 +300,7 @@ how `/files/<token>` behaves.
 | `TG_API_THREADS` | 4 | default |
 | `TG_STORAGE_MAX_BYTES` | 0 (no cap) | 536870912000 (500 GiB) |
 | `TG_STORAGE_RETENTION_DAYS` | 90 (0 = off) | 90 |
-| `TG_STORAGE_SWEEP_SECS` | 600 | default |
+| `TG_STORAGE_SWEEP_SECS` | 600 (0 = on request only) | default |
 | `TG_STORAGE_DRY_RUN` | 1 (report only) | 1 for the first run, then 0 |
 | `TG_SKIP_NONMEMBER_MEDIA` | 1 | default |
 | `TG_FETCH_MAX_ACTIVE` | 4 | default |

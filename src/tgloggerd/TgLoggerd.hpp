@@ -20,6 +20,7 @@
 namespace tgloggerd {
 
 class InternalApi;
+class StorageJanitor;
 
 class TgLoggerd {
 public:
@@ -89,6 +90,13 @@ private:
 	 */
 	std::unique_ptr<ThreadPool> serial_;
 	std::unique_ptr<ThreadPool> files_;
+
+	/*
+	 * Evicts files from the store by retention and by the total cap. Uses
+	 * db_ only; start() stops it before draining the pools. Declared after
+	 * db_ and before api_, whose storage routes call it.
+	 */
+	std::unique_ptr<StorageJanitor> janitor_;
 
 	/*
 	 * The internal HTTP API for the web (docs/internal-api.md). Its
