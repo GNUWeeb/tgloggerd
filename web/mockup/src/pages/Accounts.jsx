@@ -1,7 +1,7 @@
 // Administration > Accounts: roles, admin restrictions, member grants
 // per federation, and each account's audit trail (web-accounts.md).
 import { useState } from 'react';
-import { Plus, Pencil, KeyRound, LogOut, Ban, Crown, ShieldCheck, User as UserIcon, Network, History, Info, Mail, MailCheck, MailWarning, Send } from 'lucide-react';
+import { Plus, Pencil, KeyRound, LogOut, Ban, Crown, ShieldCheck, User as UserIcon, Network, History, Info, Mail, MailCheck, MailWarning, Send, X } from 'lucide-react';
 import Shell from '../ui/Shell.jsx';
 import { Pill, PageHead, Btn, Seg, Avatar } from '../ui/primitives.jsx';
 import { Modal, Field, Switch, MultiPicker } from '../ui/forms.jsx';
@@ -56,6 +56,7 @@ function Editor({ init, viewer, onClose }) {
 	const [a, setA] = useState(init);
 	const [tab, setTab] = useState('account');
 	const set = (patch) => setA({ ...a, ...patch });
+	const [editEmail, setEditEmail] = useState(false);
 	const isSuper = viewer.role === 'superadmin';
 	const lastSuper = !isNew && init.role === 'superadmin' && init.active && activeSuperadmins().length === 1;
 	// An admin can never grant what it cannot see, and manages only its federations.
@@ -99,11 +100,25 @@ function Editor({ init, viewer, onClose }) {
 							</>
 						) : (
 							<>
-								<div className="a-field">
-									<span className="a-field-label">Email address</span>
-									<EmailLine a={init} />
-									<span className="a-field-hint">Each account changes its own address in Settings; the old address is told.</span>
-								</div>
+								{init.invited ? (
+									// Still invited (never signed in): fix a typo made at creation.
+									<Field label="Email address" hint="The account has not signed in yet, so its address can still be corrected. Saving sends a new set-password link there; the old link stops working.">
+										<input type="email" value={a.email} onChange={(e) => set({ email: e.target.value })} autoComplete="off" />
+									</Field>
+								) : editEmail ? (
+									<Field label="New email address" hint="Superadmins only, for someone who lost their mailbox. The new address is verified by link, the old address is told, and the change is audited.">
+										<span className="a-inputwrap">
+											<input type="email" value={a.email} onChange={(e) => set({ email: e.target.value })} autoComplete="off" autoFocus />
+											<button type="button" className="a-icon-btn sm" aria-label="Cancel" onClick={() => { set({ email: init.email }); setEditEmail(false); }}><X size={14} /></button>
+										</span>
+									</Field>
+								) : (
+									<div className="a-field">
+										<span className="a-field-label">Email address</span>
+										<span className="a-row"><EmailLine a={init} />{isSuper && <Btn ghost onClick={() => setEditEmail(true)}>Change address</Btn>}</span>
+										<span className="a-field-hint">Accounts change their own address in Settings; the old address is told.</span>
+									</div>
+								)}
 								<div className="a-btnrow">
 									{init.invited
 										? <Btn ghost icon={Send}>Resend set-password link</Btn>
