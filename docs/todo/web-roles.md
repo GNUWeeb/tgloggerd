@@ -26,13 +26,14 @@ multi-user dashboard (docs/design/web-accounts.md).
 
 ## Design notes
 
-- Today: `web_users` (role admin/viewer, session_epoch), AuthFilter,
-  AdminFilter (`web/src/auth/`). Replace AdminFilter's role check with
-  the scope object.
+- Built in the Go service (docs/design/web-go.md). Today's model:
+  `web_users` (role admin/viewer, session_epoch), AuthFilter and
+  AdminFilter in `web/src/auth/`. While Drogon still serves pages, its
+  AdminFilter must treat superadmin and admin as today's admin.
 
 ## Depends on
 
-Nothing.
+- `go-web-auth`
 
 ## Done when
 

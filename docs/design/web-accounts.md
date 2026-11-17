@@ -7,6 +7,8 @@ The items that implement it are in the "Web interface" section of
 
 ## 1. Goal
 
+Built in the Go web service of [web-go.md](web-go.md).
+
 The web has one shared admin login. It becomes a multi-user
 dashboard: several accounts with roles, groups of Telegram chats
 administered by different people (federations), forwarding

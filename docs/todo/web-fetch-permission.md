@@ -39,6 +39,7 @@ to do it, not something every page view triggers.
 ## Depends on
 
 - `web-member-access`
+- `go-port-media`
 
 ## Done when
 

@@ -109,12 +109,25 @@ The file store as a capped cache in front of Telegram:
 
 - [`discord-sender-own-name`](todo/discord-sender-own-name.md): Show a sender's own name, not the account's contact name, in messages forwarded to Discord.
 
+## Web backend in Go
+
+The web backend moves from Drogon to Go:
+[design/web-go.md](design/web-go.md).
+
+- [`go-web-skeleton`](todo/go-web-skeleton.md): Start the Go web service beside the Drogon web, with vendored dependencies and no repository host in its module path.
+- [`go-web-auth`](todo/go-web-auth.md): Make the Go service's sessions, passwords, CSRF and file tokens interchangeable with the Drogon web's.
+- [`go-web-openapi`](todo/go-web-openapi.md): Describe the Go API in OpenAPI and generate the React application's TypeScript client.
+- [`go-port-media`](todo/go-port-media.md): Serve /files/<token> from the Go service, including fetching unstored files through the daemon.
+- [`web-roles`](todo/web-roles.md): Give the web several accounts with the roles superadmin, admin and member.
+- [`go-port-search`](todo/go-port-search.md): Port the advanced search API to the Go service, enforcing the request scope.
+- [`go-port-chat-api`](todo/go-port-chat-api.md): Port the chat API and the user and group page data to the Go service.
+- [`go-port-admin`](todo/go-port-admin.md): Port forwarding, Join chat, contact lookup and MCP administration to the Go service.
+
 ## Web interface
 
 Accounts, roles and federations:
 [design/web-accounts.md](design/web-accounts.md).
 
-- [`web-roles`](todo/web-roles.md): Give the web several accounts with the roles superadmin, admin and member.
 - [`web-federations`](todo/web-federations.md): Let superadmins define federations of groups that limit what each admin manages.
 - [`web-admin-restrictions`](todo/web-admin-restrictions.md): Let a superadmin hide private messages and specific groups from an admin, with 404 everywhere.
 - [`web-member-access`](todo/web-member-access.md): Limit a member to its granted groups and show users only as they appear in them.
@@ -123,6 +136,8 @@ Accounts, roles and federations:
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
 - [`web-user-settings`](todo/web-user-settings.md): Keep settings per account, starting with the timezone dates are shown in.
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
+- [`go-port-mcp`](todo/go-port-mcp.md): Move the MCP endpoint to the Go service.
+- [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
 
 ## Operations
 
