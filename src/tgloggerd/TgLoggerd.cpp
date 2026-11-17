@@ -328,6 +328,7 @@ int TgLoggerd::start(void)
 		});
 	});
 	tdlib_->setProfilePhotoHandler([this](const ProfilePhoto &p) {
+		store_holds_.hold(p.tg_local_file_id);
 		files_->post([this, p] {
 			try {
 				onProfilePhoto(p);
@@ -360,6 +361,7 @@ int TgLoggerd::start(void)
 		});
 	});
 	tdlib_->setGroupPhotoHandler([this](const GroupPhoto &p) {
+		store_holds_.hold(p.tg_local_file_id);
 		files_->post([this, p] {
 			try {
 				onGroupPhoto(p);
@@ -473,6 +475,7 @@ int TgLoggerd::start(void)
 		});
 
 	tdlib_->setMessageFileHandler([this](const MessageFile &mf) {
+		store_holds_.hold(mf.tg_local_file_id);
 		files_->post([this, mf] {
 			try {
 				onMessageFile(mf);
@@ -764,19 +767,20 @@ int TgLoggerd::stop(void)
  * onProfilePhoto/onGroupPhoto/onMessageFile run on a files_ worker: the
  * hash+copy+upsertFile happens there (in parallel), then only the row->file
  * link update is posted to serial_ so it is ordered after the entity/message
- * row was written and serialized against other DB writes.
+ * row was written and serialized against other DB writes. Each job holds
+ * TDLib's local copy (store_holds_, taken when it was queued), so a copy
+ * shared by several jobs is pruned only after the last of them.
  */
 void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
 {
+	StoreHolds::Job job(store_holds_, p.tg_local_file_id);
 	auto file_id = storeDownloadedFile(p.local_path, p.tg_file_id,
 					   p.tg_unique_id,
 					   p.file_size, "photo");
 	if (!file_id.has_value())
 		return;
-
-	/* Our copy is durable; drop TDLib's to avoid storing it twice. */
-	if (prune_tdlib_files_)
-		tdlib_->deleteLocalFile(p.tg_local_file_id);
+	/* Our copy is durable; TDLib's goes after the last job on it. */
+	job.stored = true;
 
 	int64_t user_id = p.user_id;
 	uint64_t fid = *file_id;
@@ -795,15 +799,14 @@ void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
 
 void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
 {
+	StoreHolds::Job job(store_holds_, p.tg_local_file_id);
 	auto file_id = storeDownloadedFile(p.local_path, p.tg_file_id,
 					   p.tg_unique_id,
 					   p.file_size, "photo");
 	if (!file_id.has_value())
 		return;
-
-	/* Our copy is durable; drop TDLib's to avoid storing it twice. */
-	if (prune_tdlib_files_)
-		tdlib_->deleteLocalFile(p.tg_local_file_id);
+	/* Our copy is durable; TDLib's goes after the last job on it. */
+	job.stored = true;
 
 	int64_t group_id = p.group_id;
 	uint64_t fid = *file_id;
@@ -822,16 +825,15 @@ void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
 
 void TgLoggerd::onMessageFile(const MessageFile &m)
 {
+	StoreHolds::Job job(store_holds_, m.tg_local_file_id);
 	auto file_id = storeDownloadedFile(m.local_path, m.tg_file_id,
 					   m.tg_unique_id,
 					   m.file_size, m.content_type.c_str(),
 					   m.orig_file_name);
 	if (!file_id.has_value())
 		return;
-
-	/* Our copy is durable; drop TDLib's to avoid storing it twice. */
-	if (prune_tdlib_files_)
-		tdlib_->deleteLocalFile(m.tg_local_file_id);
+	/* Our copy is durable; TDLib's goes after the last job on it. */
+	job.stored = true;
 
 	int64_t chat_id = m.chat_id;
 	int64_t message_id = m.message_id;

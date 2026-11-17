@@ -16,6 +16,7 @@
 #include "DB.hpp"
 #include "ThreadPool.hpp"
 #include "DiscordForwarder.hpp"
+#include "StoreHolds.hpp"
 
 namespace tgloggerd {
 
@@ -91,6 +92,16 @@ private:
 	 */
 	std::unordered_map<std::string, models::KnownFile> known_photo_uids_;
 	std::mutex known_files_mtx_;
+	/*
+	 * The store jobs still reading each TDLib local file, so a file
+	 * several messages wait on is pruned after the last job, not under
+	 * the others (StoreHolds.hpp). Declared before files_ so it outlives
+	 * every job; the prune uses tdlib_, which also outlives them.
+	 */
+	StoreHolds store_holds_{ [this](int32_t fid) {
+		if (prune_tdlib_files_)
+			tdlib_->deleteLocalFile(fid);
+	} };
 	std::unique_ptr<TDLib> tdlib_;
 	std::unique_ptr<DB> db_;
 
