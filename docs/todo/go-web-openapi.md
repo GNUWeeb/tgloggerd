@@ -29,7 +29,7 @@ client generated from one description keeps them in step.
 
 ## Depends on
 
-- `go-web-auth`
+Nothing.
 
 ## Done when
 

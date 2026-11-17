@@ -21,7 +21,7 @@ handles Range and conditional requests natively (docs/design/web-go.md).
 
 ## Depends on
 
-- `go-web-auth`
+Nothing.
 
 ## Done when
 
