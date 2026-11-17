@@ -168,7 +168,8 @@ int main(int argc, char **argv)
 	 * /files/<token> URLs. token::init() already validated WEB_APP_KEY. */
 	if (!tgweb::auth::filetoken::init()) {
 		std::cerr << "error: failed to derive file-token key from "
-			     "WEB_APP_KEY\n";
+			     "WEB_APP_KEY (it must decode to at most 64 "
+			     "bytes)\n";
 		return 1;
 	}
 

@@ -704,11 +704,14 @@ std::string InternalApi::deriveBearer(const std::string &web_app_key_b64)
 		return std::string();
 
 	/* Same subkey construction as FileToken: keyed BLAKE2b of a label. */
+	/* Fails for a key longer than crypto_generichash_KEYBYTES_MAX. */
 	unsigned char key[32];
-	crypto_generichash(key, sizeof(key),
-			   reinterpret_cast<const unsigned char *>(kBearerLabel),
-			   std::strlen(kBearerLabel), raw.data(), raw.size());
+	int rc = crypto_generichash(key, sizeof(key),
+			reinterpret_cast<const unsigned char *>(kBearerLabel),
+			std::strlen(kBearerLabel), raw.data(), raw.size());
 	sodium_memzero(raw.data(), raw.size());
+	if (rc != 0)
+		return std::string();
 
 	char hex[sizeof(key) * 2 + 1];
 	sodium_bin2hex(hex, sizeof(hex), key, sizeof(key));
