@@ -18,13 +18,14 @@ import (
 )
 
 // testdata/drogon.json holds values the Drogon web's own code made:
-// a program linked against web/src/auth and web/src/daemon/Api.cpp,
-// run with the test key in "app_key", wrote it. These tests check that
+// testdata/fixgen, linked against web/src/auth and
+// web/src/daemon/Api.cpp, run with the test key in "app_key", wrote it
+// ("testdata/fixgen/run.sh gen"). These tests check that
 // the Go code reads, makes and refuses the same values.
 //
 // With WEBAPI_GO_MINTED set to a path, TestGoMinted also writes values
 // the Go code made there, for the same program to check in the other
-// direction.
+// direction ("testdata/fixgen/run.sh verify").
 
 type sessionFix struct {
 	UID      string `json:"uid"`
