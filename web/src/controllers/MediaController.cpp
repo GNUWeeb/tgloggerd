@@ -244,10 +244,14 @@ MediaController::serve(drogon::HttpRequestPtr req, std::string token)
 			path.string(), attachment, drogon::CT_NONE, "", req);
 	}
 
-	/* Advertise range support on every response; a token maps to one
-	 * immutable, content-addressed file, so it stays cacheable. */
+	/*
+	 * Advertise range support on every response. A token's bytes never
+	 * change, so the file stays cacheable, but only for a week and not
+	 * "immutable": a browser that keeps showing it asks again, and that
+	 * request is what keeps the file from being evicted as unused.
+	 */
 	resp->addHeader("Accept-Ranges", "bytes");
-	resp->addHeader("Cache-Control", "public, max-age=31536000, immutable");
+	resp->addHeader("Cache-Control", "public, max-age=604800");
 	co_return resp;
 }
 

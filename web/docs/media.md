@@ -25,6 +25,15 @@ an unknown id.
 - A single `Range: bytes=...` is honoured with a 206; an unsatisfiable
   one gets 416.
 
+## Caching
+
+Files are sent with `Cache-Control: public, max-age=604800`: a week,
+without `immutable`. A token's bytes never change, so they are safe to
+cache, but a browser that keeps showing a file asks for it again at
+least weekly, and that request counts as an access below. A year and
+`immutable`, as before, hid repeat views from the eviction record
+entirely.
+
 ## Access reporting
 
 The daemon evicts the least recently accessed files, and only it
