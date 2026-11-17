@@ -47,6 +47,7 @@ add_executable(tgloggerd
 	src/tgloggerd/models/User.cpp
 	src/tgloggerd/models/File.hpp
 	src/tgloggerd/models/File.cpp
+	src/tgloggerd/models/FileAccess.cpp
 	src/tgloggerd/models/Group.hpp
 	src/tgloggerd/models/Group.cpp
 	src/tgloggerd/models/Message.hpp
@@ -69,6 +70,10 @@ add_executable(tgloggerd
 	src/tgloggerd/TDLib.hpp
 	src/tgloggerd/FileToken.cpp
 	src/tgloggerd/FileToken.hpp
+	src/tgloggerd/InternalApi.cpp
+	src/tgloggerd/InternalApi.hpp
+	src/tgloggerd/FileApi.cpp
+	src/tgloggerd/FileApi.hpp
 	src/tgloggerd/DiscordClient.cpp
 	src/tgloggerd/DiscordClient.hpp
 	src/tgloggerd/DiscordForwarder.cpp
@@ -100,8 +105,22 @@ pkg_check_modules(SODIUM REQUIRED libsodium)
 # library explicitly, rather than relying on it arriving transitively.
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-target_link_libraries(tgloggerd PRIVATE Td::TdStatic connector-jdbc OpenSSL::Crypto CURL::libcurl ${SODIUM_LIBRARIES} Threads::Threads)
-target_include_directories(tgloggerd PRIVATE ${SODIUM_INCLUDE_DIRS})
+# The internal API (src/tgloggerd/InternalApi.cpp) serves HTTP with
+# Boost.Beast/Asio, which are header-only: nothing links a Boost binary.
+# Only InternalApi.cpp includes them. Its JSON is nlohmann-json.
+find_package(Boost QUIET)
+if(NOT Boost_FOUND)
+	# Ubuntu's libboost-dev does not always ship a CMake config; the
+	# headers are all that is needed, so locate them directly.
+	find_path(Boost_INCLUDE_DIRS boost/beast/http.hpp)
+	if(NOT Boost_INCLUDE_DIRS)
+		message(FATAL_ERROR
+			"Boost.Beast headers not found. Install libboost-dev.")
+	endif()
+endif()
+find_package(nlohmann_json 3 REQUIRED)
+target_link_libraries(tgloggerd PRIVATE Td::TdStatic connector-jdbc OpenSSL::Crypto CURL::libcurl ${SODIUM_LIBRARIES} Threads::Threads nlohmann_json::nlohmann_json)
+target_include_directories(tgloggerd PRIVATE ${SODIUM_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
 # Telegram). Added last: it links Td::TdStatic and connector-jdbc from the
