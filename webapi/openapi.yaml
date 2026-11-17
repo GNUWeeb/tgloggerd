@@ -2014,6 +2014,8 @@ components:
         - type: object
           required: [message, csrf]
           properties:
+            message:
+              type: string
             csrf:
               type: string
               description: A fresh pre-login token, to try again with.
@@ -2185,7 +2187,7 @@ components:
           type: integer
           enum: [200, 404]
         props:
-          type: object
+          description: The route's page data; each Page variant names its schema.
         viewer:
           $ref: '#/components/schemas/Viewer'
     PageReload:
@@ -2236,6 +2238,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [login]
@@ -2245,6 +2248,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [dashboard]
@@ -2254,6 +2258,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [users]
@@ -2263,6 +2268,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [user, user_history]
@@ -2272,6 +2278,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [groups]
@@ -2281,6 +2288,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [group, group_admins, group_history]
@@ -2290,6 +2298,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [files]
@@ -2299,6 +2308,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [group_messages, private_messages]
@@ -2308,6 +2318,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [message]
@@ -2317,6 +2328,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [group_chat, user_chat]
@@ -2326,6 +2338,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [settings]
@@ -2335,6 +2348,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [settings_preferences]
@@ -2344,6 +2358,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [settings_sessions]
@@ -2353,6 +2368,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [accounts]
@@ -2362,6 +2378,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [federations]
@@ -2371,6 +2388,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [platform_fwd]
@@ -2380,6 +2398,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [fwd_telegram_discord]
@@ -2389,6 +2408,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [fwd_discord_telegram]
@@ -2398,6 +2418,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [join_chat]
@@ -2407,6 +2428,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [mcp]
@@ -2416,6 +2438,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [mcp_groups]
@@ -2425,6 +2448,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
+          required: [route, props]
           properties:
             route:
               enum: [mcp_tokens]
@@ -2519,6 +2543,9 @@ components:
         - $ref: '#/components/schemas/GroupSummary'
         - type: object
           required: [msg_count]
+          properties:
+            msg_count:
+              type: integer
     GroupFull:
       allOf:
         - $ref: '#/components/schemas/GroupSummary'
@@ -3091,6 +3118,8 @@ components:
                   - type: object
                     required: [msg_count, admin_count, description, created_at]
                     properties:
+                      msg_count:
+                        type: integer
                       admin_count:
                         type: integer
                       description:
@@ -3180,6 +3209,8 @@ components:
                       required: [members, msg_count]
                       properties:
                         members:
+                          type: integer
+                        msg_count:
                           type: integer
             - type: object
               required: [kind, user, count]
@@ -3639,6 +3670,9 @@ components:
             - $ref: '#/components/schemas/FwdPerson'
             - type: object
               required: [active]
+              properties:
+                active:
+                  type: boolean
         federation:
           $ref: '#/components/schemas/FedRef'
         transfer_candidates:
