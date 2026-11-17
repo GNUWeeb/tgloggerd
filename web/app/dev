@@ -1,0 +1,41 @@
+#!/bin/bash
+# Run the web app's Node tooling in Docker, so nothing but Docker is
+# needed on the host.
+#
+#   ./dev npm <args>      npm in the Node image (./dev npm ci, ./dev npm test,
+#                         ./dev npm run typecheck, ./dev npm run build)
+#   ./dev node <args>     node in the Node image
+#
+# Containers run as the calling user, so files written into the tree
+# stay theirs. The npm cache lives in $APP_NPM_CACHE (default
+# ~/.cache/tgd-app-npm).
+set -euo pipefail
+
+NODE_IMAGE=node:26.8.1-bookworm-slim
+CACHE=${APP_NPM_CACHE:-$HOME/.cache/tgd-app-npm}
+DIR=$(cd "$(dirname "$0")" && pwd)
+
+mkdir -p "$CACHE"
+tty=()
+[ -t 0 ] && [ -t 1 ] && tty=(-it)
+
+node_run() {
+	docker run --rm --init "${tty[@]}" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -e npm_config_cache=/cache \
+		-v "$DIR:/app" -v "$CACHE:/cache" -w /app "$@"
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case $cmd in
+npm)
+	node_run "$NODE_IMAGE" npm "$@"
+	;;
+node)
+	node_run "$NODE_IMAGE" node "$@"
+	;;
+*)
+	sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+	exit 2
+	;;
+esac
