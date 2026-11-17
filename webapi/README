@@ -160,8 +160,11 @@ the same upstream:
     }
 
 nginx passes Range and the conditional headers on by default. The
-service logs and audits the connection's peer, which is nginx, as the
-Drogon web does. The Drogon route stays in place, so moving back is
+service logs, audits and throttles logins by the request's client:
+the first X-Forwarded-For hop, read from the right, that is not in
+WEBAPI_TRUSTED_PROXIES (nginx, and the CDN in front of it). Left
+empty, that is the connection's peer, nginx, as in the Drogon web. The
+Drogon route stays in place, so moving back is
 removing the location. Both services read the same store, the same
 TDLib directory and the same .env (WEB_STORAGE_DIR, TG_DATA_DIR,
 TG_MAX_STORE_FILE_SIZE, TG_FETCH_TIMEOUT_SECS), and the webapi

@@ -16,6 +16,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -71,6 +72,12 @@ type Config struct {
 	// StoreFileCap is the daemon's TG_MAX_STORE_FILE_SIZE: files under
 	// it are fetched whole into the store. 0 = no cap.
 	StoreFileCap uint64
+
+	// TrustedProxies is WEBAPI_TRUSTED_PROXIES: the reverse proxies
+	// (and the networks of the ones in front of them) whose
+	// X-Forwarded-For hops are skipped to find a request's client.
+	// Empty: the connection's peer is the client.
+	TrustedProxies []netip.Prefix
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -116,6 +123,31 @@ func level(key, def string) (slog.Level, error) {
 		return 0, fmt.Errorf("%s: %q is not one of debug, info, warn, error", key, s)
 	}
 	return l, nil
+}
+
+// trustedProxies reads a comma- or space-separated list of addresses
+// and networks: "10.0.88.1", "173.245.48.0/20", "2400:cb00::/32".
+func trustedProxies(key string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, f := range strings.FieldsFunc(os.Getenv(key), func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	}) {
+		if strings.Contains(f, "/") {
+			p, err := netip.ParsePrefix(f)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %q is not an address or network", key, f)
+			}
+			out = append(out, p.Masked())
+			continue
+		}
+		a, err := netip.ParseAddr(f)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %q is not an address or network", key, f)
+		}
+		a = a.Unmap()
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	return out, nil
 }
 
 // FromEnv builds the configuration from the environment. A malformed
@@ -198,6 +230,10 @@ func FromEnv() (*Config, error) {
 	capStr := env("TG_MAX_STORE_FILE_SIZE", "1073741824")
 	if c.StoreFileCap, err = strconv.ParseUint(capStr, 10, 64); err != nil {
 		return nil, fmt.Errorf("TG_MAX_STORE_FILE_SIZE: %q is not a size in bytes", capStr)
+	}
+
+	if c.TrustedProxies, err = trustedProxies("WEBAPI_TRUSTED_PROXIES"); err != nil {
+		return nil, err
 	}
 
 	return &c, nil

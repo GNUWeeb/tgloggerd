@@ -116,6 +116,7 @@ func run(log *slog.Logger, cfg *config.Config) error {
 			TDLibDir:     tdlib,
 			StoreFileCap: cfg.StoreFileCap,
 		},
+		Proxies: server.TrustedProxies(cfg.TrustedProxies),
 	})
 
 	addr := net.JoinHostPort(cfg.ListenAddr, strconv.Itoa(int(cfg.ListenPort)))

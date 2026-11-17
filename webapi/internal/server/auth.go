@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 
 	"tgloggerd/webapi/internal/auth"
@@ -58,16 +57,6 @@ const sessionKey ctxKey = 0
 func SessionFrom(ctx context.Context) (auth.Session, bool) {
 	s, ok := ctx.Value(sessionKey).(auth.Session)
 	return s, ok
-}
-
-// clientIP is the connection's peer address, the address the Drogon
-// web logs and throttles on.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
 
 func noStore(w http.ResponseWriter) {

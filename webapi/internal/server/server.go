@@ -37,6 +37,9 @@ type Deps struct {
 	// when the daemon API is off.
 	Access *daemon.AccessReporter
 	Media  MediaConfig
+	// Proxies are the reverse proxies whose X-Forwarded-For hops are
+	// skipped to find a request's client (WEBAPI_TRUSTED_PROXIES).
+	Proxies TrustedProxies
 }
 
 // Server carries what the handlers share.
@@ -52,6 +55,7 @@ type Server struct {
 	tokens   *auth.FileTokens
 	access   *daemon.AccessReporter
 	media    MediaConfig
+	proxies  TrustedProxies
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -69,6 +73,7 @@ func New(d Deps) http.Handler {
 		tokens:   d.Tokens,
 		access:   d.Access,
 		media:    d.Media,
+		proxies:  d.Proxies,
 	}
 
 	mux := http.NewServeMux()
@@ -76,7 +81,7 @@ func New(d Deps) http.Handler {
 		mux.HandleFunc(rt.pattern, rt.handler)
 	}
 
-	return s.logRequests(mux)
+	return s.withClient(s.logRequests(mux))
 }
 
 // route is one entry of the route table.
@@ -173,6 +178,7 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 			"path", r.URL.Path,
 			"status", sw.status,
 			"duration", time.Since(start),
+			"client", clientIP(r),
 			"remote", r.RemoteAddr)
 	})
 }
