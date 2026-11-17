@@ -8,6 +8,7 @@
 #include <td/telegram/td_api.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <utility>
 #include <vector>
@@ -104,7 +105,28 @@ std::chrono::milliseconds left(Clock::time_point deadline)
 	return d.count() > 0 ? d : std::chrono::milliseconds(0);
 }
 
+/* A positive integer from the environment, else @def. */
+uint64_t env_u64(const char *key, uint64_t def)
+{
+	const char *v = getenv(key);
+	if (!v || !*v)
+		return def;
+	char *end = nullptr;
+	unsigned long long n = strtoull(v, &end, 10);
+	if (*end != '\0' || n == 0)
+		return def;
+	return (uint64_t)n;
+}
+
 } /* namespace */
+
+void FileFetcher::Config::loadEnv(void)
+{
+	max_active = (size_t)env_u64("TG_FETCH_MAX_ACTIVE", 4);
+	chunk = env_u64("TG_FETCH_CHUNK", 16ull << 20);
+	timeout = std::chrono::seconds(env_u64("TG_FETCH_TIMEOUT_SECS", 30));
+	idle = std::chrono::seconds(env_u64("TG_FETCH_IDLE_SECS", 900));
+}
 
 FileFetcher::FileFetcher(DB &db, TDLib &tdlib, log_hd_t *l, Config cfg,
 			 StoreFn store, BlobFn blob_present)

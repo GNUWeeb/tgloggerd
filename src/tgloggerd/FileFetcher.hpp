@@ -49,6 +49,12 @@ public:
 		bool			prune_stored = true;
 		/* Absolute TDLib directory; every partial path is under it. */
 		std::string		tdlib_dir;
+
+		/*
+		 * The TG_FETCH_* settings from the environment, defaults for
+		 * unset or invalid ones; the other fields stay as they are.
+		 */
+		void loadEnv(void);
 	};
 
 	/*

@@ -21,6 +21,7 @@ namespace tgloggerd {
 
 class InternalApi;
 class StorageJanitor;
+class FileFetcher;
 
 class TgLoggerd {
 public:
@@ -97,6 +98,12 @@ private:
 	 * db_ and before api_, whose storage routes call it.
 	 */
 	std::unique_ptr<StorageJanitor> janitor_;
+
+	/*
+	 * Fetches files from Telegram for the API's fetch route; stopped
+	 * right after the API, before the pools drain.
+	 */
+	std::unique_ptr<FileFetcher> fetcher_;
 
 	/*
 	 * The internal HTTP API for the web (docs/internal-api.md). Its

@@ -9,6 +9,7 @@
 #include <tgloggerd/StoragePath.hpp>
 #include <tgloggerd/StorageJanitor.hpp>
 #include <tgloggerd/StorageApi.hpp>
+#include <tgloggerd/FileFetcher.hpp>
 #include <stdexcept>
 #include <cstdlib>
 #include <cstring>
@@ -608,15 +609,44 @@ int TgLoggerd::start(void)
 	 * absent daemon API as "fetching off".
 	 */
 	if (!api_listen.empty()) {
+		FileFetcher::Config fcfg;
+		fcfg.loadEnv();
+		fcfg.max_store_file_size = max_store_file_size_;
+		fcfg.prune_stored = prune_tdlib_files_;
+		fcfg.tdlib_dir = tdlib_path;
+		fetcher_ = std::make_unique<FileFetcher>(*db_, *tdlib_, l_, fcfg,
+			[this](const std::string &path, const std::string &tg_file_id,
+			       const std::string &tg_unique_id, int64_t size,
+			       const std::string &type, const std::string &orig) {
+				return storeDownloadedFile(path, tg_file_id,
+							   tg_unique_id, size,
+							   type.c_str(), orig);
+			},
+			[this](const std::string &hex, const std::string &ext) {
+				std::error_code ec;
+				return hex.size() == 64 &&
+				       fs::exists(blobPath(storage_dir_, hex, ext),
+						  ec);
+			});
+		pr_debug(l_, "fetch: max_active=%zu chunk=%llu timeout=%llds"
+			 " idle=%llds", fcfg.max_active,
+			 (unsigned long long)fcfg.chunk,
+			 (long long)fcfg.timeout.count(),
+			 (long long)fcfg.idle.count());
+
 		api_ = std::make_unique<InternalApi>(l_);
-		registerFileApi(*api_, *db_);
+		registerFileApi(*api_, *db_, fetcher_.get());
 		registerStorageApi(*api_, *db_, *janitor_);
 		InternalApi::Config api_cfg;
 		api_cfg.listen = api_listen;
 		api_cfg.threads = api_threads;
 		api_cfg.web_app_key = web_app_key;
-		if (api_->start(api_cfg) < 0)
+		if (api_->start(api_cfg) < 0) {
 			api_.reset();
+			fetcher_.reset();
+		} else {
+			fetcher_->start();
+		}
 	}
 
 	pr_info(l_, "Listening for incoming messages...");
@@ -630,10 +660,13 @@ int TgLoggerd::start(void)
 	 * destructor frees l_ before members are destroyed). files_ first so
 	 * its pending link jobs land in serial_, then serial_ drains fully.
 	 * The API goes first: its handlers post to those pools and call
-	 * TDLib. The janitor next: it may be mid-batch on db_.
+	 * TDLib. Then the fetcher's reaper, which calls TDLib, and the
+	 * janitor, which may be mid-batch on db_.
 	 */
 	if (api_)
 		api_->stop();
+	if (fetcher_)
+		fetcher_->stop();
 	janitor_->stop();
 	files_->shutdown();
 	serial_->shutdown();

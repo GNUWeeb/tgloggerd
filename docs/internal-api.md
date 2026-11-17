@@ -94,6 +94,7 @@ change.
 | 405 | `method_not_allowed` | The path exists under another method; `Allow` lists them. |
 | 410 | `gone` | The file is gone from Telegram or not accessible to the account. |
 | 413 | `too_large` | Request body over 64 KiB. The connection is closed. |
+| 416 | `bad_range` | A fetch's `offset` is at or past the end of the file. |
 | 500 | `internal` | A bug or a database failure; the daemon logs the detail. |
 | 503 | `unavailable` | Busy (too many requests in flight, a fetch limit reached), the TDLib client not authorized, or the daemon shutting down. Comes with `Retry-After` (seconds). |
 | 504 | `timeout` | The operation did not finish in time (a fetch waiting on Telegram). |
@@ -128,9 +129,10 @@ A file's cache state.
 - `alias_of`: the id of the row that holds the same bytes, or null.
   Readers follow it one hop (design section 3).
 - `has_unique_id`: TDLib's `remote.unique_id` is recorded for the row.
-- `fetchable`: whether asking for a fetch can succeed. Every row keeps
-  its `tg_file_id`, so this is true for now; file-fetch-on-demand makes
-  it false for files it found gone from Telegram in the last hour.
+- `fetchable`: whether asking for a fetch can succeed: false for a
+  file found gone from Telegram within the last hour (a fetch would be
+  answered 410 at once), true otherwise. Every row keeps its
+  `tg_file_id`, so any other file may be fetched.
 - `accessed_at`: the file's last recorded use.
 
 Errors: 400 bad id, 404 unknown file.
@@ -161,22 +163,88 @@ ids, or carries more than 1000.
 
 ### POST /v1/files/{id}/fetch
 
-Added by `file-fetch-on-demand`, which fills in this section. Planned
-shape (design section 8):
+Gets a file's bytes from Telegram while someone waits for them (design
+section 8). The body is optional:
 
     {"offset": 0, "length": 1048576}
 
-- A small file (under `TG_MAX_STORE_FILE_SIZE`) is downloaded whole
-  into the store: `{"status": "stored"}`, and the web serves it from
-  the store as usual (following `alias_of` if the bytes turned out to
-  belong to another row).
-- A big file is fetched a range at a time:
-  `{"status": "partial", "path": "<TDLib local path>", "offset": ...,
-  "available": ..., "size": ...}`, the bytes from `offset` that are
-  present at `path` on the shared mount.
+- `offset`: the first byte wanted, default 0.
+- `length`: how many bytes from `offset`, default 0, meaning one chunk
+  (`TG_FETCH_CHUNK`). The daemon never fetches more than one chunk per
+  request; an open-ended or longer request gets a chunk, and the
+  client asks again for the rest.
 
-Errors: 404 unknown file, 410 gone or not accessible, 503 busy or not
-authorized, 504 timed out.
+A small file, under `TG_MAX_STORE_FILE_SIZE` (every file when that is
+0), is downloaded whole and stored exactly as ingest stores it;
+`offset` and `length` are ignored:
+
+    200 {"state": "stored", "id": 123}
+
+- `id`: the row that now holds the bytes. It is the requested id, or,
+  when the bytes turned out to be another row's (same sha256), that
+  row: the requested row then has `alias_of` set to it. Serve the file
+  from the store by that row's sha256 and extension, as for any stored
+  file.
+- A file already in the store (its blob present, directly or through
+  `alias_of`) is answered the same way without asking Telegram.
+
+A big file is never copied into the store. The range is downloaded
+into TDLib's cache and the answer says where it is:
+
+    200 {
+      "state": "partial",
+      "path": "/workspace/data/users/main/tdlib/videos/file_12.mp4",
+      "offset": 0,
+      "available": 16777216,
+      "size": 2147483648
+    }
+
+- `path`: TDLib's file, absolute, always under
+  `/workspace/<TG_DATA_DIR>/tdlib/` (the daemon checks; a client should
+  check again before opening it). Every container mounts the
+  repository at `/workspace`, so the web opens the same path.
+- `available`: how many bytes from `offset` are present at `path`. At
+  least 1, at most `size - offset`; it may be more than was asked for
+  when an earlier request already fetched further, and it may be less
+  when Telegram delivered only part of the range within the time
+  limit. Serve at most `available` bytes from `offset`, and only those:
+  the rest of the file may be holes.
+- `size`: the file's full size in bytes, for `Content-Range`.
+
+The partial file stays in TDLib's cache while it is in use and is
+deleted once no fetch has asked for it in `TG_FETCH_IDLE_SECS`.
+
+How it works, and its limits:
+
+- The file is found by its remote id; when that no longer downloads
+  (an expired file reference), something referencing it is fetched
+  from Telegram again: the newest live message carrying it, or the
+  group or user whose current photo it is.
+- Downloads of one file run one at a time; a request waits for the one
+  in flight (within its own time limit). A file ingest is downloading
+  is waited for, not requested again with another range.
+- At most `TG_FETCH_MAX_ACTIVE` fetches run at once; more are answered
+  503 with `Retry-After: 1` at once.
+- Each fetch, from the request to the answer, is bounded by
+  `TG_FETCH_TIMEOUT_SECS`; past it the answer is 504 and the download
+  goes on in the background, so asking again soon is cheap.
+- A file found gone from Telegram (the messages carrying it deleted,
+  the chat no longer accessible) is answered 410 for an hour without
+  asking Telegram again, and `GET /v1/files/{id}` says
+  `"fetchable": false` meanwhile.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TG_FETCH_MAX_ACTIVE` | 4 | Fetches running at once. Keep it at most `TG_API_THREADS`. |
+| `TG_FETCH_CHUNK` | 16777216 | Most bytes one request fetches (16 MiB). |
+| `TG_FETCH_TIMEOUT_SECS` | 30 | Time limit of one fetch. |
+| `TG_FETCH_IDLE_SECS` | 900 | A partial file not asked for this long is deleted from TDLib's cache. |
+
+Errors: 400 bad id or body, 404 unknown file, 410 gone from Telegram
+or not accessible, 416 `offset` past the end of a big file, 503 too
+many fetches, TDLib not authorized or Telegram asking to wait (with
+`Retry-After`), 504 timed out, 500 the downloaded file could not be
+stored.
 
 ### GET /v1/storage
 
