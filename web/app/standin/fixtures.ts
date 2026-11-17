@@ -7,7 +7,7 @@ import { groups, getGroupsOfUser, queryGroups, getGroup, getAdmins, getGroupHist
 import { queryFiles, files } from '../../mockup/src/data/files.js';
 import { groupMessages, privateMessages, senderOf, queryMessages, getMessage, chatStream, chatOf } from '../../mockup/src/data/messages.js';
 import { accounts, federations, mySessions, SECURITY_NOTICES, allFeds, fedGroups, fedAdmins, fedMembers, activeSuperadmins, auditFor, fedById } from '../../mockup/src/data/accounts.js';
-import { buildScope, allowed } from '../../mockup/src/viewer.jsx';
+import { buildScope, allowed } from '../../mockup/src/data/scope.js';
 import { TOTALS } from '../../mockup/src/data/totals.js';
 import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/data/admin.js';
 import type { PageData, Viewer } from '../src/page.ts';
