@@ -1,6 +1,8 @@
 import { RouterProvider, useRouter } from './router.jsx';
 import Users from './pages/Users.jsx';
 import User from './pages/User.jsx';
+import Groups from './pages/Groups.jsx';
+import Group from './pages/Group.jsx';
 import NotFound, { Pending } from './pages/NotFound.jsx';
 
 // The same paths the production server answers, so each screen here maps
@@ -10,7 +12,11 @@ const ROUTES = [
 	[/^\/users$/, () => <Users />],
 	[/^\/users\/(-?\d+)$/, (m) => <User id={m[1]} tab="user" />],
 	[/^\/users\/(-?\d+)\/history$/, (m) => <User id={m[1]} tab="history" />],
-	[/^\/(groups|files|group_messages|private_messages|platform-fwd|mcp-admin|settings|login|messages|users\/-?\d+\/chat)(\/.*)?$/, (m) => <Pending title={m[1]} />],
+	[/^\/groups$/, () => <Groups />],
+	[/^\/groups\/(-?\d+)$/, (m) => <Group id={m[1]} tab="group" />],
+	[/^\/groups\/(-?\d+)\/admins$/, (m) => <Group id={m[1]} tab="admins" />],
+	[/^\/groups\/(-?\d+)\/history$/, (m) => <Group id={m[1]} tab="history" />],
+	[/^\/(groups\/-?\d+\/chat|files|group_messages|private_messages|platform-fwd|mcp-admin|settings|login|messages|users\/-?\d+\/chat)(\/.*)?$/, (m) => <Pending title={m[1]} />],
 ];
 
 function Routes() {

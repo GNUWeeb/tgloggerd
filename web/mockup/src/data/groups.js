@@ -64,6 +64,7 @@ export const GROUP_FIELDS = [
 	{ key: 'msg_count', label: 'Messages', type: 'number' },
 	{ key: 'description', label: 'Description', type: 'text' },
 	{ key: 'admin_count', label: 'Admins', type: 'number' },
+	{ key: 'exposed', label: 'Public (MCP)', type: 'bool' },
 	{ key: 'created_at', label: 'First seen', type: 'date' },
 	{ key: 'updated_at', label: 'Updated', type: 'date' },
 ];
@@ -124,4 +125,21 @@ export function getGroupHistory(grp) {
 	}
 	histCache.set(grp.id, out);
 	return out;
+}
+
+// Most active members of a group, busiest first.
+export function getTopPosters(grp, n = 8) {
+	const g = mulberry32(Number(-grp.id % 7907));
+	const seen = new Set();
+	const out = [];
+	let left = grp.msg_count * 0.6;
+	while (out.length < n) {
+		const u = users[Math.floor(g() * 300)];
+		if (seen.has(u.id) || u.type === 'deleted') continue;
+		seen.add(u.id);
+		const msgs = Math.floor(left * (0.15 + g() * 0.2));
+		left -= msgs;
+		out.push({ user: u, msgs });
+	}
+	return out.sort((a, b) => b.msgs - a.msgs);
 }

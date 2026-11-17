@@ -258,3 +258,18 @@
 	.app .a-hide-sm { display: none; }
 	.app .a-list-row .a-list-main, .app .a-list a .a-list-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 }
+
+.app .a-public { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 550; color: var(--ok); }
+.app .a-clip { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.app .a-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.app .a-wrapcell { white-space: normal; padding-top: 8px; padding-bottom: 6px; }
+.app .a-wrapcell .a-pill { margin-bottom: 3px; }
+.app .a-pill { gap: 4px; }
+.app .a-banner {
+	display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; margin: -4px 0 16px;
+	border-radius: 10px; background: var(--ok-soft); color: var(--fg); border: 1px solid color-mix(in srgb, var(--ok) 25%, transparent);
+}
+.app .a-banner > svg { color: var(--ok); flex: none; margin-top: 2px; }
+.app .a-banner.warn { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
+.app .a-banner.warn > svg { color: var(--danger); }
+.app .a-groups .a-bar { margin-right: 0; }
