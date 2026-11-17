@@ -182,6 +182,7 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 			if (msg.sender_user_id.has_value() &&
 			    bumpMsgCount(tx, "telegram_users", *msg.sender_user_id))
 				refetch.user = *msg.sender_user_id;
+			refetch.change = MsgChange::New;
 			return;
 		}
 
@@ -213,6 +214,7 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 				"UPDATE telegram_group_messages SET deleted_at = NOW()"
 				" WHERE id = ? AND deleted_at IS NULL",
 				{ (int64_t)gm_id });
+			refetch.change = MsgChange::Deleted;
 			return;
 		}
 
@@ -226,6 +228,13 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 			old_content.entities = *old[6];
 		if (old[4].has_value())
 			old_content.file_id = std::stoull(*old[4]);
+
+		/*
+		 * A copy with a later edit_date: the guarded upsert below
+		 * takes its content, and the message reads as edited.
+		 */
+		if (msg.edit_date > old_edit_date)
+			refetch.change = MsgChange::Edited;
 
 		snapshotMessageEditIfChanged(tx, "telegram_group_message_edits",
 					     "group_message_id", gm_id,
