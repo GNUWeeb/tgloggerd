@@ -10,7 +10,7 @@ import Chat from './pages/Chat.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import { ForwardingIndex, TelegramDiscord, DiscordTelegram } from './pages/Forwarding.jsx';
 import { McpIndex, McpGroups, McpTokens } from './pages/Mcp.jsx';
-import { Settings, Login } from './pages/Account.jsx';
+import { Settings, Login, Preferences, Sessions } from './pages/Account.jsx';
 import Accounts from './pages/Accounts.jsx';
 import Federations from './pages/Federations.jsx';
 import JoinChat from './pages/JoinChat.jsx';
@@ -44,6 +44,8 @@ const ROUTES = [
 	[/^\/mcp-admin\/groups$/, 'mcp', () => <McpGroups />],
 	[/^\/mcp-admin\/tokens$/, 'mcp', () => <McpTokens />],
 	[/^\/settings$/, null, () => <Settings />],
+	[/^\/settings\/preferences$/, null, () => <Preferences />],
+	[/^\/settings\/sessions$/, null, () => <Sessions />],
 	[/^\/settings\/accounts$/, 'accounts', () => <Accounts />],
 	[/^\/settings\/federations$/, 'federations', () => <Federations />],
 	[/^\/login$/, null, () => <Login />],

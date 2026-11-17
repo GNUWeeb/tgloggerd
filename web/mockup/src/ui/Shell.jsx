@@ -9,6 +9,8 @@ import { useTheme } from './hooks.js';
 import { compact } from '../data/seed.js';
 import { TOTALS } from '../data/totals.js';
 import { useViewer, allowed } from '../viewer.jsx';
+import { groups } from '../data/groups.js';
+import { Avatar } from './primitives.jsx';
 
 // [href, label, icon, page key, count shown to full-access roles]
 const NAV = [
@@ -36,7 +38,7 @@ function isOn(path, href) {
 	if (href === '/') return path === '/';
 	if (href === '/group_messages') return path.startsWith('/group_messages') || path.startsWith('/messages/group');
 	if (href === '/private_messages') return path.startsWith('/private_messages') || path.startsWith('/messages/private');
-	if (href === '/settings') return path === '/settings' || path === '/settings/sessions';
+	if (href === '/settings') return ['/settings', '/settings/preferences', '/settings/sessions'].includes(path);
 	return path === href || path.startsWith(href + '/');
 }
 
@@ -58,6 +60,8 @@ export default function Shell({ crumbs = [], flush = false, children }) {
 	const [open, setOpen] = useState(false);
 	// Only the pages this account has; a group with none left disappears.
 	const nav = NAV.map((g) => ({ ...g, items: g.items.filter((it) => allowed(v, it[3])) })).filter((g) => g.items.length);
+	// The account's pinned groups (a per-user setting), still subject to scope.
+	const pinned = groups.slice(0, 12).filter(v.group).slice(0, 3);
 	// Collapsed sidebar (icons only). The real app would keep this in a
 	// cookie so the server renders the right width with no flash.
 	const [collapsed, setCollapsed] = useState(() => {
@@ -76,6 +80,20 @@ export default function Shell({ crumbs = [], flush = false, children }) {
 						<span className="a-label">tgloggerd</span>
 					</Link>
 					<nav aria-label="Main">
+						{pinned.length > 0 && (
+							<div className="a-navgroup">
+								<div className="a-navlabel"><span className="a-label">Pinned</span></div>
+								{pinned.map((g) => {
+									const href = `/groups/${g.id}/chat`;
+									return (
+										<Link key={g.id} to={href} className={`a-navitem ${path.startsWith(`/groups/${g.id}`) ? 'on' : ''}`} title={collapsed ? g.title : undefined}>
+											<Avatar e={g} size={16} square />
+											<span className="a-label a-ellipsis">{g.title}</span>
+										</Link>
+									);
+								})}
+							</div>
+						)}
 						{nav.map((g, i) => (
 							<div key={i} className="a-navgroup">
 								{g.label && <div className="a-navlabel"><span className="a-label">{g.label}</span></div>}

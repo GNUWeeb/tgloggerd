@@ -581,3 +581,22 @@
 .app .a-joint { font-size: 16px; }
 .app .a-audit .a-minw { display: flex; flex-direction: column; }
 .app .a-urlcell { max-width: 200px; }
+
+/* ---- preferences and sessions ---- */
+.app .a-pref { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--border); }
+.app .a-pref:first-of-type { border-top: 0; }
+.app .a-pref > div:first-child { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.app .a-pref-ctl { flex: none; min-width: 0; max-width: 60%; }
+.app .a-pref-ctl .a-select { width: 260px; max-width: 100%; }
+.app .a-sessions { list-style: none; margin: 0; padding: 0; }
+.app .a-sessions li { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.app .a-sessions li:first-child { border-top: 0; }
+.app .a-sessions .a-minw { display: flex; flex-direction: column; gap: 2px; }
+.app .a-sessions .a-minw > b { display: inline-flex; align-items: center; gap: 8px; }
+.app .a-sessicon { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; background: var(--hover); color: var(--fg-2); flex: none; }
+.app .a-settings > .a-card.a-narrow { min-width: 0; }
+@media (max-width: 860px) {
+	.app .a-pref { flex-direction: column; align-items: stretch; }
+	.app .a-pref-ctl { max-width: none; }
+	.app .a-pref-ctl .a-select { width: 100%; }
+}
