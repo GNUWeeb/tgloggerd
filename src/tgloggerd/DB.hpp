@@ -340,7 +340,8 @@ public:
 	/*
 	 * Load the full tg_file_id -> telegram_files row index, so the daemon
 	 * can link a message to a file it already recorded without
-	 * re-downloading it.
+	 * re-downloading it. A row that is an alias (alias_of) maps to the
+	 * row it points at.
 	 */
 	std::unordered_map<std::string, models::KnownFile> loadFileIndex(void);
 

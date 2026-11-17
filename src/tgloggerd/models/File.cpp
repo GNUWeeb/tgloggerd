@@ -256,8 +256,14 @@ models::KnownFile DB::upsertFileMeta(const models::File &f)
 
 std::unordered_map<std::string, models::KnownFile> DB::loadFileIndex(void)
 {
-	auto rows = db_.query("SELECT tg_file_id, id, sha256 IS NULL"
-			      " FROM telegram_files");
+	/* Follow alias_of (one hop, see migration 000032): a metadata-only
+	 * row whose bytes turned out to be another row's maps to that row,
+	 * so its remote id does not look metadata-only after a restart. */
+	auto rows = db_.query(
+		"SELECT f.tg_file_id, COALESCE(a.id, f.id),"
+		" IF(a.id IS NULL, f.sha256, a.sha256) IS NULL"
+		" FROM telegram_files f"
+		" LEFT JOIN telegram_files a ON a.id = f.alias_of");
 
 	std::unordered_map<std::string, models::KnownFile> out;
 	out.reserve(rows.size());
