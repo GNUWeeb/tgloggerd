@@ -105,7 +105,7 @@ The file store as a capped cache in front of Telegram:
 - [`storage-cutover`](todo/storage-cutover.md): Deploy the storage cache, dry-run the first sweep, and enable eviction once the owner agrees.
 - [`photo-download-index`](todo/photo-download-index.md): Stop re-downloading user and group photos that are already stored (optional).
 - [`download-failure-handling`](todo/download-failure-handling.md): Notice failed or cancelled TDLib downloads and drop their pending entries (optional).
-- [`orphan-blob-audit`](todo/orphan-blob-audit.md): Find blobs in the store that no row describes, and deal with them as agreed (optional).
+- [`orphan-blob-audit`](todo/orphan-blob-audit.md): Act on the store audit's list of blobs no row describes, as the owner agrees (optional).
 - [`shared-download-prune-race`](todo/shared-download-prune-race.md): Keep one message's store job from deleting the TDLib file another message's job still has to hash.
 
 ## Logging
