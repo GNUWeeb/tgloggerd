@@ -10,15 +10,12 @@ import { ApiError, mutate } from '../api/mutate.ts';
 import { ago, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
 interface PreviewChat { chat_id: number; title: string; type: string; member_count: number; username: string; is_member: boolean; needs_approval: boolean }
 interface Outcome { outcome: string; message: string; chat: PreviewChat | null }
 
-export interface JoinChatProps {
-	// Federations the viewer may file a joined group into (none: Default).
-	federations: { id: number; name: string }[];
-	recent: { at: string; by: string; ref: string; title: string; outcome: string }[];
-}
+export type JoinChatProps = S['JoinChatProps'];
 
 const OUTCOME: Record<string, [string, Tone]> = {
 	joined: ['joined', 'ok'], already_member: ['already a member', ''], request_sent: ['request sent', 'info'],

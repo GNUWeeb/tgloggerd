@@ -8,8 +8,9 @@ import { ago, dateTime, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { Cond, FieldDef, ListProps, MessageRow } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export type MessagesProps = ListProps<MessageRow> & { scope: 'group' | 'private'; archive_total?: number };
+export type MessagesProps = S['MessagesProps'];
 
 const TYPES = ['text', 'photo', 'video', 'document', 'audio', 'voice', 'sticker', 'animation', 'service'];
 const FIELDS: Record<'group' | 'private', FieldDef[]> = {

@@ -2,8 +2,9 @@
 // "Authentication"). State-changing requests carry the CSRF token in
 // X-CSRF-Token: the pre-login token from GET /api/login for signing in,
 // the session's token (the csrf-token meta tag) otherwise.
+import type { S } from './schema.ts';
 
-export interface LoginError { error: string; message?: string; csrf?: string }
+export type LoginError = S['LoginError'];
 
 export function sessionCsrf(): string {
 	return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? '';

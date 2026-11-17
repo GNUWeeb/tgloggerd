@@ -7,8 +7,9 @@ import { ago, compact, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { Cond, FieldDef, ListProps, UserSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export type UsersProps = ListProps<UserSummary> & { archive_total?: number };
+export type UsersProps = S['UsersProps'];
 
 const FIELDS: FieldDef[] = [
 	{ key: 'id', label: 'User ID', type: 'number' },

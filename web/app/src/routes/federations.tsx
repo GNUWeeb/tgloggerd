@@ -14,27 +14,13 @@ import { ago } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { GroupSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
 interface Person { id: number; username: string; name: string }
 
-export interface FederationRow {
-	id: number;
-	name: string;
-	default: boolean;
-	created: string | null;
-	// Only the groups the viewer can see; `group_count` counts them all.
-	groups: GroupSummary[];
-	group_count: number;
-	admins: Person[];
-	members: Person[];
-}
+export type FederationRow = S['FederationRow'];
 
-export interface FederationsProps {
-	federations: FederationRow[];
-	editable: boolean;
-	// Admins that may be given a federation.
-	admin_options: Person[];
-}
+export type FederationsProps = S['FederationsProps'];
 
 const pPick = (p: Person): PickItem => ({ id: p.id, title: p.name, kind: 'user' });
 

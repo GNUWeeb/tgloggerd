@@ -12,35 +12,13 @@ import { ApiError, mutate } from '../api/mutate.ts';
 import { ago } from '../format.ts';
 import type { PageData, Role } from '../page.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface Fed { id: number; name: string; default: boolean }
+export type Fed = S['Fed'];
 
-export interface AccountRow {
-	id: number;
-	username: string;
-	name: string;
-	email: string | null;
-	email_verified: boolean;
-	invited: boolean;
-	role: Role;
-	active: boolean;
-	last_signin: string | null;
-	last_superadmin: boolean;
-	admin_of: number[];
-	// Groups come with their names for the chips; saving sends ids.
-	restrict: { hide_private: boolean; hide_groups: PickItem[]; join_chat: boolean } | null;
-	grants: { fed: number; groups: PickItem[] }[];
-	abilities: string[];
-	audit: { what: string; by: string; at: string }[];
-}
+export type AccountRow = S['AccountRow'];
 
-export interface AccountsProps {
-	accounts: AccountRow[];
-	// Federations the viewer may manage, with how many groups it can see
-	// in each; the groups themselves come from the chat search.
-	federations: (Fed & { group_count: number })[];
-	all_federations: Fed[];
-}
+export type AccountsProps = S['AccountsProps'];
 
 const ROLE_ICON = { superadmin: Crown, admin: ShieldCheck, member: UserIcon } as const;
 const ROLES: [Role, string, string][] = [
@@ -48,7 +26,7 @@ const ROLES: [Role, string, string][] = [
 	['admin', 'Admin', 'Everything except what a superadmin restricts. Manages members of its federations only.'],
 	['member', 'Member', 'Only the groups granted in its federations, and the abilities given.'],
 ];
-const ABILITIES: [string, string, string][] = [
+const ABILITIES: [S['Ability'], string, string][] = [
 	['forward', 'Set up forwarding', 'Own Telegram and Discord forwarding for its granted groups.'],
 	['fetch_files', 'Fetch files from Telegram', 'Download media the archive did not store.'],
 ];

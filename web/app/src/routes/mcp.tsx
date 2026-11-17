@@ -13,10 +13,11 @@ import { ago, compact, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { GroupSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface McpIndexProps { exposed_groups: number; exposed_messages: number; active_tokens: number; last_used: string | null; endpoint: string }
-export interface McpGroupsProps { groups: { group: GroupSummary & { msg_count: number }; public_now: boolean; note: string; added: string }[] }
-export interface McpTokensProps { tokens: { id: number; name: string; owner: string; created: string; last_used: string | null; revoked: string | null }[] }
+export type McpIndexProps = S['McpIndexProps'];
+export type McpGroupsProps = S['McpGroupsProps'];
+export type McpTokensProps = S['McpTokensProps'];
 
 function errText(x: unknown) { return x instanceof ApiError ? x.message : 'The server could not be reached.'; }
 

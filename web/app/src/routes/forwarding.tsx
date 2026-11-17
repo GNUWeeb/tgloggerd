@@ -12,15 +12,16 @@ import { ApiError, mutate } from '../api/mutate.ts';
 import { ago, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-interface Person { id: number; name: string; role?: string; active?: boolean }
-interface Owned { id: number; owner: Person & { active: boolean }; federation: { id: number; name: string }; transfer_candidates: Person[] }
-export interface T2DRoute extends Owned { chat: PickItem; url_masked: string; types: string[]; enabled: boolean; sent: number; last_sent: string | null }
-export interface D2TRoute extends Owned { channel_id: string; channel_name: string; chat: PickItem; bot: string; types: string[]; enabled: boolean; sent: number }
+type Person = S['FwdPerson'];
+type Owned = S['Owned'];
+export type T2DRoute = S['T2DRoute'];
+export type D2TRoute = S['D2TRoute'];
 
-export interface ForwardingIndexProps { t2d: { active: number; total: number; sent: number }; d2t: { active: number; total: number; sent: number } }
-export interface T2DProps { routes: T2DRoute[]; federations: { id: number; name: string }[] }
-export interface D2TProps { routes: D2TRoute[]; federations: { id: number; name: string }[] }
+export type ForwardingIndexProps = S['ForwardingIndexProps'];
+export type T2DProps = S['T2DProps'];
+export type D2TProps = S['D2TProps'];
 
 const KINDS: [string, string][] = [['sticker', 'Sticker'], ['text', 'Text message'], ['photo', 'Photo'], ['video', 'Video'], ['document', 'Document'], ['other', 'Others']];
 const D2T_KINDS = KINDS.filter((k) => k[0] !== 'other');

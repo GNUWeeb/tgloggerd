@@ -9,8 +9,9 @@ import { chatPath } from './messages.tsx';
 import type { PageData } from '../page.ts';
 import type { MessageFull } from '../types.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface MessageProps { message: MessageFull }
+export type MessageProps = S['MessageProps'];
 
 function MessagePage({ page }: { page: PageData<MessageProps> }) {
 	const m = page.props.message;

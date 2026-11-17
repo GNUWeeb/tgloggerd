@@ -11,38 +11,15 @@ import { ApiError, mutate } from '../api/mutate.ts';
 import { ago, SITE_DEFAULTS } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
+import type { S } from '../api/schema.ts';
 
-export interface AccountProps {
-	account: { username: string; name: string; role: string; email: string | null; email_verified: boolean };
-	notices: string[];
-}
+export type AccountProps = S['SettingsProps'];
 
-export interface Prefs {
-	timezone?: string | null;
-	date_format?: '24h' | '12h' | 'iso' | null;
-	lang?: 'en' | 'id' | null;
-	theme?: 'system' | 'light' | 'dark' | null;
-	rows_per_page?: number | null;
-	landing?: string | null;
-	chat_auto_load?: boolean | null;
-	chat_live?: boolean | null;
-	chat_media?: 'auto' | 'click' | null;
-	chat_show_deleted?: boolean | null;
-	chat_show_edited?: boolean | null;
-	chat_show_service?: boolean | null;
-}
+export type Prefs = S['Prefs'];
 
-export interface PreferencesProps {
-	prefs: Prefs;
-	timezones: string[];
-	landing_options: [string, string][];
-	pinned: { id: number; title: string; photo: string | null }[];
-	saved_searches: { id: number; title: string; url: string }[];
-}
+export type PreferencesProps = S['PreferencesProps'];
 
-export interface SessionsProps {
-	sessions: { id: string; device: string; ip: string; place: string; started: string; last: string; current: boolean }[];
-}
+export type SessionsProps = S['SessionsProps'];
 
 function SettingsNav({ on }: { on: 'account' | 'prefs' | 'sessions' }) {
 	return (
