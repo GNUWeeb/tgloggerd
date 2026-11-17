@@ -15,7 +15,7 @@ handles Range and conditional requests natively (docs/design/web-go.md).
   Range, the daemon fetch with stored and partial answers, the TDLib
   path check, the anonymous small-files rule, access reporting,
   caching headers, the audit row; the request scope of
-  docs/design/web-accounts.md section 8 as far as it exists.
+  docs/design/web-accounts.md section 9 as far as it exists.
 - nginx routes `/files/` to the Go service; `web/docs/media.md`
   follows.
 

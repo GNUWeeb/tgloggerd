@@ -136,6 +136,7 @@ Accounts, roles and federations:
 - [`web-ownership`](todo/web-ownership.md): Record which account owns which resource, in a table built to take more relations later.
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
+- [`web-email`](todo/web-email.md): Give every account an email address for set-password links, password resets and security notices.
 - [`web-user-settings`](todo/web-user-settings.md): Keep settings per account, starting with the timezone dates are shown in.
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
 - [`go-port-mcp`](todo/go-port-mcp.md): Move the MCP endpoint to the Go service.

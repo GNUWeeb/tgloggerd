@@ -32,6 +32,11 @@ An event says what changed, never the new content:
     {"seq": 1236, "kind": "group.updated", "chat_id": -100...}
     {"seq": 1237, "kind": "stats.changed", "chat_ids": [...], "user_ids": [...]}
 
+`file.stored` carries `{file_id, chat_id, message_id}` (the message
+when the file is message media). `user.updated` and `group.updated`
+may carry `fields: [...]` naming what changed, so a client can skip a
+refetch.
+
 Kinds: `message.new`, `message.edited`, `message.deleted`,
 `user.updated` (name, username, photo, bio, contact name),
 `group.updated` (title, photo, description, usernames, admins),
@@ -49,7 +54,25 @@ Kinds: `message.new`, `message.edited`, `message.deleted`,
 - The daemon emits after the row is committed, from the worker that
   writes it, so a refetch always finds the change.
 
-## 4. Resuming
+## 4. To the browser
+
+The client side is specified in [web-live-client.md](web-live-client.md)
+(the React application's design). The server side it needs:
+
+- Server-Sent Events framing: `id:` is the seq, `event:` the kind,
+  `data:` the JSON; a `retry:` value; a comment line as heartbeat about
+  every 15 seconds.
+- Topics: `GET /api/events?topics=chat:<id>,user:<id>,group:<id>,messages,stats&last=<seq>`,
+  filtered by topic and by access.
+- A `session` event (`scope_changed`, `revoked`) before the server
+  closes a stream whose access changed.
+- A batch endpoint, `GET /api/entities?users=..&groups=..`, returning
+  display fields and counters of what the viewer may see and silently
+  dropping the rest.
+- HTTP/2 between nginx and browsers, so one stream per tab does not
+  exhaust HTTP/1.1's per-host connection limit.
+
+## 5. Resuming
 
 - The daemon keeps recent events in memory; the Go service reconnects
   with its last `seq` and gets what it missed. Further back, it tells

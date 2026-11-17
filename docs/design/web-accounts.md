@@ -130,7 +130,29 @@ One key-value table of known keys, so a new setting is cheap:
 
 Later: TOTP two-factor sign-in, per-user MCP tokens.
 
-## 8. Enforcement
+## 8. Email
+
+Every account has an email address.
+
+- A new account gets a one-time set-password link by email (it expires
+  after a configured time); no password is ever sent by email, and the
+  administrator never sees it. The same link mechanism resets a
+  forgotten password.
+- Addresses are verified by a link before they are used for resets or
+  notices. Changing an address notifies the old one.
+- Accounts that have no address yet (today's) must add and verify one
+  right after their next sign-in, before using the dashboard.
+- Security notices, always sent: password changed or reset, address
+  changed (also to the old address), sign-in from a new device, account
+  disabled, role changed.
+- Mail goes out through an SMTP relay (STARTTLS or TLS), configured in
+  the environment (host, port, user, password, sender); nothing in the
+  code is provider-specific. Sending is asynchronous with retries and
+  never blocks a request; every message sent is logged without its
+  links.
+- Links are single-use, stored only as hashes, and expire.
+
+## 9. Enforcement
 
 Visibility is enforced in the database queries, through one scope
 object built per request from the account (role, federations,

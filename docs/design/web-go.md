@@ -88,7 +88,7 @@ exposed through MCP); React then takes over in the browser.
    render service's container.
 4. The accounts work of web-accounts.md, built in Go from the start.
 5. Ports of the existing features, each enforcing the request scope of
-   web-accounts.md section 8: media serving, search, chat API, user and
+   web-accounts.md section 9: media serving, search, chat API, user and
    group pages' data, administration (forwarding, Join chat, contact
    lookup, MCP administration), then the MCP endpoint.
 6. Drogon retired once the React application covers every page and

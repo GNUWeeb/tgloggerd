@@ -15,11 +15,12 @@ multi-user dashboard (docs/design/web-accounts.md).
   forced password change, created_by. Today's `admin` becomes
   superadmin, `viewer` becomes member.
 - Accounts administration and its JSON API (CSRF on writes): create
-  with a temporary password and optional forced change, edit, disable,
+  (with an email address; the set-password link comes with
+  web-email), edit, disable,
   reset password, sign out everywhere (session_epoch).
 - Who may manage whom (web-accounts.md section 2); the last active
   superadmin cannot be disabled or demoted; every change audited.
-- The request scope object of web-accounts.md section 8, with roles
+- The request scope object of web-accounts.md section 9, with roles
   only for now (later items add federations, restrictions, grants).
 - `web/docs/` in the same commits.
 - Not in scope: federations, restrictions, member grants, ownership.
