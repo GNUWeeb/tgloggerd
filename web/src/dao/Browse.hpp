@@ -86,12 +86,14 @@ drogon::Task<std::optional<nlohmann::json>> getMessage(drogon::orm::DbClientPtr 
 
 /* Metadata needed to locate and serve a stored file. */
 struct FileMeta {
-	std::string hex;       /* lower-case hex of the SHA-256 digest.      */
+	std::string hex;       /* lower-case SHA-256 hex; "" = never seen.   */
 	std::string ext;       /* file extension without a dot, or empty.    */
 	std::string fileType;  /* "photo", "video", "document", ...          */
 	std::string origName;  /* original Telegram file name, or empty.     */
 	uint64_t    size;      /* file size in bytes.                        */
-	bool        onDisk;    /* false = metadata-only (too large to store).*/
+	bool        onDisk;    /* false = bytes not in the store.            */
+	uint64_t    aliasOf;   /* row holding the same bytes, or 0 if none.  */
+	std::string accessedAt; /* last use, "YYYY-MM-DD HH:MM:SS".          */
 };
 
 /*

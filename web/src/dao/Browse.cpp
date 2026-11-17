@@ -1026,20 +1026,23 @@ drogon::Task<std::optional<FileMeta>> getFile(drogon::orm::DbClientPtr db,
 {
 	std::string q =
 		"SELECT LOWER(HEX(sha256)) AS hex, file_ext, file_type, "
-		"orig_file_name, file_size, on_disk FROM telegram_files WHERE id = ?";
+		"orig_file_name, file_size, on_disk, alias_of, accessed_at "
+		"FROM telegram_files WHERE id = ?";
 	auto r = co_await db->execSqlCoro(q, id);
 	if (r.empty())
 		co_return std::nullopt;
 
 	const auto &row = r[0];
 	FileMeta f;
-	f.hex      = row["hex"].as<std::string>();
+	f.hex      = row["hex"].isNull() ? "" : row["hex"].as<std::string>();
 	f.ext      = row["file_ext"].isNull() ? "" : row["file_ext"].as<std::string>();
 	f.fileType = row["file_type"].as<std::string>();
 	f.origName = row["orig_file_name"].isNull()
 			     ? "" : row["orig_file_name"].as<std::string>();
 	f.size     = row["file_size"].as<uint64_t>();
 	f.onDisk   = row["on_disk"].as<int>() != 0;
+	f.aliasOf  = row["alias_of"].isNull() ? 0 : row["alias_of"].as<uint64_t>();
+	f.accessedAt = row["accessed_at"].as<std::string>();
 	co_return f;
 }
 
