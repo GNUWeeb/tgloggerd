@@ -8,6 +8,8 @@
 //                                 (remembered in a cookie)
 //   ?ssr=0                        skip server rendering, as when the render service is down
 //
+// POST /api/_standin/reset puts the fixtures back as loaded.
+//
 // Live updates: GET /api/events is a Server-Sent Events stream as
 // web-live.md specifies. Events come from POST /api/_standin/emit
 // {kind, chat_id?, message_id?, user_id?}, which also makes the change
@@ -19,9 +21,22 @@ import { createServer as createHttp, type IncomingMessage, type ServerResponse }
 import { createServer as createVite } from 'vite';
 import { documentHtml } from './document.ts';
 
-const PORT = Number(process.env.PORT) || 5173;
+// PORT=0 picks a free port (the browser tests start one stand-in per
+// worker). TGD_STANDIN_TEST=<worker> runs hot reload over this server
+// instead of Vite's fixed port, which two stand-ins cannot share, and
+// gives each worker its own Vite cache, reused by the next run.
+const PORT = process.env.PORT !== undefined ? Number(process.env.PORT) : 5173;
+const TEST = !!process.env.TGD_STANDIN_TEST;
+const server = createHttp((req, res) => {
+	handle(req, res).catch((e) => {
+		console.error(e);
+		res.writeHead(500, { 'content-type': 'text/plain' });
+		res.end(String(e));
+	});
+});
 const vite = await createVite({
-	server: { middlewareMode: true, fs: { allow: ['..'] } },
+	server: { middlewareMode: true, fs: { allow: ['..'] }, hmr: TEST ? { server } : true },
+	...(TEST ? { cacheDir: `node_modules/.vite-standin-${process.env.TGD_STANDIN_TEST}`, logLevel: 'warn' as const } : {}),
 	appType: 'custom',
 });
 
@@ -239,6 +254,20 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		send(res, 200, await publish(e));
 		return;
 	}
+	// Back to the fixtures as loaded: every module is evaluated afresh on
+	// its next use, and the stand-in's own state is cleared. The browser
+	// tests call it before each test.
+	if (url.pathname === '/api/_standin/reset' && req.method === 'POST') {
+		for (const env of Object.values(vite.environments)) env.moduleGraph.invalidateAll();
+		for (const c of liveClients) c.res.end();
+		liveClients.clear();
+		liveRing.length = 0;
+		liveOff = false;
+		csrfTokens.clear();
+		csrfTokens.add('standin-csrf');
+		send(res, 200, { reset: true });
+		return;
+	}
 	if (url.pathname === '/api/_standin/events' && req.method === 'POST') {
 		liveOff = !!JSON.parse((await readBody(req)) || '{}').off;
 		if (liveOff) for (const c of liveClients) c.res.end();
@@ -306,10 +335,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 	res.end(doc);
 }
 
-createHttp((req, res) => {
-	handle(req, res).catch((e) => {
-		console.error(e);
-		res.writeHead(500, { 'content-type': 'text/plain' });
-		res.end(String(e));
-	});
-}).listen(PORT, '0.0.0.0', () => console.log(`stand-in on :${PORT}`));
+server.listen(PORT, TEST ? '127.0.0.1' : '0.0.0.0', () => {
+	const a = server.address();
+	console.log(`stand-in on :${typeof a === 'object' && a ? a.port : PORT}`);
+});
