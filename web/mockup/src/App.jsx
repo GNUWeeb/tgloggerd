@@ -13,6 +13,7 @@ import { McpIndex, McpGroups, McpTokens } from './pages/Mcp.jsx';
 import { Settings, Login } from './pages/Account.jsx';
 import Accounts from './pages/Accounts.jsx';
 import Federations from './pages/Federations.jsx';
+import JoinChat from './pages/JoinChat.jsx';
 import { useQuery } from './router.jsx';
 import NotFound from './pages/NotFound.jsx';
 import { ViewerProvider, useViewer, allowed, PersonaSwitcher } from './viewer.jsx';
@@ -38,6 +39,7 @@ const ROUTES = [
 	[/^\/platform-fwd$/, 'platform_fwd', () => <ForwardingIndex />],
 	[/^\/platform-fwd\/telegram-discord$/, 'platform_fwd', () => <TelegramDiscord />],
 	[/^\/platform-fwd\/discord-telegram$/, 'platform_fwd', () => <DiscordTelegram />],
+	[/^\/join-chat$/, 'join_chat', () => <JoinChat />],
 	[/^\/mcp-admin$/, 'mcp', () => <McpIndex />],
 	[/^\/mcp-admin\/groups$/, 'mcp', () => <McpGroups />],
 	[/^\/mcp-admin\/tokens$/, 'mcp', () => <McpTokens />],

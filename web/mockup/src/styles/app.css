@@ -567,3 +567,17 @@
 .app .a-fedgroups { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .app a.a-chip:hover { color: var(--accent-text); }
 @media (max-width: 860px) { .app .a-fedgrid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- ownership ---- */
+.app .a-ownercell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.app .a-people { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; }
+.app .a-people li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
+.app .a-people li > .a-grow { display: flex; flex-direction: column; }
+.app .a-select { height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 0 10px; width: 100%; color: var(--fg); }
+
+.app .a-joinprev { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; }
+.app .a-joinprev .a-grow { display: flex; flex-direction: column; gap: 2px; }
+.app .a-joinprev svg { vertical-align: -2px; }
+.app .a-joint { font-size: 16px; }
+.app .a-audit .a-minw { display: flex; flex-direction: column; }
+.app .a-urlcell { max-width: 200px; }
