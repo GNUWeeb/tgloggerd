@@ -122,6 +122,26 @@ struct MessageFileLink {
 };
 
 /*
+ * A chat file recorded without downloading it (storage-cache.md section 6):
+ * it comes from a chat the account is not a member of, or its known size is
+ * at or over the per-file cap. The receiver records the row by unique id
+ * (DB::upsertFileMeta) and links it like a MessageFileLink, or, with
+ * is_group_photo, as chat_id's group photo (message_id is then unused).
+ */
+struct FileMeta {
+	int64_t		chat_id;
+	int64_t		message_id;
+	bool		is_group;
+	bool		is_link_preview = false; /* see MessageFile */
+	bool		is_group_photo = false;
+	std::string	tg_file_id;	/* remote id */
+	std::string	tg_unique_id;	/* remote unique id; empty if unknown */
+	int64_t		file_size;	/* 0 if unknown */
+	std::string	content_type;	/* telegram_files.file_type */
+	std::string	orig_file_name;	/* original Telegram name; empty if none */
+};
+
+/*
  * A reply relationship: message (chat_id, message_id) replies to
  * message reply_to_msg_id in the same chat. is_group selects the table.
  * Emitted only after the replied message has been saved.
@@ -282,6 +302,22 @@ public:
 	 */
 	void setMessageFileLinkHandler(
 		std::function<void(const MessageFileLink &)> cb);
+
+	/*
+	 * Set the callback invoked for a chat file recorded without its bytes
+	 * (see FileMeta and setMediaPolicy). Without it every file is
+	 * downloaded. Runs on the loop thread; keep DB writes off it.
+	 */
+	void setFileMetaHandler(std::function<void(const FileMeta &)> cb);
+
+	/*
+	 * When to record a chat file (message attachment, link preview image,
+	 * group photo) without downloading it: skip_nonmember for every file
+	 * of a chat the account is not a member of; max_store_file_size, if
+	 * not 0, for every file whose known size is at least that. User
+	 * profile photos are always downloaded. Must be called before loop().
+	 */
+	void setMediaPolicy(bool skip_nonmember, uint64_t max_store_file_size);
 
 	/*
 	 * Set the callback invoked to link a message to the one it replies

@@ -202,6 +202,14 @@ int TgLoggerd::start(void)
 		 (unsigned long long)max_store_file_size_);
 
 	/*
+	 * Media from chats the account is not a member of (reached by the
+	 * backfiller, reply resolution and edits) is recorded without its
+	 * bytes; the messages themselves are still logged. On by default.
+	 */
+	skip_nonmember_media_ = env("TG_SKIP_NONMEMBER_MEDIA", "1") != "0";
+	pr_debug(l_, "skip_nonmember_media: %d", (int)skip_nonmember_media_);
+
+	/*
 	 * Seed the tg_file_id -> telegram_files.id index so the loop thread can link a
 	 * message to a file we already recorded instead of re-downloading it.
 	 */
@@ -478,6 +486,24 @@ int TgLoggerd::start(void)
 			}
 		});
 	});
+	/*
+	 * Files recorded without their bytes (non-member chats, over the size
+	 * cap): upsert and link on serial_, after the message row was written
+	 * and off the loop thread, exactly like an index hit.
+	 */
+	tdlib_->setMediaPolicy(skip_nonmember_media_, max_store_file_size_);
+	tdlib_->setFileMetaHandler([this](const FileMeta &m) {
+		serial_->post([this, m] {
+			try {
+				onFileMeta(m);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to record file metadata"
+					 " chat_id=%lld msg_id=%lld: %s",
+					 (long long)m.chat_id,
+					 (long long)m.message_id, e.what());
+			}
+		});
+	});
 	tdlib_->setMessageReplyHandler([this](const MessageReply &mr) {
 		serial_->post([this, mr] {
 			try {
@@ -717,6 +743,53 @@ void TgLoggerd::onMessageFileLink(const MessageFileLink &lk)
 
 	if (discord_)
 		discord_->on_media_stored(lk.chat_id, lk.message_id, lk.file_id);
+}
+
+/*
+ * Record a file without its bytes (see FileMeta) and link it. Runs on
+ * serial_. The index learns the row, so later messages with the same file
+ * link it without a download or a DB lookup.
+ */
+void TgLoggerd::onFileMeta(const FileMeta &m)
+{
+	models::File f;
+	f.tg_file_id = m.tg_file_id;
+	f.tg_unique_id = m.tg_unique_id;
+	f.file_type = m.content_type;
+	f.file_size = (uint64_t)(m.file_size < 0 ? 0 : m.file_size);
+	f.orig_file_name = m.orig_file_name;
+	f.on_disk = false;
+	/* No local path to take an extension from: use the original name's,
+	 * if it fits the column (VARCHAR(10)). */
+	std::string ext = fs::path(m.orig_file_name).extension().string();
+	if (!ext.empty() && ext[0] == '.')
+		ext.erase(0, 1);
+	std::transform(ext.begin(), ext.end(), ext.begin(),
+		       [](unsigned char c) { return (char)std::tolower(c); });
+	if (!ext.empty() && ext.size() <= 10)
+		f.file_ext = ext;
+
+	models::KnownFile k = db_->upsertFileMeta(f);
+	{
+		std::lock_guard<std::mutex> lk(known_files_mtx_);
+		known_files_[m.tg_file_id] = k;
+	}
+
+	pr_info(l_, "Recorded file without its bytes | tg_file_id=%s"
+		" unique_id=%s size=%lld file_id=%llu%s", m.tg_file_id.c_str(),
+		m.tg_unique_id.c_str(), (long long)m.file_size,
+		(unsigned long long)k.id, k.meta_only ? "" : " (stored)");
+
+	if (m.is_group_photo) {
+		db_->setGroupPhoto(m.chat_id, k.id);
+		pr_info(l_, "Linked group photo (metadata only) | group_id=%lld"
+			" file_id=%llu", (long long)m.chat_id,
+			(unsigned long long)k.id);
+		return;
+	}
+	onMessageFileLink(MessageFileLink{ m.chat_id, m.message_id,
+					   m.is_group, m.is_link_preview,
+					   k.id });
 }
 
 std::optional<uint64_t>

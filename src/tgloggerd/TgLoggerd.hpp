@@ -41,6 +41,7 @@ private:
 	void onGroupPhoto(const GroupPhoto &p);
 	void onMessageFile(const MessageFile &m);
 	void onMessageFileLink(const MessageFileLink &lk);
+	void onFileMeta(const FileMeta &m);
 
 	uint32_t api_id_;
 	char api_hash_[64];
@@ -54,6 +55,8 @@ private:
 	 * re-downloadable by tg_file_id); 0 disables the limit. Default 1 GiB.
 	 */
 	uint64_t max_store_file_size_ = 1073741824ULL;
+	/* Record media from non-member chats without its bytes. */
+	bool skip_nonmember_media_ = true;
 	/*
 	 * In-memory tg_file_id -> telegram_files row index. Lets the loop
 	 * thread decide, without a DB round-trip, that a message's file is
