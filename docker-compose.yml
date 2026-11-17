@@ -98,6 +98,24 @@ services:
       tgnet:
         ipv4_address: 10.0.88.6
 
+  # The Go web service: the JSON API under /api/, beside the web service it
+  # is replacing feature by feature (webapi/README). It reads the same
+  # WEB_DB_* settings and applies no migrations.
+  webapi:
+    <<: *build
+    container_name: tgloggerd-webapi
+    restart: unless-stopped
+    depends_on: [mysql]
+    command: [webapi]
+    env_file: .env
+    volumes:
+      - .:/workspace
+    # Not published to the host; nginx reaches it on http://10.0.88.7:8081
+    # (WEBAPI_LISTEN_PORT) over the tgnet network.
+    networks:
+      tgnet:
+        ipv4_address: 10.0.88.7
+
 networks:
   tgnet:
     driver: bridge

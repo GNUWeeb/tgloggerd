@@ -38,8 +38,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	&& rm -rf /var/lib/apt/lists/*
 
 # golang-migrate applies the SQL migrations on container start. The release
-# tarball's binary already bundles the MySQL driver, so no Go toolchain is
-# needed in the image.
+# tarball's binary already bundles the MySQL driver, so it is not built
+# from source.
 ARG MIGRATE_VERSION=v4.18.1
 RUN set -eux; \
 	wget -qO /tmp/migrate.tgz \
@@ -50,6 +50,23 @@ RUN set -eux; \
 	chmod +x /usr/local/bin/migrate; \
 	rm -rf /tmp/migrate /tmp/migrate.tgz; \
 	migrate -version
+
+# The Go toolchain builds the Go web service (webapi/) on container start,
+# the way the C++ components are built. The version is pinned and the
+# tarball checked against the checksum go.dev/dl publishes for it, so a
+# rebuilt image gets the same compiler. GOTOOLCHAIN=local keeps the go
+# command from downloading another toolchain when a go.mod asks for a
+# newer one: the build fails instead, and the pin here is raised.
+ARG GO_VERSION=1.27.4
+ARG GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+RUN set -eux; \
+	wget -qO /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"; \
+	echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c -; \
+	tar -xzf /tmp/go.tgz -C /usr/local; \
+	rm -f /tmp/go.tgz; \
+	/usr/local/go/bin/go version
+ENV PATH="/usr/local/go/bin:${PATH}" \
+	GOTOOLCHAIN=local
 
 # The repository is bind-mounted here at run time; run.sh lives at its root.
 WORKDIR /workspace
