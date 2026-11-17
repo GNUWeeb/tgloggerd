@@ -190,6 +190,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 			send(res, 200, { prefs: st.prefs }); return;
 		}
 		if ((am = p.match(/^pinned\/(-?\d+)$/)) && req.method === 'DELETE') { st.pinned = st.pinned.filter((g: { id: number }) => String(g.id) !== am![1]); res.writeHead(204); res.end(); return; }
+		if ((am = p.match(/^pinned\/(-?\d+)$/)) && req.method === 'PUT') {
+			const g = fx.groupFor(who, am[1]);
+			if (!g) { send(res, 404, { error: 'not_found' }); return; }
+			if (!st.pinned.some((x: { id: number }) => x.id === g.id)) st.pinned.push(g);
+			res.writeHead(204); res.end(); return;
+		}
 		if ((am = p.match(/^saved-searches\/(\d+)$/)) && req.method === 'DELETE') { st.saved = st.saved.filter((x: { id: number }) => String(x.id) !== am![1]); res.writeHead(204); res.end(); return; }
 		if ((am = p.match(/^sessions\/(\w+)$/)) && req.method === 'DELETE') { st.sessions = st.sessions.filter((x: { id: string; current: boolean }) => x.current || x.id !== am![1]); res.writeHead(204); res.end(); return; }
 		if (p === 'sessions/sign-out-others' && req.method === 'POST') { st.sessions = st.sessions.filter((x: { current: boolean }) => x.current); res.writeHead(204); res.end(); return; }
