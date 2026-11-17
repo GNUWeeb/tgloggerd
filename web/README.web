@@ -75,6 +75,22 @@ Change the WEB_DB_RO_PASSWORD / WEB_DB_APP_PASSWORD values in .env before
 the first `docker compose up -d mysql`; they are baked in when the data
 directory is initialized and are not re-applied on later starts.
 
+web_ro also gets write access to the few logger tables the admin pages
+manage (telegram_discord_webhooks, discord_telegram_routes, telegram_bots,
+and INSERT/DELETE only on telegram_public_groups). Those grants cannot be
+given at initialization: the tables do not exist until the daemon's
+migrations create them, and MySQL refuses a table-level GRANT on a missing
+table. So the daemon container applies docker/mysql/web-grants.sql after
+its migrations on every start, as MySQL root with MYSQL_ROOT_PASSWORD from
+.env over TCP (the image's default root@'%'). GRANT only adds privileges,
+so later starts change nothing; migrate records the step in the
+web_grants_version table of the web database. If it fails (a root password
+in .env that no longer matches, root limited to localhost by
+MYSQL_ROOT_HOST), the daemon still starts and logs a warning, and those
+pages fail with "command denied" until the grants are applied. A new
+logger table the web writes to gets its GRANT in web-grants.sql, in the
+same change as the migration that creates it.
+
 # First administrator
 
 Create (or reset) the first admin — it prompts for the password twice:

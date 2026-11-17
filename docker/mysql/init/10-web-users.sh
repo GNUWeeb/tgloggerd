@@ -8,6 +8,9 @@
 # empty, and after it has created MYSQL_DATABASE / MYSQL_USER. On later starts
 # the data directory already exists, so this does not run again and the
 # accounts keep whatever they were first initialized with.
+#
+# Only grants that need no logger table are given here; the table-level ones
+# follow the daemon's migrations (docker/mysql/web-grants.sql, run.sh).
 set -euo pipefail
 
 : "${MYSQL_ROOT_PASSWORD:?}" "${MYSQL_DATABASE:?}"
@@ -22,22 +25,10 @@ CREATE DATABASE IF NOT EXISTS \`${WEB_DB_APP_NAME}\`
 CREATE USER IF NOT EXISTS '${WEB_DB_RO_USER}'@'%' IDENTIFIED BY '${WEB_DB_RO_PASSWORD}';
 GRANT SELECT ON \`${MYSQL_DATABASE}\`.* TO '${WEB_DB_RO_USER}'@'%';
 
--- The web app manages the Discord webhook integrations, which live in the
--- logger's schema; grant it write access to just that one table (the read-only
--- boundary otherwise holds). The GRANT may precede the table's creation.
-GRANT INSERT, UPDATE, DELETE ON \`${MYSQL_DATABASE}\`.telegram_discord_webhooks TO '${WEB_DB_RO_USER}'@'%';
-
--- The same for the opposite direction: /routes manages the Discord -> Telegram
--- forwarding routes and the bot credentials they send through. telegram_bots
--- holds bot TOKENS, so this grant is the reason that table is never SELECTed
--- for display -- see web/src/dao/Routes.hpp.
-GRANT INSERT, UPDATE, DELETE ON \`${MYSQL_DATABASE}\`.discord_telegram_routes TO '${WEB_DB_RO_USER}'@'%';
-GRANT INSERT, UPDATE, DELETE ON \`${MYSQL_DATABASE}\`.telegram_bots TO '${WEB_DB_RO_USER}'@'%';
-
--- The MCP exposure allowlist, managed from the admin UI. Rows are added and
--- removed, never updated, so UPDATE is deliberately not granted -- this table
--- decides what leaves the archive, and a narrower grant is worth the pedantry.
-GRANT INSERT, DELETE ON \`${MYSQL_DATABASE}\`.telegram_public_groups TO '${WEB_DB_RO_USER}'@'%';
+-- The table-level write grants on logger tables cannot be given here: those
+-- tables do not exist until the daemon's migrations run, and MySQL refuses a
+-- table-level GRANT on a missing table. run.sh applies them after the
+-- migrations, from docker/mysql/web-grants.sql.
 
 -- Read-write over the web app's own schema (accounts, audit). ALL is needed to
 -- run the web migrations; at run time the app performs only DML.
