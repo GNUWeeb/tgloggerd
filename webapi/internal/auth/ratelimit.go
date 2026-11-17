@@ -18,14 +18,24 @@ import (
 //
 // The state is in this process only, as in the Drogon web, so each
 // service throttles on its own.
+//
+// The keys come from requests, so their number is bounded: expired
+// entries are swept once per window, and when MaxRateLimitKeys keys
+// are still in their window, a new failure replaces the entry whose
+// window started first.
 type RateLimiter struct {
-	max    int
-	window time.Duration
-	now    func() time.Time
+	max     int
+	window  time.Duration
+	now     func() time.Time
+	maxKeys int
 
-	mu      sync.Mutex
-	entries map[string]rlEntry
+	mu        sync.Mutex
+	entries   map[string]rlEntry
+	lastSweep time.Time
 }
+
+// MaxRateLimitKeys is the most keys a RateLimiter keeps.
+const MaxRateLimitKeys = 10000
 
 type rlEntry struct {
 	count int
@@ -36,7 +46,7 @@ type rlEntry struct {
 // the C++ reads it into an unsigned size, never limits.
 func NewRateLimiter(max int, window time.Duration) *RateLimiter {
 	return &RateLimiter{max: max, window: window, now: time.Now,
-		entries: map[string]rlEntry{}}
+		maxKeys: MaxRateLimitKeys, entries: map[string]rlEntry{}}
 }
 
 func (l *RateLimiter) expired(e rlEntry, now time.Time) bool {
@@ -68,6 +78,9 @@ func (l *RateLimiter) RecordFailure(key string) {
 
 	e, ok := l.entries[key]
 	if !ok || l.expired(e, now) {
+		if !ok {
+			l.makeRoom(now)
+		}
 		l.entries[key] = rlEntry{count: 1, start: now}
 		return
 	}
@@ -80,4 +93,30 @@ func (l *RateLimiter) Reset(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.entries, key)
+}
+
+// makeRoom keeps the map bounded before a new key is added: it drops
+// expired entries at most once per window, and if the map is still
+// full, the entry whose window started first. Called with mu held.
+func (l *RateLimiter) makeRoom(now time.Time) {
+	if now.Sub(l.lastSweep) >= l.window || len(l.entries) >= l.maxKeys {
+		for k, e := range l.entries {
+			if l.expired(e, now) {
+				delete(l.entries, k)
+			}
+		}
+		l.lastSweep = now
+	}
+	if len(l.entries) < l.maxKeys {
+		return
+	}
+	var oldest string
+	var start time.Time
+	first := true
+	for k, e := range l.entries {
+		if first || e.start.Before(start) {
+			oldest, start, first = k, e.start, false
+		}
+	}
+	delete(l.entries, oldest)
 }
