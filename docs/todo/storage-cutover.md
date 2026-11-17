@@ -33,7 +33,6 @@ step needs care, and the last one needs the owner's go.
 
 ## Depends on
 
-- `files-cache-schema`
 - `tdlib-cross-thread-request`
 - `chat-membership-tracking`
 - `media-record-without-download`

@@ -36,7 +36,6 @@ it (TDLib's temp dir reached 13 GiB during one sweep).
 
 ## Depends on
 
-- `files-cache-schema`
 - `chat-membership-tracking`
 
 ## Done when
