@@ -1,0 +1,32 @@
+tgloggerd web application
+=========================
+
+The React application behind the tgloggerd web UI. Pages are rendered
+to HTML on the server and then taken over by the browser; the design
+is in ../../docs/design/web-ssr.md (server rendering and the render
+protocol) and ../../docs/design/web-live-client.md (live updates). The
+visual design comes from ../mockup.
+
+  - The Go service (webapi/) authenticates, applies access rules, loads
+    each page's data and serves the API under /api/.
+  - The render service in server/ is a small Node process that turns a
+    page's route and data into HTML for the Go service, over a Unix
+    socket. It has no database access, cookies or secrets.
+  - The browser bundle (src/entry-client.tsx) hydrates that HTML and
+    navigates without reloads, fetching page data from /api/page/.
+
+Everything runs through Docker; nothing but Docker is needed on the
+host:
+
+    ./dev npm ci
+    ./dev npm run typecheck
+    ./dev npm test
+    ./dev npm run build
+
+`npm run build` writes the client bundle to dist/client (content-hashed
+files and the manifest the Go service reads) and the render entry to
+dist/server. TGD_BUILD sets the build id both carry.
+
+The API client is generated from the Go service's OpenAPI description
+into src/api/generated/ by `npm run gen:api`; until that description
+exists the directory is empty.

@@ -1,0 +1,149 @@
+import { BadgeCheck, MessageCircle, Type, AtSign, Quote, Phone, Image, Languages, Hash, CalendarDays, Contact, History as HistoryIcon } from 'lucide-react';
+import { useState } from 'react';
+import Shell from '../ui/Shell.tsx';
+import { Link } from '../nav.tsx';
+import { Avatar, Btn, Card, KV, Pill, Stat, Tabs, Empty } from '../ui/primitives.tsx';
+import { Flags, Sparkline, userFlags } from '../ui/bits.tsx';
+import { ago, dateTime, fmt } from '../format.ts';
+import type { PageData, Viewer } from '../page.ts';
+import type { GroupSummary, HistoryEntry, UserSummary } from '../types.ts';
+import type { RouteDef } from './index.tsx';
+
+export interface UserFull extends UserSummary {
+	first_name: string;
+	last_name: string;
+	bio: string;
+	phone: string;
+	usernames: { username: string; active: boolean }[];
+}
+
+// Full-access viewers get the profile; a member gets only the groups it
+// shares with the person (`limited`), web-accounts.md section 5.
+export type UserProps =
+	| { limited?: false; user: UserFull; groups: (GroupSummary & { msgs: number })[]; history: HistoryEntry[]; activity: number[]; can_private: boolean }
+	| { limited: true; user: UserSummary; shared_groups: GroupSummary[] };
+
+const KIND = {
+	name: [Type, 'Name changed'], username: [AtSign, 'Username'], bio: [Quote, 'Bio changed'],
+	phone: [Phone, 'Phone changed'], photo: [Image, 'Profile photo'],
+} as const;
+
+function HistItem({ e, v }: { e: HistoryEntry; v: Viewer }) {
+	const [I, title] = KIND[e.kind];
+	let body;
+	if (e.kind === 'photo') body = e.removed || !e.photo ? <span className="a-muted">Photo removed</span> : <img className="a-tl-photo" src={e.photo} alt="" width={72} height={72} />;
+	else if (e.kind === 'username') body = <span className={e.action === 'removed' ? 'strike' : ''}>@{e.detail}</span>;
+	else body = e.detail || <span className="a-muted">(cleared)</span>;
+	return (
+		<li className={`a-tl ${e.kind === 'username' ? 'a-tl-accent' : e.kind === 'photo' ? 'a-tl-info' : ''}`}>
+			<span className="a-tl-icon"><I size={14} /></span>
+			<div className="a-tl-body">
+				<div className="a-tl-title"><span>{e.kind === 'username' ? `Username ${e.action}` : title}</span><time className="a-muted a-tl-time" dateTime={e.at}>{dateTime(e.at, v)}</time></div>
+				<div className="a-tl-val">{body}</div>
+			</div>
+		</li>
+	);
+}
+
+function Limited({ page }: { page: PageData<Extract<UserProps, { limited: true }>> }) {
+	const { user: u, shared_groups } = page.props;
+	return (
+		<Shell crumbs={[['Users', '/users'], [u.name, null]]}>
+			<div className="a-profilehead">
+				<Avatar id={u.id} name={u.name} photo={u.photo} size={64} />
+				<div className="a-ph-main"><h1>{u.name}</h1><div className="a-ph-meta">{u.username && <span>@{u.username}</span>}</div></div>
+			</div>
+			<Card title="In your groups">
+				<ul className="a-groups">
+					{shared_groups.map((g) => (
+						<li key={g.id}><Avatar id={g.id} name={g.title} photo={g.photo} size={28} square /><Link to={`/groups/${g.id}`} className="a-grow a-rowlink">{g.title}</Link></li>
+					))}
+				</ul>
+			</Card>
+		</Shell>
+	);
+}
+
+function UserPage({ page }: { page: PageData<UserProps> }) {
+	const p = page.props;
+	if (p.limited) return <Limited page={page as PageData<Extract<UserProps, { limited: true }>>} />;
+	return <Full page={page as PageData<Extract<UserProps, { limited?: false }>>} tab={page.route === 'user_history' ? 'history' : 'user'} />;
+}
+
+function Full({ page, tab }: { page: PageData<Extract<UserProps, { limited?: false }>>; tab: 'user' | 'history' }) {
+	const { user: u, groups, history, activity, can_private } = page.props;
+	const v = page.viewer;
+	const [kind, setKind] = useState<'all' | HistoryEntry['kind']>('all');
+	const shown = kind === 'all' ? history : history.filter((e) => e.kind === kind);
+	const base = `/users/${u.id}`;
+	const crumbs: [string, string | null][] = [['Users', '/users'], [u.name, tab === 'history' ? base : null]];
+	if (tab === 'history') crumbs.push(['History', null]);
+	return (
+		<Shell crumbs={crumbs}>
+			<div className="a-profilehead">
+				<Avatar id={u.id} name={u.name} photo={u.photo} size={64} deleted={u.type === 'deleted'} />
+				<div className="a-ph-main">
+					<h1>{u.name} {u.is_verified && <BadgeCheck size={18} className="a-verified" aria-label="verified" />}</h1>
+					<div className="a-ph-meta">
+						{u.username && <span>@{u.username}</span>}
+						<span className="mono">{u.id}</span>
+						{u.contact_name && <span className="a-contactlabel" title="The name the logging account saved this contact under"><Contact size={13} />saved as {u.contact_name}</span>}
+						<Flags flags={userFlags(u)} />
+					</div>
+				</div>
+				{can_private && <div className="a-head-actions"><Btn primary to={`${base}/chat`} icon={MessageCircle}>Private chat</Btn></div>}
+			</div>
+			<Tabs items={[['Overview', base, tab === 'user'], ['History', `${base}/history`, tab === 'history', history.length]]} />
+			{tab === 'user' ? (
+				<div className="a-overview">
+					<div className="a-stats">
+						<Stat label="Messages" value={fmt(u.msg_count ?? 0)} />
+						<Stat label="Groups" value={groups.length} />
+						{u.created_at && <Stat label="First seen" value={ago(u.created_at, v)} sub={dateTime(u.created_at, v)} />}
+						<div className="a-card a-stat a-stat-spark"><span className="a-muted">Last 30 days</span><b className="num">{fmt(activity.reduce((a, b) => a + b, 0))}</b><span className="a-spark"><Sparkline data={activity} /></span></div>
+					</div>
+					<div className="a-cols">
+						<Card title="Details">
+							<KV rows={[
+								[Type, 'First name', u.first_name], [Type, 'Last name', u.last_name],
+								[AtSign, 'Usernames', u.usernames.length ? u.usernames.map((n) => <Pill key={n.username} tone={n.active ? 'accent' : 'muted'}>@{n.username}</Pill>) : ''],
+								[Quote, 'Bio', u.bio], [Phone, 'Phone', u.phone, true], [Languages, 'Language', u.language ?? ''],
+								[Hash, 'User ID', u.id, true],
+								u.created_at ? [CalendarDays, 'First seen', dateTime(u.created_at, v)] : null,
+								u.updated_at ? [CalendarDays, 'Updated', dateTime(u.updated_at, v)] : null,
+							]} />
+						</Card>
+						<div className="a-stack">
+							<Card title="Recent changes" action={<Link to={`${base}/history`} className="a-link">View all</Link>}>
+								{history.length ? <ol className="a-timeline compact">{history.slice(0, 4).map((e, i) => <HistItem key={i} e={e} v={v} />)}</ol> : <p className="a-muted">No changes recorded.</p>}
+							</Card>
+							<Card title="Most active in">
+								{groups.length ? (
+									<ul className="a-groups">{groups.map((g) => (
+										<li key={g.id}><Avatar id={g.id} name={g.title} photo={g.photo} size={28} square /><Link to={`/groups/${g.id}`} className="a-grow a-rowlink">{g.title}</Link><span className="num a-muted">{fmt(g.msgs)}</span></li>
+									))}</ul>
+								) : <p className="a-muted">No group messages logged.</p>}
+							</Card>
+						</div>
+					</div>
+				</div>
+			) : (
+				<div className="a-history">
+					<div className="a-seg" role="tablist">
+						{(['all', 'name', 'username', 'bio', 'phone', 'photo'] as const).map((k) => (
+							<button key={k} type="button" role="tab" aria-selected={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>{k === 'all' ? 'All' : k[0]!.toUpperCase() + k.slice(1)}</button>
+						))}
+					</div>
+					<ol className="a-timeline">{shown.map((e, i) => <HistItem key={i} e={e} v={v} />)}</ol>
+					{!shown.length && <Empty>No changes of this kind recorded.</Empty>}
+					<div className="a-loadmore"><HistoryIcon size={14} />Older changes load as you scroll</div>
+				</div>
+			)}
+		</Shell>
+	);
+}
+
+export const userRoute: RouteDef<UserProps> = {
+	Page: UserPage,
+	head: (page) => ({ title: `${page.props.user.name} - tgloggerd`, robots: 'noindex' }),
+};
