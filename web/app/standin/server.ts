@@ -143,6 +143,20 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		send(res, 200, who === 'public' ? { signed_in: false, csrf: 'standin-login' } : { signed_in: true }, ['tgw_csrf=standin-login; Path=/api/login; HttpOnly; SameSite=Lax']);
 		return;
 	}
+	// Email links and the forgotten-password form. The stand-in's link
+	// token is "standin-token"; any other answers bad_link.
+	if (url.pathname === '/api/password/forgot' && req.method === 'POST') {
+		if (req.headers['x-csrf-token'] !== 'standin-login') { send(res, 403, { error: 'csrf' }); return; }
+		const body = JSON.parse((await readBody(req)) || '{}') as { username?: string };
+		if (!body.username) { send(res, 400, { error: 'bad_request', message: 'Enter a username or email address.' }); return; }
+		res.writeHead(202); res.end(); return;
+	}
+	if ((url.pathname === '/api/password/set' || url.pathname === '/api/account/email/verify') && req.method === 'POST') {
+		const body = JSON.parse((await readBody(req)) || '{}') as { token?: string; new_password?: string };
+		if (body.token !== 'standin-token') { send(res, 400, { error: 'bad_link', message: 'The link is unknown, used or expired.' }); return; }
+		if (url.pathname === '/api/password/set' && (body.new_password ?? '').length < 8) { send(res, 400, { error: 'weak_password', message: 'The password is too short.' }); return; }
+		res.writeHead(204); res.end(); return;
+	}
 	if (url.pathname === '/api/login' && req.method === 'POST') {
 		if (req.headers['x-csrf-token'] !== 'standin-login') { send(res, 403, { error: 'csrf' }); return; }
 		const body = JSON.parse((await readBody(req)) || '{}') as { username?: string; password?: string };

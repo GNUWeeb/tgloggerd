@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { LogIn, TriangleAlert } from 'lucide-react';
 import { ThemeButton } from '../ui/Shell.tsx';
+import { Link } from '../nav.tsx';
 import { login, loginToken } from '../api/auth.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
@@ -56,6 +57,7 @@ function Login({ page }: { page: PageData<LoginProps> }) {
 				<label className="a-field"><span className="a-field-label">Username</span><input name="username" autoComplete="username" autoFocus required /></label>
 				<label className="a-field"><span className="a-field-label">Password</span><input name="password" type="password" autoComplete="current-password" required /></label>
 				<button className="a-btn a-btn-primary a-wide" disabled={busy || !csrf}><LogIn size={15} />{busy ? 'Signing in...' : 'Sign in'}</button>
+				<p className="a-login-alt"><Link to="/password/forgot" className="a-link">Forgot your password?</Link></p>
 				<div className="a-login-foot"><ThemeButton viewer={page.viewer} /></div>
 			</form>
 		</div>

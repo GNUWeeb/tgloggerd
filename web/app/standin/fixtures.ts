@@ -147,6 +147,9 @@ export function load(url: string, persona: Persona): Loaded {
 	const full = s.fullUser;
 	let m;
 	if (path === '/login') return { route: 'login', status: 200, props: { next: u.searchParams.get('next') } };
+	if (path === '/password/forgot') return { route: 'password_forgot', status: 200, props: {} };
+	if (path === '/password/set') return { route: 'password_set', status: 200, props: {} };
+	if (path === '/account/email/verify') return { route: 'email_verify', status: 200, props: {} };
 	if (persona === 'public' && !/^\/groups\/-?\d+\/chat$/.test(path)) return notFound;
 	if (path === '/') {
 		const vis = groups.slice(0, 12).filter(s.group);
