@@ -12,6 +12,7 @@ import { ForwardingIndex, TelegramDiscord, DiscordTelegram } from './pages/Forwa
 import { McpIndex, McpGroups, McpTokens } from './pages/Mcp.jsx';
 import { Settings, Login } from './pages/Account.jsx';
 import Accounts from './pages/Accounts.jsx';
+import Federations from './pages/Federations.jsx';
 import { useQuery } from './router.jsx';
 import NotFound from './pages/NotFound.jsx';
 import { ViewerProvider, useViewer, allowed, PersonaSwitcher } from './viewer.jsx';
@@ -42,6 +43,7 @@ const ROUTES = [
 	[/^\/mcp-admin\/tokens$/, 'mcp', () => <McpTokens />],
 	[/^\/settings$/, null, () => <Settings />],
 	[/^\/settings\/accounts$/, 'accounts', () => <Accounts />],
+	[/^\/settings\/federations$/, 'federations', () => <Federations />],
 	[/^\/login$/, null, () => <Login />],
 ];
 

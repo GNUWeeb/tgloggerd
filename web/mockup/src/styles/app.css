@@ -548,3 +548,22 @@
 .app .a-audit li:first-child { border-top: 0; }
 .app .a-audit li svg { color: var(--fg-3); flex: none; }
 .app .a-modal-body > .a-seg { justify-self: start; margin-bottom: 0; }
+
+/* ---- federations ---- */
+.app .a-fedgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.app .a-fedcard { display: grid; gap: 14px; align-content: start; }
+.app .a-fedcard header { display: flex; align-items: center; gap: 12px; }
+.app .a-fedcard h2 { margin: 0; font-size: 15px; }
+.app .a-fedicon { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-text); flex: none; }
+.app .a-fedstats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
+.app .a-fedstats > div { background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; }
+.app .a-fedstats dt { color: var(--fg-3); font-size: 12px; }
+.app .a-fedstats dd { margin: 2px 0 0; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.app .a-fedstats b { font-size: 18px; }
+.app .a-stackav { display: inline-flex; }
+.app .a-stackav > * { margin-left: -6px; box-shadow: 0 0 0 2px var(--bg); }
+.app .a-stackav > :first-child { margin-left: 0; }
+.app .a-stackmore { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 4px; border-radius: 11px; background: var(--hover); color: var(--fg-2); font-size: 11px; font-weight: 600; }
+.app .a-fedgroups { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.app a.a-chip:hover { color: var(--accent-text); }
+@media (max-width: 860px) { .app .a-fedgrid { grid-template-columns: minmax(0, 1fr); } }
