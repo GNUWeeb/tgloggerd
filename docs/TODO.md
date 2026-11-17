@@ -120,4 +120,3 @@ The file store as a capped cache in front of Telegram:
 
 ## Operations
 
-- [`log-freed-before-shutdown`](todo/log-freed-before-shutdown.md): Free the daemon's log handle only after everything that may log has stopped.
