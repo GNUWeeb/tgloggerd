@@ -486,6 +486,15 @@ int TgLoggerd::start(void)
 			}
 		});
 	});
+	/*
+	 * One extra hold across all the emits of a completed file, so the
+	 * first job cannot release the last hold and prune the copy before
+	 * the next emit takes its own. Its release stores nothing: the copy
+	 * is pruned here only if a job already stored it.
+	 */
+	tdlib_->setFileEmitBatchHandlers(
+		[this](int32_t fid) { store_holds_.hold(fid); },
+		[this](int32_t fid) { store_holds_.release(fid, false); });
 	/* Loop-thread predicate: is this file already recorded? */
 	tdlib_->setFileLookup([this](const std::string &tg_file_id,
 				     const std::string &tg_unique_id)

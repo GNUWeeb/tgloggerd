@@ -1233,6 +1233,9 @@ struct TDLib::Impl {
 	std::function<void(int64_t, int64_t, const models::MessageContent &,
 			   bool)> content_version_handler_;
 	std::function<void(const MessageFile &)>	message_file_handler_;
+	/* setFileEmitBatchHandlers(): around the emits of one file. */
+	std::function<void(int32_t)>	file_batch_begin_;
+	std::function<void(int32_t)>	file_batch_end_;
 	std::function<std::optional<models::KnownFile>(const std::string &,
 						       const std::string &)>
 						file_lookup_;
@@ -3271,6 +3274,28 @@ void TDLib::Impl::handle_file_update(const td_api::file &f)
 		return;
 	}
 
+	/*
+	 * Bracket the emits below with the batch hooks, so a store job that
+	 * ends before the next emit cannot let go of the last hold on the
+	 * file and get it pruned under the jobs still to be queued. Declared
+	 * before ingest_sync, so the batch ends after the ingest bookkeeping.
+	 */
+	struct EmitBatch {
+		Impl	*impl;
+		int32_t	id;
+		bool	on;
+		~EmitBatch()
+		{
+			if (on && impl->file_batch_end_)
+				impl->file_batch_end_(id);
+		}
+	} emit_batch{ this, f.id_,
+		      pending_photo_.count(f.id_) ||
+		      pending_group_photo_.count(f.id_) ||
+		      pending_message_file_.count(f.id_) };
+	if (emit_batch.on && file_batch_begin_)
+		file_batch_begin_(f.id_);
+
 	/* Whichever branch below handles it, the set follows the maps. */
 	struct IngestSync {
 		Impl	*impl;
@@ -3282,7 +3307,7 @@ void TDLib::Impl::handle_file_update(const td_api::file &f)
 	 * One file can wait in several maps: the message that set a chat's
 	 * photo carries the same file as the photo itself. Every use gets
 	 * it; each emit queues its own store job, and the store holds prune
-	 * TDLib's copy after the last of them.
+	 * TDLib's copy after the last of them (and after the batch).
 	 */
 	auto it = pending_photo_.find(f.id_);
 	if (it != pending_photo_.end()) {
@@ -4023,6 +4048,13 @@ void TDLib::setGroupMessageHandler(
 void TDLib::setMessageFileHandler(std::function<void(const MessageFile &)> cb)
 {
 	impl_->message_file_handler_ = std::move(cb);
+}
+
+void TDLib::setFileEmitBatchHandlers(std::function<void(int32_t)> begin,
+				     std::function<void(int32_t)> end)
+{
+	impl_->file_batch_begin_ = std::move(begin);
+	impl_->file_batch_end_ = std::move(end);
 }
 
 void TDLib::setFileLookup(

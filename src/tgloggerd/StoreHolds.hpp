@@ -24,8 +24,14 @@ namespace tgloggerd {
  * gives it back when it ends (release()); the copy is pruned when the last
  * hold goes and at least one of the jobs stored the bytes.
  *
+ * The loop thread also holds the file across all the emits of one
+ * download (TDLib::setFileEmitBatchHandlers), releasing it with stored =
+ * false, so a job that ends before the next emit is queued does not prune
+ * the copy under it.
+ *
  * Thread-safe: hold() runs on the TDLib loop thread, release() on the file
- * workers. @prune runs on the releasing thread, outside the lock.
+ * workers and on the loop thread. @prune runs on the releasing thread,
+ * outside the lock.
  */
 class StoreHolds {
 public:
