@@ -32,6 +32,22 @@ drogon::HttpResponsePtr toLogin(bool clearCookie)
 	return resp;
 }
 
+/*
+ * A member sees only the groups granted to it (docs/design/web-accounts.md
+ * section 5), which these pages cannot enforce: they show every group to
+ * every signed-in account. So they refuse members altogether; members use
+ * the Go service, which applies the grants.
+ */
+drogon::HttpResponsePtr memberRefused()
+{
+	auto resp = drogon::HttpResponse::newHttpResponse();
+	resp->setStatusCode(drogon::k403Forbidden);
+	resp->setContentTypeCode(drogon::CT_TEXT_PLAIN);
+	resp->setBody("403 Forbidden: this account has no access to these "
+		      "pages.\n");
+	return resp;
+}
+
 } /* namespace */
 
 void verifySession(const drogon::HttpRequestPtr &req,
@@ -76,10 +92,13 @@ void AuthFilter::doFilter(const drogon::HttpRequestPtr &req,
 	auto pass = std::make_shared<drogon::FilterChainCallback>(std::move(fccb));
 	auto fail = std::make_shared<drogon::FilterCallback>(std::move(fcb));
 
-	verifySession(req, [pass, fail](SessionCheck c) {
+	verifySession(req, [req, pass, fail](SessionCheck c) {
 		switch (c) {
 		case SessionCheck::Valid:
-			(*pass)();
+			if (session::isAdmin(req))
+				(*pass)();
+			else
+				(*fail)(memberRefused());
 			break;
 		case SessionCheck::Revoked:
 			(*fail)(toLogin(true));
@@ -109,10 +128,12 @@ void OptionalAuthFilter::doFilter(const drogon::HttpRequestPtr &req,
 		 * Only Valid counts. A revoked or unverifiable session is
 		 * treated as anonymous here, exactly as AuthFilter would refuse
 		 * it, so a public route can never hand a stale cookie more than
-		 * an anonymous visitor gets.
+		 * an anonymous visitor gets. A member's session counts as none
+		 * as well, as AuthFilter refuses it (memberRefused).
 		 */
 		req->attributes()->insert(kAuthenticatedAttr,
-					  c == SessionCheck::Valid);
+					  c == SessionCheck::Valid &&
+						  session::isAdmin(req));
 		(*pass)();
 	});
 }
