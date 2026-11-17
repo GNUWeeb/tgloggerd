@@ -1,0 +1,18 @@
+# Publishes the test MySQL of docker-compose.test.yml on the host's
+# loopback, for running tests outside a container:
+#
+#   docker compose -f docker-compose.test.yml \
+#       -f docker-compose.test-port.yml up -d --wait
+#   WEBAPI_TEST_MYSQL_DSN='root:test@tcp(127.0.0.1:33306)/' go test ./...
+#
+# An internal network cannot publish ports, so this override also puts
+# the project's network back to a normal bridge.
+
+services:
+  mysql:
+    ports:
+      - "127.0.0.1:${TGD_TEST_MYSQL_PORT:-33306}:3306"
+
+networks:
+  default:
+    internal: false
