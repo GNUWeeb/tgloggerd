@@ -5,12 +5,14 @@ import { useState, type ReactNode } from 'react';
 import {
 	LayoutDashboard, Users, UsersRound, MessagesSquare, MessageCircle, FileText,
 	ArrowLeftRight, Bot, Settings, Search, Menu, LogOut, Sun, Moon, Monitor,
-	PanelLeftClose, PanelLeftOpen, UserCog, LogIn, Network,
+	PanelLeftClose, PanelLeftOpen, UserCog, LogIn, Network, RefreshCw, X,
 } from 'lucide-react';
 import { Link, useNav } from '../nav.tsx';
 import { Avatar } from './primitives.tsx';
 import type { Viewer } from '../page.ts';
 import { logout } from '../api/auth.ts';
+import { useLiveState } from '../live/react.tsx';
+import { useLiveNotice } from '../live/PageLive.tsx';
 
 type Item = [href: string, label: string, icon: typeof Users, key: string | null];
 const NAV: { label: string | null; items: Item[] }[] = [
@@ -58,6 +60,34 @@ export function ThemeButton({ viewer }: { viewer: Viewer }) {
 	};
 	const I = mode === 'light' ? Sun : mode === 'dark' ? Moon : Monitor;
 	return <button type="button" className="a-icon-btn" onClick={next} title={`Theme: ${mode}`} aria-label={`Theme: ${mode}`}><I size={16} /></button>;
+}
+
+const LIVE_LABEL = {
+	connecting: ['Connecting', 'Connecting to live updates'],
+	live: ['Live', 'Pages update as messages are logged'],
+	reconnecting: ['Reconnecting', 'Live updates interrupted; reconnecting'],
+	polling: ['Polling', 'Live updates unavailable; refreshing periodically'],
+} as const;
+
+// The state of the live stream, in the top bar; nothing when this page
+// listens to nothing.
+function LiveDot() {
+	const st = useLiveState();
+	if (st === 'idle') return null;
+	const [label, title] = LIVE_LABEL[st];
+	return <span className={`a-livestate is-${st}`} role="status" title={title}><span className="a-livestate-dot" /><span className="a-livestate-label">{label}</span></span>;
+}
+
+function LiveNoticeBar() {
+	const n = useLiveNotice();
+	if (!n.shown) return null;
+	return (
+		<div className="a-livenotice" role="status">
+			<RefreshCw size={14} /><span>New activity since this page loaded.</span>
+			<button type="button" className="a-link" onClick={n.apply}>Refresh</button>
+			<button type="button" className="a-icon-btn" aria-label="Dismiss" onClick={n.dismiss}><X size={14} /></button>
+		</div>
+	);
 }
 
 export default function Shell({ crumbs = [], flush = false, children }: { crumbs?: [string, string | null][]; flush?: boolean; children: ReactNode }) {
@@ -121,8 +151,10 @@ export default function Shell({ crumbs = [], flush = false, children }: { crumbs
 								</span>
 							))}
 						</nav>
+						<LiveDot />
 						<button type="button" className="a-cmdk" aria-label="Search"><Search size={14} /><span>Search everything...</span><kbd>Ctrl K</kbd></button>
 					</header>
+					<LiveNoticeBar />
 					<main className="a-content">{children}</main>
 				</div>
 			</div>

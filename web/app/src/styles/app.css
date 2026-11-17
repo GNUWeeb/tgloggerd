@@ -608,3 +608,18 @@
 .app .a-thumb-play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; background: rgb(0 0 0 / .25); }
 .app .a-warn { color: var(--danger); display: inline-flex; align-items: center; gap: 4px; }
 .app .a-row .a-ok { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Live updates: stream state in the top bar, and the notice that a list
+   has new rows waiting. */
+.app .a-livestate { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); white-space: nowrap; }
+.app .a-livestate ~ .a-cmdk { margin-left: 0; }
+.app .a-livestate-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-3); }
+.app .a-livestate.is-live .a-livestate-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.app .a-livestate.is-connecting .a-livestate-dot,
+.app .a-livestate.is-reconnecting .a-livestate-dot { background: var(--info); animation: a-pulse 1.2s ease-in-out infinite; }
+.app .a-livestate.is-polling .a-livestate-dot { background: #d97706; }
+@keyframes a-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .app .a-livestate-dot { animation: none !important; } }
+.app .a-livenotice { position: sticky; top: 8px; z-index: 5; margin: 8px auto 0; width: fit-content; max-width: calc(100% - 32px); display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); font-size: 13px; box-shadow: var(--shadow); }
+.app .a-livenotice .a-link { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer; text-decoration: underline; }
+@media (max-width: 640px) { .app .a-livestate-label { display: none; } }
