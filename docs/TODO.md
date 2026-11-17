@@ -141,4 +141,3 @@ Accounts, roles and federations:
 
 ## Operations
 
-- [`web-users-init-grants`](todo/web-users-init-grants.md): Make the MySQL init script work on a fresh data directory so new deployments get their web users.

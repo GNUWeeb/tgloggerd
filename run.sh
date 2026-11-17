@@ -131,6 +131,67 @@ wait_for_mysql() {
 	return 1
 }
 
+# Percent-encode $1 for the userinfo part of a URL, so a password holding
+# '@', '/', ':' or the like cannot break the migrate URL it goes into.
+url_encode() {
+	local LC_ALL=C s="$1" out="" c i
+	for ((i = 0; i < ${#s}; i++)); do
+		c="${s:i:1}"
+		case "$c" in
+		[A-Za-z0-9._~-]) out+="$c" ;;
+		*) out+="$(printf '%%%02X' "'$c")" ;;
+		esac
+	done
+	printf '%s' "$out"
+}
+
+# Give the web's read-only user its table-level write grants on logger tables
+# (docker/mysql/web-grants.sql). They cannot be given when MySQL initializes
+# its data directory, because the tables only exist once the daemon's
+# migrations have run, so this follows every `migrate up`. GRANT only adds
+# privileges, so a repeat run changes nothing.
+#
+# It needs MySQL root (the logger's user has no GRANT OPTION), with the
+# MYSQL_ROOT_PASSWORD the mysql service was initialized with, over TCP: the
+# image creates root@'%' unless MYSQL_ROOT_HOST says otherwise. The image has
+# no mysql client, so migrate runs the rendered file, recording its version in
+# a table of the web database; resetting that version first makes every run
+# apply the file in full. A failure only warns: the daemon does not need these
+# grants, only the web's admin pages do.
+apply_web_grants() {
+	if [ -z "${MYSQL_ROOT_PASSWORD:-}" ] || [ -z "${WEB_DB_RO_USER:-}" ] ||
+		[ -z "${WEB_DB_APP_NAME:-}" ]; then
+		log "Skipping the web table grants (MYSQL_ROOT_PASSWORD, WEB_DB_RO_USER or WEB_DB_APP_NAME is not set)"
+		return 0
+	fi
+	# The names are substituted into SQL and into a sed expression.
+	local n
+	for n in "$TG_DB_NAME" "$WEB_DB_RO_USER" "$WEB_DB_APP_NAME"; do
+		if ! [[ "$n" =~ ^[A-Za-z0-9_]+$ ]]; then
+			echo "run.sh: WARNING: not applying the web table grants: '$n' is not a plain name" >&2
+			return 0
+		fi
+	done
+
+	log "Applying the web table grants"
+	local dir pw url out rc=0
+	dir="$(mktemp -d)"
+	sed -e "s/@TG_DB_NAME@/${TG_DB_NAME}/g" \
+		-e "s/@WEB_DB_RO_USER@/${WEB_DB_RO_USER}/g" \
+		docker/mysql/web-grants.sql >"${dir}/1_web_grants.up.sql"
+	pw="$(url_encode "$MYSQL_ROOT_PASSWORD")"
+	url="mysql://root:${pw}@tcp(${TG_DB_HOST}:${TG_DB_PORT})/${WEB_DB_APP_NAME}?x-migrations-table=web_grants_version"
+	out="$({ migrate -path "$dir" -database "$url" force -- -1 &&
+		migrate -path "$dir" -database "$url" up; } 2>&1)" || rc=$?
+	rm -rf "${dir:?}"
+	# migrate prints the whole database URL when it cannot connect; keep the
+	# root password out of the log.
+	[ -z "$out" ] || printf '%s\n' "${out//"$pw"/***}"
+	if [ "$rc" -ne 0 ]; then
+		echo "run.sh: WARNING: the web table grants were not applied; the web cannot change integrations, routes, bots or the MCP allowlist (see web/README.web)" >&2
+	fi
+}
+
 case "$MODE" in
 daemon)
 	: "${TG_DB_HOST:?TG_DB_HOST is not set}" "${TG_DB_PORT:?TG_DB_PORT is not set}"
@@ -148,6 +209,7 @@ daemon)
 	log "Applying daemon migrations"
 	migrate -path migrations \
 		-database "mysql://${TG_DB_USER}:${TG_DB_PASSWORD}@tcp(${TG_DB_HOST}:${TG_DB_PORT})/${TG_DB_NAME}" up
+	apply_web_grants
 
 	log "Starting tgloggerd"
 	exec build/tgloggerd
