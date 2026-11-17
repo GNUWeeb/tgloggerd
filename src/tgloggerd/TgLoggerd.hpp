@@ -21,6 +21,7 @@
 namespace tgloggerd {
 
 class InternalApi;
+class EventBus;
 class StorageJanitor;
 class FileFetcher;
 class Contacts;
@@ -104,6 +105,13 @@ private:
 	} };
 	std::unique_ptr<TDLib> tdlib_;
 	std::unique_ptr<DB> db_;
+
+	/*
+	 * What the workers change in the archive, published after each write
+	 * for GET /v1/events (EventBus.hpp). Declared before the pools and
+	 * the API, which publish to and read from it, so it outlives them.
+	 */
+	std::unique_ptr<EventBus> events_;
 
 	/*
 	 * Mirrors live messages to Discord; owns its own HTTP pool and a refresh

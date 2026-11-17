@@ -12,6 +12,7 @@
 #include <tgloggerd/FileFetcher.hpp>
 #include <tgloggerd/ChatApi.hpp>
 #include <tgloggerd/ContactApi.hpp>
+#include <tgloggerd/EventBus.hpp>
 #include <stdexcept>
 #include <cstdlib>
 #include <cstring>
@@ -75,6 +76,26 @@ std::optional<std::string> sha256_file_hex(const std::string &path)
 		out.push_back(hex[digest[i] & 0x0f]);
 	}
 	return out;
+}
+
+/* The events of a message upsert, once it is committed. */
+void publish_message(EventBus &ev, int64_t chat_id, int64_t message_id,
+		     MsgChange c, std::optional<int64_t> sender_user_id)
+{
+	switch (c) {
+	case MsgChange::New:
+		ev.messageNew(chat_id, message_id);
+		ev.countersMoved(chat_id, sender_user_id.value_or(0));
+		break;
+	case MsgChange::Edited:
+		ev.messageEdited(chat_id, message_id);
+		break;
+	case MsgChange::Deleted:
+		ev.messageDeleted(chat_id, message_id);
+		break;
+	case MsgChange::None:
+		break;
+	}
 }
 
 } /* namespace */
@@ -245,6 +266,8 @@ int TgLoggerd::start(void)
 	 * failed startup never leaves threads to join. serial_ = 1 thread
 	 * (strict FIFO); files_ = file_threads.
 	 */
+	events_ = std::make_unique<EventBus>();
+	events_->start();
 	serial_ = std::make_unique<ThreadPool>(1, queue_max, l_);
 	files_ = std::make_unique<ThreadPool>(file_threads, queue_max, l_);
 	pr_debug(l_, "workers: serial=1 files=%zu queue_max=%zu",
@@ -310,6 +333,7 @@ int TgLoggerd::start(void)
 		serial_->post([this, u] {
 			try {
 				db_->upsertUser(u);
+				events_->userUpdated(u.id);
 			} catch (const std::exception &e) {
 				pr_error(l_, "Failed to store user %lld: %s",
 					 (long long)u.id, e.what());
@@ -320,6 +344,8 @@ int TgLoggerd::start(void)
 		serial_->post([this, fi] {
 			try {
 				db_->upsertUserFullInfo(fi);
+				events_->userUpdated(fi.user_id, { "bio",
+					"birthday", "personal_chat" });
 			} catch (const std::exception &e) {
 				pr_error(l_, "Failed to store user full info"
 					 " %lld: %s", (long long)fi.user_id,
@@ -343,6 +369,7 @@ int TgLoggerd::start(void)
 		serial_->post([this, g] {
 			try {
 				db_->upsertGroup(g);
+				events_->groupUpdated(g.id);
 			} catch (const std::exception &e) {
 				pr_error(l_, "Failed to store group %lld: %s",
 					 (long long)g.id, e.what());
@@ -353,6 +380,7 @@ int TgLoggerd::start(void)
 		serial_->post([this, al] {
 			try {
 				db_->syncGroupAdmins(al);
+				events_->groupUpdated(al.group_id, { "admins" });
 			} catch (const std::exception &e) {
 				pr_error(l_, "Failed to sync group admins for"
 					 " %lld: %s", (long long)al.group_id,
@@ -395,6 +423,9 @@ int TgLoggerd::start(void)
 		serial_->post([this, pm] {
 			try {
 				auto r = db_->upsertPrivateMessage(pm);
+				publish_message(*events_, pm.chat_id,
+						pm.message_id, r.change,
+						pm.sender_id);
 				/* Every 10th message: refresh the sender's info. */
 				if (r.user.has_value())
 					tdlib_->refetchUser(*r.user);
@@ -410,6 +441,9 @@ int TgLoggerd::start(void)
 		serial_->post([this, gm] {
 			try {
 				auto r = db_->upsertGroupMessage(gm);
+				publish_message(*events_, gm.chat_id,
+						gm.message_id, r.change,
+						gm.sender_user_id);
 				/* Every 10th message: refresh the group and the
 				 * sender's info. */
 				if (r.group.has_value())
@@ -431,12 +465,15 @@ int TgLoggerd::start(void)
 				try {
 					if (db_->recordMessageContentVersion(
 						chat_id, message_id, mc,
-						is_group))
+						is_group)) {
 						pr_info(l_, "Recorded content"
 							" version chat_id=%lld"
 							" msg_id=%lld",
 							(long long)chat_id,
 							(long long)message_id);
+						events_->messageEdited(chat_id,
+							message_id);
+					}
 				} catch (const std::exception &e) {
 					pr_error(l_, "Failed to record message"
 						 " content version chat_id=%lld"
@@ -454,6 +491,8 @@ int TgLoggerd::start(void)
 			serial_->post([this, lp, is_group] {
 				try {
 					db_->upsertLinkPreview(lp, is_group);
+					events_->messageEdited(lp.chat_id,
+							       lp.message_id);
 					pr_info(l_,
 						"Stored link preview | %s "
 						"chat_id=%lld msg_id=%lld "
@@ -568,6 +607,7 @@ int TgLoggerd::start(void)
 						mr.message_id,
 						mr.reply_to_chat_id,
 						mr.reply_to_msg_id);
+				events_->messageEdited(mr.chat_id, mr.message_id);
 			} catch (const std::exception &e) {
 				pr_error(l_, "Failed to link reply chat_id=%lld"
 					 " msg_id=%lld: %s", (long long)mr.chat_id,
@@ -657,6 +697,8 @@ int TgLoggerd::start(void)
 			serial_->post([this, user_id, own, done] {
 				try {
 					db_->recordOwnNameLookup(user_id, own);
+					events_->userUpdated(user_id,
+							     { "name" });
 					done->set_value();
 				} catch (...) {
 					done->set_exception(
@@ -748,6 +790,7 @@ int TgLoggerd::start(void)
 	janitor_->stop();
 	files_->shutdown();
 	serial_->shutdown();
+	events_->stop();
 	/* The event loop has exited, so no more forward() calls arrive; stop the
 	 * refresh thread and drain in-flight webhook POSTs. */
 	if (discord_)
@@ -788,6 +831,8 @@ void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
 	serial_->post([this, user_id, fid] {
 		try {
 			db_->setUserProfilePhoto(user_id, fid);
+			events_->fileStored(fid);
+			events_->userUpdated(user_id, { "photo" });
 			pr_info(l_, "Stored profile photo | user_id=%lld"
 				" file_id=%llu", (long long)user_id,
 				(unsigned long long)fid);
@@ -814,6 +859,8 @@ void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
 	serial_->post([this, group_id, fid] {
 		try {
 			db_->setGroupPhoto(group_id, fid);
+			events_->fileStored(fid);
+			events_->groupUpdated(group_id, { "photo" });
 			pr_info(l_, "Stored group photo | group_id=%lld"
 				" file_id=%llu", (long long)group_id,
 				(unsigned long long)fid);
@@ -858,6 +905,7 @@ void TgLoggerd::onMessageFile(const MessageFile &m)
 			else
 				db_->setPrivateMessageFile(chat_id, message_id,
 							   fid);
+			events_->fileStored(fid, chat_id, message_id);
 			pr_info(l_, "Stored %s | %s chat_id=%lld"
 				" msg_id=%lld file_id=%llu",
 				is_preview ? "link preview image"
@@ -890,12 +938,14 @@ void TgLoggerd::onMessageFileLink(const MessageFileLink &lk)
 	if (lk.is_link_preview) {
 		db_->setLinkPreviewPhoto(lk.chat_id, lk.message_id, lk.is_group,
 					 lk.file_id);
+		events_->fileStored(lk.file_id, lk.chat_id, lk.message_id);
 		return;
 	}
 	if (lk.is_group)
 		db_->setGroupMessageFile(lk.chat_id, lk.message_id, lk.file_id);
 	else
 		db_->setPrivateMessageFile(lk.chat_id, lk.message_id, lk.file_id);
+	events_->fileStored(lk.file_id, lk.chat_id, lk.message_id);
 	pr_info(l_, "Linked message file (already recorded) | %s chat_id=%lld"
 		" msg_id=%lld file_id=%llu", lk.is_group ? "group" : "private",
 		(long long)lk.chat_id, (long long)lk.message_id,
@@ -913,10 +963,13 @@ void TgLoggerd::onMessageFileLink(const MessageFileLink &lk)
  */
 void TgLoggerd::onPhotoLink(const PhotoLink &pl)
 {
-	if (pl.is_group)
+	if (pl.is_group) {
 		db_->setGroupPhoto(pl.owner_id, pl.file_id);
-	else
+		events_->groupUpdated(pl.owner_id, { "photo" });
+	} else {
 		db_->setUserProfilePhoto(pl.owner_id, pl.file_id);
+		events_->userUpdated(pl.owner_id, { "photo" });
+	}
 	pr_debug(l_, "Linked %s photo (already recorded) | %s=%lld"
 		 " file_id=%llu", pl.is_group ? "group" : "profile",
 		 pl.is_group ? "group_id" : "user_id", (long long)pl.owner_id,
@@ -962,6 +1015,7 @@ void TgLoggerd::onFileMeta(const FileMeta &m)
 
 	if (m.is_group_photo) {
 		db_->setGroupPhoto(m.chat_id, k.id);
+		events_->groupUpdated(m.chat_id, { "photo" });
 		pr_info(l_, "Linked group photo (metadata only) | group_id=%lld"
 			" file_id=%llu", (long long)m.chat_id,
 			(unsigned long long)k.id);
