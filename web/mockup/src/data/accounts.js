@@ -47,17 +47,17 @@ export const ABILITIES = [
 ];
 
 export const accounts = [
-	{ id: 1, username: 'admin', name: 'Administrator', role: 'superadmin', active: true, last: iso(NOW - 120000), created: iso(NOW - 480 * DAY), hue: 250 },
-	{ id: 2, username: 'ops', name: 'Operations', role: 'superadmin', active: true, last: iso(NOW - 2 * DAY), created: iso(NOW - 470 * DAY), hue: 20 },
-	{ id: 3, username: 'gw_admin', name: 'GNU/Weeb admins', role: 'admin', active: true, last: iso(NOW - 3 * 3600000), created: iso(NOW - 200 * DAY), hue: 300,
+	{ id: 1, username: 'admin', name: 'Administrator', email: 'admin@example.org', verified: true, role: 'superadmin', active: true, last: iso(NOW - 120000), created: iso(NOW - 480 * DAY), hue: 250 },
+	{ id: 2, username: 'ops', name: 'Operations', email: '', verified: false, role: 'superadmin', active: true, last: iso(NOW - 2 * DAY), created: iso(NOW - 470 * DAY), hue: 20 },
+	{ id: 3, username: 'gw_admin', name: 'GNU/Weeb admins', email: 'gw-admins@example.org', verified: true, role: 'admin', active: true, last: iso(NOW - 3 * 3600000), created: iso(NOW - 200 * DAY), hue: 300,
 		adminOf: [1, 0], restrict: { hide_private: true, hide_groups: [groups[9].id], join_chat: true } },
-	{ id: 4, username: 'sec_lead', name: 'Security lead', role: 'admin', active: true, last: iso(NOW - 26 * 3600000), created: iso(NOW - 90 * DAY), hue: 0,
+	{ id: 4, username: 'sec_lead', name: 'Security lead', email: 'sec.lead@example.net', verified: true, role: 'admin', active: true, last: iso(NOW - 26 * 3600000), created: iso(NOW - 90 * DAY), hue: 0,
 		adminOf: [3], restrict: { hide_private: false, hide_groups: [], join_chat: false } },
-	{ id: 5, username: 'researcher', name: 'Research team', role: 'member', active: true, last: iso(NOW - 5 * 3600000), created: iso(NOW - 60 * DAY), hue: 160,
+	{ id: 5, username: 'researcher', name: 'Research team', email: 'research@example.com', verified: true, role: 'member', active: true, last: iso(NOW - 5 * 3600000), created: iso(NOW - 60 * DAY), hue: 160,
 		grants: [{ fed: 1, groupIds: [groups[0].id, groups[4].id] }, { fed: 2, groupIds: [groups[2].id] }], abilities: ['forward', 'fetch_files'] },
-	{ id: 6, username: 'mod_kernel', name: 'Kernel moderators', role: 'member', active: true, last: '', created: iso(NOW - 3 * DAY), hue: 200,
+	{ id: 6, username: 'mod_kernel', name: 'Kernel moderators', email: 'kernel-mods@example.com', verified: false, invited: true, role: 'member', active: true, last: '', created: iso(NOW - 3 * DAY), hue: 200,
 		grants: [{ fed: 1, groupIds: [groups[3].id] }], abilities: [] },
-	{ id: 7, username: 'intern2025', name: 'Intern (2025)', role: 'member', active: false, last: iso(NOW - 200 * DAY), created: iso(NOW - 400 * DAY), hue: 90,
+	{ id: 7, username: 'intern2025', name: 'Intern (2025)', email: 'intern@example.com', verified: true, role: 'member', active: false, last: iso(NOW - 200 * DAY), created: iso(NOW - 400 * DAY), hue: 90,
 		grants: [{ fed: 0, groupIds: [] }], abilities: [] },
 ];
 
@@ -92,4 +92,13 @@ export const mySessions = [
 	{ id: 's1', device: 'Firefox on Linux', ip: '203.0.113.24', place: 'Jakarta, ID', started: iso(NOW - 3 * DAY), last: iso(NOW - 60000), current: true },
 	{ id: 's2', device: 'Chrome on Android', ip: '198.51.100.7', place: 'Bandung, ID', started: iso(NOW - 12 * DAY), last: iso(NOW - 5 * 3600000) },
 	{ id: 's3', device: 'Safari on macOS', ip: '192.0.2.81', place: 'Singapore, SG', started: iso(NOW - 40 * DAY), last: iso(NOW - 9 * DAY) },
+];
+
+// Security notices, always sent; no per-notice switches for now.
+export const SECURITY_NOTICES = [
+	'Your password was changed or reset',
+	'Your email address was changed (sent to the old and the new address)',
+	'Someone signed in from a new device or browser',
+	'Your account was disabled',
+	'Your role was changed',
 ];

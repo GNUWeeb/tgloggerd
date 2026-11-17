@@ -600,3 +600,13 @@
 	.app .a-pref-ctl { max-width: none; }
 	.app .a-pref-ctl .a-select { width: 100%; }
 }
+
+/* ---- email ---- */
+.app .a-emailline { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.app .a-emailline.a-warn { color: var(--danger); }
+
+.app .a-center { justify-self: center; display: inline-flex; align-items: center; gap: 4px; }
+.app .a-center-row { justify-content: center; }
+.app a.a-btn.a-wide { text-decoration: none; }
+.app .a-notices { margin: 8px 0 0; padding-left: 18px; color: var(--fg-2); display: grid; gap: 4px; }
+.app .a-login .a-banner { margin: 0; }

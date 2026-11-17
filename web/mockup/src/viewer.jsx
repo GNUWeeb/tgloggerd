@@ -3,6 +3,7 @@
 // builds this and sends it as `viewer`; here a mockup-only switcher
 // picks one of the sample accounts so each role can be previewed.
 import { createContext, useContext, useState } from 'react';
+import { useRouter } from './router.jsx';
 import { accounts, accountById, federations, fedGroups, DEFAULT_FED } from './data/accounts.js';
 import { groups, getGroupsOfUser } from './data/groups.js';
 
@@ -91,8 +92,12 @@ export function allowed(v, key) {
 }
 
 // Mockup-only control: preview the UI as each kind of account.
+const SIGNED_OUT = ['/login', '/forgot-password', '/reset-password', '/set-password', '/verify-email', '/welcome/email'];
+
 export function PersonaSwitcher() {
 	const v = useViewer();
+	const { path } = useRouter();
+	if (SIGNED_OUT.includes(path)) return null;
 	return (
 		<div className="persona" role="group" aria-label="Mockup: view as">
 			<span className="persona-l">View as</span>

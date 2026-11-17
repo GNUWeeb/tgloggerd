@@ -1,7 +1,7 @@
 // Administration > Accounts: roles, admin restrictions, member grants
 // per federation, and each account's audit trail (web-accounts.md).
 import { useState } from 'react';
-import { Plus, Pencil, KeyRound, LogOut, Ban, Shuffle, Crown, ShieldCheck, User as UserIcon, Network, History, Info } from 'lucide-react';
+import { Plus, Pencil, KeyRound, LogOut, Ban, Crown, ShieldCheck, User as UserIcon, Network, History, Info, Mail, MailCheck, MailWarning, Send } from 'lucide-react';
 import Shell from '../ui/Shell.jsx';
 import { Pill, PageHead, Btn, Seg, Avatar } from '../ui/primitives.jsx';
 import { Modal, Field, Switch, MultiPicker } from '../ui/forms.jsx';
@@ -40,11 +40,21 @@ function accessSummary(a) {
 	return [`${n} group${n === 1 ? '' : 's'}`, ...a.abilities.map((k) => (k === 'forward' ? 'forwarding' : 'fetch files'))].join(', ');
 }
 
+export function EmailLine({ a }) {
+	if (!a.email) return <span className="a-emailline a-warn"><MailWarning size={14} />No address yet; asked for one at the next sign-in</span>;
+	return (
+		<span className="a-emailline">
+			{a.verified ? <MailCheck size={14} className="a-ok" /> : <MailWarning size={14} className="a-warnicon" />}
+			<span className="a-break">{a.email}</span>
+			<span className="a-muted sm">{a.verified ? 'verified' : a.invited ? 'invitation sent, password not set yet' : 'not verified'}</span>
+		</span>
+	);
+}
+
 function Editor({ init, viewer, onClose }) {
 	const isNew = !init.id;
 	const [a, setA] = useState(init);
 	const [tab, setTab] = useState('account');
-	const [pw, setPw] = useState('');
 	const set = (patch) => setA({ ...a, ...patch });
 	const isSuper = viewer.role === 'superadmin';
 	const lastSuper = !isNew && init.role === 'superadmin' && init.active && activeSuperadmins().length === 1;
@@ -68,7 +78,7 @@ function Editor({ init, viewer, onClose }) {
 				{lastSuper && <span className="a-muted sm a-note"><Info size={13} />The last active superadmin cannot be disabled or demoted.</span>}
 				<span className="a-grow" />
 				<Btn ghost onClick={onClose}>Cancel</Btn>
-				<Btn primary onClick={onClose}>{isNew ? 'Create account' : 'Save changes'}</Btn>
+				<Btn primary onClick={onClose}>{isNew ? 'Create and email link' : 'Save changes'}</Btn>
 			</>}>
 			{!isNew && <Seg value={tab} onChange={setTab} items={[['account', 'Account'], ['access', 'Access'], ['activity', 'Activity']]} />}
 
@@ -82,20 +92,25 @@ function Editor({ init, viewer, onClose }) {
 						<Field label="Display name"><input value={a.name} onChange={(e) => set({ name: e.target.value })} /></Field>
 						{isNew ? (
 							<>
-								<Field label="Temporary password" hint="Hand it over privately; it is not shown again.">
-									<span className="a-inputwrap">
-										<input value={pw} onChange={(e) => setPw(e.target.value)} className="mono" autoComplete="off" />
-										<button type="button" className="a-icon-btn sm" aria-label="Generate a password" title="Generate"
-											onClick={() => setPw('tgd-' + Math.random().toString(36).slice(2, 8) + '-' + Math.random().toString(36).slice(2, 8))}><Shuffle size={14} /></button>
-									</span>
+								<Field label="Email address" hint="Must not be used by another account.">
+									<input type="email" value={a.email} onChange={(e) => set({ email: e.target.value })} placeholder="name@example.org" autoComplete="off" />
 								</Field>
-								<Switch checked={a.mustChange} onChange={(v) => set({ mustChange: v })} label="Must choose a new password at first sign-in" />
+								<div className="a-banner"><Mail size={15} /><span>The account gets an email with a one-time link to choose its own password. The link expires; no password is ever shown here or sent by email.</span></div>
 							</>
 						) : (
-							<div className="a-btnrow">
-								<Btn ghost icon={KeyRound}>Reset password</Btn>
-								<Btn ghost icon={LogOut}>Sign out everywhere</Btn>
-							</div>
+							<>
+								<div className="a-field">
+									<span className="a-field-label">Email address</span>
+									<EmailLine a={init} />
+									<span className="a-field-hint">Each account changes its own address in Settings; the old address is told.</span>
+								</div>
+								<div className="a-btnrow">
+									{init.invited
+										? <Btn ghost icon={Send}>Resend set-password link</Btn>
+										: <Btn ghost icon={KeyRound} disabled={!init.verified}>Send password reset link</Btn>}
+									<Btn ghost icon={LogOut}>Sign out everywhere</Btn>
+								</div>
+							</>
 						)}
 					</section>
 					<section className="a-form">
@@ -223,7 +238,7 @@ export default function Accounts() {
 	const mine = v.role === 'superadmin' ? accounts
 		: accounts.filter((a) => a.role === 'member' && a.grants.some((g) => v.manageableFeds.some((f) => f.id === g.fed)));
 	const rows = role === 'all' ? mine : mine.filter((a) => a.role === role);
-	const blank = { username: '', name: '', role: 'member', active: true, mustChange: true, hue: 210, grants: [], abilities: [] };
+	const blank = { username: '', name: '', email: '', role: 'member', active: true, hue: 210, grants: [], abilities: [] };
 	return (
 		<Shell crumbs={[['Accounts', null]]}>
 			<PageHead title="Accounts" sub={v.role === 'superadmin' ? 'Who can sign in, their role, and what each one may see and manage.' : 'Members of the federations you administer.'}
@@ -243,13 +258,13 @@ export default function Accounts() {
 									<td>
 										<button type="button" className="a-usercell a-plain" onClick={() => setEdit(a)}>
 											<Letter a={a} />
-											<span><span className="a-uname">{a.name}</span><span className="a-handle">{a.username}{!a.active && ' . disabled'}</span></span>
+											<span><span className="a-uname">{a.name}</span><span className="a-handle">{a.username}{a.email ? ` . ${a.email}` : ''}{!a.active && ' . disabled'}</span></span>
 										</button>
 									</td>
 									<td><RolePill role={a.role} /></td>
 									<td className="a-wrapcell">{a.role === 'superadmin' ? <span className="a-muted">All</span> : feds(a).map((f) => <Pill key={f.id}><Network size={11} />{f.name}</Pill>)}</td>
 									<td className="a-muted">{accessSummary(a)}</td>
-									<td title={a.last}>{a.last ? ago(a.last) : <span className="a-muted">never</span>}</td>
+									<td title={a.last}>{a.invited ? <Pill tone="info"><Mail size={11} />invited</Pill> : !a.email ? <Pill tone="danger"><MailWarning size={11} />no email</Pill> : a.last ? ago(a.last) : <span className="a-muted">never</span>}</td>
 									<td className="a-rowactions"><button type="button" className="a-icon-btn" aria-label={`Edit ${a.username}`} onClick={() => setEdit(a)}><Pencil size={15} /></button></td>
 								</tr>
 							))}

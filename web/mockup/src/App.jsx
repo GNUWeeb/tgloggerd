@@ -10,7 +10,7 @@ import Chat from './pages/Chat.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import { ForwardingIndex, TelegramDiscord, DiscordTelegram } from './pages/Forwarding.jsx';
 import { McpIndex, McpGroups, McpTokens } from './pages/Mcp.jsx';
-import { Settings, Login, Preferences, Sessions } from './pages/Account.jsx';
+import { Settings, Login, Preferences, Sessions, ForgotPassword, SetPassword, VerifyEmail, AddEmail } from './pages/Account.jsx';
 import Accounts from './pages/Accounts.jsx';
 import Federations from './pages/Federations.jsx';
 import JoinChat from './pages/JoinChat.jsx';
@@ -49,6 +49,11 @@ const ROUTES = [
 	[/^\/settings\/accounts$/, 'accounts', () => <Accounts />],
 	[/^\/settings\/federations$/, 'federations', () => <Federations />],
 	[/^\/login$/, null, () => <Login />],
+	[/^\/forgot-password$/, null, () => <ForgotPassword />],
+	[/^\/reset-password$/, null, () => <SetPassword />],
+	[/^\/set-password$/, null, () => <SetPassword first />],
+	[/^\/verify-email$/, null, () => <VerifyEmail />],
+	[/^\/welcome\/email$/, null, () => <AddEmail />],
 ];
 
 function Routes() {
