@@ -16,6 +16,8 @@ import { messageRoute } from './message.tsx';
 import { chatRoute } from './chat.tsx';
 import { loginRoute } from './login.tsx';
 import { settingsRoute, preferencesRoute, sessionsRoute } from './settings.tsx';
+import { accountsRoute } from './accounts.tsx';
+import { federationsRoute } from './federations.tsx';
 
 export interface RouteDef<P = any> {
 	Page: ComponentType<{ page: PageData<P> }>;
@@ -52,5 +54,7 @@ export const routes: Record<string, RouteDef> = {
 	settings: settingsRoute,
 	settings_preferences: preferencesRoute,
 	settings_sessions: sessionsRoute,
+	accounts: accountsRoute,
+	federations: federationsRoute,
 	not_found: { Page: NotFound, head: () => ({ title: 'Not found - tgloggerd', robots: 'noindex' }) },
 };

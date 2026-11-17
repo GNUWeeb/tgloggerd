@@ -6,7 +6,7 @@ import { users, getUser, getUserHistory, getUsernames, getActivity, queryUsers, 
 import { groups, getGroupsOfUser, queryGroups, getGroup, getAdmins, getGroupHistory, getTopPosters } from '../../mockup/src/data/groups.js';
 import { queryFiles, files } from '../../mockup/src/data/files.js';
 import { groupMessages, senderOf, queryMessages, getMessage, chatStream, chatOf } from '../../mockup/src/data/messages.js';
-import { accounts, federations, mySessions, SECURITY_NOTICES } from '../../mockup/src/data/accounts.js';
+import { accounts, federations, mySessions, SECURITY_NOTICES, allFeds, fedGroups, fedAdmins, fedMembers, activeSuperadmins, auditFor, fedById } from '../../mockup/src/data/accounts.js';
 import { buildScope, allowed } from '../../mockup/src/viewer.jsx';
 import { TOTALS } from '../../mockup/src/data/totals.js';
 import type { PageData, Viewer } from '../src/page.ts';
@@ -244,6 +244,35 @@ export function load(url: string, persona: Persona): Loaded {
 		};
 	}
 	if (persona === 'public') return notFound;
+	if (path === '/settings/accounts') {
+		if (!allowed(s, 'accounts')) return notFound;
+		const list = s.role === 'superadmin' ? accounts : accounts.filter((a) => a.role === 'member' && a.grants.some((g) => s.manageableFeds.some((f) => f.id === g.fed)));
+		const feds = s.role === 'superadmin' ? allFeds() : s.manageableFeds;
+		return {
+			route: 'accounts', status: 200, props: {
+				accounts: list.map(accountRow),
+				federations: feds.map((f) => ({ id: f.id, name: f.name, default: f.id === 0, groups: fedGroups(f).filter(s.group).slice(0, 10).map(groupSummary) })),
+				all_federations: allFeds().map((f) => ({ id: f.id, name: f.name, default: f.id === 0 })),
+				group_options: groups.slice(0, 60).map(groupSummary),
+			},
+		};
+	}
+	if (path === '/settings/federations') {
+		if (!allowed(s, 'federations')) return notFound;
+		const feds = s.role === 'superadmin' ? allFeds() : s.manageableFeds;
+		const person = (a) => ({ id: a.id, username: a.username, name: a.name });
+		return {
+			route: 'federations', status: 200, props: {
+				editable: s.role === 'superadmin',
+				federations: feds.map((f) => {
+					const gs = fedGroups(f).filter(s.group);
+					return { id: f.id, name: f.name, default: f.id === 0, created: f.created ? iso(f.created) : null, groups: gs.slice(0, 12).map(groupSummary), group_count: gs.length, admins: fedAdmins(f).map(person), members: fedMembers(f).map(person) };
+				}),
+				group_options: groups.slice(0, 80).map(groupSummary),
+				admin_options: accounts.filter((a) => a.role === 'admin').map(person),
+			},
+		};
+	}
 	if (path === '/settings' || path === '/settings/preferences' || path === '/settings/sessions') {
 		const st = settingsState(persona);
 		const acct = accounts.find((a) => a.id === PERSONAS[persona]);
@@ -281,6 +310,72 @@ export function settingsState(persona: Persona) {
 		});
 	}
 	return SETTINGS.get(persona);
+}
+
+export function accountRow(a) {
+	return {
+		id: a.id, username: a.username, name: a.name, email: a.email || null, email_verified: !!a.verified, invited: !!a.invited,
+		role: a.role, active: a.active, last_signin: a.last ? iso(a.last) : null,
+		last_superadmin: a.role === 'superadmin' && a.active && activeSuperadmins().length === 1,
+		admin_of: a.adminOf || [], restrict: a.restrict ? { hide_private: a.restrict.hide_private, hide_groups: a.restrict.hide_groups, join_chat: a.restrict.join_chat } : null,
+		grants: (a.grants || []).map((g) => ({ fed: g.fed, group_ids: g.groupIds })), abilities: a.abilities || [],
+		audit: auditFor(a).map((r) => ({ ...r, at: iso(r.at) })),
+	};
+}
+
+// Stand-in versions of the proposed /api/accounts and /api/federations.
+export function adminApi(method: string, p: string, body, persona: Persona): [number, unknown] {
+	const s = scopeOf(persona);
+	let m;
+	if (p === 'accounts' && method === 'POST') {
+		if (!allowed(s, 'accounts')) return [404, { error: 'not_found' }];
+		if (!body.username || !body.email) return [400, { error: 'bad_request', message: 'Username and email address are required.' }];
+		if (accounts.some((a) => a.username === body.username)) return [409, { error: 'taken', message: 'That username is taken.' }];
+		if (s.role !== 'superadmin' && body.role !== 'member') return [403, { error: 'forbidden', message: 'Admins create members only.' }];
+		const id = Math.max(...accounts.map((a) => a.id)) + 1;
+		accounts.push({ id, username: body.username, name: body.name || body.username, email: body.email, verified: false, invited: true, role: body.role, active: true, last: '', created: '2026-11-17 16:00:00', hue: 200, adminOf: [], restrict: { hide_private: false, hide_groups: [], join_chat: false }, grants: [], abilities: [] });
+		return [201, { id }];
+	}
+	if ((m = p.match(/^accounts\/(\d+)(?:\/([\w-]+))?$/))) {
+		const a = accounts.find((x) => String(x.id) === m[1]);
+		if (!a || !allowed(s, 'accounts')) return [404, { error: 'not_found' }];
+		if (!m[2] && method === 'PATCH') {
+			if (a.role === 'superadmin' && body.role && body.role !== 'superadmin' && activeSuperadmins().length === 1) return [409, { error: 'last_superadmin', message: 'The last active superadmin cannot be demoted.' }];
+			if (body.name) a.name = body.name;
+			if (body.role) a.role = body.role;
+			if (body.email !== undefined) { a.email = body.email; a.verified = false; }
+			if (body.admin_of) a.adminOf = body.admin_of;
+			if (body.restrict) a.restrict = body.restrict;
+			if (body.grants) a.grants = body.grants.map((g) => ({ fed: g.fed, groupIds: g.group_ids }));
+			if (body.abilities) a.abilities = body.abilities;
+			return [200, accountRow(a)];
+		}
+		if (m[2] === 'disable') {
+			if (a.role === 'superadmin' && activeSuperadmins().length === 1) return [409, { error: 'last_superadmin', message: 'The last active superadmin cannot be disabled.' }];
+			a.active = false; return [204, null];
+		}
+		if (m[2] === 'enable') { a.active = true; return [204, null]; }
+		if (['password-reset', 'resend-invite', 'sign-out-everywhere'].includes(m[2]) && method === 'POST') return [204, null];
+	}
+	if (p === 'federations' && method === 'POST') {
+		if (s.role !== 'superadmin') return [404, { error: 'not_found' }];
+		const id = Math.max(...federations.map((f) => f.id)) + 1;
+		federations.push({ id, name: body.name, groupIds: body.group_ids || [], created: '2026-11-17 16:00:00' });
+		for (const a of accounts) if ((body.admin_ids || []).includes(a.id) && a.role === 'admin') a.adminOf.push(id);
+		return [201, { id }];
+	}
+	if ((m = p.match(/^federations\/(\d+)$/)) && method === 'PATCH') {
+		if (s.role !== 'superadmin') return [404, { error: 'not_found' }];
+		const f = fedById(Number(m[1]));
+		if (!f) return [404, { error: 'not_found' }];
+		if (f.id !== 0) { if (body.name) f.name = body.name; if (body.group_ids) f.groupIds = body.group_ids; }
+		for (const a of accounts.filter((x) => x.role === 'admin')) {
+			const want = (body.admin_ids || []).includes(a.id);
+			a.adminOf = want ? [...new Set([...a.adminOf, f.id])] : a.adminOf.filter((x) => x !== f.id);
+		}
+		return [200, { id: f.id }];
+	}
+	return [404, { error: 'not_found' }];
 }
 
 export function pageData(url: string, persona: Persona): PageData {

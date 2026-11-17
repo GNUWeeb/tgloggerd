@@ -118,6 +118,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		if (p === 'sessions/sign-out-others' && req.method === 'POST') { st.sessions = st.sessions.filter((x: { current: boolean }) => x.current); res.writeHead(204); res.end(); return; }
 		send(res, 404, { error: 'not_found' }); return;
 	}
+	if (url.pathname.startsWith('/api/accounts') || url.pathname.startsWith('/api/federations')) {
+		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+		if (req.method !== 'GET' && req.headers['x-csrf-token'] !== 'standin-csrf') { send(res, 403, { error: 'csrf' }); return; }
+		const body = req.method === 'GET' ? {} : JSON.parse((await readBody(req)) || '{}');
+		const [status, out] = fx.adminApi(req.method || 'GET', url.pathname.slice('/api/'.length), body, who);
+		if (status === 204) { res.writeHead(204); res.end(); } else send(res, status, out);
+		return;
+	}
 	let cm;
 	if ((cm = url.pathname.match(/^\/api\/chats\/(group|private)\/(-?\d+)\/messages$/))) {
 		const chat = fx.chatFor(cm[1], cm[2], who);
