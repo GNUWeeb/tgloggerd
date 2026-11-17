@@ -16,11 +16,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/live"
+	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/scope"
 )
 
@@ -49,6 +51,19 @@ type Deps struct {
 	// live updates are off.
 	Live    *live.Hub
 	LiveCfg LiveConfig
+	// Render is the render service's client; nil renders every page
+	// in the browser (the fallback).
+	Render *render.Client
+	// Assets are the client bundle's files pages link, and its build.
+	Assets render.Assets
+	// AssetFiles is the bundle's assets/ directory, served under
+	// /app/assets/; nil answers 404 there.
+	AssetFiles *os.Root
+
+	// pages replaces the page table, and epoch the database's session
+	// epochs, for tests.
+	pages []pageRoute
+	epoch auth.EpochFunc
 }
 
 // Server carries what the handlers share.
@@ -70,6 +85,11 @@ type Server struct {
 	liveCfg     LiveConfig
 	// liveFilter replaces eventInScope in tests.
 	liveFilter func(scope.Scope, live.Event) (live.Event, bool)
+	render     *render.Client
+	assets     render.Assets
+	assetFiles *os.Root
+	pages      []pageRoute
+	clock      func() time.Time
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -91,12 +111,24 @@ func New(d Deps) http.Handler {
 		proxies:     d.Proxies,
 		live:        d.Live,
 		liveCfg:     d.LiveCfg,
+		render:      d.Render,
+		assets:      d.Assets,
+		assetFiles:  d.AssetFiles,
+		pages:       d.pages,
+		clock:       time.Now,
+	}
+	if s.pages == nil {
+		s.pages = defaultPages()
+	}
+	if d.epoch != nil {
+		s.verifier.Epoch = d.epoch
 	}
 
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {
 		mux.HandleFunc(rt.pattern, rt.handler)
 	}
+	s.registerPages(mux)
 
 	return s.withClient(s.logRequests(mux))
 }
@@ -119,6 +151,8 @@ func (s *Server) routes() []route {
 		{"GET /api/session", s.RequireSession(s.session)},
 		{"GET /files/{token}", s.serveFile},
 		{"GET /api/events", s.RequireSession(s.events)},
+		{"GET /api/page/{path...}", s.getPage},
+		{"GET /app/assets/{file...}", s.serveAsset},
 	}
 }
 

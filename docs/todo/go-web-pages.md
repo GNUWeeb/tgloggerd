@@ -1,51 +1,39 @@
 # go-web-pages
 
-Serve pages from the Go service: page routing, one data loader per
-route, the render client and the browser-rendered fallback.
+Route the migrated page paths through nginx to the Go service, which
+now serves the page documents, `GET /api/page/<path>`, the render
+client and the browser-rendered fallback (webapi/README "Pages").
 
 ## Why
 
 Pages need real URLs whose first response is full HTML, then React
-takes over (docs/design/web-go.md section 4).
+takes over (docs/design/web-go.md section 4). The Go side is built and
+tested against a stand-in renderer and the real render service, but
+nginx still sends every page path to the Drogon web.
 
 ## Scope
 
-- Page routes in the Go service with the same authentication and
-  request scope as the API (404 for hidden things), one loader per
-  route returning plain values.
-- `GET /api/page/<path>`: the same loader's data as JSON for browser
-  navigation, described in the OpenAPI description.
-- A client for the render service over a Unix socket (request
-  `{route, url, props, viewer settings}`, answer HTML), with a timeout;
-  on failure, the application shell with the props embedded.
-- HTML assembly: the render service's markup, embedded props safe
-  against script injection, static asset links.
-- nginx routes each migrated page path to the Go service.
+- nginx sends each page path whose loader is in the Go service's page
+  table (`defaultPages` in webapi/internal/server/pages.go) to the Go
+  service, and `/app/assets/` with it; every other page path stays on
+  Drogon. Today that is `/login` only.
+- The sign-in flow is checked end to end once `/login` moves: the
+  Drogon pages send signed-out visitors to `/login?next=`, and the
+  React sign-in page goes on to `next` after `POST /api/login`.
 
 ## Design notes
 
-- The protocol, document template, caching and `/api/page` answers
-  are specified in docs/design/web-ssr.md (sections 3 to 7): route ids
-  shared with the React route registry, HTTP/1.1 over the Unix socket
-  `RENDER_SOCKET`, `POST /render` version 1, `GET /health`,
-  `RENDER_TIMEOUT` and `RENDER_BACKOFF`, one Go template for rendered
-  and fallback pages, page data in `<script type="application/json"
-  id="__tgd">` via `encoding/json` with HTML escaping, the CSRF meta
-  tag added by Go only, `{"reload": true}` for paths still served by
-  Drogon.
-- Until web-user-settings exists, the viewer's settings are the site
-  defaults; `nav` comes from the request scope.
-- The render service and its React entry point are the React
-  application's (`web/app/`); this item tests the protocol with a
-  stand-in renderer.
-- The client (openapi-fetch) calls `GET /api/page/{path}` with the
-  path parameter encoded, `%2F` for each slash, and the page's own
-  query string as the request's; an empty path (`/api/page/`) is the
-  dashboard. Decode it, and answer an unknown path with the
-  not_found page data and status 404.
-- The operations are described in `webapi/openapi.yaml`; mark each
-  one served (drop `x-tgd-status: planned`) as it lands, and
-  `npm run check:api` in web/app must stay clean.
+- Loaders for the other pages come with the ports that bring their
+  data (`go-port-chat-api`, `go-port-search`, `go-port-admin`,
+  `web-roles`, `web-user-settings`); each adds its loader to the page
+  table, and the path then follows here.
+- The email address gate has its hook in `Server.emailRequired`
+  (pages.go), filled in by `web-email`.
+- The build id is configured (`WEBAPI_APP_BUILD`), since the Vite
+  manifest carries none; it must be the `TGD_BUILD` the bundle and the
+  render service were built with.
+- Needs the render service deployed (`ssr-render-service`, which lists
+  this item as its dependency for the Go side) before the route moves.
 
 ## Depends on
 
@@ -53,7 +41,6 @@ Nothing.
 
 ## Done when
 
-- A page answers full HTML with its data embedded through a stand-in
-  renderer, the same data comes from `/api/page/<path>`, hidden things
-  answer 404, and a stopped renderer gives the shell instead of an
-  error.
+- `/login` is served by the Go service through nginx, rendered by the
+  deployed render service, and falls back to browser rendering when
+  that service is stopped.

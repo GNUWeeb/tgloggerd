@@ -1,6 +1,7 @@
 # Server rendering of web pages
 
-Status: decided 2026-11-18, not implemented. This document details
+Status: decided 2026-11-18; the Go side is built (webapi/README
+"Pages"), the render service not deployed yet. This document details
 [web-go.md](web-go.md) section 4 and is the shared specification of
 the render protocol between the Go service and the render service.
 Decisions:
@@ -216,7 +217,9 @@ markup:
   `web/app/dist/server/`, from the same commit, with the same build id
   (the short commit hash, or a hash of the inputs).
 - The Go service reads `dist/client/.vite/manifest.json` at start for
-  the entry script, styles and preloads, and its build id. It serves
+  the entry script, styles and preloads. The manifest carries no
+  build id, so the Go service is given it (`WEBAPI_APP_BUILD`, the
+  `TGD_BUILD` of the build). It serves
   `/app/assets/` with `Cache-Control: public, max-age=31536000,
   immutable` (or nginx does).
 - Fonts and every other asset come from npm packages inside the bundle;

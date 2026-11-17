@@ -549,7 +549,6 @@ paths:
 
   /api/page/{path}:
     get:
-      x-tgd-status: planned
       operationId: getPage
       tags: [pages]
       summary: A page's data
@@ -614,7 +613,18 @@ paths:
         A path the service does not serve as a React page yet answers
         {"reload": true}, and the browser loads it in full. Something
         the viewer may not see answers 404 with the not_found route,
-        exactly like something that does not exist.
+        exactly like something that does not exist; so does a path that
+        is no page at all. A signed-out visitor gets 401 for every path
+        but login, the three link pages and the public chats of exposed
+        groups (group_chat).
+
+
+        So far the service loads the data of login (and not_found);
+        every other route answers {"reload": true}. The page's document
+        (its HTML, web-ssr.md section 5) is served at the page's own
+        path for each route whose data the service loads, and there a
+        signed-out visitor asking for a page that needs a session is
+        redirected (302) to /login?next=<path and query>.
       security:
         - {}
         - session: []
@@ -640,7 +650,10 @@ paths:
           description: The page data, or a request to load the page in full.
           headers:
             Cache-Control:
-              description: private, no-store for a signed-in request.
+              description: >-
+                public, max-age=60 for a public page asked for without a
+                session cookie; private, no-store otherwise, and for
+                {"reload": true}.
               schema:
                 type: string
           content:
@@ -666,6 +679,44 @@ paths:
                 $ref: '#/components/schemas/PageNotFound'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
+
+  /app/assets/{file}:
+    get:
+      operationId: getAsset
+      tags: [pages]
+      summary: A file of the client bundle
+      description: >-
+        The content-hashed files vite build wrote to the bundle's
+        assets/ directory (WEBAPI_APP_DIST), which page documents link
+        (web-ssr.md section 6). Nothing outside that directory is
+        served.
+      security: []
+      parameters:
+        - name: file
+          in: path
+          required: true
+          description: The file's path under assets/.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The file.
+          headers:
+            Cache-Control:
+              description: public, max-age=31536000, immutable
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: No such file, or no bundle.
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /api/chats/{scope}/{id}/messages:
     get:

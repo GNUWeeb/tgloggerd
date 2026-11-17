@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/live"
 	"tgloggerd/webapi/internal/media"
+	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/server"
 )
 
@@ -115,6 +117,19 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		})
 		go hub.Run(ctx)
 	}
+	// Pages link the client bundle vite build wrote; without it they
+	// still answer, with their data, but no script to show it.
+	assets, err := render.LoadAssets(cfg.AppDist, cfg.AppBuild)
+	if err != nil {
+		log.Warn("no client bundle; pages link no assets", "err", err)
+	}
+	var assetFiles *os.Root
+	if root, err := os.OpenRoot(filepath.Join(cfg.AppDist, "assets")); err == nil {
+		defer root.Close()
+		assetFiles = root
+	}
+	renderer := render.NewClient(cfg.RenderSocket, cfg.RenderTimeout, cfg.RenderBackoff)
+	log.Info("render service", "socket", renderer.Socket(), "build", assets.Build)
 
 	signer := auth.NewSigner(cfg.AppKey)
 	var acctLimiter *auth.RateLimiter
@@ -141,9 +156,12 @@ func run(log *slog.Logger, cfg *config.Config) error {
 			TDLibDir:     tdlib,
 			StoreFileCap: cfg.StoreFileCap,
 		},
-		Proxies: server.TrustedProxies(cfg.TrustedProxies),
-		Live:    hub,
-		LiveCfg: server.LiveConfig{Recheck: cfg.LiveRecheck},
+		Proxies:    server.TrustedProxies(cfg.TrustedProxies),
+		Live:       hub,
+		LiveCfg:    server.LiveConfig{Recheck: cfg.LiveRecheck},
+		Render:     renderer,
+		Assets:     assets,
+		AssetFiles: assetFiles,
 	})
 
 	addr := net.JoinHostPort(cfg.ListenAddr, strconv.Itoa(int(cfg.ListenPort)))
