@@ -396,6 +396,8 @@ the scope sees nothing; a file token is its own authorization.
                            the TDLib path check.
     internal/render/       The render service's client, the client
                            assets and the page document.
+    internal/testdb/       A database per test, and the dummy-data
+                           fixtures (see Tests).
     vendor/                The third-party modules, committed.
     build/                 Build output (git-ignored).
 
@@ -433,20 +435,78 @@ By hand, from this directory, with the same Go version:
     go vet ./...
     go test ./...
 
-The sign-in tests in internal/server need a MySQL database with the web
-migrations (web/migrations) applied, named in WEBAPI_TEST_APP_DSN
-(for example root:pw@tcp(127.0.0.1:3306)/tgloggerd_web_test); its name
-must contain "test", since they empty web_users and web_audit. Without
-the variable they are skipped. The media tests also need one with the
-logger's migrations (migrations/) applied, named in WEBAPI_TEST_RO_DSN
-under the same rule (they empty telegram_files); they run the daemon as
-a fake on a loopback port the system picks.
+The tests that need MySQL (the sign-in and media tests in
+internal/server, and every new one) take a database each from
+internal/testdb, on the server WEBAPI_TEST_MYSQL_DSN names, and are
+skipped without it; see Tests. The media tests run the daemon as a fake
+on a loopback port the system picks.
 The live update tests (internal/live, events_test.go in
 internal/server) need no database: they run livetest's fake daemon
 stream on a loopback port the system picks, and run in parallel.
 
 The service applies no migrations: the web service owns the web schema
 and the daemon the logger's.
+
+# Tests
+
+Every feature ships with its tests, and the tests run in parallel. One
+command runs all of the web's checks, with only Docker on the host:
+
+    scripts/test-web.sh                 # webapi and web/app
+    scripts/test-web.sh --go-only -run TestMedia -count=1
+
+For webapi it starts the test MySQL of docker-compose.test.yml (its own
+compose project, tmpfs, no published port), runs gofmt, go vet and
+go test -race ./... in the pinned Go image on that project's internal
+network, and stops the MySQL again if it started it. A MySQL that was
+already running is used and left running, so for several runs at once
+start it first:
+
+    docker compose -f docker-compose.test.yml up -d --wait
+    scripts/test-web.sh --go-only & scripts/test-web.sh --go-only; wait
+    docker compose -f docker-compose.test.yml down
+
+## A database per test
+
+A test that needs MySQL takes a database of its own from
+internal/testdb, with the logger's (testdb.Logger) or the web's
+(testdb.Web) migrations applied and, if it asks, dummy data loaded:
+
+    func TestSomething(t *testing.T) {
+        t.Parallel()
+        ro := testdb.New(t, testdb.Logger, "sample") // fixtures/logger/sample.sql
+        app := testdb.New(t, testdb.Web, "accounts") // fixtures/web/accounts.sql
+        h := New(Deps{RO: ro.DB, App: app.DB, ...})
+        ...
+    }
+
+The database is dropped when the test ends. db.Load(t, "name") loads
+more fixtures later; db.Name and db.DSN name the database. Rows a test
+adds are its own, so a test never empties a table and may call
+t.Parallel(). Without WEBAPI_TEST_MYSQL_DSN (a DSN without a database
+name, of an account that may create and drop databases, such as
+root:test@tcp(mysql:3306)/) New skips the test.
+
+The migrations are applied once per change of the files, into a
+template database (test_tpl_<schema>_<hash>) built under a MySQL
+named lock, so test binaries running at once, from `go test ./...` or
+from separate runs, share it; each test's database is made from the
+template's table definitions. A new migration needs nothing more.
+
+The fixtures are invented data, nothing from production, following the
+named samples of the app's stand-in (web/mockup/src/data). The header
+of each file lists the ids it uses, so a test can add rows beside them
+without clashing. A fixture that changes must keep the package's own
+tests (internal/testdb) passing; they check, among other things, that
+the message counters agree with the messages. Add a fixture as a new
+file when a test needs data the existing ones do not hold, rather than
+changing rows other tests rely on.
+
+To run the tests from the host instead, publish the port:
+
+    docker compose -f docker-compose.test.yml \
+        -f docker-compose.test-port.yml up -d --wait
+    WEBAPI_TEST_MYSQL_DSN='root:test@tcp(127.0.0.1:33306)/' go test -race ./...
 
 # Configuration
 

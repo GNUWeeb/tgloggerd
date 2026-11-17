@@ -12,22 +12,19 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/go-sql-driver/mysql"
+
+	"tgloggerd/webapi/internal/testdb"
 )
 
-// freshAppDB is a web database of the test's own: created on the
-// server WEBAPI_TEST_APP_DSN names, as "<its database>_<random>", with
-// every web migration (web/migrations) applied, and dropped when the
-// test ends. Tests on it create every row they read and can run in
-// parallel with each other and with the tests on the shared database.
+// freshAppDB is a web database of the test's own, with every web
+// migration applied (internal/testdb). Tests on it create every row
+// they read and run in parallel.
 func freshAppDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db := emptyAppDB(t)
-	migrateAppDB(t, db, "")
-	return db
+	return testdb.New(t, testdb.Web).DB
 }
 
 // migrateAppDB applies the web migrations not applied to db yet, up
@@ -62,25 +59,25 @@ func migrateAppDB(t *testing.T, db *sql.DB, upto string) {
 	}
 }
 
-// emptyAppDB is freshAppDB without the migrations.
+// emptyAppDB is an empty database of the test's own on the test
+// server (testdb.EnvDSN), for the tests that apply the migrations
+// themselves; it is dropped when the test ends.
 func emptyAppDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("WEBAPI_TEST_APP_DSN")
+	dsn := os.Getenv(testdb.EnvDSN)
 	if dsn == "" {
-		t.Skip("WEBAPI_TEST_APP_DSN is not set")
+		t.Skip(testdb.EnvDSN + " is not set")
 	}
 	cfg, err := mysql.ParseDSN(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(cfg.DBName, "test") {
-		t.Fatalf("refusing to create databases beside %q: not a test database", cfg.DBName)
-	}
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
-	name := cfg.DBName + "_" + hex.EncodeToString(b)
+	name := "test_upgrade_" + hex.EncodeToString(b)
 
-	admin, err := sql.Open("mysql", dsn)
+	cfg.DBName = ""
+	admin, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
 		t.Fatal(err)
 	}

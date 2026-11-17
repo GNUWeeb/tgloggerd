@@ -130,7 +130,6 @@ Storing every kind of Telegram message faithfully:
 The web backend moves from Drogon to Go:
 [design/web-go.md](design/web-go.md).
 
-- [`web-test-harness`](todo/web-test-harness.md): Give the web's tests a database each, dummy data and one command, so they run in parallel.
 - [`go-web-pages`](todo/go-web-pages.md): Route the page paths the Go service serves through nginx to it.
 - [`ssr-render-service`](todo/ssr-render-service.md): Deploy the Node render service that turns a page's route and data into HTML.
 - [`web-live-events`](todo/web-live-events.md): Route the live updates stream through nginx and check it on the running site.
