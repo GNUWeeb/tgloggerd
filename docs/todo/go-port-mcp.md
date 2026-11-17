@@ -20,7 +20,7 @@ It is the last part of the web that only Drogon serves.
 
 ## Depends on
 
-- `go-port-chat-api`
+Nothing.
 
 ## Done when
 

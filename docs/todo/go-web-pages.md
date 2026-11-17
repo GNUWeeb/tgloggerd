@@ -24,8 +24,8 @@ nginx still sends every page path to the Drogon web.
 ## Design notes
 
 - Loaders for the other pages come with the ports that bring their
-  data (`go-port-chat-api`, `go-port-search`, `go-port-admin`,
-  `web-roles`, `web-user-settings`); each adds its loader to the page
+  data (`go-port-search`, `go-port-admin`, `web-roles`,
+  `web-user-settings`); each adds its loader to the page
   table, and the path then follows here.
 - The email address gate has its hook in `Server.emailRequired`
   (pages.go), filled in by `web-email`.
