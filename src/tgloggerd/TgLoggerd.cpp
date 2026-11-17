@@ -695,7 +695,8 @@ int TgLoggerd::start(void)
 				return hex.size() == 64 &&
 				       fs::exists(blobPath(storage_dir_, hex, ext),
 						  ec);
-			});
+			},
+			[this](int32_t fid) { return store_holds_.held(fid); });
 		pr_debug(l_, "fetch: max_active=%zu chunk=%llu timeout=%llds"
 			 " idle=%llds", fcfg.max_active,
 			 (unsigned long long)fcfg.chunk,
