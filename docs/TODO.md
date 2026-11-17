@@ -115,6 +115,7 @@ The file store as a capped cache in front of Telegram:
 
 ## Web interface
 
+- [`web-join-chat`](todo/web-join-chat.md): Let an admin make the logging account join a group or channel by invite link or username from the dashboard.
 
 ## Operations
 
