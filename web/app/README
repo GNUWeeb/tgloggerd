@@ -29,8 +29,9 @@ dist/client (content-hashed files and the manifest the Go service
 reads) and the render entry to dist/server, both with one build id,
 and records that id last in dist/client/build.json, where the Go
 service reads it. The id is a hash of the inputs (package.json, the
-lock file, tsconfig.json, vite.config.ts and src/), so the same tree
-gives the same id; TGD_BUILD (passed through by ./dev) sets another.
+lock file, tsconfig.json, vite.config.ts, and src/ without its tests),
+so the same tree gives the same id; TGD_BUILD (passed through by
+./dev) sets another.
 
 The API's types are generated from the Go service's OpenAPI
 description, ../../webapi/openapi.yaml, into src/api/generated/ by
