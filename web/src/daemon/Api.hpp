@@ -36,6 +36,7 @@ struct Reply {
 	int		status = 0;	/* its status; 0 when !sent.            */
 	nlohmann::json	body;		/* parsed JSON body; null if none.      */
 	std::string	error;		/* for logs: why it failed, if it did.  */
+	std::string	retryAfter;	/* the Retry-After header, "" if none.  */
 
 	/* A 2xx answer. */
 	bool ok(void) const { return sent && status >= 200 && status < 300; }
@@ -73,6 +74,16 @@ drogon::Task<Reply> recordAccess(std::vector<uint64_t> ids);
  */
 drogon::Task<Reply> resolveChat(std::string ref);
 drogon::Task<Reply> joinChat(std::string ref);
+
+/*
+ * POST /v1/files/{id}/fetch: get a file's bytes from Telegram. `length` 0
+ * asks for one chunk from `offset`. Answers {state:"stored", id} or
+ * {state:"partial", path, offset, available, size}; see the contract in
+ * docs/internal-api.md. The daemon bounds a fetch by TG_FETCH_TIMEOUT_SECS
+ * (read from the shared environment here), and this call waits a little
+ * longer than that, so the daemon's own 504 is what a slow fetch gets.
+ */
+drogon::Task<Reply> fetch(uint64_t id, uint64_t offset, uint64_t length);
 
 } /* namespace tgweb::daemon::api */
 

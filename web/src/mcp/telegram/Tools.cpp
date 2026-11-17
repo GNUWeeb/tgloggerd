@@ -390,9 +390,12 @@ const flt::Schema kUserSchema{ kUserFields,
 
 /*
  * The media object for a message row whose file_id is non-NULL: metadata
- * always, a URL only when the bytes are actually stored -- files at or above
- * TG_MAX_STORE_FILE_SIZE are recorded but not kept, and /files/<token>
- * answers 404 for those, so a link would promise something the archive cannot
+ * always, a URL only when the bytes are actually stored. A file can be
+ * recorded without its bytes -- at or above TG_MAX_STORE_FILE_SIZE, from a
+ * chat the account is not a member of, or evicted from the store -- and
+ * /files/<token> then has to fetch it from Telegram, which a request without
+ * a session may do for small files only and which fails once Telegram no
+ * longer has the file, so a link would promise what the archive may not
  * deliver. withNames adds the original filename/extension when the query
  * selected those columns.
  */

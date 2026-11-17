@@ -112,14 +112,26 @@ All configuration is in .env (see .env.example). The web variables:
     WEB_STORAGE_DIR        File store; MUST equal the daemon's TG_STORAGE_DIR.
     WEB_TGLOGGERD_API      The daemon's internal API, http://host:port
                            (http://10.0.88.5:8091 in compose; default empty =
-                           off). The web reports the files it serves there;
-                           see docs/internal-api.md. The bearer key is derived
-                           from WEB_APP_KEY, so the daemon must share it. A
-                           bad value turns it off, never stops the web.
+                           off). The web reports the files it serves there
+                           and fetches files the store does not hold through
+                           it; see docs/internal-api.md and
+                           web/docs/media.md. The bearer key is derived from
+                           WEB_APP_KEY, so the daemon must share it. A bad
+                           value turns it off, never stops the web.
+    TG_DATA_DIR            The daemon's data directory, read from the shared
+                           .env: big files fetched from Telegram are served
+                           from <TG_DATA_DIR>/tdlib, and only from there.
+    TG_MAX_STORE_FILE_SIZE The daemon's per-file store cap, read from the
+                           shared .env: a request without a session may only
+                           fetch files under it.
+    TG_FETCH_TIMEOUT_SECS  The daemon's fetch time limit, read from the
+                           shared .env; the web waits 10 seconds longer.
 
-The container serves /media from the daemon's downloaded files (the shared
-data/storage/files tree), so WEB_STORAGE_DIR must equal TG_STORAGE_DIR. The
-example serves plain HTTP with WEB_SECURE_COOKIE=0; in production put a
+The container serves /files/<token> from the daemon's file store (the shared
+data/storage/files tree), so WEB_STORAGE_DIR must equal TG_STORAGE_DIR, and
+files not in it from TDLib's cache in the same /workspace mount, so the web
+must run from the same directory as the daemon (both cd to the repository
+root). See web/docs/media.md. The example serves plain HTTP with WEB_SECURE_COOKIE=0; in production put a
 TLS-terminating reverse proxy in front (see below) and set
 WEB_SECURE_COOKIE=1.
 
@@ -166,11 +178,14 @@ cookie is only sent over HTTPS. A minimal nginx server block:
     bound integers.
   - Media is served from a path derived entirely from the database (the
     verified SHA-256 hex plus a sanitized extension), never from request
-    input.
+    input. A file fetched from Telegram is served from the path the
+    daemon answers with, only after checking it resolves to a regular
+    file inside <TG_DATA_DIR>/tdlib.
 
 # Known limitations
 
   - No global message text search: the message text column is unindexed
     MEDIUMTEXT, so only bounded, chat-scoped listing is offered.
-  - Range/seek support in newFileResponse is limited, so seeking within
-    large media files may fall back to a full transfer.
+  - A big file that is not in the store streams one chunk per request
+    (TG_FETCH_CHUNK, 16 MiB), each waiting for Telegram; seeking far
+    ahead in a long video waits for that range to download first.

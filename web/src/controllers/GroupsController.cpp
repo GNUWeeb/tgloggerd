@@ -10,6 +10,7 @@
 #include "controllers/Common.hpp"
 #include "dao/Browse.hpp"
 #include "dao/Mcp.hpp"
+#include "media/Fetch.hpp"
 #include "dao/Search.hpp"
 #include "views/Render.hpp"
 
@@ -222,6 +223,9 @@ GroupsController::chat(drogon::HttpRequestPtr req, std::string id)
 
 	nlohmann::json hist = co_await dao::browse::chatHistory(
 		db, "group", gid, limit, after, afterTs, authed);
+	/* A public view has no session: it may load small files only. */
+	for (auto &m : hist["messages"])
+		media::markFetchable(m, authed);
 	data["messages"]    = hist["messages"];
 	data["limit"]       = hist["limit"];
 	data["has_older"]   = hist.contains("older_after");

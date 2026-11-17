@@ -136,6 +136,8 @@ add_executable(tgloggerd_web
 	src/mcp/Token.hpp
 	src/mcp/telegram/Tools.cpp
 	src/mcp/telegram/Tools.hpp
+	src/media/Fetch.cpp
+	src/media/Fetch.hpp
 	src/views/Render.cpp
 	src/views/Render.hpp
 	src/controllers/Common.hpp

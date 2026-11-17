@@ -293,8 +293,9 @@ count as an access.
    410 when Telegram no longer has the file.
 
 A request with only a token, no session, may fetch small files only;
-streaming a big file needs a session. That bounds what a leaked token
-can cost.
+streaming a big file needs a session (403 otherwise). That bounds what
+a leaked token can cost. With `WEB_TGLOGGERD_API` empty nothing is
+fetched and an unstored file stays a 404.
 
 Pages stop calling unstored media "too large, not stored". Photos and
 stickers render as usual and are fetched when viewed; video, audio and

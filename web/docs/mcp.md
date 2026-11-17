@@ -453,12 +453,14 @@ Fetchable URLs appear wherever the archive holds a file: profile photos
 (`profile_photo_url`), group photos (`photo_url`), message attachments
 (`media.url`), and every photo entry in both history tools.
 
-A URL is emitted **only when the bytes are actually stored**. Files at or above
-`TG_MAX_STORE_FILE_SIZE` are recorded but not kept, and `/files/<token>` answers 404 for
-those — so a link would promise something the archive cannot deliver. Message media carries
-`stored: false` in that case, with the metadata (type, size, filename) still present,
-because "this attachment existed and was a 2 GB video" is worth knowing even when the bytes
-are not there.
+A URL is emitted **only when the bytes are actually stored**. A file can be recorded
+without its bytes: at or above `TG_MAX_STORE_FILE_SIZE`, from a chat the logging account is
+not a member of, or evicted from the store since. `/files/<token>` then has to fetch it from
+Telegram ([media.md](media.md)), which a request without a session (an MCP client's) may do
+for small files only, and which fails once Telegram no longer has the file, so a link would
+promise something the archive may not deliver. Message media carries `stored: false` in that
+case, with the metadata (type, size, filename) still present, because "this attachment
+existed and was a 2 GB video" is worth knowing even when the bytes are not there.
 
 Both user tools attach a URL alongside a profile photo's `file_id`:
 `profile_photo_url` on the current photo, `url` on each history entry. These are the same

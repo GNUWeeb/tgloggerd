@@ -100,7 +100,6 @@ touches the list.
 The file store as a capped cache in front of Telegram:
 [design/storage-cache.md](design/storage-cache.md).
 
-- [`web-fetch-unstored-media`](todo/web-fetch-unstored-media.md): Serve unstored files by fetching them through the daemon, with byte ranges, and show them as loadable.
 - [`storage-cutover`](todo/storage-cutover.md): Deploy the storage cache, dry-run the first sweep, and enable eviction once the owner agrees.
 - [`orphan-blob-audit`](todo/orphan-blob-audit.md): Act on the store audit's list of blobs no row describes, as the owner agrees (optional).
 - [`shared-download-prune-race`](todo/shared-download-prune-race.md): Keep one message's store job from deleting the TDLib file another message's job still has to hash.

@@ -90,30 +90,64 @@
 			h += '<div class="lp-title">' + lp.title + "</div>";
 		if (lp.description)
 			h += '<div class="lp-desc">' + lp.description + "</div>";
-		/* Only when the bytes are actually stored, the same rule as
-		 * message media: a pruned file would 404. */
-		if (lp.media && lp.media.stored !== false && lp.media.url)
+		/* Only when the bytes are stored or can be fetched, the same
+		 * rule as message media. */
+		if (lp.media && (lp.media.stored !== false || lp.media.fetchable) &&
+		    lp.media.url)
 			h += '<img class="lp-image" src="' + lp.media.url +
 			     '" alt="" loading="lazy">';
 		h += "</a>";
 		return h;
 	}
 
-	/* Placeholder for a file whose bytes were too large to keep (only its
-	 * metadata is recorded); mirrors the .media-missing template branch. */
-	function missing(md, ctype, cls) {
+	/* Placeholder for a file whose bytes are not stored and cannot be
+	 * fetched (only its metadata is recorded); mirrors the .media-missing
+	 * template branch. */
+	function missing(md, ctype, cls, tag, id) {
 		var label = md.name !== "" ? md.name : ctype;
 		var size = md.size !== undefined
 			? ' <span class="muted">(' + md.size + " bytes)</span>" : "";
-		return '<div class="' + cls + ' media-missing">📄 ' + label + size +
-			' <span class="muted">— too large, not stored</span></div>';
+		return "<" + tag + ' class="' + cls + ' media-missing"' + id + ">📄 " + label + size +
+			' <span class="muted">— not stored, only metadata kept</span></' + tag + ">";
+	}
+
+	/*
+	 * "Load from Telegram" for an unstored, fetchable video, animation,
+	 * audio or document; mirrors the media-fetch template branches. Photos
+	 * and stickers render as usual (and are fetched when viewed), so this
+	 * returns "" for them. `o` gives the markup that differs per place:
+	 * cls/wide (extra classes), id (an id="..." attribute or ""), vcls (the
+	 * video's class attribute or ""), acls (the audio's), fcls (the file
+	 * link's), box (the audio wrapper's tag) and label (the name shown when
+	 * the file has none).
+	 */
+	function fetchCard(md, ctype, o) {
+		if (md.stored !== false)
+			return "";
+		var u = md.url;
+		var name = md.name !== "" ? md.name : o.label;
+		var bytes = md.size !== undefined ? md.size + " bytes" : "";
+		if (md.render === "video" ||
+		    (md.render === "animation" && ctype !== "sticker"))
+			return '<a class="' + o.cls + 'media-thumb media-fetch zoomable"' + o.id + ' data-zoom="' + md.render + '" data-src="' + u + '" href="' + u + '"><video' + o.vcls + ' src="' + u + '" preload="none" muted playsinline></video><span class="play-badge" aria-hidden="true"></span><span class="fetch-label">Load from Telegram' + (bytes ? " · " + bytes : "") + "</span></a>";
+		if (md.render === "audio")
+			return '<' + o.box + ' class="' + o.wide + 'media-fetch-audio"' + o.id + '><span class="fetch-label">🎵 ' + name + " · Load from Telegram</span><audio" + o.acls + ' src="' + u + '" controls preload="none"></audio></' + o.box + ">";
+		if (md.render === "file")
+			return '<a class="' + o.fcls + 'msg-file media-fetch-file"' + o.id + ' href="' + u + '">📎 ' + name + (bytes ? ' <span class="muted">(' + bytes + ")</span>" : "") + ' <span class="fetch-label">Load from Telegram</span></a>';
+		return "";
 	}
 
 	function singleMedia(m) {
 		if (!m.media)
 			return "";
-		if (m.media.stored === false)
-			return missing(m.media, m.content_type + " file", "msg-media");
+		if (m.media.stored === false && !m.media.fetchable)
+			return missing(m.media, m.content_type + " file", "msg-media", "div", "");
+		var card = fetchCard(m.media, m.content_type, {
+			cls: "", wide: "", id: "", box: "div", vcls: ' class="msg-media"',
+			acls: ' class="msg-audio"', fcls: "", label: m.content_type + " file"
+		});
+		if (card)
+			return card;
 		var md = m.media, u = md.url;
 		switch (md.render) {
 		case "image":
@@ -136,8 +170,17 @@
 			return '<span class="album-item wide deleted" id="msg-' + it.msg_id + '"><span class="muted">(deleted)</span></span>';
 		if (!it.media)
 			return "";
-		if (it.media.stored === false)
-			return missing(it.media, it.content_type, "album-item wide");
+		if (it.media.stored === false && !it.media.fetchable)
+			return missing(it.media, it.content_type, "album-item wide", "span",
+				       ' id="msg-' + it.msg_id + '"');
+		var idAttr = ' id="msg-' + it.msg_id + '"';
+		var card = fetchCard(it.media, it.content_type, {
+			cls: "album-item ", wide: "album-item wide ", id: idAttr,
+			box: "span", vcls: "", acls: "", fcls: "album-item wide ",
+			label: it.content_type + " file"
+		});
+		if (card)
+			return card;
 		var u = it.media.url;
 		switch (it.media.render) {
 		case "image":
@@ -158,8 +201,15 @@
 	function editMedia(e) {
 		if (!e.media)
 			return "";
-		if (e.media.stored === false)
-			return missing(e.media, e.content_type, "edit-media");
+		if (e.media.stored === false && !e.media.fetchable)
+			return missing(e.media, e.content_type, "edit-media", "div", "");
+		var card = fetchCard(e.media, e.content_type, {
+			cls: "edit-media ", wide: "", id: "", box: "div", vcls: "",
+			acls: ' class="msg-audio"', fcls: "edit-media-file ",
+			label: e.content_type + " file"
+		});
+		if (card)
+			return card;
 		var u = e.media.url;
 		switch (e.media.render) {
 		case "image":

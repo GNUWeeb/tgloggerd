@@ -9,6 +9,7 @@
 #include "controllers/Common.hpp"
 #include "dao/Browse.hpp"
 #include "dao/Mcp.hpp"
+#include "media/Fetch.hpp"
 
 #include <cstdint>
 #include <cstdlib>
@@ -96,8 +97,10 @@ ApiController::messages(drogon::HttpRequestPtr req, std::string scope,
 
 	nlohmann::json hist = co_await dao::browse::chatHistory(
 		db, scope, chatId, limit, after, afterTs, authed);
-	for (auto &m : hist["messages"])
+	for (auto &m : hist["messages"]) {
 		enrichUrls(m);
+		media::markFetchable(m, authed);
+	}
 
 	auto resp = drogon::HttpResponse::newHttpResponse();
 	resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
