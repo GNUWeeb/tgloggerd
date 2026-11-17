@@ -97,6 +97,23 @@ touches the list.
 
 ## Storage
 
+The file store as a capped cache in front of Telegram:
+[design/storage-cache.md](design/storage-cache.md).
+
+- [`files-cache-schema`](todo/files-cache-schema.md): Add the columns that make telegram_files a cache: last access, Telegram unique id, nullable sha256, alias.
+- [`tdlib-cross-thread-request`](todo/tdlib-cross-thread-request.md): Let any thread but the loop send a TDLib request and wait for its answer.
+- [`chat-membership-tracking`](todo/chat-membership-tracking.md): Know per chat whether the account is a member, from supergroup and basic group status.
+- [`media-record-without-download`](todo/media-record-without-download.md): Record media from non-member chats and over the per-file cap without downloading it.
+- [`internal-api-server`](todo/internal-api-server.md): Give tgloggerd an authenticated internal HTTP API for the web, with file status and access recording.
+- [`seed-file-access`](todo/seed-file-access.md): Seed each file's last access from the web audit, newest referencing message and Discord forwards.
+- [`file-fetch-on-demand`](todo/file-fetch-on-demand.md): Fetch a file from Telegram when asked, whole into the store if small, by byte range if big.
+- [`storage-janitor`](todo/storage-janitor.md): Evict files by retention and by the total cap, with a dry run and a status endpoint.
+- [`web-access-reporting`](todo/web-access-reporting.md): Report the files the web serves to the daemon in batches, and cache them for a week, not a year.
+- [`web-fetch-unstored-media`](todo/web-fetch-unstored-media.md): Serve unstored files by fetching them through the daemon, with byte ranges, and show them as loadable.
+- [`storage-cutover`](todo/storage-cutover.md): Deploy the storage cache, dry-run the first sweep, and enable eviction once the owner agrees.
+- [`photo-download-index`](todo/photo-download-index.md): Stop re-downloading user and group photos that are already stored (optional).
+- [`download-failure-handling`](todo/download-failure-handling.md): Notice failed or cancelled TDLib downloads and drop their pending entries (optional).
+- [`orphan-blob-audit`](todo/orphan-blob-audit.md): Find blobs in the store that no row describes, and deal with them as agreed (optional).
 
 ## Web interface
 
