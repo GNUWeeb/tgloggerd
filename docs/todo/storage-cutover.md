@@ -52,6 +52,20 @@ step needs care, and the last one needs the owner's go.
     with a known size is downloaded (TDLib's temp dir stays small);
     a metadata-only file later posted in a member chat is downloaded
     and fills in its row (same id, `sha256` set, `on_disk = 1`).
+  - `file-fetch-on-demand` (docs/internal-api.md, `POST
+    /v1/files/{id}/fetch`): a metadata-only photo answers
+    `{"state": "stored"}` and its row gets `on_disk = 1` and a blob
+    (or `alias_of` when the bytes were another row's), and TDLib's
+    copy is gone a minute later; a range of an over-cap video answers
+    `partial` with a path under `/workspace/<TG_DATA_DIR>/tdlib/`,
+    the right `size` and an `available` the file really has, and that
+    TDLib file is deleted 15 minutes after the last request (log
+    "fetch: deleted TDLib's copy"); a file whose remote id no longer
+    downloads is fetched through a fresh source (debug log "trying a
+    fresh source"); a file whose messages are all deleted answers 410
+    and then `"fetchable": false`; a video ingest is still downloading
+    (size unknown up front) is waited for, not cut short; more than
+    `TG_FETCH_MAX_ACTIVE` concurrent fetches get 503.
   - `internal-api-server`: with `TG_API_LISTEN=0.0.0.0:8091`, the log
     has `api: internal API listening on 0.0.0.0:8091`; curl from a
     container on tgnet to `http://10.0.88.5:8091/v1/files/<id>` gets
@@ -79,7 +93,6 @@ step needs care, and the last one needs the owner's go.
 
 ## Depends on
 
-- `file-fetch-on-demand`
 - `web-fetch-unstored-media`
 
 ## Done when

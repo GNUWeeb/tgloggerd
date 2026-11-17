@@ -28,6 +28,11 @@ they would all be 404s.
 
 ## Design notes
 
+- The daemon's side is done: its contract is the
+  `POST /v1/files/{id}/fetch` section of docs/internal-api.md. The
+  reply field is `state` (not `status`), a stored reply carries the
+  `id` of the row holding the bytes, and an offset past the end of a
+  big file is a 416.
 - Validate the daemon's `path` against the TDLib directory before
   serving it; never serve a path from outside it.
 - `newFileResponse(path, offset, length, true, ...)` gives the 206;
@@ -37,7 +42,7 @@ they would all be 404s.
 
 ## Depends on
 
-- `file-fetch-on-demand`
+Nothing.
 
 ## Done when
 
