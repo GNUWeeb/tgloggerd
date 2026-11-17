@@ -721,6 +721,13 @@ void extract_message_content(const td_api::MessageContent &content,
 	case td_api::messageSticker::ID:
 		out.content_type = models::MessageContentType::Sticker;
 		break;
+	case td_api::messageExpiredPhoto::ID:
+	case td_api::messageExpiredVideo::ID:
+	case td_api::messageExpiredVideoNote::ID:
+	case td_api::messageExpiredVoiceNote::ID:
+		out.content_type = models::MessageContentType::Unknown;
+		out.is_expired = true;
+		break;
 	default: {
 		/* A system/service message (member joined, title changed, ...)
 		 * is a real, replyable message; record it as such. Anything

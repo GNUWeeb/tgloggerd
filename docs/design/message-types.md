@@ -72,17 +72,18 @@ update is handled: not `updateMessageIsPinned`,
 `updateMessageInteractionInfo`, `updateMessageReactions`, `updatePoll`,
 `updateMessageFactCheck` or `updateForumTopic*`.
 
-### 2.1 Known defect
+### 2.1 Expired media (fixed)
 
-The upsert in `models/GroupMessage.cpp` (and its private twin) takes the
-content columns from any copy whose `edit_date` is not older than the
+The upsert in `models/GroupMessage.cpp` (and its private twin) took the
+content columns from any copy whose `edit_date` was not older than the
 stored one. A self-destructing photo, video, video note or voice note
 becomes `messageExpired*` once opened or timed out; when that message
-is ingested again (reply resolution, backfill, relink) the stored
-`photo` row is rewritten to `unknown` with no text. The file link
-survives only because the upsert does not touch `file_id`. Item
-`msg-expired-media-keep` fixes this before anything else (decision
-[2026-11-18-msg-expired-media-keep](decisions/2026-11-18-msg-expired-media-keep.md)).
+was ingested again (reply resolution, backfill, relink) the stored
+`photo` row was rewritten to `unknown` with no text. Since 2026-11-18
+an expired copy of a stored message leaves the row alone (decision
+[2026-11-18-msg-expired-media-keep](decisions/2026-11-18-msg-expired-media-keep.md));
+rows overwritten before that cannot be told apart from other `unknown`
+rows.
 
 ## 3. Content types and what is lost
 

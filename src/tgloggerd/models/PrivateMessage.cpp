@@ -211,6 +211,17 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		}
 
 		/*
+		 * Self-destructed media arrives as messageExpired* once it has
+		 * been opened or its timer ran out, and every later copy of the
+		 * message (reply resolution, backfill, relink) says so. That
+		 * copy carries no content, only the fact that Telegram removed
+		 * it, so it must neither replace the stored content nor count as
+		 * an edit. Like a deletion, expiry keeps what was shown.
+		 */
+		if (msg.content.is_expired)
+			return;
+
+		/*
 		 * If the edit_date increased and content changed, copy the old
 		 * content into telegram_private_message_edits first.
 		 */

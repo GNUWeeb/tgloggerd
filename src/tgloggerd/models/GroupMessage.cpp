@@ -218,6 +218,17 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 			return;
 		}
 
+		/*
+		 * Self-destructed media arrives as messageExpired* once it has
+		 * been opened or its timer ran out, and every later copy of the
+		 * message (reply resolution, backfill, relink) says so. That
+		 * copy carries no content, only the fact that Telegram removed
+		 * it, so it must neither replace the stored content nor count as
+		 * an edit. Like a deletion, expiry keeps what was shown.
+		 */
+		if (msg.content.is_expired)
+			return;
+
 		models::MessageContent old_content;
 		old_content.content_type =
 			models::message_content_type_from_string(

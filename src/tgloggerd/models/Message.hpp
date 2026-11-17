@@ -93,6 +93,13 @@ struct MessageContent {
 
 	/* telegram_files.id for media attachments; nullopt if none. */
 	std::optional<uint64_t>		file_id;
+
+	/*
+	 * The copy is self-destructed media (messageExpired*): Telegram has
+	 * removed what it showed, so it says nothing about the content. A
+	 * stored message keeps the content it had. Not snapshotted on edits.
+	 */
+	bool				is_expired = false;
 };
 
 /* Textual encodings used by the *_messages tables' ENUM columns. */

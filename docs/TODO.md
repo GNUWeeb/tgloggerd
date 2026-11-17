@@ -110,7 +110,6 @@ The file store as a capped cache in front of Telegram:
 Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
-- [`msg-expired-media-keep`](todo/msg-expired-media-keep.md): Keep the stored content of self-destructing media when a later copy arrives expired.
 - [`msg-schema-kinds`](todo/msg-schema-kinds.md): Add the new content kinds, `tdlib_type` and `content_extra` to the message, edit and file tables.
 - [`msg-classify`](todo/msg-classify.md): Give every ingested message its exact TDLib class and a content kind, keeping unmapped classes as TDLib JSON.
 - [`msg-media-detail`](todo/msg-media-detail.md): Store the detail of media messages: size, duration, MIME type, spoiler, sticker emoji and set, audio tags.
