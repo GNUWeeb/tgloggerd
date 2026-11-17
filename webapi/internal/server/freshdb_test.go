@@ -25,6 +25,46 @@ import (
 // parallel with each other and with the tests on the shared database.
 func freshAppDB(t *testing.T) *sql.DB {
 	t.Helper()
+	db := emptyAppDB(t)
+	migrateAppDB(t, db, "")
+	return db
+}
+
+// migrateAppDB applies the web migrations not applied to db yet, up
+// to and including the one numbered upto ("000004"; all with ""). It
+// remembers the last one in a table of its own, test_migrated.
+func migrateAppDB(t *testing.T, db *sql.DB, upto string) {
+	t.Helper()
+	ups, err := filepath.Glob("../../../web/migrations/*.up.sql")
+	if err != nil || len(ups) == 0 {
+		t.Fatalf("no web migrations found: %v", err)
+	}
+	sort.Strings(ups)
+	var applied string
+	_ = db.QueryRow("SELECT v FROM test_migrated").Scan(&applied)
+	for _, f := range ups {
+		n := filepath.Base(f)[:6]
+		if n <= applied || (upto != "" && n > upto) {
+			continue
+		}
+		q, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(q)); err != nil {
+			t.Fatalf("%s: %v", filepath.Base(f), err)
+		}
+		applied = n
+	}
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS test_migrated (v CHAR(6) NOT NULL); " +
+		"DELETE FROM test_migrated; INSERT INTO test_migrated VALUES ('" + applied + "')"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// emptyAppDB is freshAppDB without the migrations.
+func emptyAppDB(t *testing.T) *sql.DB {
+	t.Helper()
 	dsn := os.Getenv("WEBAPI_TEST_APP_DSN")
 	if dsn == "" {
 		t.Skip("WEBAPI_TEST_APP_DSN is not set")
@@ -61,19 +101,5 @@ func freshAppDB(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	ups, err := filepath.Glob("../../../web/migrations/*.up.sql")
-	if err != nil || len(ups) == 0 {
-		t.Fatalf("no web migrations found: %v", err)
-	}
-	sort.Strings(ups)
-	for _, f := range ups {
-		q, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(string(q)); err != nil {
-			t.Fatalf("%s: %v", filepath.Base(f), err)
-		}
-	}
 	return db
 }
