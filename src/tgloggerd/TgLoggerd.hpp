@@ -33,6 +33,7 @@ private:
 	inline int initDataDirC(const char *dir);
 	std::optional<uint64_t> storeDownloadedFile(const std::string &local_path,
 						    const std::string &tg_file_id,
+						    const std::string &tg_unique_id,
 						    int64_t file_size,
 						    const char *file_type,
 						    const std::string &orig_file_name = std::string());

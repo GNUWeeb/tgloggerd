@@ -586,6 +586,7 @@ int TgLoggerd::stop(void)
 void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
 {
 	auto file_id = storeDownloadedFile(p.local_path, p.tg_file_id,
+					   p.tg_unique_id,
 					   p.file_size, "photo");
 	if (!file_id.has_value())
 		return;
@@ -612,6 +613,7 @@ void TgLoggerd::onProfilePhoto(const ProfilePhoto &p)
 void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
 {
 	auto file_id = storeDownloadedFile(p.local_path, p.tg_file_id,
+					   p.tg_unique_id,
 					   p.file_size, "photo");
 	if (!file_id.has_value())
 		return;
@@ -638,6 +640,7 @@ void TgLoggerd::onGroupPhoto(const GroupPhoto &p)
 void TgLoggerd::onMessageFile(const MessageFile &m)
 {
 	auto file_id = storeDownloadedFile(m.local_path, m.tg_file_id,
+					   m.tg_unique_id,
 					   m.file_size, m.content_type.c_str(),
 					   m.orig_file_name);
 	if (!file_id.has_value())
@@ -719,6 +722,7 @@ void TgLoggerd::onMessageFileLink(const MessageFileLink &lk)
 std::optional<uint64_t>
 TgLoggerd::storeDownloadedFile(const std::string &local_path,
 			       const std::string &tg_file_id,
+			       const std::string &tg_unique_id,
 			       int64_t file_size, const char *file_type,
 			       const std::string &orig_file_name)
 {
@@ -794,6 +798,7 @@ TgLoggerd::storeDownloadedFile(const std::string &local_path,
 
 	models::File f;
 	f.tg_file_id = tg_file_id;
+	f.tg_unique_id = tg_unique_id;
 	f.file_type = file_type;
 	f.file_size = (uint64_t)(file_size < 0 ? 0 : file_size);
 	f.sha256_hex = *hex;

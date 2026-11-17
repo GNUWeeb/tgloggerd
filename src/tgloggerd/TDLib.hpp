@@ -64,6 +64,7 @@ struct ProfilePhoto {
 	int64_t		user_id;
 	std::string	local_path;
 	std::string	tg_file_id;	/* remote id (string), for DB dedup */
+	std::string	tg_unique_id;	/* remote unique id; empty if unknown */
 	int32_t		tg_local_file_id; /* local id, for TDLib deleteFile */
 	int64_t		file_size;
 };
@@ -75,6 +76,7 @@ struct GroupPhoto {
 	int64_t		group_id;
 	std::string	local_path;
 	std::string	tg_file_id;	/* remote id (string), for DB dedup */
+	std::string	tg_unique_id;	/* remote unique id; empty if unknown */
 	int32_t		tg_local_file_id; /* local id, for TDLib deleteFile */
 	int64_t		file_size;
 };
@@ -98,6 +100,7 @@ struct MessageFile {
 	bool		is_link_preview = false;
 	std::string	local_path;
 	std::string	tg_file_id;	/* remote id (string), for DB dedup */
+	std::string	tg_unique_id;	/* remote unique id; empty if unknown */
 	int32_t		tg_local_file_id; /* local id, for TDLib deleteFile */
 	int64_t		file_size;
 	std::string	content_type;	/* telegram_files.file_type: "photo", ... */

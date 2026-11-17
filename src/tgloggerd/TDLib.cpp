@@ -2733,6 +2733,7 @@ void TDLib::Impl::emit_message_file(const PendingMsgFile &ref,
 	mf.is_link_preview = ref.is_link_preview;
 	mf.local_path = f.local_->path_;
 	mf.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
+	mf.tg_unique_id = f.remote_ ? f.remote_->unique_id_ : std::string();
 	mf.tg_local_file_id = f.id_;
 	mf.file_size = f.size_;
 	mf.content_type = ref.content_type;
@@ -2949,6 +2950,7 @@ void TDLib::Impl::emit_photo(int64_t user_id, const td_api::file &f)
 	p.user_id = user_id;
 	p.local_path = f.local_->path_;
 	p.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
+	p.tg_unique_id = f.remote_ ? f.remote_->unique_id_ : std::string();
 	p.tg_local_file_id = f.id_;
 	p.file_size = f.size_;
 	photo_handler_(p);
@@ -3486,6 +3488,7 @@ void TDLib::Impl::emit_group_photo(int64_t group_id, const td_api::file &f)
 	p.group_id = group_id;
 	p.local_path = f.local_->path_;
 	p.tg_file_id = f.remote_ ? f.remote_->id_ : std::string();
+	p.tg_unique_id = f.remote_ ? f.remote_->unique_id_ : std::string();
 	p.tg_local_file_id = f.id_;
 	p.file_size = f.size_;
 	group_photo_handler_(p);

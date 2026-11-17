@@ -19,6 +19,11 @@ namespace models {
 struct File {
 	/* TDLib persistent remote file identifier (remoteFile.id_). */
 	std::string	tg_file_id;
+	/*
+	 * TDLib remoteFile.unique_id_: the same for the same file across
+	 * sessions and accounts. Empty if unknown (stored as NULL).
+	 */
+	std::string	tg_unique_id;
 	/* telegram_files.file_type enum value, e.g. "photo". */
 	std::string	file_type = "unknown";
 	uint64_t	file_size = 0;
