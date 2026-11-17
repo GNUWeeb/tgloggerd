@@ -45,6 +45,23 @@ request: the role is read from the account, not from the cookie, and
 disabling an account or changing its role also bumps its
 session_epoch, which ends its sessions on both services.
 
+## Changing a password, and the forced change
+
+`POST /api/account/password` (webapi/openapi.yaml) changes the
+account's own password as the Drogon settings page does: the current
+one must match, the new one must be at least 8 bytes, with no upper
+limit below the body cap, and differ from the current one; it is
+hashed with Argon2id. Every other session of the account ends on both
+services, and this one gets a new cookie and CSRF token.
+
+An account flagged `must_change_password` (one that signed in with a
+temporary password) passes a gate first: until it has chosen its own
+password, every API operation behind a session answers 403
+`password_change_required`, except the session, logout and the
+password change, and page data answers the `password_change` route.
+The gate is one check in the request scope (`Scope.Gate`), applied by
+`RequireSession`; the email gate will be the next one there.
+
 ## The Drogon pages
 
 The Drogon pages know only "admin or not":

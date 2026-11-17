@@ -20,6 +20,7 @@ import (
 
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/daemon"
+	"tgloggerd/webapi/internal/scope"
 )
 
 // Deps is what the service is built from.
@@ -104,8 +105,9 @@ func (s *Server) routes() []route {
 		{"GET /api/login", s.getLogin},
 		{"POST /api/login", s.postLogin},
 		{"POST /api/logout", s.postLogout},
-		{"GET /api/session", s.RequireSession(s.session)},
+		{"GET /api/session", s.RequireSession(s.session, allGates...)},
 		{"GET /files/{token}", s.serveFile},
+		{"POST /api/account/password", s.RequireSession(s.changePassword, scope.PasswordChange)},
 	}
 }
 

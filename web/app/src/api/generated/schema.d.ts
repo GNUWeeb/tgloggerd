@@ -125,6 +125,8 @@ export interface paths {
          *
          *     password_forgot, password_set and email_verify are served to signed-out and signed-in visitors alike, and their GETs change nothing: the link token travels in the URL's fragment, which never reaches the server, and is posted only when the person acts on the page.
          *
+         *     A signed-in account that must change its temporary password gets the password_change route for every page path, before the email gate, until it has chosen its own.
+         *
          *     A signed-in account with no verified email address (web-accounts.md section 8) gets the email_required route for every page path except those three, until an address is verified; its API operations answer 403 email_required, except session, logout, the account's email operations and the three link operations.
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist.
@@ -209,7 +211,7 @@ export interface paths {
         put?: never;
         /**
          * Change the password
-         * @description Every other session of the account ends (its session_epoch moves on). This one is issued a new session cookie, which changes its CSRF token: the answer carries the new one.
+         * @description Every other session of the account ends (its session_epoch moves on), on both web services. This one is issued a new session cookie, which changes its CSRF token: the answer carries the new one. It also ends a forced change after a temporary password, and is served while that gate is up. The new password must differ from the current one. Wrong current passwords are throttled per account like sign-ins. Audited as password_change or password_change_fail.
          */
         post: operations["changePassword"];
         delete?: never;
@@ -869,8 +871,9 @@ export interface components {
             /** Format: int64 */
             id: number;
             username: string;
-            /** @description The account's role as stored (today admin or viewer; superadmin, admin or member once the roles of web-accounts.md land). */
-            role: string;
+            role: components["schemas"]["Role"];
+            /** @description The account signed in with a temporary password and must choose its own (POST /api/account/password) before anything else; see Gates in the description. */
+            must_change_password: boolean;
         };
         Session: {
             user: components["schemas"]["SessionUser"];
@@ -953,7 +956,7 @@ export interface components {
             props?: Record<string, never>;
         };
         /** @description The page data; `route` says which props it carries. */
-        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PageEmailRequired"];
+        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PageEmailRequired"] | components["schemas"]["PagePasswordChange"];
         PageLinkPage: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
             route: "password_forgot" | "password_set" | "email_verify";
@@ -963,6 +966,11 @@ export interface components {
             /** @enum {unknown} */
             route: "email_required";
             props: components["schemas"]["EmailRequiredProps"];
+        };
+        PagePasswordChange: components["schemas"]["PageBase"] & {
+            /** @enum {unknown} */
+            route: "password_change";
+            props: components["schemas"]["PasswordChangeProps"];
         };
         PageLogin: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
@@ -1342,6 +1350,12 @@ export interface components {
             /** @description An address added but not verified yet, to which a verification link was sent; null when none was added. */
             pending: string | null;
             /** @description The page that was asked for, to go on to once verified. */
+            next: string;
+        };
+        /** @description The forced password change after a temporary password (decisions/2026-11-18-temporary-passwords.md); the page posts to POST /api/account/password, then loads `next`. */
+        PasswordChangeProps: {
+            username: string;
+            /** @description The path of the page asked for. */
             next: string;
         };
         LoginProps: {
@@ -2374,7 +2388,7 @@ export interface operations {
                     "application/json": components["schemas"]["CsrfToken"];
                 };
             };
-            /** @description A wrong current password (error wrong_password), a new one too short (error weak_password), or a malformed body. */
+            /** @description A wrong current password (error wrong_password), a new one shorter than 8 bytes or equal to the current one (error weak_password), or a malformed body (error bad_request). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2385,6 +2399,16 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
+            /** @description Too many wrong current passwords (error rate_limited). */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["Internal"];
             503: components["responses"]["SessionUnavailable"];
         };
     };

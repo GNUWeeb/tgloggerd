@@ -101,6 +101,23 @@ text) and a fresh pre-login "csrf" token on refused logins.
                       could not be checked against the database; the
                       cookie is kept.
 
+    POST /api/account/password
+                      X-CSRF-Token: <session token>
+                      {"current_password":"...","new_password":"..."}
+                      200 {"csrf":"<new session token>"} and a new
+                      session cookie; every other session of the
+                      account ends. 400 wrong_password, weak_password
+                      (under 8 bytes, or unchanged), bad_request. 429
+                      rate_limited after repeated wrong current
+                      passwords.
+
+The user object also carries must_change_password: the account signed
+in with a temporary password. Until it has chosen its own, every
+operation behind a session answers 403 password_change_required,
+except GET /api/session, POST /api/logout and POST
+/api/account/password (the gate of the request scope; see The request
+scope).
+
 The login throttle is in the process's memory, as in Drogon, so each
 service counts failures on its own. The address logged and throttled
 on is the connection's peer, as in Drogon.

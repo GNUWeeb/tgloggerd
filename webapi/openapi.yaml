@@ -50,7 +50,18 @@ info:
     sentence (the Error schema). Visibility follows the request scope
     of web-accounts.md section 9: something the viewer may not see
     answers exactly like something that does not exist, 404
-    not_found, never 403.
+    not_found, never 403. A forbidden action on something the viewer
+    may see answers 403 forbidden.
+
+
+    Gates: an account that signed in with a temporary password
+    (SessionUser.must_change_password) must choose its own first
+    (decisions/2026-11-18-temporary-passwords.md). Until it does,
+    every operation that needs a session answers 403
+    password_change_required, except GET /api/session, POST
+    /api/logout and POST /api/account/password; page data answers the
+    password_change route. The email gate (email_required) works the
+    same way once accounts have verified addresses.
 servers:
   - url: /
 security:
@@ -495,6 +506,11 @@ paths:
         acts on the page.
 
 
+        A signed-in account that must change its temporary password
+        gets the password_change route for every page path, before the
+        email gate, until it has chosen its own.
+
+
         A signed-in account with no verified email address
         (web-accounts.md section 8) gets the email_required route for
         every page path except those three, until an address is
@@ -729,14 +745,18 @@ paths:
 
   /api/account/password:
     post:
-      x-tgd-status: planned
       operationId: changePassword
       tags: [account]
       summary: Change the password
       description: >-
         Every other session of the account ends (its session_epoch
-        moves on). This one is issued a new session cookie, which
-        changes its CSRF token: the answer carries the new one.
+        moves on), on both web services. This one is issued a new
+        session cookie, which changes its CSRF token: the answer
+        carries the new one. It also ends a forced change after a
+        temporary password, and is served while that gate is up. The
+        new password must differ from the current one. Wrong current
+        passwords are throttled per account like sign-ins. Audited as
+        password_change or password_change_fail.
       security:
         - session: []
           csrf: []
@@ -768,7 +788,8 @@ paths:
         '400':
           description: >-
             A wrong current password (error wrong_password), a new one
-            too short (error weak_password), or a malformed body.
+            shorter than 8 bytes or equal to the current one (error
+            weak_password), or a malformed body (error bad_request).
           content:
             application/json:
               schema:
@@ -777,6 +798,14 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Csrf'
+        '429':
+          description: Too many wrong current passwords (error rate_limited).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Internal'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
@@ -2120,7 +2149,7 @@ components:
           type: string
     SessionUser:
       type: object
-      required: [id, username, role]
+      required: [id, username, role, must_change_password]
       properties:
         id:
           type: integer
@@ -2128,11 +2157,13 @@ components:
         username:
           type: string
         role:
-          type: string
+          $ref: '#/components/schemas/Role'
+        must_change_password:
+          type: boolean
           description: >-
-            The account's role as stored (today admin or viewer;
-            superadmin, admin or member once the roles of
-            web-accounts.md land).
+            The account signed in with a temporary password and must
+            choose its own (POST /api/account/password) before anything
+            else; see Gates in the description.
     Session:
       type: object
       required: [user, csrf]
@@ -2301,6 +2332,7 @@ components:
         - $ref: '#/components/schemas/PageMcpTokens'
         - $ref: '#/components/schemas/PageLinkPage'
         - $ref: '#/components/schemas/PageEmailRequired'
+        - $ref: '#/components/schemas/PagePasswordChange'
     PageLinkPage:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -2322,6 +2354,16 @@ components:
               enum: [email_required]
             props:
               $ref: '#/components/schemas/EmailRequiredProps'
+    PagePasswordChange:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          required: [route, props]
+          properties:
+            route:
+              enum: [password_change]
+            props:
+              $ref: '#/components/schemas/PasswordChangeProps'
     PageLogin:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -3088,6 +3130,19 @@ components:
         next:
           type: string
           description: The page that was asked for, to go on to once verified.
+    PasswordChangeProps:
+      type: object
+      description: >-
+        The forced password change after a temporary password
+        (decisions/2026-11-18-temporary-passwords.md); the page posts
+        to POST /api/account/password, then loads `next`.
+      required: [username, next]
+      properties:
+        username:
+          type: string
+        next:
+          type: string
+          description: The path of the page asked for.
     LoginProps:
       type: object
       required: [next]

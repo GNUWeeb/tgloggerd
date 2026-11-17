@@ -134,3 +134,26 @@ func auditDetail(detail string) string {
 	}
 	return detail
 }
+
+// SetOwnPassword stores a password the account chose itself: it ends
+// a forced change, and bumps session_epoch in the same statement, so
+// every session issued before ends on both services. It returns the
+// new epoch, for the caller's new cookie.
+func SetOwnPassword(ctx context.Context, db *sql.DB, id uint64, hash string) (uint32, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE web_users SET password_hash = ?, must_change_password = 0, "+
+			"session_epoch = session_epoch + 1 WHERE id = ?", hash, id); err != nil {
+		return 0, err
+	}
+	var epoch uint32
+	if err := tx.QueryRowContext(ctx,
+		"SELECT session_epoch FROM web_users WHERE id = ?", id).Scan(&epoch); err != nil {
+		return 0, err
+	}
+	return epoch, tx.Commit()
+}
