@@ -1293,6 +1293,8 @@ struct TDLib::Impl {
 		 * aggregate initializer, so a field added anywhere but the end
 		 * silently shifts every value into the wrong member. */
 		bool		is_link_preview = false;
+		/* The downloadFile query this entry waits on. */
+		std::uint64_t	dl_query = 0;
 	};
 	/*
 	 * Keyed by TDLib file id -- which TDLib DEDUPLICATES by remote id, so
@@ -1309,10 +1311,23 @@ struct TDLib::Impl {
 	 * pending_message_file_, readable from other threads
 	 * (TDLib::isIngestDownloading). Written on the loop thread next to
 	 * those maps: note_ingest_download() on every insert,
-	 * ingest_download_done() once a completed file has been handled.
+	 * ingest_download_done() once a completed or failed file has been
+	 * handled.
 	 */
 	mutable std::mutex		ingest_dl_mtx_;
 	std::unordered_set<int32_t>	ingest_dl_;
+
+	/*
+	 * Loop thread. ingest_query_: the latest downloadFile query sent for
+	 * each file in ingest_dl_; a failure of an older one leaves the photo
+	 * entries to the newer one. ingest_displaced_: files whose ingest
+	 * download a downloadFile with another range replaced (the fetch
+	 * service streaming a big file), resumed once TDLib stops downloading
+	 * them. ingest_failures_ counts the entries dropped on a failure.
+	 */
+	std::unordered_map<int32_t, std::uint64_t>	ingest_query_;
+	std::unordered_set<int32_t>			ingest_displaced_;
+	std::uint64_t					ingest_failures_ = 0;
 
 	/* Reply targets already fetched, so a chain is not re-walked. */
 	std::set<std::pair<int64_t, int64_t>>		resolved_reply_targets_;
@@ -1455,6 +1470,13 @@ struct TDLib::Impl {
 	void handle_file_update(const td_api::file &f);
 	void note_ingest_download(int32_t file_id);
 	void ingest_download_done(int32_t file_id);
+	std::uint64_t start_ingest_download(int32_t file_id);
+	void on_ingest_download_result(int32_t file_id, std::uint64_t query,
+				       Object obj);
+	void drop_failed_ingest(int32_t file_id, std::uint64_t query,
+				const std::string &why);
+	bool has_ingest_entries(int32_t file_id) const;
+	void resume_ingest_download(int32_t file_id);
 	Object resolve_file(const models::FileSource &src,
 			    std::chrono::milliseconds timeout);
 	void emit_photo(int64_t user_id, const td_api::file &f);
@@ -2697,10 +2719,8 @@ void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
 		emit_message_file(ref, *img);
 		return;
 	}
+	ref.dl_query = start_ingest_download(img->id_);
 	pending_message_file_.emplace(img->id_, std::move(ref));
-	note_ingest_download(img->id_);
-	send_query(td_api::make_object<td_api::downloadFile>(img->id_, 1, 0, 0,
-							     false), {});
 }
 
 void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
@@ -2755,10 +2775,8 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 	}
 
 	/* Otherwise request the download and remember the message for it. */
+	ref.dl_query = start_ingest_download(f->id_);
 	pending_message_file_.emplace(f->id_, std::move(ref));
-	note_ingest_download(f->id_);
-	send_query(td_api::make_object<td_api::downloadFile>(
-			   f->id_, 1, 0, 0, false), {});
 }
 
 /*
@@ -2983,9 +3001,7 @@ void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
 
 	/* Otherwise request the download and remember which user it is for. */
 	pending_photo_[big.id_] = u.id_;
-	note_ingest_download(big.id_);
-	send_query(td_api::make_object<td_api::downloadFile>(
-			   big.id_, 1, 0, 0, false), {});
+	start_ingest_download(big.id_);
 }
 
 void TDLib::Impl::note_ingest_download(int32_t file_id)
@@ -2997,17 +3013,203 @@ void TDLib::Impl::note_ingest_download(int32_t file_id)
 /* Loop thread: drop @file_id from the set unless a pending map still has it. */
 void TDLib::Impl::ingest_download_done(int32_t file_id)
 {
-	if (pending_photo_.count(file_id) || pending_group_photo_.count(file_id) ||
-	    pending_message_file_.count(file_id))
+	if (has_ingest_entries(file_id))
 		return;
+	ingest_query_.erase(file_id);
+	ingest_displaced_.erase(file_id);
 	std::lock_guard<std::mutex> lk(ingest_dl_mtx_);
 	ingest_dl_.erase(file_id);
 }
 
+/*
+ * Loop thread: download all of @file_id for a pending entry the caller
+ * adds, and return the query id the entry waits on.
+ *
+ * The download is synchronous: TDLib answers when it completes, fails or
+ * is cancelled, which is the only reliable failure signal. updateFile
+ * cannot tell: TDLib reports is_downloading_active false for a download it
+ * still holds but has not started (a file still loading from its
+ * database), and for one a ranged downloadFile replaced and finished.
+ */
+std::uint64_t TDLib::Impl::start_ingest_download(int32_t file_id)
+{
+	note_ingest_download(file_id);
+	const std::uint64_t q = next_query_id();
+	ingest_query_[file_id] = q;
+	ingest_displaced_.erase(file_id);
+	handlers_.emplace(q, [this, file_id, q](Object o) {
+		on_ingest_download_result(file_id, q, std::move(o));
+	});
+	client_manager_->send(client_id_, q,
+		td_api::make_object<td_api::downloadFile>(file_id, 1, 0, 0,
+							  true));
+	return q;
+}
+
+/* Loop thread: TDLib's answer to the ingest download @query of @file_id. */
+void TDLib::Impl::on_ingest_download_result(int32_t file_id,
+					    std::uint64_t query, Object obj)
+{
+	if (!obj)
+		return;
+	if (obj->get_id() == td_api::file::ID) {
+		const auto &f = static_cast<const td_api::file &>(*obj);
+		if (f.local_ && f.local_->is_downloading_completed_) {
+			/* Usually handled by its updateFile already. */
+			handle_file_update(f);
+			return;
+		}
+		/* Every byte is there: its updateFile completes it. */
+		if (f.local_ && f.size_ > 0 &&
+		    f.local_->downloaded_prefix_size_ >= f.size_)
+			return;
+		drop_failed_ingest(file_id, query,
+				   "the download ended incomplete");
+		return;
+	}
+	if (obj->get_id() != td_api::error::ID)
+		return;
+	const auto &e = static_cast<const td_api::error &>(*obj);
+
+	/* Shutting down: TDLib aborts everything; nothing to report. */
+	if (closing_ || stopped_)
+		return;
+
+	/*
+	 * Another downloadFile for this file asked for a different range
+	 * (the fetch service streaming part of it): TDLib cancelled this
+	 * one, but nothing failed. Keep the entries and resume once TDLib
+	 * stops downloading; getFile catches a range that is already done.
+	 * If ingest has asked for the file again since, that download
+	 * replaced the range in turn and serves these entries too.
+	 */
+	if (e.code_ == 200 &&
+	    e.message_ == "Canceled by another downloadFile request") {
+		auto qit = ingest_query_.find(file_id);
+		if (qit == ingest_query_.end())
+			return;
+		if (qit->second != query) {
+			auto range = pending_message_file_.equal_range(file_id);
+			for (auto it = range.first; it != range.second; ++it)
+				if (it->second.dl_query == query)
+					it->second.dl_query = qit->second;
+			return;
+		}
+		if (!ingest_displaced_.insert(file_id).second)
+			return;
+		pr_debug(l_, "ingest: download of file %d replaced by another"
+			 " range; resuming it when that ends", (int)file_id);
+		send_query(td_api::make_object<td_api::getFile>(file_id),
+			[this](Object o) {
+				if (o && o->get_id() == td_api::file::ID)
+					handle_file_update(
+						static_cast<const td_api::file &>(
+							*o));
+			});
+		return;
+	}
+
+	drop_failed_ingest(file_id, query,
+			   std::to_string(e.code_) + " " + e.message_);
+}
+
+/*
+ * Loop thread: the ingest download @query of @file_id failed. Drop the
+ * entries that waited on it, log each once, and keep ingest_dl_ in step.
+ * Entries that a later download of the same file serves are left to that
+ * download's own answer. Not retried: the relink sweep
+ * (TG_RELINK_MEDIA_ON_START) picks such messages up.
+ */
+void TDLib::Impl::drop_failed_ingest(int32_t file_id, std::uint64_t query,
+				     const std::string &why)
+{
+	auto qit = ingest_query_.find(file_id);
+	const bool latest = qit != ingest_query_.end() && qit->second == query;
+	bool any = false;
+
+	if (latest) {
+		auto it = pending_photo_.find(file_id);
+		if (it != pending_photo_.end()) {
+			pr_warn(l_, "ingest: download of file %d failed (%s):"
+				" profile photo of user %lld not stored"
+				" (%llu failed since start)",
+				(int)file_id, why.c_str(),
+				(long long)it->second,
+				(unsigned long long)++ingest_failures_);
+			pending_photo_.erase(it);
+			any = true;
+		}
+		auto git = pending_group_photo_.find(file_id);
+		if (git != pending_group_photo_.end()) {
+			pr_warn(l_, "ingest: download of file %d failed (%s):"
+				" photo of group %lld not stored"
+				" (%llu failed since start)",
+				(int)file_id, why.c_str(),
+				(long long)git->second,
+				(unsigned long long)++ingest_failures_);
+			pending_group_photo_.erase(git);
+			any = true;
+		}
+	}
+
+	auto range = pending_message_file_.equal_range(file_id);
+	for (auto it = range.first; it != range.second;) {
+		if (it->second.dl_query != query) {
+			++it;
+			continue;
+		}
+		const PendingMsgFile &ref = it->second;
+		pr_warn(l_, "ingest: download of file %d failed (%s): %s"
+			" message %lld in chat %lld left without its %s"
+			" (%llu failed since start)",
+			(int)file_id, why.c_str(),
+			ref.is_group ? "group" : "private",
+			(long long)ref.message_id, (long long)ref.chat_id,
+			ref.is_link_preview ? "link preview image"
+					    : ref.content_type.c_str(),
+			(unsigned long long)++ingest_failures_);
+		it = pending_message_file_.erase(it);
+		any = true;
+	}
+
+	if (any)
+		ingest_download_done(file_id);
+}
+
+/* Loop thread: whether a pending map still waits on @file_id. */
+bool TDLib::Impl::has_ingest_entries(int32_t file_id) const
+{
+	return pending_photo_.count(file_id) ||
+	       pending_group_photo_.count(file_id) ||
+	       pending_message_file_.count(file_id);
+}
+
+/*
+ * Loop thread: download @file_id again for the entries whose download a
+ * ranged downloadFile replaced, now that TDLib stopped downloading it.
+ * Not a retry: the replaced download never failed. If the other range
+ * failed instead, this download most likely fails too, and is logged.
+ */
+void TDLib::Impl::resume_ingest_download(int32_t file_id)
+{
+	pr_debug(l_, "ingest: resuming the download of file %d", (int)file_id);
+	const std::uint64_t q = start_ingest_download(file_id);
+	auto range = pending_message_file_.equal_range(file_id);
+	for (auto it = range.first; it != range.second; ++it)
+		it->second.dl_query = q;
+}
+
 void TDLib::Impl::handle_file_update(const td_api::file &f)
 {
-	if (!f.local_ || !f.local_->is_downloading_completed_)
+	if (!f.local_)
 		return;
+	if (!f.local_->is_downloading_completed_) {
+		/* A replaced ingest download: the other range is done. */
+		if (!f.local_->is_downloading_active_ &&
+		    ingest_displaced_.count(f.id_))
+			resume_ingest_download(f.id_);
+		return;
+	}
 
 	/* Whichever branch below handles it, the set follows the maps. */
 	struct IngestSync {
@@ -3565,9 +3767,7 @@ void TDLib::Impl::maybe_download_group_photo(int64_t group_id,
 	}
 
 	pending_group_photo_[big.id_] = group_id;
-	note_ingest_download(big.id_);
-	send_query(td_api::make_object<td_api::downloadFile>(
-			   big.id_, 1, 0, 0, false), {});
+	start_ingest_download(big.id_);
 }
 
 void TDLib::Impl::emit_group(int64_t group_id)

@@ -489,8 +489,10 @@ public:
 	 * downloading (a message attachment, link preview image, group or
 	 * profile photo). Such a download asked for the whole file, so a
 	 * ranged downloadFile must not be issued over it. Thread-safe. A
-	 * download that failed stays listed (TDLib reports no failure), so
-	 * combine it with the file's local.is_downloading_active.
+	 * download that failed is dropped once TDLib reports it; one that a
+	 * ranged downloadFile replaced stays listed until ingest resumes it
+	 * when that range ends, so combine this with the file's
+	 * local.is_downloading_active.
 	 */
 	bool isIngestDownloading(int32_t file_id) const;
 
