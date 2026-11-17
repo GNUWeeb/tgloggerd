@@ -31,8 +31,8 @@ can be added to the log without access to that client.
 
 ## Design notes
 
-- Builds on the internal API (internal-api-server) and
-  `TDLib::request` (already merged). Joining changes the account's
+- Builds on the internal API (docs/internal-api.md) and
+  `TDLib::request`, both already merged. Joining changes the account's
   membership, which chat-membership-tracking then picks up, and with
   it media downloads for that chat (media-record-without-download).
 - Joining is an action with consequences on the account (rate limits,
@@ -42,7 +42,7 @@ can be added to the log without access to that client.
 
 ## Depends on
 
-- `internal-api-server`
+Nothing.
 
 ## Done when
 

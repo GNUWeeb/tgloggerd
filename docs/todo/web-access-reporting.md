@@ -31,7 +31,7 @@ year-long `immutable` caching hides repeat views entirely.
 
 ## Depends on
 
-- `internal-api-server`
+Nothing.
 
 ## Done when
 

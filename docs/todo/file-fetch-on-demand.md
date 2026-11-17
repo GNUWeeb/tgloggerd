@@ -38,7 +38,7 @@ whole first.
 
 ## Depends on
 
-- `internal-api-server`
+Nothing.
 
 ## Done when
 

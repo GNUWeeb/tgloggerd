@@ -36,7 +36,7 @@ configurable.
 
 ## Depends on
 
-- `internal-api-server`
+Nothing.
 
 ## Done when
 

@@ -37,11 +37,16 @@ step needs care, and the last one needs the owner's go.
     has `membership: chat <id>: ... -> member` and `-> not a member`
     lines; a spot check of a few chats against the Telegram client
     agrees.
+  - `internal-api-server`: with `TG_API_LISTEN=0.0.0.0:8091`, the log
+    has `api: internal API listening on 0.0.0.0:8091`; curl from a
+    container on tgnet to `http://10.0.88.5:8091/v1/files/<id>` gets
+    401 without the bearer (docs/internal-api.md) and the file's
+    status with it; `POST /v1/files/access` with an id last accessed
+    over an hour ago moves its `accessed_at` but not its `updated_at`.
 
 ## Depends on
 
 - `media-record-without-download`
-- `internal-api-server`
 - `seed-file-access`
 - `file-fetch-on-demand`
 - `storage-janitor`
