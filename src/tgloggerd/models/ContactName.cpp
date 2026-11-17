@@ -14,6 +14,25 @@ bool needsOwnNameBackfill(const StoredUserName *old,
 	       old->name == now.name;
 }
 
+std::string displayName(const Name &n)
+{
+	if (n.first.empty())
+		return n.second;
+	if (n.second.empty())
+		return n.first;
+	return n.first + " " + n.second;
+}
+
+std::string mirroredSenderName(const StoredUserName *stored,
+			       const std::string &reported)
+{
+	if (!stored || !stored->is_contact.value_or(false) ||
+	    !stored->own_name_known)
+		return reported;
+	std::string own = displayName(stored->name);
+	return own.empty() ? reported : own;
+}
+
 UserNamePlan planUserName(const StoredUserName *old,
 			  const ReportedUserName &now,
 			  const std::optional<Name> &hist_own)

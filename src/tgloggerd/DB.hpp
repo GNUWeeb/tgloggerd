@@ -73,6 +73,12 @@ struct QuotedMessage {
 	int64_t     sender_chat_id = 0; /* chat/channel sender; 0 if a user */
 };
 
+/* A user sender's photo (telegram_files.id) and stored name columns. */
+struct SenderUser {
+	std::optional<uint64_t>	photo_file_id;
+	models::StoredUserName	name;
+};
+
 /* A chat's current photo (telegram_files.id) and title, for a channel/group sender. */
 struct ChatPhoto {
 	std::optional<uint64_t> photo_file_id;
@@ -198,7 +204,7 @@ public:
 	std::vector<std::pair<int64_t, int64_t>> listMediaMessagesWithoutFile(void);
 
 	/* Discord-forwarder lookups (see DiscordForwarder). */
-	std::optional<uint64_t> getUserPhotoFileId(int64_t user_id);
+	std::optional<SenderUser> getSenderUser(int64_t user_id);
 	ChatPhoto getGroupPhoto(int64_t chat_id);
 	/*
 	 * Was this Telegram message bridged in from Discord? Keyed by
