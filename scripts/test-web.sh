@@ -5,9 +5,10 @@
 #     against the test MySQL of docker-compose.test.yml, every test in a
 #     database of its own (webapi/internal/testdb);
 #   - the React application (web/app/): npm ci, check:api, typecheck
-#     and its tests.
+#     and its tests; with --e2e also its browser suite (web/app/e2e/,
+#     in the Playwright image, a stand-in per worker).
 #
-# Usage: scripts/test-web.sh [--go-only | --app-only] [go test args...]
+# Usage: scripts/test-web.sh [--go-only | --app-only] [--e2e] [go test args...]
 #
 # Extra arguments go to go test, before the packages (./... by default
 # when none of them names a package), e.g. -run TestMedia -count=1.
@@ -29,11 +30,16 @@ COMPOSE=(docker compose -p "$PROJECT" -f "$ROOT/docker-compose.test.yml")
 
 go=1
 app=1
-case ${1:-} in
---go-only) app=0; shift ;;
---app-only) go=0; shift ;;
--h | --help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-esac
+e2e=0
+while :; do
+	case ${1:-} in
+	--go-only) app=0; shift ;;
+	--app-only) go=0; shift ;;
+	--e2e) e2e=1; shift ;;
+	-h | --help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+	*) break ;;
+	esac
+done
 
 log() { printf '== %s\n' "$*"; }
 
@@ -87,6 +93,10 @@ run_app() {
 	./dev npm run check:api
 	./dev npm run typecheck
 	./dev npm test
+	if [ "$e2e" = 1 ]; then
+		log "web/app: browser suite"
+		./dev e2e
+	fi
 }
 
 if [ "$go" = 1 ]; then
