@@ -298,6 +298,16 @@ public:
 	void setMessageFileHandler(std::function<void(const MessageFile &)> cb);
 
 	/*
+	 * Set the callbacks invoked, with the TDLib file id, before the first
+	 * and after the last store emit (profile photo, group photo, message
+	 * file) for one completed download, so the file can be held for the
+	 * whole sequence. Run on the event thread; end runs even if an emit
+	 * throws.
+	 */
+	void setFileEmitBatchHandlers(std::function<void(int32_t)> begin,
+				      std::function<void(int32_t)> end);
+
+	/*
 	 * Predicate used before downloading a file (message media, a link
 	 * preview image, a user's or group's photo): given the file's remote
 	 * id and unique id (either may be empty), return the existing
