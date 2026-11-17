@@ -54,13 +54,37 @@ network) runs beside the Drogon web during the migration:
   stay valid when media serving moves;
 - the daemon's internal API is called the same way from either.
 
-## 4. Order
+## 4. Pages and server rendering
+
+Pages have real URLs whose first response is full HTML, for search
+engines and scrapers (above all the public chat pages of groups
+exposed through MCP); React then takes over in the browser.
+
+- nginx sends each migrated page path (for example `/users`,
+  `/groups/{id}`) to the Go service, not only `/api/`.
+- For a page, the Go handler does the same authentication and request
+  scope checks as the API (404 for hidden things) and runs one loader
+  per route, which returns the page's data as plain values (the React
+  code escapes; nothing is pre-escaped as the Drogon templates were).
+- Go sends `{route, url, props, viewer settings}` to a stateless Node
+  render service over a Unix socket and returns its HTML with the props
+  embedded for React to take over. The render service has no database,
+  cookies or secrets.
+- Navigation in the browser fetches the same loader's data as JSON
+  (`GET /api/page/<path>`), an OpenAPI operation like the rest.
+- If the render service is down or slow, Go returns the application
+  shell with the same props, rendered in the browser.
+- The render service's code is the React application's
+  (`web/app/`); its deployment is a container of its own.
+
+## 5. Order
 
 1. Service skeleton, build and deployment.
 2. Authentication compatible with today's sessions, passwords and
    CSRF, plus the internal API client.
 3. OpenAPI description and a generated TypeScript client for the React
-   application.
+   application; page routing, loaders and the render client; the
+   render service's container.
 4. The accounts work of web-accounts.md, built in Go from the start.
 5. Ports of the existing features, each enforcing the request scope of
    web-accounts.md section 8: media serving, search, chat API, user and
