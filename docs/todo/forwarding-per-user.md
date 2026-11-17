@@ -20,6 +20,10 @@ per-user configurations (docs/design/web-accounts.md section 6).
   superadmins see and transfer all.
 - A disabled owner's configurations keep running, flagged "owner
   disabled".
+- A configuration's federation is asked for at creation only when more
+  than one of the owner's federations holds its group. Transfer
+  candidates: for an admin, the federation's admins and its members
+  holding `forward`; for a superadmin, any active account.
 - Existing configurations become owned by the superadmin, in the
   Default federation.
 - `web/docs/platform-forwarding.md` updated.
