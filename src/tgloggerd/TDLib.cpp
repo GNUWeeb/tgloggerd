@@ -1233,13 +1233,11 @@ struct TDLib::Impl {
 	std::function<void(int64_t, int64_t, const models::MessageContent &,
 			   bool)> content_version_handler_;
 	std::function<void(const MessageFile &)>	message_file_handler_;
-	std::function<std::optional<models::KnownFile>(const std::string &)>
+	std::function<std::optional<models::KnownFile>(const std::string &,
+						       const std::string &)>
 						file_lookup_;
 	std::function<void(const MessageFileLink &)>	message_file_link_handler_;
 	std::function<void(const FileMeta &)>		file_meta_handler_;
-	std::function<std::optional<models::KnownFile>(const std::string &,
-						       const std::string &)>
-						photo_lookup_;
 	std::function<void(const PhotoLink &)>		photo_link_handler_;
 	/* Photos linked from the index vs downloaded; loop thread only, for
 	 * the debug log of how many downloads the index saves. */
@@ -2724,8 +2722,9 @@ void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
 	/* Already known: link the existing row instead of fetching again --
 	 * unless only its metadata is known and this chat stores bytes. */
 	if (file_lookup_ && message_file_link_handler_ && img->remote_ &&
-	    !img->remote_->id_.empty()) {
-		auto fid = file_lookup_(img->remote_->id_);
+	    (!img->remote_->id_.empty() || !img->remote_->unique_id_.empty())) {
+		auto fid = file_lookup_(img->remote_->id_,
+					img->remote_->unique_id_);
 		if (fid.has_value() && (!fid->meta_only || no_download)) {
 			message_file_link_handler_(MessageFileLink{
 				ref.chat_id, ref.message_id, ref.is_group,
@@ -2763,7 +2762,9 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 
 	/*
 	 * Already recorded from an earlier download: link the existing files
-	 * row by its remote id instead of downloading (and hashing) it again.
+	 * row by its remote id, else by its unique id (the same file often
+	 * comes in another message under a different remote id), instead of
+	 * downloading (and hashing) it again.
 	 * This is what keeps the backfiller from re-fetching the whole history,
 	 * and in particular from re-downloading oversized files that are only
 	 * kept as metadata.
@@ -2774,8 +2775,8 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 	 */
 	const bool no_download = record_without_download(message.chat_id_, *f);
 	if (file_lookup_ && message_file_link_handler_ && f->remote_ &&
-	    !f->remote_->id_.empty()) {
-		auto fid = file_lookup_(f->remote_->id_);
+	    (!f->remote_->id_.empty() || !f->remote_->unique_id_.empty())) {
+		auto fid = file_lookup_(f->remote_->id_, f->remote_->unique_id_);
 		if (fid.has_value() && (!fid->meta_only || no_download)) {
 			message_file_link_handler_(MessageFileLink{
 				ref.chat_id, ref.message_id, ref.is_group,
@@ -3018,12 +3019,12 @@ void TDLib::Impl::refetch_group_info(int64_t chat_id)
 bool TDLib::Impl::link_known_photo(int64_t owner_id, bool is_group,
 				   const td_api::file &f, bool meta_ok)
 {
-	if (!photo_lookup_ || !photo_link_handler_ || !f.remote_)
+	if (!file_lookup_ || !photo_link_handler_ || !f.remote_)
 		return false;
 	if (f.remote_->id_.empty() && f.remote_->unique_id_.empty())
 		return false;
 
-	auto known = photo_lookup_(f.remote_->id_, f.remote_->unique_id_);
+	auto known = file_lookup_(f.remote_->id_, f.remote_->unique_id_);
 	if (!known.has_value() || (known->meta_only && !meta_ok))
 		return false;
 
@@ -4022,7 +4023,8 @@ void TDLib::setMessageFileHandler(std::function<void(const MessageFile &)> cb)
 }
 
 void TDLib::setFileLookup(
-	std::function<std::optional<models::KnownFile>(const std::string &)> cb)
+	std::function<std::optional<models::KnownFile>(
+		const std::string &, const std::string &)> cb)
 {
 	impl_->file_lookup_ = std::move(cb);
 }
@@ -4031,13 +4033,6 @@ void TDLib::setMessageFileLinkHandler(
 	std::function<void(const MessageFileLink &)> cb)
 {
 	impl_->message_file_link_handler_ = std::move(cb);
-}
-
-void TDLib::setPhotoLookup(
-	std::function<std::optional<models::KnownFile>(
-		const std::string &, const std::string &)> cb)
-{
-	impl_->photo_lookup_ = std::move(cb);
 }
 
 void TDLib::setPhotoLinkHandler(std::function<void(const PhotoLink &)> cb)

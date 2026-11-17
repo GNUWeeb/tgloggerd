@@ -83,6 +83,7 @@ add_executable(tgloggerd
 	src/tgloggerd/FetchState.hpp
 	src/tgloggerd/FileFetcher.cpp
 	src/tgloggerd/FileFetcher.hpp
+	src/tgloggerd/FileIndex.hpp
 	src/tgloggerd/ChatRef.cpp
 	src/tgloggerd/ChatRef.hpp
 	src/tgloggerd/ChatApi.cpp

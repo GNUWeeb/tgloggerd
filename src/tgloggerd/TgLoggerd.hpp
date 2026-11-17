@@ -17,6 +17,7 @@
 #include "ThreadPool.hpp"
 #include "DiscordForwarder.hpp"
 #include "StoreHolds.hpp"
+#include "FileIndex.hpp"
 
 namespace tgloggerd {
 
@@ -78,20 +79,11 @@ private:
 	/* Record media from non-member chats without its bytes. */
 	bool skip_nonmember_media_ = true;
 	/*
-	 * In-memory tg_file_id -> telegram_files row index. Lets the loop
-	 * thread decide, without a DB round-trip, that a message's file is
-	 * already recorded and can be linked instead of re-downloaded. Seeded
-	 * at startup and updated on each store and each metadata-only record;
-	 * guarded because the workers write it while the loop thread reads it.
+	 * In-memory index of recorded files, by remote id and by unique id
+	 * (FileIndex.hpp). Seeded at startup and updated on each store and
+	 * each metadata-only record.
 	 */
-	std::unordered_map<std::string, models::KnownFile> known_files_;
-	/*
-	 * tg_unique_id -> row, photos only: a user's or group's photo comes
-	 * back under a new remote id more often than not. Also guarded by
-	 * known_files_mtx_.
-	 */
-	std::unordered_map<std::string, models::KnownFile> known_photo_uids_;
-	std::mutex known_files_mtx_;
+	FileIndex known_files_;
 	/*
 	 * The store jobs still reading each TDLib local file, so a file
 	 * several messages wait on is pruned after the last job, not under

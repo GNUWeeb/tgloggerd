@@ -123,7 +123,7 @@ struct MessageFileLink {
 
 /*
  * A user's profile photo or a group's photo that is already recorded in the
- * files table (see setPhotoLookup): point the user or group at the existing
+ * files table (see setFileLookup): point the user or group at the existing
  * row without re-downloading the photo.
  */
 struct PhotoLink {
@@ -298,14 +298,17 @@ public:
 	void setMessageFileHandler(std::function<void(const MessageFile &)> cb);
 
 	/*
-	 * Predicate used before downloading a message's media: given the file's
-	 * remote id, return the existing telegram_files row if it is already
-	 * recorded, so the file can be linked without a re-download. Runs on
-	 * the loop thread.
+	 * Predicate used before downloading a file (message media, a link
+	 * preview image, a user's or group's photo): given the file's remote
+	 * id and unique id (either may be empty), return the existing
+	 * telegram_files row if it is already recorded, so the file can be
+	 * linked without a re-download. The unique id matters: the same file
+	 * often comes back under a different remote id, in another message or
+	 * in a later updateUser or getChat. Runs on the loop thread.
 	 */
 	void setFileLookup(
 		std::function<std::optional<models::KnownFile>(
-			const std::string &)> cb);
+			const std::string &, const std::string &)> cb);
 
 	/*
 	 * Set the callback invoked to link a message to a file that is already
@@ -315,21 +318,9 @@ public:
 		std::function<void(const MessageFileLink &)> cb);
 
 	/*
-	 * Predicate used before downloading a user's or group's photo: given
-	 * the photo's remote id and unique id (either may be empty), return
-	 * the existing telegram_files row if it is already recorded. The
-	 * unique id matters here: a photo seen again in a later updateUser or
-	 * getChat often carries a different remote id. Runs on the loop
-	 * thread.
-	 */
-	void setPhotoLookup(
-		std::function<std::optional<models::KnownFile>(
-			const std::string &, const std::string &)> cb);
-
-	/*
 	 * Set the callback invoked to point a user or group at a photo that
-	 * is already recorded (see setPhotoLookup), instead of downloading it
-	 * again. Without it, or without setPhotoLookup, every photo that
+	 * is already recorded (see setFileLookup), instead of downloading it
+	 * again. Without it, or without setFileLookup, every photo that
 	 * TDLib does not hold locally is downloaded.
 	 */
 	void setPhotoLinkHandler(std::function<void(const PhotoLink &)> cb);
