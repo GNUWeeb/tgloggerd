@@ -89,6 +89,7 @@ change.
 |---|---|---|
 | 400 | `bad_request` | Malformed: a body that is not JSON or not of the endpoint's shape, a bad id, too many ids. |
 | 401 | `unauthorized` | Missing or wrong bearer key. Comes with `WWW-Authenticate: Bearer`. |
+| 403 | `forbidden` | The deployment does not allow it: a real sweep asked for while `TG_STORAGE_DRY_RUN=1`. |
 | 404 | `not_found` | Unknown file id, or no such endpoint. |
 | 405 | `method_not_allowed` | The path exists under another method; `Allow` lists them. |
 | 410 | `gone` | The file is gone from Telegram or not accessible to the account. |
@@ -179,15 +180,87 @@ authorized, 504 timed out.
 
 ### GET /v1/storage
 
-Added by `storage-janitor`, which fills in this section. Planned: the
-stored bytes, the cap, the retention, the dry-run flag and the result
-of the last sweep (design section 9).
+The store's state and the storage janitor's last sweep (design
+section 9).
+
+    200 {
+      "files": 812345,
+      "bytes": 561903112704,
+      "max_bytes": 536870912000,
+      "low_watermark": 510027366400,
+      "retention_days": 90,
+      "sweep_secs": 600,
+      "dry_run": true,
+      "sweeping": false,
+      "pending": false,
+      "last_sweep": {
+        "started_at": 1763400000,
+        "finished_at": 1763400042,
+        "dry_run": true,
+        "completed": true,
+        "error": null,
+        "retention": {"files": 120345, "bytes": 40265318400},
+        "cap": {"files": 30211, "bytes": 11610427904},
+        "bytes_before": 561903112704,
+        "bytes_after": 510027366400,
+        "kept": 0,
+        "missing_blobs": 0,
+        "unlink_errors": 0
+      }
+    }
+
+- `files`, `bytes`: the rows with `on_disk = 1` and the sum of their
+  `file_size`, read when asked. This is the logical size the cap is
+  measured in; btrfs compression makes the space used lower, and blobs
+  no row describes are not counted.
+- `max_bytes`: `TG_STORAGE_MAX_BYTES`, 0 for no cap. `low_watermark`:
+  what a sweep over the cap evicts down to, 95% of it (0 for no cap).
+- `retention_days`: `TG_STORAGE_RETENTION_DAYS`, 0 when off.
+  `sweep_secs`: `TG_STORAGE_SWEEP_SECS`, 0 when sweeps only run on
+  request.
+- `dry_run`: `TG_STORAGE_DRY_RUN`; true means the janitor only reports
+  what it would evict. It cannot be changed over the API.
+- `sweeping`: a sweep is running now. `pending`: one was asked for and
+  has not started yet.
+- `last_sweep`: the last sweep that ended, null before the first one.
+  - `dry_run`: whether it only reported.
+  - `completed`: it went through both phases. False with `error` set
+    when it failed (a database error) or was stopped by a shutdown;
+    the counts are then what it did before that.
+  - `retention`, `cap`: files and bytes evicted by each phase, or, in a
+    dry run, that each would evict. Retention goes first; the cap
+    phase counts only what is left after it.
+  - `bytes_before`, `bytes_after`: the stored bytes when the sweep
+    started and when it ended (in a dry run, what would be left).
+  - `kept`: files the guard kept because they were accessed or stored
+    again while the sweep ran (always 0 in a dry run).
+  - `missing_blobs`: evicted files whose blob was already gone, which
+    is not an error. `unlink_errors`: evicted files whose blob could
+    not be removed; the daemon logs each, and the blob is left as an
+    orphan.
 
 ### POST /v1/storage/sweep
 
-Added by `storage-janitor`, which fills in this section. Planned: runs
-a sweep now, optionally as a dry run, and answers what it evicted or
-would evict.
+Asks the janitor for a sweep now.
+
+    {"dry_run": true}
+
+    202 {"queued": true, "dry_run": true}
+
+- The body is optional; without one, or without `dry_run`, the sweep
+  runs in the deployment's mode (`TG_STORAGE_DRY_RUN`).
+- `"dry_run": false` is refused with 403 while `TG_STORAGE_DRY_RUN=1`,
+  so nothing sent over the API can make a report-only deployment evict.
+  `"dry_run": true` is always allowed.
+- It answers at once; the sweep runs on the janitor's thread, after the
+  one running now if there is one. Read its result from
+  `GET /v1/storage` once `sweeping` and `pending` are both false.
+- Requests made while a sweep is pending merge into it; if any of them
+  asked for a real sweep, it is a real one. The reply's `dry_run` is
+  the mode the pending sweep will run in.
+
+Errors: 400 if the body is not an object or `dry_run` is not a
+boolean, 403 as above.
 
 ## Adding an endpoint
 
