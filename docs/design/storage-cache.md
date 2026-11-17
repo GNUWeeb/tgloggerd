@@ -149,7 +149,9 @@ photos are not chat files and are not affected.
   same construction as the file token subkeys). Compared in constant
   time. No new secret to configure.
 - A curated set of operations, never a raw TDLib passthrough: nothing
-  the web sends can post a message or join a chat.
+  the web sends can post a message. Joining a chat (added later for the
+  admin join page) takes only an invite link or a public username, which
+  the daemon parses itself.
 
 Endpoints (the full contract is [../internal-api.md](../internal-api.md)):
 

@@ -9,7 +9,9 @@ every container shares at `/workspace`. The design behind it is
 [design/storage-cache.md](design/storage-cache.md) section 7.
 
 It is a curated set of operations, never a TDLib passthrough: nothing
-the web sends can post a message or join a chat.
+the web sends can post a message, and the one operation that changes
+the account, joining a chat, takes only an invite link or a public
+username that the daemon parses itself.
 
 ## Running it
 
@@ -329,6 +331,112 @@ Asks the janitor for a sweep now.
 
 Errors: 400 if the body is not an object or `dry_run` is not a
 boolean, 403 as above.
+
+### POST /v1/chats/resolve
+
+Previews the chat behind an invite link or a public username, for the
+web's join page. Read-only on the account.
+
+    {"ref": "https://t.me/+AbCdEfGhIjKlMnOp"}
+
+    200 {
+      "outcome": "ok",
+      "message": "",
+      "ref": "https://t.me/+AbCdEfGhIjKlMnOp",
+      "kind": "invite",
+      "chat": {
+        "chat_id": -1001234567890,
+        "title": "GNU/Weeb",
+        "type": "supergroup",
+        "member_count": 1234,
+        "is_member": false,
+        "banned": false,
+        "needs_approval": false,
+        "paid": false,
+        "username": null
+      }
+    }
+
+`ref` is what the admin pasted. The daemon accepts only, after
+trimming whitespace:
+
+- invite links `https://t.me/+<hash>` and `https://t.me/joinchat/<hash>`
+  (`<hash>`: 4 to 64 of `[A-Za-z0-9_-]`, not all digits: `t.me/+<digits>`
+  is a phone number);
+- usernames `@<name>`, `<name>` and `https://t.me/<name>` (`<name>`: 4 to
+  32 of `[A-Za-z0-9_]`, starting with a letter, not ending with `_`).
+
+The scheme is optional (`http` or `https`), the host may be `t.me`,
+`telegram.me` or `telegram.dog` with an optional `www.`, and a trailing
+`/`, a query string or a fragment is ignored. Anything else (other
+hosts, message, sticker or folder links, `tg://` links, extra path
+segments) is a 400, and nothing reaches Telegram.
+
+In the reply, `ref` is the normalised form (`https://t.me/+<hash>` or
+`@<name>`) and `kind` is `invite` or `username`. `chat`:
+
+- `chat_id`: TDLib's chat id, or null when the account cannot see the
+  chat before joining (a private group behind an invite link).
+- `type`: `basic_group`, `supergroup`, `channel`, or `private` for a
+  username that belongs to a user or a bot.
+- `member_count`: as Telegram reports it; 0 if unknown.
+- `is_member`, `banned`: the account's status in the chat, when it can
+  see the chat; false otherwise.
+- `needs_approval`: joining sends a join request that an administrator
+  must approve (the invite link's setting, or the public chat's).
+- `paid`: the invite link is a paid subscription; joining it from here
+  fails.
+- `username`: the chat's public username, if any.
+
+`outcome` is `ok`, or one of the failures below, with `chat` null when
+nothing was resolved. A `private` chat answers `not_a_group`.
+
+### POST /v1/chats/join
+
+Makes the account join the chat. Same body as `/v1/chats/resolve`.
+
+    {"ref": "@gnuweeb"}
+
+    200 {"outcome": "joined", "message": "joined", "ref": "@gnuweeb",
+         "kind": "username", "chat": {...}}
+
+The daemon resolves the chat again first (the preview may be stale),
+answers `already_member`, `banned` or `not_a_group` without asking
+Telegram to join, and otherwise calls `joinChatByInviteLink` (invite)
+or `joinChat` (username). Joins are serialised: one at a time across
+the whole API. `chat` is the preview, with `chat_id` and `is_member`
+updated after a successful join; null when the chat could not be
+resolved.
+
+Each Telegram-level result is a 200 with an `outcome`; the web shows
+`message` (Telegram's own text for `error`):
+
+| `outcome` | Meaning |
+|---|---|
+| `ok` | (resolve only) the chat was found. |
+| `joined` | The account is now a member. |
+| `already_member` | It was a member already; nothing was sent. |
+| `request_sent` | A join request was sent; an administrator must approve it. |
+| `approval_required` | The chat's guard bot must approve the join through a Web App; finish it in a Telegram client. |
+| `declined` | The chat's guard bot declined the join. |
+| `not_a_group` | The username is a user or a bot. |
+| `not_found` | No such username. |
+| `link_invalid` | The invite link is invalid, expired or revoked. |
+| `flood_wait` | Telegram rate-limited the account; `retry_after` is the wait in seconds (0 if Telegram gave none). |
+| `banned` | The account is banned from the chat, or it is private and not accessible to it. |
+| `too_many_chats` | The account is in too many chats to join another. |
+| `error` | Anything else; `message` is Telegram's error. |
+
+Errors: 400 if the body is not `{"ref": "<string>"}` or the string is
+not an invite link or a username; 503 when TDLib is not authorized or
+the daemon is shutting down; 504 when Telegram did not answer a step
+within 15 seconds. A preview is up to three TDLib requests and a join
+one more, so a client should wait about a minute.
+
+Joining has consequences on the account (Telegram's rate limits, a
+visible join in the chat): the web asks for a confirmation and audits
+every attempt. Once joined, chat-membership tracking picks the chat
+up, and its media start being downloaded.
 
 ## Adding an endpoint
 

@@ -67,6 +67,13 @@ drogon::Task<Reply> call(drogon::HttpMethod method, std::string path,
 /* POST /v1/files/access: at most 1000 ids (the daemon refuses more). */
 drogon::Task<Reply> recordAccess(std::vector<uint64_t> ids);
 
+/*
+ * POST /v1/chats/resolve and /v1/chats/join {"ref": ref}, for the admin
+ * join page. The daemon parses ref itself; these only send it.
+ */
+drogon::Task<Reply> resolveChat(std::string ref);
+drogon::Task<Reply> joinChat(std::string ref);
+
 } /* namespace tgweb::daemon::api */
 
 #endif /* TGLOGGERD_WEB_DAEMON_API_HPP */

@@ -1,0 +1,62 @@
+<section class="join-chat" id="join-chat" data-csrf="{{ csrf }}">
+	<h1>Join a chat</h1>
+	<p class="muted">Make the logging account join a group or channel, so that it is logged from now on, media included. Joining is visible in the chat and counts against Telegram's limits on the account, so each join is previewed, confirmed and audited.</p>
+
+## if not api_enabled
+	<p class="mcp-err">The logger daemon's API is not configured (<code>WEB_TGLOGGERD_API</code>), so chats cannot be joined from here.</p>
+## endif
+
+	<div class="rt-form-wrap">
+		<form class="rt-form" id="jc-form">
+			<label>Invite link or username
+				<input type="text" id="jc-ref" name="ref" maxlength="256" placeholder="https://t.me/+AbCdEf... or @groupname" autocomplete="off" spellcheck="false" required>
+				<span class="rt-hint">An invite link (<code>https://t.me/+…</code>, <code>https://t.me/joinchat/…</code>) or a public username (<code>@name</code>, <code>https://t.me/name</code>).</span>
+			</label>
+			<div class="rt-form-actions">
+				<button type="submit" id="jc-preview">Preview</button>
+			</div>
+			<p class="rt-form-msg" id="jc-msg"></p>
+		</form>
+	</div>
+
+	<div class="rt-form-wrap jc-preview" id="jc-card" hidden>
+		<h2 id="jc-title"></h2>
+		<table class="grid jc-facts">
+			<tbody>
+				<tr><th>Link</th><td id="jc-f-ref"></td></tr>
+				<tr><th>Type</th><td id="jc-f-type"></td></tr>
+				<tr><th>Members</th><td id="jc-f-members"></td></tr>
+				<tr><th>Account</th><td id="jc-f-member"></td></tr>
+				<tr><th>Joining</th><td id="jc-f-approval"></td></tr>
+			</tbody>
+		</table>
+		<div class="rt-form-actions">
+			<button type="button" id="jc-join" hidden>Join this chat</button>
+			<button type="button" class="btn-secondary" id="jc-cancel">Cancel</button>
+		</div>
+		<p class="rt-form-msg" id="jc-result"></p>
+	</div>
+
+	<h2 class="mcp-h2">Recent join attempts</h2>
+## if db_error != ""
+	<p class="mcp-err">Could not read the audit log: {{ db_error }}</p>
+## endif
+	<table class="grid rt-table">
+		<thead>
+			<tr><th>When</th><th>By</th><th>Outcome</th></tr>
+		</thead>
+		<tbody>
+## if length(attempts) == 0
+			<tr><td colspan="3" class="muted">No join attempts yet.</td></tr>
+## endif
+## for a in attempts
+			<tr>
+				<td class="muted nowrap">{{ a.created_at }}</td>
+				<td>{{ a.username }}</td>
+				<td>{{ a.detail }}</td>
+			</tr>
+## endfor
+		</tbody>
+	</table>
+</section>
+<script src="/join-chat.js" defer></script>

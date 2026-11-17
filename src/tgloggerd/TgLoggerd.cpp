@@ -10,6 +10,7 @@
 #include <tgloggerd/StorageJanitor.hpp>
 #include <tgloggerd/StorageApi.hpp>
 #include <tgloggerd/FileFetcher.hpp>
+#include <tgloggerd/ChatApi.hpp>
 #include <stdexcept>
 #include <cstdlib>
 #include <cstring>
@@ -668,6 +669,7 @@ int TgLoggerd::start(void)
 		api_ = std::make_unique<InternalApi>(l_);
 		registerFileApi(*api_, *db_, fetcher_.get());
 		registerStorageApi(*api_, *db_, *janitor_);
+		registerChatApi(*api_, *tdlib_);
 		InternalApi::Config api_cfg;
 		api_cfg.listen = api_listen;
 		api_cfg.threads = api_threads;

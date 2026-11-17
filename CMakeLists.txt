@@ -80,6 +80,10 @@ add_executable(tgloggerd
 	src/tgloggerd/FetchState.hpp
 	src/tgloggerd/FileFetcher.cpp
 	src/tgloggerd/FileFetcher.hpp
+	src/tgloggerd/ChatRef.cpp
+	src/tgloggerd/ChatRef.hpp
+	src/tgloggerd/ChatApi.cpp
+	src/tgloggerd/ChatApi.hpp
 	src/tgloggerd/DiscordClient.cpp
 	src/tgloggerd/DiscordClient.hpp
 	src/tgloggerd/DiscordForwarder.cpp

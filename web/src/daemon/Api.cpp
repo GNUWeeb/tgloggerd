@@ -191,4 +191,31 @@ drogon::Task<Reply> recordAccess(std::vector<uint64_t> ids)
 	co_return r;
 }
 
+/*
+ * The daemon waits up to 15 s on Telegram per step, and a join is up to
+ * four steps (a preview up to three); give it that and a little more before
+ * calling it away.
+ */
+drogon::Task<Reply> resolveChat(std::string ref)
+{
+	/* Built outside the co_await: GCC 13 crashes on a braced json
+	 * temporary in a coroutine call's arguments. */
+	nlohmann::json body = nlohmann::json::object();
+	body["ref"] = std::move(ref);
+	Reply r = co_await call(drogon::Post, "/v1/chats/resolve",
+				std::move(body), 55.0);
+	co_return r;
+}
+
+drogon::Task<Reply> joinChat(std::string ref)
+{
+	/* Built outside the co_await: GCC 13 crashes on a braced json
+	 * temporary in a coroutine call's arguments. */
+	nlohmann::json body = nlohmann::json::object();
+	body["ref"] = std::move(ref);
+	Reply r = co_await call(drogon::Post, "/v1/chats/join",
+				std::move(body), 70.0);
+	co_return r;
+}
+
 } /* namespace tgweb::daemon::api */
