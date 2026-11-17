@@ -106,10 +106,6 @@ The file store as a capped cache in front of Telegram:
 - [`shared-download-prune-race`](todo/shared-download-prune-race.md): Keep one message's store job from deleting the TDLib file another message's job still has to hash.
 - [`file-index-unique-id`](todo/file-index-unique-id.md): Look message media up in the file index by unique id too, and index alias rows as their target (optional).
 
-## Logging
-
-- [`contact-real-name`](todo/contact-real-name.md): Log a user's own name rather than the account's contact name for them, keeping the contact name apart.
-
 ## Web interface
 
 - [`web-accounts`](todo/web-accounts.md): Let an admin create and manage several web accounts with roles and permissions.
