@@ -24,9 +24,13 @@ host:
     ./dev npm run build
     ./dev npm run check:api
 
-`npm run build` writes the client bundle to dist/client (content-hashed
-files and the manifest the Go service reads) and the render entry to
-dist/server. TGD_BUILD sets the build id both carry.
+`npm run build` (scripts/build.ts) writes the client bundle to
+dist/client (content-hashed files and the manifest the Go service
+reads) and the render entry to dist/server, both with one build id,
+and records that id last in dist/client/build.json, where the Go
+service reads it. The id is a hash of the inputs (package.json, the
+lock file, tsconfig.json, vite.config.ts and src/), so the same tree
+gives the same id; TGD_BUILD (passed through by ./dev) sets another.
 
 The API's types are generated from the Go service's OpenAPI
 description, ../../webapi/openapi.yaml, into src/api/generated/ by
