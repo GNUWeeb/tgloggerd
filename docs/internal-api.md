@@ -37,8 +37,9 @@ it; clients see a refused connection and treat the daemon as away.
 - HTTP/1.1 with keep-alive; an HTTP/1.0 request is answered and closed
   unless it asks for keep-alive.
 - Request bodies are JSON, at most 64 KiB (more: 413). The
-  `Content-Type` is not checked. Replies are always
-  `application/json` with `Cache-Control: no-store`.
+  `Content-Type` is not checked. Replies are `application/json` with
+  `Cache-Control: no-store`, except for the event stream
+  (`GET /v1/events`, `text/event-stream`).
 - A connection idle for 30 seconds, or a peer that stalls a read or a
   write for that long, is closed. At most 256 connections are open at
   once; more are closed on accept.
@@ -47,11 +48,16 @@ it; clients see a refused connection and treat the daemon as away.
   for Telegram). At most 4 requests per handler thread are queued or
   running; beyond that a request is answered 503 with
   `Retry-After: 1` at once instead of waiting behind slow ones.
+- The event stream is the exception: it is served from the I/O thread
+  and holds no handler thread however long it stays open, so its
+  subscribers cannot take the threads the other operations need. It
+  does count against the 256 connections.
 - At shutdown the daemon stops accepting, answers the requests already
   running (closing their connections), closes idle connections and
   then exits. A request that arrives on a kept-alive connection during
   shutdown gets 503.
-- The query string is accepted and ignored by the endpoints below.
+- The query string is accepted and ignored by the endpoints below,
+  except for `since` on `GET /v1/events`.
 
 ## Authentication
 
@@ -511,6 +517,90 @@ Errors:
 - 504 `timeout`: the contact is added back, but TDLib did not report the
   own name in time; nothing was stored.
 - 500 `internal`: the contact is added back, but storing the name failed.
+
+### GET /v1/events
+
+What changes in the archive, as a stream of small events, for the web's
+live updates ([design/web-live.md](design/web-live.md) sections 3 and 4).
+An event says what changed, never the new content: the web refetches
+what it names through its usual paths, which check the viewer's access.
+
+    GET /v1/events?since=1794945257988294
+
+The answer is Server-Sent Events (`text/event-stream`, chunked) for as
+long as the connection stays open. Each event is one frame, an `id`
+line and a `data` line holding the event as JSON, then an empty line:
+
+    id: 1794945257988295
+    data: {"seq":1794945257988295,"kind":"message.new","chat_id":-1001234567890,"message_id":42}
+
+- `seq`, also the frame's `id`, grows by one with each event. It starts
+  from the daemon's start time in microseconds, so it keeps growing
+  across restarts and stays an exact JSON number (below 2^53). Compare
+  seqs; do not compute with them.
+- `since`: the last seq the client has seen; without it the stream
+  starts from now. Anything but decimal digits is a 400.
+- The first frame says where the stream starts:
+  - `{"seq": N, "kind": "hello"}`: the events after N follow, N being
+    `since` or, without it, the newest seq.
+  - `{"seq": N, "kind": "resync"}`: `since` cannot be resumed, because
+    it is older than the recent events the daemon keeps, from before
+    its last start, or newer than any event. What was missed cannot be
+    sent: the client refetches what it shows, and the events after N
+    follow.
+- A `resync` can also come later in the stream, when the client reads
+  so slowly that the events after the last one it got are no longer
+  kept. The stream then goes on from the newest event.
+- To resume after a disconnect, reconnect with `since` set to the seq
+  of the last frame received, `hello` and `resync` included. Missed
+  events are sent from a ring of the 16384 most recent ones, so a short
+  disconnect loses nothing and a long one ends in a `resync`.
+- After 15 seconds without an event the daemon sends the comment line
+  `: keepalive` (SSE parsers skip it), so a dead connection is noticed.
+- The daemon closes the stream when the client sends anything after
+  its request (or closes its side), when a write stalls for 30
+  seconds, and at shutdown, after a last empty chunk.
+- At most 16 subscribers at once; more are answered 503 `unavailable`
+  with `Retry-After`. The web is meant to hold one subscription and
+  fan it out to its own clients.
+
+The events (ids as stored: `chat_id` is TDLib's chat id, negative for
+groups and the other user's id for private chats; `message_id` is the
+`message_id` column of the message tables; `file_id` is
+`telegram_files.id`):
+
+| `kind` | Fields | Published when |
+|---|---|---|
+| `message.new` | `chat_id`, `message_id` | A message row was inserted: a live message, or an older one the backfill or a reply lookup brought in. |
+| `message.edited` | `chat_id`, `message_id` | A copy with a later edit date replaced the content, a content version was recorded, or the message's link preview or reply link was resolved. |
+| `message.deleted` | `chat_id`, `message_id` | The message was found deleted (once; the row stays). |
+| `user.updated` | `user_id`, `fields`? | A user's row, full info, photo or own name was written. |
+| `group.updated` | `chat_id`, `fields`? | A group's row, administrators or photo was written. |
+| `file.stored` | `file_id`, `chat_id`?, `message_id`? | A message's media or link-preview image was linked to its file row (with `chat_id` and `message_id`), or a user's or group's photo was stored (`file_id` alone). |
+| `stats.changed` | `chat_ids`, `user_ids`, `more`? | Counters moved; at most one per second. |
+
+- Each event is published after its row is committed, by the worker
+  that wrote it, so a refetch finds the change. A message upsert that
+  changes nothing visible, such as a copy seen again, publishes
+  nothing; the other writes publish whether or not they changed the
+  row, which costs a client a refetch at most.
+- `fields`, when present, names the parts the write may have changed;
+  without it anything may have. Users: `name` (the own name, from
+  "Look up real name"), `photo`, and `bio`, `birthday`, `personal_chat`
+  together (the full info). Groups: `photo`, `admins`.
+- `file.stored` does not mean the bytes are on disk: media from a chat
+  the account is not in, or over the size cap, is linked to a row
+  recorded without them; `GET /v1/files/{id}` tells. A fetch through
+  `POST /v1/files/{id}/fetch` publishes nothing; the web has the answer.
+- `stats.changed` gathers what moved since the last one: `chat_ids`,
+  the chats (groups and private chats) that got new messages, and
+  `user_ids`, the senders whose message counts moved. Each list holds
+  at most 1000 ids; past that it is cut and `"more": true` says to treat
+  every counter as changed.
+- New kinds may be added; a client skips kinds it does not know.
+
+Errors: 400 if `since` is not decimal digits, 503 with too many
+subscribers or during shutdown.
 
 ## Adding an endpoint
 

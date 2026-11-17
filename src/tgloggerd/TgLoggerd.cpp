@@ -13,6 +13,7 @@
 #include <tgloggerd/ChatApi.hpp>
 #include <tgloggerd/ContactApi.hpp>
 #include <tgloggerd/EventBus.hpp>
+#include <tgloggerd/EventApi.hpp>
 #include <stdexcept>
 #include <cstdlib>
 #include <cstring>
@@ -750,6 +751,7 @@ int TgLoggerd::start(void)
 		registerStorageApi(*api_, *db_, *janitor_);
 		registerChatApi(*api_, *tdlib_);
 		registerContactApi(*api_, *contacts_);
+		registerEventApi(*api_, *events_);
 		InternalApi::Config api_cfg;
 		api_cfg.listen = api_listen;
 		api_cfg.threads = api_threads;
