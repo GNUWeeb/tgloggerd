@@ -115,6 +115,9 @@ The file store as a capped cache in front of Telegram:
 ## Web interface
 
 - [`web-join-chat`](todo/web-join-chat.md): Let an admin make the logging account join a group or channel by invite link or username from the dashboard.
+- [`web-accounts`](todo/web-accounts.md): Let an admin create and manage several web accounts with roles and permissions.
+- [`web-access-scopes`](todo/web-access-scopes.md): Limit a member account to some pages, groups and users, enforced in every query.
+- [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action gated by the fetch_files permission.
 
 ## Operations
 
