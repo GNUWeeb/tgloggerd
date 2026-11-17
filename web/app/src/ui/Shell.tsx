@@ -10,6 +10,7 @@ import {
 import { Link, useNav } from '../nav.tsx';
 import { Avatar } from './primitives.tsx';
 import type { Viewer } from '../page.ts';
+import { logout } from '../api/auth.ts';
 
 type Item = [href: string, label: string, icon: typeof Users, key: string | null];
 const NAV: { label: string | null; items: Item[] }[] = [
@@ -101,7 +102,7 @@ export default function Shell({ crumbs = [], flush = false, children }: { crumbs
 							<Avatar id={acct.id} name={acct.name} size={24} />
 							<span className="a-grow a-label a-me-name"><span>{acct.username}</span><span className="a-muted sm">{acct.role}</span></span>
 							<ThemeButton viewer={viewer} />
-							<a href="/logout" className="a-icon-btn" title="Sign out" aria-label="Sign out"><LogOut size={15} /></a>
+							<button type="button" className="a-icon-btn" title="Sign out" aria-label="Sign out" onClick={() => void logout().finally(() => location.assign('/login'))}><LogOut size={15} /></button>
 						</div>
 					)}
 				</aside>
