@@ -85,6 +85,18 @@ struct FileInfo {
 	bool        on_disk;   /* false = metadata-only, no servable bytes */
 };
 
+/* A file row's cache state, for the internal API (GET /v1/files/{id}). */
+struct FileStatus {
+	uint64_t		id = 0;
+	std::string		file_type;	/* "photo", "video", ... */
+	std::string		ext;		/* may be empty */
+	uint64_t		file_size = 0;
+	bool			on_disk = false;
+	std::optional<uint64_t>	alias_of;	/* row holding the same bytes */
+	bool			has_unique_id = false;	/* tg_unique_id known */
+	int64_t			accessed_at = 0;	/* Unix seconds */
+};
+
 /* A Discord message the forwarder posted, for applying a later edit/delete. */
 /*
  * The Discord message a Telegram message was bridged FROM.
@@ -168,6 +180,16 @@ public:
 	std::optional<QuotedMessage> getQuotedMessage(int64_t chat_id,
 						      int64_t message_id);
 	std::optional<FileInfo> getFileInfo(uint64_t files_id);
+
+	/* A file row's cache state; nullopt if there is no such row. */
+	std::optional<FileStatus> getFileStatus(uint64_t files_id);
+
+	/*
+	 * Record that the web used these files: accessed_at = NOW() for the
+	 * rows whose accessed_at is more than an hour old, keeping
+	 * updated_at (an access is not a change). Returns the rows moved.
+	 */
+	uint64_t touchFiles(const std::vector<uint64_t> &files_ids);
 	/* The source message's text/reply/file, to re-render it for a tombstone. */
 	std::optional<MessageForward> getMessageForward(int64_t chat_id,
 							int64_t message_id);

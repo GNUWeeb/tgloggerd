@@ -5,6 +5,7 @@
 #include <tgloggerd/helpers/common.h>
 #include <tgloggerd/TgLoggerd.hpp>
 #include <tgloggerd/InternalApi.hpp>
+#include <tgloggerd/FileApi.hpp>
 #include <stdexcept>
 #include <cstdlib>
 #include <cstring>
@@ -562,6 +563,7 @@ int TgLoggerd::start(void)
 	 */
 	if (!api_listen.empty()) {
 		api_ = std::make_unique<InternalApi>(l_);
+		registerFileApi(*api_, *db_);
 		InternalApi::Config api_cfg;
 		api_cfg.listen = api_listen;
 		api_cfg.threads = api_threads;
