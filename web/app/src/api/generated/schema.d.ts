@@ -178,6 +178,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current names, photos and counts of users and groups
+         * @description The current summaries of the users and groups a page shows, for the browser's entity cache: lists render names, photos and counts from it, and a user.updated, group.updated or stats.changed live event makes it ask again for the ids the event names. Only what the viewer may see is answered, through the same request scope as everything else: an id that is hidden from the viewer, or unknown, is left out, and the answer never says which. Counts follow the scope too (a member gets none, web-accounts.md section 5). At most 200 ids per list.
+         */
+        get: operations["getEntities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/account/password": {
         parameters: {
             query?: never;
@@ -1147,6 +1167,10 @@ export interface components {
             /** @enum {string} */
             kind: "group" | "user";
             photo: string | null;
+        };
+        Entities: {
+            users: components["schemas"]["UserSummary"][];
+            groups: components["schemas"]["GroupSummary"][];
         };
         /** @description A chat as the pickers show it; sub is a short second line. */
         PickItem: {
@@ -2287,6 +2311,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatSearchPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getEntities: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated user ids. */
+                users?: string;
+                /** @description Comma-separated group chat ids. */
+                groups?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The visible ones among the ids asked for. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Entities"];
                 };
             };
             400: components["responses"]["BadRequest"];

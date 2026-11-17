@@ -681,6 +681,49 @@ paths:
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
+  /api/entities:
+    get:
+      x-tgd-status: planned
+      operationId: getEntities
+      tags: [chats]
+      summary: Current names, photos and counts of users and groups
+      description: >-
+        The current summaries of the users and groups a page shows, for
+        the browser's entity cache: lists render names, photos and
+        counts from it, and a user.updated, group.updated or
+        stats.changed live event makes it ask again for the ids the
+        event names. Only what the viewer may see is answered, through
+        the same request scope as everything else: an id that is
+        hidden from the viewer, or unknown, is left out, and the answer
+        never says which. Counts follow the scope too (a member gets
+        none, web-accounts.md section 5). At most 200 ids per list.
+      parameters:
+        - name: users
+          in: query
+          required: false
+          description: Comma-separated user ids.
+          schema:
+            type: string
+        - name: groups
+          in: query
+          required: false
+          description: Comma-separated group chat ids.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The visible ones among the ids asked for.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entities'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
   /api/account/password:
     post:
       x-tgd-status: planned
@@ -2682,6 +2725,18 @@ components:
           enum: [group, user]
         photo:
           type: [string, 'null']
+    Entities:
+      type: object
+      required: [users, groups]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserSummary'
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupSummary'
     PickItem:
       type: object
       description: A chat as the pickers show it; sub is a short second line.
