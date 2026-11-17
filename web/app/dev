@@ -5,6 +5,13 @@
 #   ./dev npm <args>      npm in the Node image (./dev npm ci, ./dev npm test,
 #                         ./dev npm run typecheck, ./dev npm run build)
 #   ./dev node <args>     node in the Node image
+#   ./dev up              start the development stand-in (fixture data from
+#                         ../mockup, hot reload) on 127.0.0.1:$APP_PORT
+#                         (default 51738); ?as=admin or ?as=member views
+#                         as another sample account
+#   ./dev down | logs     stop it, or follow its output
+#   ./dev shoot <outdir> <path>...   screenshots via ../mockup/scripts
+#   ./dev click <out.png> <path> <names> [width] [scheme]
 #
 # Containers run as the calling user, so files written into the tree
 # stay theirs. The npm cache lives in $APP_NPM_CACHE (default
@@ -12,8 +19,13 @@
 set -euo pipefail
 
 NODE_IMAGE=node:26.8.1-bookworm-slim
+PW_IMAGE=mcr.microsoft.com/playwright:v1.65.1-noble
+NAME=tgd-app-dev
+NET=tgd-app
+PORT=${APP_PORT:-51738}
 CACHE=${APP_NPM_CACHE:-$HOME/.cache/tgd-app-npm}
 DIR=$(cd "$(dirname "$0")" && pwd)
+WEB=$(cd "$DIR/.." && pwd)
 
 mkdir -p "$CACHE"
 tty=()
@@ -34,8 +46,39 @@ npm)
 node)
 	node_run "$NODE_IMAGE" node "$@"
 	;;
+up)
+	# The stand-in reads the mockup's fixture data, so all of web/ is mounted.
+	docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
+	docker rm -f "$NAME" >/dev/null 2>&1 || true
+	docker run -d --init --name "$NAME" --network "$NET" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -p "127.0.0.1:$PORT:5173" -p "127.0.0.1:$((PORT + 10000)):24678" \
+		-v "$WEB:/web" -w /web/app "$NODE_IMAGE" node standin/server.ts >/dev/null
+	echo "App stand-in at http://127.0.0.1:$PORT/ (./dev logs, ./dev down)"
+	;;
+down)
+	docker rm -f "$NAME" >/dev/null 2>&1 || true
+	;;
+logs)
+	docker logs -f "$NAME"
+	;;
+shoot)
+	out=${1:?usage: ./dev shoot <outdir> <path>...}; shift
+	mkdir -p "$out"
+	docker run --rm --init --network "$NET" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -e MOCKUP_URL="http://$NAME:5173" -e TGD_AS="${TGD_AS:-}" \
+		-v "$WEB:/web:ro" -v "$(cd "$out" && pwd):/out" -w /web/mockup \
+		"$PW_IMAGE" node scripts/shoot.mjs /out "$@"
+	;;
+click)
+	out=${1:?usage: ./dev click <out.png> <path> <names> [width] [scheme]}; shift
+	mkdir -p "$(dirname "$out")"
+	docker run --rm --init --network "$NET" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -e MOCKUP_URL="http://$NAME:5173" \
+		-v "$WEB:/web:ro" -v "$(cd "$(dirname "$out")" && pwd):/out" -w /web/mockup \
+		"$PW_IMAGE" node scripts/click.mjs "/out/$(basename "$out")" "$@"
+	;;
 *)
-	sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac
