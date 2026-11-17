@@ -48,6 +48,19 @@ private:
 	void onPhotoLink(const PhotoLink &pl);
 	void onFileMeta(const FileMeta &m);
 
+	/*
+	 * The log handle, owned through log_owner_ and used through l_.
+	 * Declared first so it is freed last, after every member below has
+	 * been destroyed: the API, the fetcher, the janitor, the pools, the
+	 * Discord forwarder and TDLib all hold l_ and may log from their
+	 * destructors or from a thread they are still joining.
+	 */
+	struct LogFree {
+		void operator()(log_hd_t *h) const noexcept { pr_free(h); }
+	};
+	std::unique_ptr<log_hd_t, LogFree> log_owner_;
+	log_hd_t *l_ = nullptr;
+
 	uint32_t api_id_;
 	char api_hash_[64];
 	char data_dir_[512];
@@ -77,7 +90,6 @@ private:
 	 */
 	std::unordered_map<std::string, models::KnownFile> known_photo_uids_;
 	std::mutex known_files_mtx_;
-	log_hd_t *l_ = nullptr;
 	std::unique_ptr<TDLib> tdlib_;
 	std::unique_ptr<DB> db_;
 
