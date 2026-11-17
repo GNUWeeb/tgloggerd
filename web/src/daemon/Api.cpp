@@ -13,6 +13,7 @@
 #include <sodium.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <utility>
@@ -164,6 +165,7 @@ drogon::Task<Reply> call(drogon::HttpMethod method, std::string path,
 
 	r.sent = true;
 	r.status = (int)resp->getStatusCode();
+	r.retryAfter = resp->getHeader("retry-after");
 	auto text = resp->body();
 	if (!text.empty()) {
 		r.body = nlohmann::json::parse(text.begin(), text.end(),
@@ -188,6 +190,27 @@ drogon::Task<Reply> recordAccess(std::vector<uint64_t> ids)
 	body["ids"] = std::move(ids);
 	Reply r = co_await call(drogon::Post, "/v1/files/access",
 				std::move(body), 5.0);
+	co_return r;
+}
+
+drogon::Task<Reply> fetch(uint64_t id, uint64_t offset, uint64_t length)
+{
+	/* The daemon's limit plus a margin for the round trip and its own
+	 * bookkeeping; read once, like the daemon reads it at startup. */
+	static const double timeout = [] {
+		long secs = strtol(tgweb::env("TG_FETCH_TIMEOUT_SECS", "30")
+					   .c_str(), nullptr, 10);
+		if (secs <= 0)
+			secs = 30;
+		return (double)secs + 10.0;
+	}();
+
+	nlohmann::json body = nlohmann::json::object();
+	body["offset"] = offset;
+	body["length"] = length;
+	Reply r = co_await call(drogon::Post,
+				"/v1/files/" + std::to_string(id) + "/fetch",
+				std::move(body), timeout);
 	co_return r;
 }
 
