@@ -16,8 +16,13 @@ First Last (cx:<user-id>:<message-id>)
 ```
 
 - **`First Last`** — the sender's Telegram first and last name, space-joined.
-  For a channel post or an anonymous admin (no user) it is the chat's title
-  instead.
+  For a contact of the logging account it is their own name as logged
+  (`telegram_users.first_name`/`last_name`, see
+  [contact-names.md](../web/docs/contact-names.md)), not the name the account
+  saved them under; while no own name is known (`own_name_known` = 0) it is
+  the contact name. For a channel post or an anonymous admin (no user) it is
+  the chat's title instead. A reply preview names the replied author the same
+  way.
 - **`cx`** — a fixed literal marking the identifier that follows.
 - **`<user-id>`** — the sender's Telegram user id, compact-encoded (below). For
   a channel/anonymous sender the user id is `0`, which encodes as `AA`.

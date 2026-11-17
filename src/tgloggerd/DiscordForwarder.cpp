@@ -480,10 +480,17 @@ DiscordForwarder::resolve_sender(int64_t chat_id, int64_t sender_id,
 	Sender s;
 	try {
 		if (sender_id != 0) {
-			s.name = known_name;
-			auto pid = db_->getUserPhotoFileId(sender_id);
-			if (pid)
-				s.avatar_url = media_url(*pid);
+			/*
+			 * TDLib names a contact as the account saved them;
+			 * show the own name the logger keeps instead, when
+			 * one is known.
+			 */
+			auto u = db_->getSenderUser(sender_id);
+			s.name = models::mirroredSenderName(u ? &u->name
+							      : nullptr,
+							    known_name);
+			if (u && u->photo_file_id)
+				s.avatar_url = media_url(*u->photo_file_id);
 		} else {
 			int64_t cid = sender_chat_id != 0 ? sender_chat_id : chat_id;
 			ChatPhoto cp = db_->getGroupPhoto(cid);

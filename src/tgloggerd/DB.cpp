@@ -91,14 +91,23 @@ std::vector<int64_t> DB::loadForwardingBotUserIds(void)
 	return out;
 }
 
-std::optional<uint64_t> DB::getUserPhotoFileId(int64_t user_id)
+std::optional<SenderUser> DB::getSenderUser(int64_t user_id)
 {
 	auto rows = db_.query(
-		"SELECT profile_photo_file_id FROM telegram_users WHERE id = ?",
+		"SELECT profile_photo_file_id, first_name, last_name,"
+		" is_contact, own_name_known FROM telegram_users WHERE id = ?",
 		{ user_id });
-	if (rows.empty() || !rows[0][0].has_value())
+	if (rows.empty())
 		return std::nullopt;
-	return (uint64_t)std::stoull(*rows[0][0]);
+	const auto &r = rows[0];
+	SenderUser u;
+	if (r[0].has_value())
+		u.photo_file_id = (uint64_t)std::stoull(*r[0]);
+	u.name.name = { r[1].value_or(""), r[2].value_or("") };
+	if (r[3].has_value())
+		u.name.is_contact = *r[3] != "0";
+	u.name.own_name_known = r[4].value_or("1") != "0";
+	return u;
 }
 
 ChatPhoto DB::getGroupPhoto(int64_t chat_id)

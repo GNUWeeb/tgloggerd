@@ -71,6 +71,23 @@ UserNamePlan planUserName(const StoredUserName *old,
 bool needsOwnNameBackfill(const StoredUserName *old,
 			  const ReportedUserName &now);
 
+/* "first last", or whichever of the two is set. */
+std::string displayName(const Name &n);
+
+/*
+ * The name to show for a user in a message mirrored elsewhere (the
+ * Discord forwarder). reported is the name TDLib has for them, which
+ * for a contact is the account's contact name. stored is their
+ * telegram_users row, or nullptr if there is none.
+ *
+ * A contact whose own name is known is shown under the stored own name.
+ * Everyone else keeps the reported name: for a non-contact it is their
+ * own and the freshest, and for a contact with no known own name the
+ * stored name is only the contact name standing in for it.
+ */
+std::string mirroredSenderName(const StoredUserName *stored,
+			       const std::string &reported);
+
 } /* namespace models */
 } /* namespace tgloggerd */
 
