@@ -31,6 +31,12 @@ type Deps struct {
 	Cookies *auth.Cookies
 	Limiter *auth.RateLimiter
 	Daemon  *daemon.Client // nil when the daemon API is off
+	// Tokens opens the /files/<token> tokens.
+	Tokens *auth.FileTokens
+	// Access collects the ids of the files served for the daemon; nil
+	// when the daemon API is off.
+	Access *daemon.AccessReporter
+	Media  MediaConfig
 }
 
 // Server carries what the handlers share.
@@ -43,6 +49,9 @@ type Server struct {
 	limiter  *auth.RateLimiter
 	verifier *auth.Verifier
 	daemon   *daemon.Client
+	tokens   *auth.FileTokens
+	access   *daemon.AccessReporter
+	media    MediaConfig
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -57,6 +66,9 @@ func New(d Deps) http.Handler {
 		limiter:  d.Limiter,
 		verifier: &auth.Verifier{Cookies: d.Cookies, Epoch: auth.DBEpoch(d.App)},
 		daemon:   d.Daemon,
+		tokens:   d.Tokens,
+		access:   d.Access,
+		media:    d.Media,
 	}
 
 	mux := http.NewServeMux()
@@ -65,6 +77,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/login", s.postLogin)
 	mux.HandleFunc("POST /api/logout", s.postLogout)
 	mux.HandleFunc("GET /api/session", s.RequireSession(s.session))
+	mux.HandleFunc("GET /files/{token}", s.serveFile)
 
 	return s.logRequests(mux)
 }

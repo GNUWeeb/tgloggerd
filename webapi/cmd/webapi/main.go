@@ -25,6 +25,7 @@ import (
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/config"
 	"tgloggerd/webapi/internal/daemon"
+	"tgloggerd/webapi/internal/media"
 	"tgloggerd/webapi/internal/server"
 )
 
@@ -81,6 +82,20 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		log.Info("daemon API", "url", dc.BaseURL())
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+
+	// Served files are reported to the daemon once a minute, for its
+	// eviction order; the last minute's are dropped on shutdown, as a
+	// failed report's are.
+	access := daemon.NewAccessReporter(dc, log)
+	go access.Run(ctx)
+
+	tdlib := media.TDLibDir(cfg.DataDir)
+	if tdlib == "" {
+		log.Warn("TG_DATA_DIR is not set; big files cannot be streamed from TDLib")
+	}
+
 	signer := auth.NewSigner(cfg.AppKey)
 	handler := server.New(server.Deps{
 		Log:    log,
@@ -94,6 +109,13 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		},
 		Limiter: auth.NewRateLimiter(cfg.LoginMaxAttempts, cfg.LoginWindow),
 		Daemon:  dc,
+		Tokens:  auth.NewFileTokens(cfg.AppKey),
+		Access:  access,
+		Media: server.MediaConfig{
+			StorageDir:   cfg.StorageDir,
+			TDLibDir:     tdlib,
+			StoreFileCap: cfg.StoreFileCap,
+		},
 	})
 
 	addr := net.JoinHostPort(cfg.ListenAddr, strconv.Itoa(int(cfg.ListenPort)))
@@ -104,9 +126,6 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
-	defer stop()
 
 	errc := make(chan error, 1)
 	go func() {

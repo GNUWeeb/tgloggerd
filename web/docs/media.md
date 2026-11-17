@@ -6,6 +6,19 @@ through the daemon. The design behind it is
 sections 10 and 11; the daemon side is
 [../../docs/internal-api.md](../../docs/internal-api.md).
 
+## Which service serves it
+
+Two implementations exist while the web moves to Go
+([../../docs/design/web-go.md](../../docs/design/web-go.md)): the Drogon
+web's (`src/controllers/MediaController.cpp`, `src/media/Fetch.cpp`)
+and the Go service's (`webapi/internal/server/media.go`,
+`webapi/internal/media/`). nginx decides which one answers: `/files/`
+goes to Drogon until a `location /files/` sends it to the Go service
+([../../webapi/README](../../webapi/README), "Routing /files/ through
+nginx"). Both read the same store, TDLib directory, settings and
+tokens, so a link works on either. What follows holds for both, except
+where "Differences" says otherwise.
+
 ## The URL
 
 `/files/<token>` is public: the token is the file id
@@ -130,3 +143,24 @@ writes `telegram_files`, so the web tells it which files it serves:
   logged until a report succeeds again. A file viewed again is simply
   reported again.
 - With `WEB_TGLOGGERD_API` empty nothing is recorded or sent.
+
+## Differences between the two
+
+The Go service answers the same URLs with the same status codes and
+headers. Where it does more, it is the standard file serving of Go's
+`http.ServeContent`, which browsers and media players expect:
+
+- A stored file also carries `Last-Modified` (the blob's), and
+  `If-Modified-Since` and `If-Range` are honoured: a browser
+  revalidating its copy gets a 304. Drogon sends no validators.
+- Several ranges in one `Range` header get a `multipart/byteranges`
+  206; Drogon serves the first range only. `bytes=0-` is a 206 of the
+  whole file; Drogon makes it a 200.
+- A session counts only when it is valid against the account's
+  `session_epoch`, as for every other request; Drogon checks only the
+  cookie's signature and expiry on this route. A session ended by a
+  password change is anonymous on the Go service: it fetches small
+  files only and writes no audit row.
+- Error answers are a bare HTML page with the same heading and text,
+  not the Drogon layout.
+
