@@ -181,16 +181,93 @@ uint64_t DB::upsertFile(const models::File &f)
 	return id;
 }
 
-std::unordered_map<std::string, uint64_t> DB::loadFileIndex(void)
+models::KnownFile DB::upsertFileMeta(const models::File &f)
 {
-	auto rows = db_.query("SELECT tg_file_id, id FROM telegram_files");
+	mysql::Param ext = std::monostate{};
+	if (f.file_ext.has_value())
+		ext = *f.file_ext;
+	mysql::Param uid = std::monostate{};
+	if (!f.tg_unique_id.empty())
+		uid = f.tg_unique_id;
+	const mysql::Param no_sha = std::monostate{};
 
-	std::unordered_map<std::string, uint64_t> out;
+	models::KnownFile out;
+	db_.transaction([&](mysql::Transaction &tx) {
+		/*
+		 * The unique id is the dedup key here (there are no bytes to
+		 * hash), the remote id a fallback for rows written before it
+		 * was recorded. See upsertFile for why the candidates are
+		 * looked up before writing.
+		 */
+		FileCandidates c = find_file_candidates(tx, no_sha,
+							f.tg_file_id, uid);
+		std::optional<uint64_t> target = c.by_unique_id;
+		if (!target)
+			target = c.by_file_id;
+
+		if (!target) {
+			/* ON DUPLICATE KEY UPDATE: a concurrent writer may
+			 * have recorded the same file since the lookup. */
+			out.id = tx.insert(
+				"INSERT INTO telegram_files (tg_file_id,"
+				" tg_unique_id, file_type, file_size, sha256,"
+				" file_ext, orig_file_name, on_disk)"
+				" VALUES (?, ?, ?, ?, NULL, ?, ?, 0) AS new"
+				" ON DUPLICATE KEY UPDATE"
+				" id = LAST_INSERT_ID(id),"
+				" hit_count = hit_count + 1,"
+				" orig_file_name = IF(telegram_files.orig_file_name = '',"
+				" new.orig_file_name, telegram_files.orig_file_name),"
+				" accessed_at = NOW()",
+				{
+					f.tg_file_id,
+					uid,
+					f.file_type,
+					(int64_t)f.file_size,
+					ext,
+					f.orig_file_name,
+				});
+		} else {
+			out.id = *target;
+			mysql::Param fill_uid = uid;
+			if (c.by_unique_id && *c.by_unique_id != out.id)
+				fill_uid = std::monostate{};
+			tx.execute(
+				"UPDATE telegram_files SET"
+				" hit_count = hit_count + 1,"
+				" tg_unique_id = COALESCE(tg_unique_id, ?),"
+				" file_ext = COALESCE(file_ext, ?),"
+				" orig_file_name = IF(orig_file_name = '', ?, orig_file_name),"
+				/* Seen again: in use, keep it from eviction. */
+				" accessed_at = NOW()"
+				" WHERE id = ?",
+				{ fill_uid, ext, f.orig_file_name,
+				  (int64_t)out.id });
+		}
+
+		/* The row may be a stored one: tell the index which. */
+		auto rows = tx.query("SELECT sha256 IS NULL FROM telegram_files"
+				     " WHERE id = ?", { (int64_t)out.id });
+		out.meta_only = rows.empty() || !rows[0][0].has_value() ||
+				*rows[0][0] != "0";
+	});
+	return out;
+}
+
+std::unordered_map<std::string, models::KnownFile> DB::loadFileIndex(void)
+{
+	auto rows = db_.query("SELECT tg_file_id, id, sha256 IS NULL"
+			      " FROM telegram_files");
+
+	std::unordered_map<std::string, models::KnownFile> out;
 	out.reserve(rows.size());
 	for (const auto &r : rows) {
 		if (!r[0].has_value() || !r[1].has_value())
 			continue;
-		out.emplace(*r[0], (uint64_t)std::stoull(*r[1]));
+		models::KnownFile k;
+		k.id = (uint64_t)std::stoull(*r[1]);
+		k.meta_only = r[2].has_value() && *r[2] == "1";
+		out.emplace(*r[0], k);
 	}
 	return out;
 }

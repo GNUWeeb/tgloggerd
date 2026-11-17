@@ -458,7 +458,7 @@ int TgLoggerd::start(void)
 	});
 	/* Loop-thread predicate: is this file already recorded? */
 	tdlib_->setFileLookup([this](const std::string &tg_file_id)
-			      -> std::optional<uint64_t> {
+			      -> std::optional<models::KnownFile> {
 		std::lock_guard<std::mutex> lk(known_files_mtx_);
 		auto it = known_files_.find(tg_file_id);
 		if (it == known_files_.end())
@@ -811,7 +811,7 @@ TgLoggerd::storeDownloadedFile(const std::string &local_path,
 	/* Remember it so later references link instead of re-downloading. */
 	{
 		std::lock_guard<std::mutex> lk(known_files_mtx_);
-		known_files_[tg_file_id] = id;
+		known_files_[tg_file_id] = models::KnownFile{ id, false };
 	}
 	return id;
 }

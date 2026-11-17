@@ -14,6 +14,7 @@
 #include <optional>
 
 #include <tgloggerd/models/User.hpp>
+#include <tgloggerd/models/File.hpp>
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
 #include <tgloggerd/models/GroupMessage.hpp>
@@ -267,11 +268,13 @@ public:
 
 	/*
 	 * Predicate used before downloading a message's media: given the file's
-	 * remote id, return the existing telegram_files.id if it is already recorded, so
-	 * the file can be linked without a re-download. Runs on the loop thread.
+	 * remote id, return the existing telegram_files row if it is already
+	 * recorded, so the file can be linked without a re-download. Runs on
+	 * the loop thread.
 	 */
 	void setFileLookup(
-		std::function<std::optional<uint64_t>(const std::string &)> cb);
+		std::function<std::optional<models::KnownFile>(
+			const std::string &)> cb);
 
 	/*
 	 * Set the callback invoked to link a message to a file that is already

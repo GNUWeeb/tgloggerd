@@ -55,13 +55,13 @@ private:
 	 */
 	uint64_t max_store_file_size_ = 1073741824ULL;
 	/*
-	 * In-memory tg_file_id -> telegram_files.id index. Lets the loop thread decide,
-	 * without a DB round-trip, that a message's file is already recorded
-	 * and can be linked instead of re-downloaded. Seeded at startup and
-	 * updated on each store; guarded because file-pool workers write it
-	 * while the loop thread reads it.
+	 * In-memory tg_file_id -> telegram_files row index. Lets the loop
+	 * thread decide, without a DB round-trip, that a message's file is
+	 * already recorded and can be linked instead of re-downloaded. Seeded
+	 * at startup and updated on each store and each metadata-only record;
+	 * guarded because the workers write it while the loop thread reads it.
 	 */
-	std::unordered_map<std::string, uint64_t> known_files_;
+	std::unordered_map<std::string, models::KnownFile> known_files_;
 	std::mutex known_files_mtx_;
 	log_hd_t *l_ = nullptr;
 	std::unique_ptr<TDLib> tdlib_;

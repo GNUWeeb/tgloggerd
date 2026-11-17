@@ -1231,7 +1231,8 @@ struct TDLib::Impl {
 	std::function<void(int64_t, int64_t, const models::MessageContent &,
 			   bool)> content_version_handler_;
 	std::function<void(const MessageFile &)>	message_file_handler_;
-	std::function<std::optional<uint64_t>(const std::string &)> file_lookup_;
+	std::function<std::optional<models::KnownFile>(const std::string &)>
+						file_lookup_;
 	std::function<void(const MessageFileLink &)>	message_file_link_handler_;
 	std::function<void(const MessageReply &)>	message_reply_handler_;
 	std::function<void(const models::User &)>	user_handler_;
@@ -2660,7 +2661,7 @@ void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
 		if (fid.has_value()) {
 			message_file_link_handler_(MessageFileLink{
 				ref.chat_id, ref.message_id, ref.is_group,
-				true, *fid });
+				true, fid->id });
 			return;
 		}
 	}
@@ -2702,7 +2703,7 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 		if (fid.has_value()) {
 			message_file_link_handler_(MessageFileLink{
 				ref.chat_id, ref.message_id, ref.is_group,
-				ref.is_link_preview, *fid });
+				ref.is_link_preview, fid->id });
 			return;
 		}
 	}
@@ -3558,7 +3559,7 @@ void TDLib::setMessageFileHandler(std::function<void(const MessageFile &)> cb)
 }
 
 void TDLib::setFileLookup(
-	std::function<std::optional<uint64_t>(const std::string &)> cb)
+	std::function<std::optional<models::KnownFile>(const std::string &)> cb)
 {
 	impl_->file_lookup_ = std::move(cb);
 }

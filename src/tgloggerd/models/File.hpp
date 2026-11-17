@@ -40,6 +40,20 @@ struct File {
 	bool		on_disk = true;
 };
 
+/*
+ * A telegram_files row as the daemon's in-memory index knows it, keyed by
+ * tg_file_id.
+ */
+struct KnownFile {
+	uint64_t	id = 0;
+	/*
+	 * The bytes were never seen (sha256 IS NULL): the row was recorded
+	 * metadata-only (DB::upsertFileMeta), so a chat whose media is
+	 * stored should still download it, which fills the row in.
+	 */
+	bool		meta_only = false;
+};
+
 } /* namespace models */
 } /* namespace tgloggerd */
 
