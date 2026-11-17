@@ -24,6 +24,20 @@ uint64_t storeFileCap(void)
 	return cap;
 }
 
+void markOne(nlohmann::json &md, bool hasSession)
+{
+	if (!md.is_object() || !md.contains("file_id"))
+		return;
+	const bool stored = !md.contains("stored") ||
+			    !md["stored"].is_boolean() ||
+			    md["stored"].get<bool>();
+	uint64_t size = 0;
+	if (md.contains("size") && md["size"].is_number_unsigned())
+		size = md["size"].get<uint64_t>();
+	md["fetchable"] = !stored &&
+			  mayFetch(size, hasSession) == FetchDecision::Allowed;
+}
+
 } /* namespace */
 
 bool isSmall(uint64_t size)
@@ -39,6 +53,23 @@ FetchDecision mayFetch(uint64_t size, bool hasSession)
 	if (!hasSession && !isSmall(size))
 		return FetchDecision::NeedsSession;
 	return FetchDecision::Allowed;
+}
+
+void markFetchable(nlohmann::json &msg, bool hasSession)
+{
+	if (msg.contains("media"))
+		markOne(msg["media"], hasSession);
+	if (msg.contains("items") && msg["items"].is_array())
+		for (auto &it : msg["items"])
+			if (it.contains("media"))
+				markOne(it["media"], hasSession);
+	if (msg.contains("link_preview") && msg["link_preview"].is_object() &&
+	    msg["link_preview"].contains("media"))
+		markOne(msg["link_preview"]["media"], hasSession);
+	if (msg.contains("edits") && msg["edits"].is_array())
+		for (auto &e : msg["edits"])
+			if (e.contains("media"))
+				markOne(e["media"], hasSession);
 }
 
 const std::filesystem::path &tdlibDir(void)

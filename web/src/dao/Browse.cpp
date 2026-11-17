@@ -1156,7 +1156,9 @@ nlohmann::json buildChatMessage(const drogon::orm::Row &r, int64_t &rowId,
 		med["name"]    = escCol(r, "f_name");
 		if (!r["f_size"].isNull())
 			med["size"] = r["f_size"].as<uint64_t>();
-		/* false = too large, only metadata kept (bytes not in store). */
+		/* false = the bytes are not in the store (evicted, never
+		 * fetched, over the per-file cap); the controllers add
+		 * `fetchable` (media::markFetchable). */
 		med["stored"]  = r["f_on_disk"].isNull() ||
 				 r["f_on_disk"].as<int>() != 0;
 		m["media"] = std::move(med);
@@ -1469,7 +1471,8 @@ drogon::Task<nlohmann::json> chatHistory(drogon::orm::DbClientPtr db,
 			 * The image, described exactly like message media so the
 			 * template and chat-render.js can reuse the same
 			 * rendering -- including `stored`, since a preview image
-			 * whose bytes were pruned must not be linked.
+			 * whose bytes are not stored is shown only when it can be
+			 * fetched.
 			 */
 			if (!row["photo_file_id"].isNull()) {
 				nlohmann::json med;

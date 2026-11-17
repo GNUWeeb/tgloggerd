@@ -100,8 +100,14 @@
 ## if it.is_deleted
 					<span class="album-item wide deleted" id="msg-{{ it.msg_id }}"><span class="muted">(deleted)</span></span>
 ## else if existsIn(it, "media")
-## if existsIn(it.media, "stored") and not it.media.stored
-					<span class="album-item wide media-missing" id="msg-{{ it.msg_id }}">📄 {% if it.media.name != "" %}{{ it.media.name }}{% else %}{{ it.content_type }}{% endif %}{% if existsIn(it.media, "size") %} <span class="muted">({{ it.media.size }} bytes)</span>{% endif %} <span class="muted">— too large, not stored</span></span>
+## if not it.media.stored and not it.media.fetchable
+					<span class="album-item wide media-missing" id="msg-{{ it.msg_id }}">📄 {% if it.media.name != "" %}{{ it.media.name }}{% else %}{{ it.content_type }}{% endif %}{% if existsIn(it.media, "size") %} <span class="muted">({{ it.media.size }} bytes)</span>{% endif %} <span class="muted">— not stored, only metadata kept</span></span>
+## else if not it.media.stored and (it.media.render == "video" or (it.media.render == "animation" and it.content_type != "sticker"))
+					<a class="album-item media-thumb media-fetch zoomable" id="msg-{{ it.msg_id }}" data-zoom="{{ it.media.render }}" data-src="{{ media(it.media.file_id) }}" href="{{ media(it.media.file_id) }}"><video src="{{ media(it.media.file_id) }}" preload="none" muted playsinline></video><span class="play-badge" aria-hidden="true"></span><span class="fetch-label">Load from Telegram{% if existsIn(it.media, "size") %} · {{ it.media.size }} bytes{% endif %}</span></a>
+## else if not it.media.stored and it.media.render == "audio"
+					<span class="album-item wide media-fetch-audio" id="msg-{{ it.msg_id }}"><span class="fetch-label">🎵 {% if it.media.name != "" %}{{ it.media.name }}{% else %}{{ it.content_type }} file{% endif %} · Load from Telegram</span><audio src="{{ media(it.media.file_id) }}" controls preload="none"></audio></span>
+## else if not it.media.stored and it.media.render == "file"
+					<a class="album-item wide msg-file media-fetch-file" id="msg-{{ it.msg_id }}" href="{{ media(it.media.file_id) }}">📎 {% if it.media.name != "" %}{{ it.media.name }}{% else %}{{ it.content_type }} file{% endif %}{% if existsIn(it.media, "size") %} <span class="muted">({{ it.media.size }} bytes)</span>{% endif %} <span class="fetch-label">Load from Telegram</span></a>
 ## else if it.media.render == "image"
 					<a class="album-item zoomable" id="msg-{{ it.msg_id }}" data-zoom="image" data-src="{{ media(it.media.file_id) }}" href="{{ media(it.media.file_id) }}"><img src="{{ media(it.media.file_id) }}" alt="{{ it.content_type }}" loading="lazy"></a>
 ## else if it.media.render == "video"
@@ -123,7 +129,7 @@
 {% if m.link_preview.site_name != "" %}					<div class="lp-site">{{ m.link_preview.site_name }}</div>
 {% endif %}{% if m.link_preview.title != "" %}					<div class="lp-title">{{ m.link_preview.title }}</div>
 {% endif %}{% if m.link_preview.description != "" %}					<div class="lp-desc">{{ m.link_preview.description }}</div>
-{% endif %}{% if existsIn(m.link_preview, "media") %}{% if m.link_preview.media.stored %}					<img class="lp-image" src="{{ media(m.link_preview.media.file_id) }}" alt="" loading="lazy">
+{% endif %}{% if existsIn(m.link_preview, "media") %}{% if m.link_preview.media.stored or m.link_preview.media.fetchable %}					<img class="lp-image" src="{{ media(m.link_preview.media.file_id) }}" alt="" loading="lazy">
 {% endif %}{% endif %}				</a>
 ## endif
 ## endif
@@ -214,8 +220,14 @@
 ## endif
 
 ## if existsIn(m, "media")
-## if existsIn(m.media, "stored") and not m.media.stored
-				<div class="msg-media media-missing">📄 {% if m.media.name != "" %}{{ m.media.name }}{% else %}{{ m.content_type }} file{% endif %}{% if existsIn(m.media, "size") %} <span class="muted">({{ m.media.size }} bytes)</span>{% endif %}<br><span class="muted">too large — not stored, only metadata kept</span></div>
+## if not m.media.stored and not m.media.fetchable
+				<div class="msg-media media-missing">📄 {% if m.media.name != "" %}{{ m.media.name }}{% else %}{{ m.content_type }} file{% endif %}{% if existsIn(m.media, "size") %} <span class="muted">({{ m.media.size }} bytes)</span>{% endif %} <span class="muted">— not stored, only metadata kept</span></div>
+## else if not m.media.stored and (m.media.render == "video" or (m.media.render == "animation" and m.content_type != "sticker"))
+				<a class="media-thumb media-fetch zoomable" data-zoom="{{ m.media.render }}" data-src="{{ media(m.media.file_id) }}" href="{{ media(m.media.file_id) }}"><video class="msg-media" src="{{ media(m.media.file_id) }}" preload="none" muted playsinline></video><span class="play-badge" aria-hidden="true"></span><span class="fetch-label">Load from Telegram{% if existsIn(m.media, "size") %} · {{ m.media.size }} bytes{% endif %}</span></a>
+## else if not m.media.stored and m.media.render == "audio"
+				<div class="media-fetch-audio"><span class="fetch-label">🎵 {% if m.media.name != "" %}{{ m.media.name }}{% else %}{{ m.content_type }} file{% endif %} · Load from Telegram</span><audio class="msg-audio" src="{{ media(m.media.file_id) }}" controls preload="none"></audio></div>
+## else if not m.media.stored and m.media.render == "file"
+				<a class="msg-file media-fetch-file" href="{{ media(m.media.file_id) }}">📎 {% if m.media.name != "" %}{{ m.media.name }}{% else %}{{ m.content_type }} file{% endif %}{% if existsIn(m.media, "size") %} <span class="muted">({{ m.media.size }} bytes)</span>{% endif %} <span class="fetch-label">Load from Telegram</span></a>
 ## else if m.media.render == "image"
 				<a class="msg-media-link zoomable" data-zoom="image" data-src="{{ media(m.media.file_id) }}" href="{{ media(m.media.file_id) }}"><img class="msg-media" src="{{ media(m.media.file_id) }}" alt="{{ m.content_type }}" loading="lazy"></a>
 ## else if m.media.render == "video"
@@ -238,7 +250,7 @@
 {% if m.link_preview.site_name != "" %}					<div class="lp-site">{{ m.link_preview.site_name }}</div>
 {% endif %}{% if m.link_preview.title != "" %}					<div class="lp-title">{{ m.link_preview.title }}</div>
 {% endif %}{% if m.link_preview.description != "" %}					<div class="lp-desc">{{ m.link_preview.description }}</div>
-{% endif %}{% if existsIn(m.link_preview, "media") %}{% if m.link_preview.media.stored %}					<img class="lp-image" src="{{ media(m.link_preview.media.file_id) }}" alt="" loading="lazy">
+{% endif %}{% if existsIn(m.link_preview, "media") %}{% if m.link_preview.media.stored or m.link_preview.media.fetchable %}					<img class="lp-image" src="{{ media(m.link_preview.media.file_id) }}" alt="" loading="lazy">
 {% endif %}{% endif %}				</a>
 ## endif
 ## endif

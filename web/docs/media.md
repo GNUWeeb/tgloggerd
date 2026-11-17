@@ -84,6 +84,26 @@ Served bytes, from the store or from TDLib, count as an access (below)
 and, for a signed-in request, write the same `media` audit row as a
 stored file.
 
+## Chat pages
+
+The chat JSON (`/v1/chats/{scope}/{id}/messages`, and the data behind
+the server-rendered chat pages) gives every media object (message
+media, album items, link-preview images, edit snapshots) a `stored`
+flag and a `fetchable` flag: `fetchable` is true when the bytes are not
+stored and the viewer may fetch them by the rule above (a public view,
+without a session, gets it only for small files). The pages render:
+
+- a stored file, or an unstored photo or sticker that is fetchable, as
+  usual: images load lazily and are fetched when they come into view;
+- an unstored, fetchable video, animation (not an animated sticker),
+  audio or document as "Load from Telegram": a video or animation is a
+  `<video preload="none">` box, so nothing is fetched before it is
+  clicked, that opens in the viewer and plays from there; audio is a
+  player with `preload="none"`; a document is a download link with its
+  name and size;
+- an unstored file that cannot be fetched as "not stored, only
+  metadata kept".
+
 ## Caching
 
 Files are sent with `Cache-Control: public, max-age=604800`: a week,

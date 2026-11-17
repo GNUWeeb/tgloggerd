@@ -10,6 +10,7 @@
 #include "controllers/Common.hpp"
 #include "dao/Browse.hpp"
 #include "dao/Search.hpp"
+#include "media/Fetch.hpp"
 #include "views/Render.hpp"
 
 #include <drogon/utils/Utilities.h>
@@ -197,6 +198,8 @@ UsersController::chat(drogon::HttpRequestPtr req, std::string id)
 
 	nlohmann::json hist = co_await dao::browse::chatHistory(
 		db, "private", uid, limit, after, afterTs);
+	for (auto &m : hist["messages"])
+		media::markFetchable(m, true);	/* AuthFilter: signed in */
 	data["messages"]    = hist["messages"];
 	data["limit"]       = hist["limit"];
 	data["has_older"]   = hist.contains("older_after");

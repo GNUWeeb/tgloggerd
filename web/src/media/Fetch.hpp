@@ -5,6 +5,8 @@
 #ifndef TGLOGGERD_WEB_MEDIA_FETCH_HPP
 #define TGLOGGERD_WEB_MEDIA_FETCH_HPP
 
+#include <nlohmann/json.hpp>
+
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -39,6 +41,14 @@ FetchDecision mayFetch(uint64_t size, bool hasSession);
 /* Whether a file of this size is stored whole by a fetch: under
  * TG_MAX_STORE_FILE_SIZE, or any file when that is 0. */
 bool isSmall(uint64_t size);
+
+/*
+ * Set `fetchable` on every media object of one chat message as the chat JSON
+ * carries it (media, album items, link-preview image, edit snapshots): true
+ * for a file whose bytes are not stored (`stored` false) that mayFetch()
+ * allows, false otherwise.
+ */
+void markFetchable(nlohmann::json &msg, bool hasSession);
 
 /*
  * The TDLib directory the daemon serves partial files from: the absolute,
