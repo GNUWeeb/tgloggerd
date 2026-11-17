@@ -10,8 +10,9 @@ statistics alike (docs/design/web-live.md).
 
 ## Scope
 
-- One subscription from the Go service to the daemon's event stream,
-  resuming by `seq`, behind an interface a broker could replace later.
+- One subscription from the Go service to the daemon's event stream
+  (`GET /v1/events`, docs/internal-api.md), resuming by `seq`, behind
+  an interface a broker could replace later.
 - `GET /api/events`: Server-Sent Events for the chats and users the
   page shows, with `Last-Event-ID` resume and a resynchronise event;
   each event checked against the viewer's request scope.
@@ -20,7 +21,6 @@ statistics alike (docs/design/web-live.md).
 
 ## Depends on
 
-- `daemon-event-stream`
 - `go-web-auth`
 
 ## Done when

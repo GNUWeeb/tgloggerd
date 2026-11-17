@@ -116,7 +116,6 @@ The web backend moves from Drogon to Go:
 - [`go-web-openapi`](todo/go-web-openapi.md): Describe the Go API in OpenAPI and generate the React application's TypeScript client.
 - [`go-web-pages`](todo/go-web-pages.md): Serve pages from the Go service: page routes, a data loader per route, the render client and a browser-rendered fallback.
 - [`ssr-render-service`](todo/ssr-render-service.md): Deploy the Node render service that turns a page's route and data into HTML.
-- [`daemon-event-stream`](todo/daemon-event-stream.md): Publish what changes in the archive as a stream of small events on the daemon's internal API.
 - [`web-live-events`](todo/web-live-events.md): Push live updates of messages, names, photos and statistics to browsers with Server-Sent Events.
 - [`go-port-media`](todo/go-port-media.md): Serve /files/<token> from the Go service, including fetching unstored files through the daemon.
 - [`web-roles`](todo/web-roles.md): Give the web several accounts with the roles superadmin, admin and member.
