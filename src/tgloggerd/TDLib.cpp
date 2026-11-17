@@ -1126,6 +1126,9 @@ struct TDLib::Impl {
 	int64_t		user_id_ = 0;
 	std::uint64_t	current_query_id_ = 0;
 
+	/* The daemon's log; nullptr logs nothing (see setLogger()). */
+	log_hd_t	*l_ = nullptr;
+
 	/*
 	 * Query-id counter for fire-and-forget requests issued off the loop
 	 * thread (deleteLocalFile). Seeded high so it never collides with the
@@ -3209,6 +3212,11 @@ TDLib::TDLib(uint32_t api_id, const char *api_hash, const char *data_dir)
 }
 
 TDLib::~TDLib(void) = default;
+
+void TDLib::setLogger(log_hd_t *l)
+{
+	impl_->l_ = l;
+}
 
 void TDLib::setMessageHandler(std::function<void(const TextMessage &)> cb)
 {
