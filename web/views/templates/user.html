@@ -16,7 +16,13 @@
 ## endif
 ## endif
 
-	<p class="detail-actions"><a class="btn" href="/users/{{ user.id }}/chat">💬 Chat history</a> <a class="btn" href="/users/{{ user.id }}/history">🕑 Change history</a></p>
+	<p class="detail-actions"><a class="btn" href="/users/{{ user.id }}/chat">💬 Chat history</a> <a class="btn" href="/users/{{ user.id }}/history">🕑 Change history</a>{% if is_admin and user.is_contact %} <a class="btn" href="/users/{{ user.id }}/lookup-name">🔎 Look up real name</a>{% endif %}</p>
+## if looked_up
+	<p class="badge">Real name looked up; the contact was added back.</p>
+## endif
+## if user.lookup_pending
+	<p class="badge warn">A real-name lookup removed this contact and has not added it back yet (since {{ user.lookup_pending_since }}). The daemon keeps retrying.</p>
+## endif
 
 	<div class="badges">
 ## if user.is_contact

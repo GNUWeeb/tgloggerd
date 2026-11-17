@@ -372,6 +372,19 @@ drogon::Task<std::optional<nlohmann::json>> getUser(drogon::orm::DbClientPtr db,
 		user["profile_photo_file_id"] =
 			r["profile_photo_file_id"].as<int64_t>();
 
+	/*
+	 * A "Look up real name" cycle that removed the contact and has not
+	 * added it back yet: the daemon keeps retrying, the page says so.
+	 */
+	auto lk = co_await db->execSqlCoro(
+		"SELECT created_at, attempts, last_error "
+		"FROM telegram_contact_lookups WHERE user_id = ?", id);
+	user["lookup_pending"] = !lk.empty();
+	if (!lk.empty()) {
+		user["lookup_pending_since"] = lk[0]["created_at"].as<std::string>();
+		user["lookup_pending_error"] = escCol(lk[0], "last_error");
+	}
+
 	nlohmann::json j;
 	j["user"] = std::move(user);
 

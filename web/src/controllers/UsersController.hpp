@@ -24,6 +24,13 @@ public:
 		      "tgweb::auth::AuthFilter");
 	ADD_METHOD_TO(UsersController::history, "/users/{1}/history",
 		      drogon::Get, "tgweb::auth::AuthFilter");
+	/* "Look up real name": a confirmation page, then the action. Admin only. */
+	ADD_METHOD_TO(UsersController::lookupNameForm, "/users/{1}/lookup-name",
+		      drogon::Get, "tgweb::auth::AuthFilter",
+		      "tgweb::auth::AdminFilter");
+	ADD_METHOD_TO(UsersController::lookupName, "/users/{1}/lookup-name",
+		      drogon::Post, "tgweb::auth::AuthFilter",
+		      "tgweb::auth::AdminFilter");
 	METHOD_LIST_END
 
 	drogon::Task<drogon::HttpResponsePtr> list(drogon::HttpRequestPtr req);
@@ -33,6 +40,10 @@ public:
 						   std::string id);
 	drogon::Task<drogon::HttpResponsePtr> history(drogon::HttpRequestPtr req,
 						      std::string id);
+	drogon::Task<drogon::HttpResponsePtr>
+	lookupNameForm(drogon::HttpRequestPtr req, std::string id);
+	drogon::Task<drogon::HttpResponsePtr>
+	lookupName(drogon::HttpRequestPtr req, std::string id);
 };
 
 } /* namespace tgweb::controllers */

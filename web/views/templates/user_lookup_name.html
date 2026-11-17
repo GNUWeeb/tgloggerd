@@ -1,0 +1,37 @@
+<section class="detail user-detail">
+	<p class="crumb"><a href="/users/{{ user.id }}">← {{ user.name }}</a></p>
+	<h1>Look up real name <span class="muted">#{{ user.id }}</span></h1>
+
+## if error != ""
+	<p class="badge warn">{{ error }}</p>
+## endif
+
+## if user.lookup_pending
+	<p class="badge warn">An earlier lookup removed this contact and has not added it back yet (since {{ user.lookup_pending_since }}{% if user.lookup_pending_error != "" %}: {{ user.lookup_pending_error }}{% endif %}). The daemon keeps retrying; starting a lookup also retries it first.</p>
+## endif
+
+## if not user.is_contact
+	<p>The logging account does not have this user as a contact, so Telegram already shows their own name: <b>{{ user.name }}</b>.</p>
+## else if not api_configured
+	<p>The daemon's internal API is not configured for the web (<code>WEB_TGLOGGERD_API</code>), so the lookup cannot run.</p>
+## else
+	<p>The logging account has this user saved as <b>{{ user.contact_name }}</b>. Telegram shows an account only that name while the user is a contact, so to read the user's own name the daemon</p>
+	<ol>
+		<li>records the contact as it is (name, phone number, note, whether the account shares its phone number with them),</li>
+		<li>removes the contact and reads the name Telegram then reports,</li>
+		<li>adds the contact back with the recorded name, phone number and note.</li>
+	</ol>
+	<p>Before you confirm:</p>
+	<ul>
+		<li>The user can briefly see a change: for a moment they are not a mutual contact, and they may stop or start seeing the account's phone number.</li>
+		<li>Settings Telegram does not let the daemon read are not restored, such as a custom photo set for this contact.</li>
+		<li>Telegram limits how often contacts can change, so the daemon runs one lookup at a time with a pause in between and does not retry a refused one.</li>
+		<li>If the daemon stops halfway, it adds the contact back when it starts again.</li>
+	</ul>
+	<form method="post" action="/users/{{ user.id }}/lookup-name">
+		<input type="hidden" name="csrf" value="{{ csrf }}">
+		<button class="btn" type="submit">Remove and re-add the contact to look up the real name</button>
+		<a class="btn" href="/users/{{ user.id }}">Cancel</a>
+	</form>
+## endif
+</section>

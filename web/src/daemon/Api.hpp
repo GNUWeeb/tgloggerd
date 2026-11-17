@@ -36,6 +36,7 @@ struct Reply {
 	int		status = 0;	/* its status; 0 when !sent.            */
 	nlohmann::json	body;		/* parsed JSON body; null if none.      */
 	std::string	error;		/* for logs: why it failed, if it did.  */
+	int		retryAfter = 0;	/* Retry-After seconds; 0 if none.      */
 
 	/* A 2xx answer. */
 	bool ok(void) const { return sent && status >= 200 && status < 300; }
@@ -73,6 +74,13 @@ drogon::Task<Reply> recordAccess(std::vector<uint64_t> ids);
  */
 drogon::Task<Reply> resolveChat(std::string ref);
 drogon::Task<Reply> joinChat(std::string ref);
+
+/*
+ * POST /v1/users/{id}/lookup-name, the "Look up real name" admin action:
+ * the daemon removes the contact, reads the user's own name and adds the
+ * contact back, so it may take a while.
+ */
+drogon::Task<Reply> lookupRealName(int64_t userId);
 
 } /* namespace tgweb::daemon::api */
 

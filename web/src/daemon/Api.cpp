@@ -13,6 +13,7 @@
 #include <sodium.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <utility>
@@ -171,6 +172,9 @@ drogon::Task<Reply> call(drogon::HttpMethod method, std::string path,
 		if (r.body.is_discarded())
 			r.body = nullptr;
 	}
+	const std::string &ra = resp->getHeader("retry-after");
+	if (!ra.empty())
+		r.retryAfter = atoi(ra.c_str());
 	if (!r.ok()) {
 		r.error = "HTTP " + std::to_string(r.status);
 		if (r.body.is_object() && r.body.contains("error") &&
@@ -215,6 +219,20 @@ drogon::Task<Reply> joinChat(std::string ref)
 	body["ref"] = std::move(ref);
 	Reply r = co_await call(drogon::Post, "/v1/chats/join",
 				std::move(body), 70.0);
+	co_return r;
+}
+
+/*
+ * Up to 10 s for the own name and 15 s per Telegram step, a re-add sitting
+ * out a short flood wait up to twice: give it two minutes.
+ */
+drogon::Task<Reply> lookupRealName(int64_t userId)
+{
+	std::string path = "/v1/users/" + std::to_string(userId) +
+			   "/lookup-name";
+	nlohmann::json body = nlohmann::json::object();
+	Reply r = co_await call(drogon::Post, std::move(path), std::move(body),
+				120.0);
 	co_return r;
 }
 
