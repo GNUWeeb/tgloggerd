@@ -638,8 +638,13 @@ paths:
         groups (group_chat).
 
 
-        So far the service loads the data of login (and not_found);
-        every other route answers {"reload": true}. The page's document
+        So far the service loads the data of login, dashboard, user,
+        user_history, user_chat, group, group_admins, group_history,
+        group_chat and message (and not_found); every other route
+        answers {"reload": true}. A signed-out visitor asking for the
+        group_chat of a group that is not exposed is asked to sign in
+        (401 here, the redirect for the document), whether or not the
+        group exists. The page's document
         (its HTML, web-ssr.md section 5) is served at the page's own
         path for each route whose data the service loads, and there a
         signed-out visitor asking for a page that needs a session is
@@ -3095,6 +3100,7 @@ components:
               type: string
             members:
               type: integer
+              description: The member count; not recorded by the logger yet, so 0.
             msg_count:
               type: integer
             admin_count:
@@ -3790,6 +3796,12 @@ components:
           $ref: '#/components/schemas/MessageFull'
     ChatProps:
       type: object
+      description: >-
+        The chat page's first window (getChatMessages, limit 60). The
+        page's query opens it at a message (?at=<message id>, around
+        it) or a day (?date=YYYY-MM-DD in UTC, around the day's first
+        message, which `at` then names); without either, or past the
+        end, the newest messages.
       required: [chat, messages, has_older, has_newer, at]
       properties:
         chat:
@@ -3807,6 +3819,7 @@ components:
                       properties:
                         members:
                           type: integer
+                          description: Not recorded by the logger yet, so 0.
                         msg_count:
                           type: integer
             - type: object

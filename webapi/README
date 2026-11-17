@@ -319,18 +319,21 @@ to a loader, which reads the page's props through the request scope
 (Server.requestScope). A page whose data the service does not load
 yet has no loader: its document is not served here, and /api/page
 answers {"reload": true} for it, so the browser loads it in full from
-the Drogon web. So far only login has a loader; not_found is the
-answer for paths that are no page and for things the scope hides,
-404 either way.
+the Drogon web. So far login, dashboard, user, user_history,
+user_chat, group, group_admins, group_history, group_chat and message
+have loaders (internal/server/pagedata.go, reading through
+internal/logdb); not_found is the answer for paths that are no page
+and for things the scope hides, 404 either way.
 
   - /api/page/<path> takes the page path without its leading slash,
     its slashes plain or encoded as %2F, and the page's query string
     as its own. An empty path is the dashboard.
   - A signed-out visitor gets only the public pages: login, the three
-    email link pages and the public chats of exposed groups (the
-    latter four answer reload for now). Any other path, a page or
-    not, answers 401 on /api/page and redirects a document request
-    to /login?next=<path and query>.
+    email link pages (which answer reload for now) and the public
+    chats of exposed groups. Any other path, a page or not, answers
+    401 on /api/page and redirects a document request to
+    /login?next=<path and query>; so does the chat of a group that is
+    not exposed, whether it exists or not.
   - The email address gate (web-accounts.md section 8) has one hook,
     Server.emailRequired in pages.go; web-email fills it in.
   - The document is one template (internal/render/document.go) for
@@ -373,7 +376,8 @@ with the chat pages' message shape: the same cursors, replies resolved
 within the chat, albums folded into one message (a window cut through
 an album reads the rest of it, so it folds the same way in every
 window), edits and link previews read in one query per window, media
-with stored and fetchable as web/docs/media.md describes.
+with stored and fetchable as web/docs/media.md describes. The chat
+page's loader reads its first window through the same code.
 
 Signed-out visitors may read the chats of exposed groups
 (telegram_public_groups), as the public chat page does, and get 401

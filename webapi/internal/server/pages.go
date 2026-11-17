@@ -52,6 +52,7 @@ type pageRoute struct {
 // pageRequest is what a loader gets: the request, its session (nil for
 // a signed-out visitor), its scope and the path's parameters.
 type pageRequest struct {
+	s      *Server
 	r      *http.Request
 	sess   *auth.Session
 	scope  scope.Scope
@@ -66,6 +67,12 @@ type pageLoader func(ctx context.Context, pr *pageRequest) (any, error)
 
 var errPageNotFound = errors.New("page not found")
 
+// errPageSignIn is what a loader of a public page returns when what a
+// signed-out visitor asked for is not public: it is asked to sign in,
+// as for any page that needs a session, whether or not the thing
+// exists.
+var errPageSignIn = errors.New("page needs a session")
+
 // defaultPages is the page table. The ids are the React application's
 // route registry's (web/app/src/routes/index.tsx) and the paths those of
 // the getPage route table in webapi/openapi.yaml. A port adds the
@@ -73,22 +80,22 @@ var errPageNotFound = errors.New("page not found")
 func defaultPages() []pageRoute {
 	return []pageRoute{
 		{id: "login", pattern: "/login", public: true, load: loadLogin},
-		{id: "dashboard", pattern: "/"},
+		{id: "dashboard", pattern: "/", load: loadDashboard},
 		{id: "users", pattern: "/users"},
-		{id: "user", pattern: "/users/{id}"},
-		{id: "user_history", pattern: "/users/{id}/history"},
-		{id: "user_chat", pattern: "/users/{id}/chat"},
+		{id: "user", pattern: "/users/{id}", load: loadUser},
+		{id: "user_history", pattern: "/users/{id}/history", load: loadUserHistory},
+		{id: "user_chat", pattern: "/users/{id}/chat", load: loadUserChat},
 		{id: "groups", pattern: "/groups"},
-		{id: "group", pattern: "/groups/{id}"},
-		{id: "group_admins", pattern: "/groups/{id}/admins"},
-		{id: "group_history", pattern: "/groups/{id}/history"},
+		{id: "group", pattern: "/groups/{id}", load: loadGroup},
+		{id: "group_admins", pattern: "/groups/{id}/admins", load: loadGroup},
+		{id: "group_history", pattern: "/groups/{id}/history", load: loadGroup},
 		// The chats of groups exposed through MCP are public; the
 		// loader decides which group is exposed.
-		{id: "group_chat", pattern: "/groups/{id}/chat", public: true},
+		{id: "group_chat", pattern: "/groups/{id}/chat", public: true, load: loadGroupChat},
 		{id: "files", pattern: "/files"},
 		{id: "group_messages", pattern: "/group_messages"},
 		{id: "private_messages", pattern: "/private_messages"},
-		{id: "message", pattern: "/messages/{scope}/{id}"},
+		{id: "message", pattern: "/messages/{scope}/{id}", load: loadMessage},
 		{id: "settings", pattern: "/settings"},
 		{id: "settings_preferences", pattern: "/settings/preferences"},
 		{id: "settings_sessions", pattern: "/settings/sessions"},
@@ -245,10 +252,13 @@ func (s *Server) buildPage(r *http.Request, sess *auth.Session, path string) (re
 		return s.notFoundPage(page), nil, pageServed, nil
 	}
 	props, err := rt.load(r.Context(), &pageRequest{
-		r: r, sess: sess, scope: sc, params: params, query: r.URL.Query(),
+		s: s, r: r, sess: sess, scope: sc, params: params, query: r.URL.Query(),
 	})
 	if errors.Is(err, errPageNotFound) {
 		return s.notFoundPage(page), rt, pageServed, nil
+	}
+	if errors.Is(err, errPageSignIn) && sess == nil {
+		return render.Page{URL: pageURL}, rt, pageSignIn, nil
 	}
 	if err != nil {
 		return render.Page{}, rt, pageServed, err

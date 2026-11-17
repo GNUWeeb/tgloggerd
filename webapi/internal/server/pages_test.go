@@ -161,11 +161,11 @@ func TestPagePathDecoding(t *testing.T) {
 	}{
 		{"/api/page/login", 200, "login"},
 		{"/api/page/login%2F", 200, "login"},
-		{"/api/page/", 200, ""},                // the dashboard
-		{"/api/page/users%2F5", 200, ""},       // %2F decoded
-		{"/api/page/users/5/history", 200, ""}, // plain slashes too
-		{"/api/page/groups%2F-1001%2Fchat", 200, ""},
-		{"/api/page/messages%2Fprivate%2F7", 200, ""},
+		{"/api/page/users", 200, ""},
+		{"/api/page/settings%2Fpreferences", 200, ""}, // %2F decoded
+		{"/api/page/settings/sessions", 200, ""},      // plain slashes too
+		{"/api/page/platform-fwd%2Ftelegram-discord", 200, ""},
+		{"/api/page/mcp-admin%2Ftokens%2F", 200, ""},
 		{"/api/page/messages%2Fother%2F7", 404, "not_found"},
 		{"/api/page/users%2Fabc", 404, "not_found"},
 		{"/api/page/users%2F..%2Flogin", 404, "not_found"},
@@ -249,7 +249,7 @@ func TestPageSignedOut(t *testing.T) {
 		"/api/page/login":                    200,
 		"/api/page/password%2Fforgot":        200, // reload for now
 		"/api/page/account%2Femail%2Fverify": 200,
-		"/api/page/groups%2F-1001%2Fchat":    200,
+		"/api/page/password%2Fset":           200,
 	} {
 		g := e.get(path, "")
 		if g.status != status {
@@ -455,7 +455,7 @@ func TestPageDocumentsRegistered(t *testing.T) {
 	t.Parallel()
 	e := newPagesEnv(t, pagesOpts{})
 	ck := e.session(1, "admin", "admin")
-	for _, p := range []string{"/", "/users", "/groups/-1001/chat", "/password/forgot"} {
+	for _, p := range []string{"/users", "/groups", "/settings", "/password/forgot"} {
 		if g := e.get(p, ck); g.status != 404 || strings.Contains(g.body, "__tgd") {
 			t.Errorf("%s served here: %d", p, g.status)
 		}

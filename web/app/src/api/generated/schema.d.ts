@@ -157,7 +157,7 @@ export interface paths {
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public chats of exposed groups (group_chat).
          *
-         *     So far the service loads the data of login (and not_found); every other route answers {"reload": true}. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
+         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message (and not_found); every other route answers {"reload": true}. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
         put?: never;
@@ -1245,6 +1245,7 @@ export interface components {
         };
         GroupFull: components["schemas"]["GroupSummary"] & {
             description: string;
+            /** @description The member count; not recorded by the logger yet, so 0. */
             members: number;
             msg_count: number;
             admin_count: number;
@@ -1572,11 +1573,13 @@ export interface components {
         MessageProps: {
             message: components["schemas"]["MessageFull"];
         };
+        /** @description The chat page's first window (getChatMessages, limit 60). The page's query opens it at a message (?at=<message id>, around it) or a day (?date=YYYY-MM-DD in UTC, around the day's first message, which `at` then names); without either, or past the end, the newest messages. */
         ChatProps: {
             chat: {
                 /** @constant */
                 kind: "group";
                 group: components["schemas"]["GroupSummary"] & {
+                    /** @description Not recorded by the logger yet, so 0. */
                     members: number;
                     msg_count: number;
                 };
