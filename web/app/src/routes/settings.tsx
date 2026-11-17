@@ -7,7 +7,7 @@ import { Link, useNav } from '../nav.tsx';
 import { Avatar, Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
 import { Field, Switch } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { ApiError, api, ok } from '../api/client.ts';
+import { ApiError, api, ok, setSessionCsrf } from '../api/client.ts';
 import { ago, SITE_DEFAULTS } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
@@ -84,7 +84,9 @@ function AccountPage({ page }: { page: PageData<AccountProps> }) {
 		const f = new FormData(form);
 		if (f.get('new_password') !== f.get('confirm_password')) { setMsg({ ok: false, text: 'The new passwords do not match.' }); return; }
 		try {
-			await ok(api.POST('/api/account/password', { body: { current_password: String(f.get('current_password') ?? ''), new_password: String(f.get('new_password') ?? '') } }));
+			const r = await ok(api.POST('/api/account/password', { body: { current_password: String(f.get('current_password') ?? ''), new_password: String(f.get('new_password') ?? '') } }));
+			// The session moved to a new cookie; the old token no longer works.
+			setSessionCsrf(r.csrf);
 			form.reset();
 			setMsg({ ok: true, text: 'Password changed. Every other session has been signed out.' });
 		} catch (x) { setMsg({ ok: false, text: errText(x) }); }
