@@ -1235,6 +1235,14 @@ struct TDLib::Impl {
 						file_lookup_;
 	std::function<void(const MessageFileLink &)>	message_file_link_handler_;
 	std::function<void(const FileMeta &)>		file_meta_handler_;
+	std::function<std::optional<models::KnownFile>(const std::string &,
+						       const std::string &)>
+						photo_lookup_;
+	std::function<void(const PhotoLink &)>		photo_link_handler_;
+	/* Photos linked from the index vs downloaded; loop thread only, for
+	 * the debug log of how many downloads the index saves. */
+	uint64_t	photo_links_ = 0;
+	uint64_t	photo_downloads_ = 0;
 	/* setMediaPolicy(); loop thread only after loop() starts. */
 	bool		skip_nonmember_media_ = true;
 	uint64_t	max_store_file_size_ = 0;
@@ -1445,6 +1453,8 @@ struct TDLib::Impl {
 	void emit_file_meta(const PendingMsgFile &ref, const td_api::file &f,
 			    bool is_group_photo);
 	void maybe_download_profile_photo(const td_api::user &u);
+	bool link_known_photo(int64_t owner_id, bool is_group,
+			      const td_api::file &f, bool meta_ok);
 	void request_user_full_info(int64_t user_id);
 	void enqueue_refetch_user(int64_t user_id);
 	void enqueue_refetch_group(int64_t group_id);
@@ -2968,6 +2978,36 @@ void TDLib::Impl::refetch_group_info(int64_t chat_id)
 		});
 }
 
+/*
+ * Point @owner_id at the files row already recorded for photo @f, if there is
+ * one, and return true; the caller then does not download it. A row recorded
+ * without its bytes counts only with @meta_ok (the photo is not to be
+ * downloaded anyway); otherwise the download fills it in (upsertFile matches
+ * it by unique id), as for message media.
+ */
+bool TDLib::Impl::link_known_photo(int64_t owner_id, bool is_group,
+				   const td_api::file &f, bool meta_ok)
+{
+	if (!photo_lookup_ || !photo_link_handler_ || !f.remote_)
+		return false;
+	if (f.remote_->id_.empty() && f.remote_->unique_id_.empty())
+		return false;
+
+	auto known = photo_lookup_(f.remote_->id_, f.remote_->unique_id_);
+	if (!known.has_value() || (known->meta_only && !meta_ok))
+		return false;
+
+	photo_link_handler_(PhotoLink{ owner_id, is_group, known->id });
+	++photo_links_;
+	pr_debug(l_, "photo index: linked %s %lld to file %llu without a"
+		 " download (%llu linked, %llu downloaded so far)",
+		 is_group ? "group" : "user", (long long)owner_id,
+		 (unsigned long long)known->id,
+		 (unsigned long long)photo_links_,
+		 (unsigned long long)photo_downloads_);
+	return true;
+}
+
 void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
 {
 	if (!photo_handler_ || !u.profile_photo_ || !u.profile_photo_->big_)
@@ -2975,13 +3015,20 @@ void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
 
 	const td_api::file &big = *u.profile_photo_->big_;
 
-	/* Already downloaded: emit immediately. */
+	/* Already downloaded: emit immediately. Storing it costs no download,
+	 * and the store prunes TDLib's copy. */
 	if (big.local_ && big.local_->is_downloading_completed_) {
 		emit_photo(u.id_, big);
 		return;
 	}
 
+	/* Already stored: link it. Profile photos are always downloaded, so
+	 * a metadata-only row is filled in rather than linked. */
+	if (link_known_photo(u.id_, false, big, false))
+		return;
+
 	/* Otherwise request the download and remember which user it is for. */
+	++photo_downloads_;
 	pending_photo_[big.id_] = u.id_;
 	note_ingest_download(big.id_);
 	send_query(td_api::make_object<td_api::downloadFile>(
@@ -3554,16 +3601,23 @@ void TDLib::Impl::maybe_download_group_photo(int64_t group_id,
 		return;
 
 	const td_api::file &big = *photo->big_;
-	if (record_without_download(group_id, big)) {
+	const bool no_download = record_without_download(group_id, big);
+	if (!no_download && big.local_ &&
+	    big.local_->is_downloading_completed_) {
+		emit_group_photo(group_id, big);
+		return;
+	}
+	/* Already recorded: link it, unless only its metadata is known and
+	 * this chat stores its photo (then the download fills the row in). */
+	if (link_known_photo(group_id, true, big, no_download))
+		return;
+	if (no_download) {
 		PendingMsgFile ref{ group_id, 0, true, "photo", std::string() };
 		emit_file_meta(ref, big, true);
 		return;
 	}
-	if (big.local_ && big.local_->is_downloading_completed_) {
-		emit_group_photo(group_id, big);
-		return;
-	}
 
+	++photo_downloads_;
 	pending_group_photo_[big.id_] = group_id;
 	note_ingest_download(big.id_);
 	send_query(td_api::make_object<td_api::downloadFile>(
@@ -3765,6 +3819,18 @@ void TDLib::setMessageFileLinkHandler(
 	std::function<void(const MessageFileLink &)> cb)
 {
 	impl_->message_file_link_handler_ = std::move(cb);
+}
+
+void TDLib::setPhotoLookup(
+	std::function<std::optional<models::KnownFile>(
+		const std::string &, const std::string &)> cb)
+{
+	impl_->photo_lookup_ = std::move(cb);
+}
+
+void TDLib::setPhotoLinkHandler(std::function<void(const PhotoLink &)> cb)
+{
+	impl_->photo_link_handler_ = std::move(cb);
 }
 
 void TDLib::setFileMetaHandler(std::function<void(const FileMeta &)> cb)

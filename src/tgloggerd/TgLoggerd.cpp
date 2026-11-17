@@ -229,6 +229,9 @@ int TgLoggerd::start(void)
 	try {
 		known_files_ = db_->loadFileIndex();
 		pr_debug(l_, "file index: %zu known files", known_files_.size());
+		known_photo_uids_ = db_->loadPhotoUniqueIndex();
+		pr_debug(l_, "file index: %zu photos by unique id",
+			 known_photo_uids_.size());
 	} catch (const std::exception &e) {
 		pr_error(l_, "Failed to load file index: %s", e.what());
 	}
@@ -485,6 +488,34 @@ int TgLoggerd::start(void)
 		if (it == known_files_.end())
 			return std::nullopt;
 		return it->second;
+	});
+	/* Loop-thread predicate for photos: by remote id, else unique id. */
+	tdlib_->setPhotoLookup([this](const std::string &tg_file_id,
+				      const std::string &tg_unique_id)
+			       -> std::optional<models::KnownFile> {
+		std::lock_guard<std::mutex> lk(known_files_mtx_);
+		auto it = known_files_.find(tg_file_id);
+		if (it != known_files_.end() && !it->second.meta_only)
+			return it->second;
+		auto uit = known_photo_uids_.find(tg_unique_id);
+		if (uit != known_photo_uids_.end())
+			return uit->second;
+		if (it != known_files_.end())
+			return it->second;
+		return std::nullopt;
+	});
+	/* Point a user or group at an already-stored photo. */
+	tdlib_->setPhotoLinkHandler([this](const PhotoLink &pl) {
+		serial_->post([this, pl] {
+			try {
+				onPhotoLink(pl);
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to link %s photo for"
+					 " %lld: %s",
+					 pl.is_group ? "group" : "profile",
+					 (long long)pl.owner_id, e.what());
+			}
+		});
 	});
 	/* Link a message to an already-recorded file (no re-download). */
 	tdlib_->setMessageFileLinkHandler([this](const MessageFileLink &lk) {
@@ -829,6 +860,24 @@ void TgLoggerd::onMessageFileLink(const MessageFileLink &lk)
 }
 
 /*
+ * Point a user or group at a photo already recorded, looked up on the loop
+ * thread (see setPhotoLookup). Runs on serial_, after the user or group row
+ * was written, through the same setters (and so the same photo history) as
+ * onProfilePhoto and onGroupPhoto, without downloading or storing it again.
+ */
+void TgLoggerd::onPhotoLink(const PhotoLink &pl)
+{
+	if (pl.is_group)
+		db_->setGroupPhoto(pl.owner_id, pl.file_id);
+	else
+		db_->setUserProfilePhoto(pl.owner_id, pl.file_id);
+	pr_debug(l_, "Linked %s photo (already recorded) | %s=%lld"
+		 " file_id=%llu", pl.is_group ? "group" : "profile",
+		 pl.is_group ? "group_id" : "user_id", (long long)pl.owner_id,
+		 (unsigned long long)pl.file_id);
+}
+
+/*
  * Record a file without its bytes (see FileMeta) and link it. Runs on
  * serial_. The index learns the row, so later messages with the same file
  * link it without a download or a DB lookup.
@@ -856,6 +905,8 @@ void TgLoggerd::onFileMeta(const FileMeta &m)
 	{
 		std::lock_guard<std::mutex> lk(known_files_mtx_);
 		known_files_[m.tg_file_id] = k;
+		if (m.content_type == "photo" && !m.tg_unique_id.empty())
+			known_photo_uids_[m.tg_unique_id] = k;
 	}
 
 	pr_info(l_, "Recorded file without its bytes | tg_file_id=%s"
@@ -958,6 +1009,10 @@ TgLoggerd::storeDownloadedFile(const std::string &local_path,
 	{
 		std::lock_guard<std::mutex> lk(known_files_mtx_);
 		known_files_[tg_file_id] = models::KnownFile{ id, false };
+		if (std::strcmp(file_type, "photo") == 0 &&
+		    !tg_unique_id.empty())
+			known_photo_uids_[tg_unique_id] =
+				models::KnownFile{ id, false };
 	}
 	return id;
 }

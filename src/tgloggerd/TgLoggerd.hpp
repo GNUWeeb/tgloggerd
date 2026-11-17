@@ -45,6 +45,7 @@ private:
 	void onGroupPhoto(const GroupPhoto &p);
 	void onMessageFile(const MessageFile &m);
 	void onMessageFileLink(const MessageFileLink &lk);
+	void onPhotoLink(const PhotoLink &pl);
 	void onFileMeta(const FileMeta &m);
 
 	uint32_t api_id_;
@@ -69,6 +70,12 @@ private:
 	 * guarded because the workers write it while the loop thread reads it.
 	 */
 	std::unordered_map<std::string, models::KnownFile> known_files_;
+	/*
+	 * tg_unique_id -> row, photos only: a user's or group's photo comes
+	 * back under a new remote id more often than not. Also guarded by
+	 * known_files_mtx_.
+	 */
+	std::unordered_map<std::string, models::KnownFile> known_photo_uids_;
 	std::mutex known_files_mtx_;
 	log_hd_t *l_ = nullptr;
 	std::unique_ptr<TDLib> tdlib_;

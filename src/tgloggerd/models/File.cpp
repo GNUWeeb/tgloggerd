@@ -272,4 +272,29 @@ std::unordered_map<std::string, models::KnownFile> DB::loadFileIndex(void)
 	return out;
 }
 
+std::unordered_map<std::string, models::KnownFile>
+DB::loadPhotoUniqueIndex(void)
+{
+	/* Follow alias_of (one hop, see migration 000032): the leftover
+	 * metadata-only row keeps the unique id, the target has the bytes. */
+	auto rows = db_.query(
+		"SELECT f.tg_unique_id, COALESCE(a.id, f.id),"
+		" IF(a.id IS NULL, f.sha256, a.sha256) IS NULL"
+		" FROM telegram_files f"
+		" LEFT JOIN telegram_files a ON a.id = f.alias_of"
+		" WHERE f.file_type = 'photo' AND f.tg_unique_id IS NOT NULL");
+
+	std::unordered_map<std::string, models::KnownFile> out;
+	out.reserve(rows.size());
+	for (const auto &r : rows) {
+		if (!r[0].has_value() || !r[1].has_value())
+			continue;
+		models::KnownFile k;
+		k.id = (uint64_t)std::stoull(*r[1]);
+		k.meta_only = r[2].has_value() && *r[2] == "1";
+		out.emplace(*r[0], k);
+	}
+	return out;
+}
+
 } /* namespace tgloggerd */
