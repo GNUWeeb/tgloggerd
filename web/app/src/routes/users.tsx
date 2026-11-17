@@ -2,6 +2,7 @@
 import Shell from '../ui/Shell.tsx';
 import { Avatar, PageHead } from '../ui/primitives.tsx';
 import { DataTable, FilterBar, useListNav, type Col } from '../ui/list.tsx';
+import { useFreshRows } from '../live/useEntities.tsx';
 import { Bar, Flags, UserCell, userFlags } from '../ui/bits.tsx';
 import { ago, compact, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
@@ -31,7 +32,8 @@ const QUICK: [string, Cond[]][] = [
 ];
 
 function Users({ page }: { page: PageData<UsersProps> }) {
-	const L = useListNav(page.props);
+	const rows = useFreshRows('user', page.props.rows);
+	const L = useListNav({ ...page.props, rows });
 	const v = page.viewer;
 	// Members see people only through their groups: no global counts.
 	const full = v.account?.role !== 'member';

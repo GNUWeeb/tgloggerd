@@ -250,6 +250,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		if (status === 204) { res.writeHead(204); res.end(); } else send(res, status, out);
 		return;
 	}
+	if (url.pathname === '/api/entities' && req.method === 'GET') {
+		const [status, out] = fx.entities(who, url.searchParams);
+		send(res, status, out);
+		return;
+	}
 	if (url.pathname === '/api/chats/search' && req.method === 'GET') {
 		const [status, out] = fx.searchChats(who, url.searchParams);
 		send(res, status, out);

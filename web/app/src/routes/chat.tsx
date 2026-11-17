@@ -8,6 +8,7 @@ import { Avatar } from '../ui/primitives.tsx';
 import { duration } from '../ui/media.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
 import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
+import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
 import { bytes, fmt } from '../format.ts';
 import { TYPE_LABEL } from './groups.tsx';
 import type { PageData, Viewer } from '../page.ts';
@@ -47,7 +48,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 	const sticker = ct === 'sticker';
 	const mediaOnly = (ct === 'photo' || ct === 'video') && !m.text && !m.reply_to && !m.forward;
 	const [edits, setEdits] = useState(false);
-	const s = m.sender;
+	const s = useFreshUser(m.sender);
 	return (
 		<div id={`m${m.message_id}`} className={`c-row ${out ? 'out' : 'in'} ${last ? 'last' : ''} ${flash ? 'flash' : ''}`}>
 			{isGroup && !out && <div className="c-avslot">{last && s && <Link to={`/users/${s.id}`} aria-label={s.name}><Avatar id={s.id} name={s.name} photo={s.photo} size={34} /></Link>}</div>}
@@ -127,6 +128,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const publicView = !v.signed_in;
 	const isGroup = p.chat.kind === 'group';
 	const chatId = p.chat.kind === 'group' ? p.chat.group.id : p.chat.user.id;
+	const group = useFreshGroup(p.chat.kind === 'group' ? p.chat.group : null);
 	const scope = isGroup ? 'group' : 'private';
 	const [msgs, setMsgs] = useState(p.messages);
 	const [older, setOlder] = useState(p.has_older);
@@ -240,11 +242,11 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		else scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' });
 	};
 
-	const title = p.chat.kind === 'group' ? p.chat.group.title : p.chat.user.name;
-	const photo = p.chat.kind === 'group' ? p.chat.group.photo : p.chat.user.photo;
+	const title = group ? group.title : p.chat.kind === 'user' ? p.chat.user.name : '';
+	const photo = group ? group.photo : p.chat.kind === 'user' ? p.chat.user.photo : null;
 	const back = isGroup ? `/groups/${chatId}` : `/users/${chatId}`;
 	const sub = p.chat.kind === 'group'
-		? `${TYPE_LABEL[p.chat.group.type]} . ${fmt(p.chat.group.members)} members . ${fmt(p.chat.group.msg_count)} messages`
+		? `${TYPE_LABEL[p.chat.group.type]} . ${fmt(p.chat.group.members)} members . ${fmt(group?.msg_count ?? p.chat.group.msg_count)} messages`
 		: `private chat with the logging account . ${fmt(p.chat.count)} messages`;
 	const body = (
 		<div className={`c-chat ${publicView ? 'public' : ''}`}>
