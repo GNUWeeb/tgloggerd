@@ -45,6 +45,57 @@ request: the role is read from the account, not from the cookie, and
 disabling an account or changing its role also bumps its
 session_epoch, which ends its sessions on both services.
 
+## The accounts API
+
+Served by the Go service and described in webapi/openapi.yaml (tag
+accounts); every write carries the session's CSRF token.
+
+    GET   /api/accounts[?role=]                 the accounts the viewer manages
+    GET   /api/accounts/{id}                    one of them
+    POST  /api/accounts                         create; 201 {id, temporary_password}
+    PATCH /api/accounts/{id}                    name, email, role
+    POST  /api/accounts/{id}/disable            and /enable
+    POST  /api/accounts/{id}/password-reset     200 {temporary_password}
+    POST  /api/accounts/{id}/sign-out-everywhere
+
+- Who manages whom is the request scope's: a superadmin every
+  account and any role, an admin members only. An account the viewer
+  does not manage answers 404, as a missing one does; to a member the
+  whole administration is 404. A role the viewer may not give, or a
+  federation it does not administer, answers 403 `forbidden`.
+- An admin must file a new member in a federation it administers:
+  without `grants`, 400 `grants_required`. Until federations exist the
+  only one is Default, id 0, so the grant is
+  `{"fed": 0, "group_ids": []}`; groups cannot be granted yet (400
+  `not_supported`), and a superadmin may leave grants out.
+- The last active superadmin cannot be disabled or demoted (409
+  `last_superadmin`). The check locks the active superadmins' rows,
+  so two superadmins disabling each other at once leave one.
+- Accounts are disabled, never deleted. Disabling, a role change, a
+  password reset and sign-out-everywhere bump the account's
+  session_epoch, ending its sessions on both services.
+- Every change is written to `web_audit` with the acting account
+  (`web_user_id`) and the account changed (`target_user_id`):
+  `account_create`, `account_update` (naming the fields, and the role
+  change as `role old->new`), `account_disable`, `account_enable`,
+  `account_password_reset`, `account_signout_everywhere`. The
+  account's row in the API carries its newest 20.
+- The address given at creation is recorded only; it is verified,
+  and used, once `web-email` exists.
+
+## Temporary passwords
+
+Until set-password links exist (`web-email`), a new account gets its
+first password like this
+([../../docs/design/decisions/2026-11-18-temporary-passwords.md](../../docs/design/decisions/2026-11-18-temporary-passwords.md)):
+the creating superadmin or admin gets a random 20-character temporary
+password in the create answer, shown once, and hands it to the
+account's owner. Only its Argon2id hash is stored; it is never logged
+or audited. The account is flagged `must_change_password` and must
+choose its own password at its first sign-in. `password-reset` does
+the same for an existing account. When links arrive, creation and
+reset send one instead and this path goes.
+
 ## Changing a password, and the forced change
 
 `POST /api/account/password` (webapi/openapi.yaml) changes the

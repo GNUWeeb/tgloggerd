@@ -118,6 +118,13 @@ except GET /api/session, POST /api/logout and POST
 /api/account/password (the gate of the request scope; see The request
 scope).
 
+The accounts administration (GET and POST /api/accounts, GET and PATCH
+/api/accounts/{id}, and its disable, enable, password-reset and
+sign-out-everywhere actions) is described in openapi.yaml and
+web/docs/accounts.md: who manages whom comes from the request scope,
+new accounts and resets get a temporary password shown once, and the
+last active superadmin cannot be disabled or demoted.
+
 The login throttle is in the process's memory, as in Drogon, so each
 service counts failures on its own. The address logged and throttled
 on is the connection's peer, as in Drogon.

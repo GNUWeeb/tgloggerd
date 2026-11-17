@@ -108,6 +108,14 @@ func (s *Server) routes() []route {
 		{"GET /api/session", s.RequireSession(s.session, allGates...)},
 		{"GET /files/{token}", s.serveFile},
 		{"POST /api/account/password", s.RequireSession(s.changePassword, scope.PasswordChange)},
+		{"GET /api/accounts", s.RequireSession(s.listAccounts)},
+		{"POST /api/accounts", s.RequireSession(s.createAccount)},
+		{"GET /api/accounts/{id}", s.RequireSession(s.getAccount)},
+		{"PATCH /api/accounts/{id}", s.RequireSession(s.updateAccount)},
+		{"POST /api/accounts/{id}/disable", s.RequireSession(s.disableAccount)},
+		{"POST /api/accounts/{id}/enable", s.RequireSession(s.enableAccount)},
+		{"POST /api/accounts/{id}/password-reset", s.RequireSession(s.resetAccountPassword)},
+		{"POST /api/accounts/{id}/sign-out-everywhere", s.RequireSession(s.signOutAccountEverywhere)},
 	}
 }
 

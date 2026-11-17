@@ -413,11 +413,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * The accounts the viewer manages
+         * @description A superadmin gets every account, an admin the members of its federations (until federations exist, every member), by username (web-accounts.md sections 2 and 3). To a member the accounts administration does not exist (404).
+         */
+        get: operations["listAccounts"];
         put?: never;
         /**
          * Create an account
-         * @description Emails the new account a one-time set-password link. A superadmin creates any role. An admin creates members only, and must file them in at least one federation it administers (grants), since it manages only the members of its federations (web-accounts.md sections 2 and 3).
+         * @description A superadmin creates any role. An admin creates members only, and must file them in at least one federation it administers (grants), since it manages only the members of its federations (web-accounts.md sections 2 and 3).
+         *
+         *     Until set-password links exist (web-email), the new account gets a random temporary password, answered once here and never stored or logged in plain text, which it must replace at its first sign-in (decisions/2026-11-18-temporary-passwords.md; see Gates). When links arrive, creation sends one instead and temporary_password goes.
+         *
+         *     Until federations exist (web-federations), Default (fed 0) is the only federation, every superadmin and admin administers it, and groups cannot be granted (web-member-access): a grant is {"fed": 0, "group_ids": []}. Audited as account_create, without the password.
          */
         post: operations["createAccount"];
         delete?: never;
@@ -433,7 +441,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** One account the viewer manages */
+        get: operations["getAccount"];
         put?: never;
         post?: never;
         delete?: never;
@@ -441,7 +450,7 @@ export interface paths {
         head?: never;
         /**
          * Change an account
-         * @description Changes the fields given. A changed email address is verified by a link before use. Every change is audited.
+         * @description Changes the fields given: name, email and role. A role change ends the account's sessions on both services. admin_of and restrict are a superadmin's to send; until federations, admin restrictions and member grants and abilities exist, they are accepted only as what they are today (admin_of [] or [0], restrictions all off, grants to fed 0 with no groups, no abilities) and anything else answers 400 not_supported, so the accounts page can send its whole form. A changed address is recorded; it is verified by a link once web-email exists. Audited as account_update, naming the fields changed.
          */
         patch: operations["updateAccount"];
         trace?: never;
@@ -457,7 +466,7 @@ export interface paths {
         put?: never;
         /**
          * Disable an account
-         * @description Accounts are disabled, never deleted. Its sessions end; its forwarding keeps running, flagged "owner disabled".
+         * @description Accounts are disabled, never deleted. Its sessions end on both services; it can no longer sign in. Its forwarding keeps running, flagged "owner disabled" (web-ownership). Audited as account_disable; disabling a disabled account changes nothing.
          */
         post: operations["disableAccount"];
         delete?: never;
@@ -475,7 +484,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Enable a disabled account */
+        /**
+         * Enable a disabled account
+         * @description Audited as account_enable.
+         */
         post: operations["enableAccount"];
         delete?: never;
         options?: never;
@@ -493,8 +505,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Email the account a password reset link
-         * @description The administrator never sees the password or the link.
+         * Reset an account to a temporary password
+         * @description Until reset links exist (web-email), gives the account a new random temporary password, answered once here and never stored or logged in plain text; the account must replace it at its next sign-in (decisions/2026-11-18-temporary-passwords.md). Every session of the account ends on both services. Audited as account_password_reset, without the password. When links arrive, this sends one by email instead.
          */
         post: operations["resetAccountPassword"];
         delete?: never;
@@ -512,7 +524,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Email a new set-password link to an invited account */
+        /**
+         * Email a new set-password link to an invited account
+         * @description Comes with set-password links (web-email); until then an invited account gets a new temporary password from password-reset.
+         */
         post: operations["resendInvite"];
         delete?: never;
         options?: never;
@@ -529,7 +544,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** End every session of an account */
+        /**
+         * End every session of an account
+         * @description On both services, by moving the account's session_epoch on; the viewer's own sessions too when it is the viewer's account. Audited as account_signout_everywhere.
+         */
         post: operations["signOutAccountEverywhere"];
         delete?: never;
         options?: never;
@@ -1557,8 +1575,9 @@ export interface components {
             username: string;
             name: string;
             email: string | null;
+            /** @description Always false until addresses are verified (web-email). */
             email_verified: boolean;
-            /** @description Has not set a password from its invitation yet. */
+            /** @description Has not chosen its own password yet (it has a temporary one, or none). */
             invited: boolean;
             role: components["schemas"]["Role"];
             active: boolean;
@@ -1589,8 +1608,14 @@ export interface components {
             /** Format: email */
             email: string;
             role: components["schemas"]["Role"];
-            /** @description A member's federations and groups. Required, with at least one federation the viewer administers, when an admin creates the member. */
+            /** @description A member's federations and groups. Required, with at least one federation the viewer administers, when an admin creates the member (else 400 grants_required). Until web-federations, only {"fed": 0, "group_ids": []}. */
             grants?: components["schemas"]["GrantWrite"][];
+        };
+        AccountCreated: {
+            /** Format: int64 */
+            id: number;
+            /** @description Shown once; give it to the account's owner, who must replace it at the first sign-in. Goes when set-password links arrive (web-email). */
+            temporary_password: string;
         };
         /** @description The fields to change; the others stay. */
         AccountPatch: {
@@ -1830,7 +1855,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description The CSRF token is missing or wrong (error csrf). */
+        /** @description The CSRF token is missing or wrong (error csrf), or a gate is up (see Gates in the description). */
         Csrf: {
             headers: {
                 [name: string]: unknown;
@@ -1841,6 +1866,15 @@ export interface components {
         };
         /** @description No such thing, or one the viewer may not see (error not_found). */
         NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description A gate is up (see Gates in the description): error password_change_required, later email_required. */
+        Gate: {
             headers: {
                 [name: string]: unknown;
             };
@@ -2729,6 +2763,37 @@ export interface operations {
             403: components["responses"]["Csrf"];
         };
     };
+    listAccounts: {
+        parameters: {
+            query?: {
+                /** @description Only accounts of this role. */
+                role?: components["schemas"]["Role"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The accounts. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accounts: components["schemas"]["AccountRow"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Gate"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
     createAccount: {
         parameters: {
             query?: never;
@@ -2745,15 +2810,24 @@ export interface operations {
             /** @description Created. */
             201: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Created"];
+                    "application/json": components["schemas"]["AccountCreated"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description A malformed body or role (error bad_request), a username that is not 1 to 64 letters, digits, dots, dashes or underscores starting with a letter or digit (bad_username), a name over 128 characters or with control characters (bad_name), not an address (bad_email), an admin's member without grants (grants_required), or groups in a grant (not_supported). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
-            /** @description The CSRF token is wrong (error csrf), or the role or a federation is not the viewer's to give (error forbidden). */
+            /** @description The CSRF token is wrong (error csrf), the role or a federation is not the viewer's to give (error forbidden), or a gate is up (see Gates). */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2763,7 +2837,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
-            /** @description The username is taken (error taken). */
+            /** @description The username is taken (error taken), or the address is another account's (error email_taken). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2772,6 +2846,34 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account as the accounts page shows it. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountRow"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Gate"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     updateAccount: {
@@ -2798,9 +2900,17 @@ export interface operations {
                     "application/json": components["schemas"]["AccountRow"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description A malformed body or role (error bad_request), bad_name, bad_email, or a field that cannot be set yet (not_supported). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
-            /** @description The CSRF token is wrong (error csrf), or the change is not the viewer's to make (error forbidden). */
+            /** @description The CSRF token is wrong (error csrf), the change is not the viewer's to make (error forbidden), or a gate is up. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -2810,7 +2920,16 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
-            409: components["responses"]["LastSuperadmin"];
+            /** @description The change would demote the last active superadmin (error last_superadmin), or the address is another account's (error email_taken). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     disableAccount: {
@@ -2835,6 +2954,7 @@ export interface operations {
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["LastSuperadmin"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     enableAccount: {
@@ -2858,6 +2978,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     resetAccountPassword: {
@@ -2871,25 +2992,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The link is on its way. */
-            204: {
+            /** @description The temporary password, shown once. */
+            200: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        temporary_password: string;
+                    };
+                };
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
-            /** @description The account has no verified address (error no_verified_email). */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     resendInvite: {
@@ -2936,6 +3054,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     createFederation: {
