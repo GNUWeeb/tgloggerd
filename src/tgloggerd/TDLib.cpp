@@ -25,6 +25,10 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <mutex>
+#include <future>
+#include <thread>
+#include <chrono>
+#include <cassert>
 
 namespace tgloggerd {
 
@@ -1197,7 +1201,20 @@ struct TDLib::Impl {
 	 * loop thread's monotonic current_query_id_; no handler is registered
 	 * for these, so the response is simply dropped by process_response.
 	 */
-	std::atomic<std::uint64_t>	aux_query_id_{1ull << 62};
+	static constexpr std::uint64_t	kAuxQueryIdBase = 1ull << 62;
+	std::atomic<std::uint64_t>	aux_query_id_{kAuxQueryIdBase};
+
+	/*
+	 * Cross-thread requests (TDLib::request): a promise per aux query id,
+	 * fulfilled by process_response. requests_open_ is true only while
+	 * the client is ready and not closing. Both guarded by requests_mtx_.
+	 */
+	std::mutex					requests_mtx_;
+	std::unordered_map<std::uint64_t, std::promise<Object>>	requests_;
+	bool						requests_open_ = false;
+
+	/* The thread that runs TDLib::loop(), to refuse request() on it. */
+	std::atomic<std::thread::id>			loop_thread_{};
 
 	/* One-time startup optimizeStorage (reclaim TDLib's cached backlog). */
 	bool		purge_on_start_ = false;
@@ -1363,12 +1380,18 @@ struct TDLib::Impl {
 	int						relink_in_tick_ = 0;
 
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
+	~Impl(void);
 
 	std::uint64_t next_query_id(void) { return ++current_query_id_; }
 
 	void send_query(td_api::object_ptr<td_api::Function> f,
 			std::function<void(Object)> handler);
 	void delete_local_file(int32_t file_id);
+	std::future<Object> request(td_api::object_ptr<td_api::Function> f,
+				    std::uint64_t *id_out);
+	Object request_wait(td_api::object_ptr<td_api::Function> f,
+			    std::chrono::milliseconds timeout);
+	void set_requests_open(bool open);
 	void process_response(td::ClientManager::Response response);
 	void process_update(td_api::object_ptr<td_api::Object> update);
 	void on_authorization_state_update(void);
@@ -1483,6 +1506,102 @@ void TDLib::Impl::delete_local_file(int32_t file_id)
 }
 
 
+TDLib::Impl::~Impl(void)
+{
+	/* Nobody is left to deliver the answers. */
+	set_requests_open(false);
+}
+
+
+/*
+ * Send @f from a thread other than the loop thread. Like delete_local_file it
+ * leaves the loop-thread state alone: the id comes from aux_query_id_ and the
+ * promise goes into requests_, which process_response checks for ids it does
+ * not find in handlers_. The promise is registered before the send, so the
+ * answer cannot arrive first. *id_out is the id, or 0 when nothing was sent.
+ */
+std::future<Object> TDLib::Impl::request(
+	td_api::object_ptr<td_api::Function> f, std::uint64_t *id_out)
+{
+	std::promise<Object> p;
+	auto fut = p.get_future();
+
+	*id_out = 0;
+	if (std::this_thread::get_id() == loop_thread_.load()) {
+		assert(!"TDLib::request() called on the TDLib loop thread");
+		p.set_value(td_api::make_object<td_api::error>(
+			TDLib::kRequestWrongThread,
+			"TDLib::request() called on the TDLib loop thread"));
+		return fut;
+	}
+
+	std::uint64_t id = aux_query_id_.fetch_add(1);
+	{
+		std::lock_guard<std::mutex> lk(requests_mtx_);
+		if (!requests_open_) {
+			p.set_value(td_api::make_object<td_api::error>(
+				TDLib::kRequestNotReady,
+				"TDLib client is not ready"));
+			return fut;
+		}
+		requests_.emplace(id, std::move(p));
+	}
+
+	*id_out = id;
+	client_manager_->send(client_id_, id, std::move(f));
+	return fut;
+}
+
+
+Object TDLib::Impl::request_wait(td_api::object_ptr<td_api::Function> f,
+				 std::chrono::milliseconds timeout)
+{
+	std::uint64_t id;
+	auto fut = request(std::move(f), &id);
+
+	if (fut.wait_for(timeout) == std::future_status::ready)
+		return fut.get();
+
+	bool forgotten;
+	{
+		std::lock_guard<std::mutex> lk(requests_mtx_);
+		forgotten = requests_.erase(id) != 0;
+	}
+	if (forgotten)
+		return td_api::make_object<td_api::error>(
+			TDLib::kRequestTimeout, "TDLib request timed out");
+
+	/*
+	 * Not in the map: process_response or set_requests_open took the
+	 * promise out just now and sets it right after unlocking.
+	 */
+	return fut.get();
+}
+
+
+/*
+ * Open or close TDLib::request(). Closing fails every pending request: their
+ * answers would come back through loop() only if the client lives on, and a
+ * closing client may never send them. Late answers to failed ids are dropped
+ * by process_response.
+ */
+void TDLib::Impl::set_requests_open(bool open)
+{
+	std::unordered_map<std::uint64_t, std::promise<Object>> failed;
+
+	{
+		std::lock_guard<std::mutex> lk(requests_mtx_);
+		requests_open_ = open;
+		if (!open)
+			failed.swap(requests_);
+	}
+
+	for (auto &kv : failed)
+		kv.second.set_value(td_api::make_object<td_api::error>(
+			TDLib::kRequestNotReady, "TDLib client is no longer ready"));
+}
+
+
 void TDLib::Impl::process_response(td::ClientManager::Response response)
 {
 	if (!response.object)
@@ -1498,7 +1617,24 @@ void TDLib::Impl::process_response(td::ClientManager::Response response)
 		auto handler = std::move(it->second);
 		handlers_.erase(it);
 		handler(std::move(response.object));
+		return;
 	}
+
+	if (response.request_id < kAuxQueryIdBase)
+		return;
+
+	/* A cross-thread request (TDLib::request), unless the caller has
+	 * given up on it; deleteLocalFile's ids are never in the map. */
+	std::promise<Object> p;
+	{
+		std::lock_guard<std::mutex> lk(requests_mtx_);
+		auto rit = requests_.find(response.request_id);
+		if (rit == requests_.end())
+			return;
+		p = std::move(rit->second);
+		requests_.erase(rit);
+	}
+	p.set_value(std::move(response.object));
 }
 
 
@@ -1829,6 +1965,14 @@ void TDLib::Impl::on_authorization_state_update(void)
 			[](auto &) {}
 		)
 	);
+
+	/*
+	 * TDLib::request() works only while ready. Any other state (logging
+	 * out, closing, closed, or back to logging in) fails what is pending.
+	 */
+	set_requests_open(authorization_state_->get_id() ==
+				  td_api::authorizationStateReady::ID &&
+			  !closing_);
 }
 
 
@@ -3496,6 +3640,8 @@ void TDLib::setBackfillConfig(double tick_interval, double discovery_interval,
 
 void TDLib::loop(int timeout)
 {
+	impl_->loop_thread_.store(std::this_thread::get_id(),
+				  std::memory_order_relaxed);
 	/* Issue any refetches queued by the DB worker, on this (the loop)
 	 * thread where send_query and the TDLib caches live. */
 	impl_->drain_refetch();
@@ -3511,12 +3657,24 @@ void TDLib::close(void)
 {
 	/* Stop re-arming the admin-poll alarm while TDLib shuts down. */
 	impl_->closing_ = true;
+	impl_->set_requests_open(false);
 	impl_->send_query(td_api::make_object<td_api::close>(), {});
 }
 
 void TDLib::deleteLocalFile(int32_t file_id)
 {
 	impl_->delete_local_file(file_id);
+}
+
+std::future<TDLib::TdObject> TDLib::request(TdFunction f)
+{
+	std::uint64_t id;
+	return impl_->request(std::move(f), &id);
+}
+
+TDLib::TdObject TDLib::request(TdFunction f, std::chrono::milliseconds timeout)
+{
+	return impl_->request_wait(std::move(f), timeout);
 }
 
 void TDLib::setPruneOnStart(bool on)
