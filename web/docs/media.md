@@ -1,6 +1,7 @@
 # Media: `/files/<token>`
 
-How the web serves stored files. The design behind it is
+How the web serves files, from the store or fetched from Telegram
+through the daemon. The design behind it is
 [../../docs/design/storage-cache.md](../../docs/design/storage-cache.md)
 sections 10 and 11; the daemon side is
 [../../docs/internal-api.md](../../docs/internal-api.md).
@@ -18,12 +19,70 @@ an unknown id.
 - A row with `alias_of` set holds no bytes of its own; the bytes of the
   row it names are served (one hop). The download name and the
   inline-or-download choice still come from the token's row.
-- The file is read from `WEB_STORAGE_DIR` at a path derived from the
-  row's SHA-256 and extension only, never from the request.
-- A row whose bytes are not stored answers 404 "File not stored"; a
-  stored row whose blob is missing answers 404 "File not found".
+- A stored row (`on_disk = 1`) whose blob is present is read from
+  `WEB_STORAGE_DIR` at a path derived from the row's SHA-256 and
+  extension only, never from the request.
 - A single `Range: bytes=...` is honoured with a 206; an unsatisfiable
   one gets 416.
+- Anything else is not in the store: evicted, never fetched (media from
+  chats the account is not a member of), over the daemon's per-file
+  cap, or a stored row whose blob is missing on disk. Such a file is
+  fetched from Telegram, below.
+
+## Files not in the store
+
+The web asks the daemon to fetch the file, `POST /v1/files/{id}/fetch`
+([internal-api.md](../../docs/internal-api.md)), for the token's row,
+and waits for the answer (the daemon's `TG_FETCH_TIMEOUT_SECS` plus 10
+seconds at most). The `Range` header becomes the fetch's `offset` and
+`length`; without one, or with an open-ended one, it asks from the
+start or from the range's first byte for one chunk (`TG_FETCH_CHUNK`).
+
+- `stored`: the file was small enough (under `TG_MAX_STORE_FILE_SIZE`)
+  and is now in the store, possibly as another row's bytes; the `id`
+  in the answer names the row, and its blob is served exactly as a
+  stored file, Range included. It is served from the store from then
+  on.
+- `partial`: a big file. The web serves the `available` bytes from
+  `offset` (fewer if the Range asked for fewer) straight from TDLib's
+  cache at `path`, as a 206 whose `Content-Range` total is the file's
+  full `size` from the answer, not the size of the partial file on
+  disk. A media player asks for the next range as it plays or seeks.
+  When the answer covers the whole file from byte 0, it is a 200.
+  `path` must name a regular file inside the TDLib directory,
+  `<TG_DATA_DIR>/tdlib/` resolved against the working directory
+  (`/workspace` in the compose deployment, as for the daemon), after
+  resolving `..` and symlinks; anything else is refused with 502 and
+  logged. The web reads `TG_DATA_DIR` from the environment it shares
+  with the daemon.
+
+Who may fetch is decided in one place (`src/media/Fetch.cpp`,
+`mayFetch()`), shared by this route and the chat pages:
+
+- With `WEB_TGLOGGERD_API` empty nothing is fetched: 404 "File not
+  stored".
+- A request without a session may fetch small files only (under
+  `TG_MAX_STORE_FILE_SIZE`, read from the shared environment; any file
+  when it is 0). A big file, or a `partial` answer for a file whose
+  size was unknown, is refused with 403 "Sign in to load this file".
+  That bounds what a leaked token can cost: one small file stored, not
+  a stream of a big one.
+
+The daemon's answers map to:
+
+| Daemon | Browser |
+|---|---|
+| 503 (busy, fetch limit, TDLib not authorized) | 503 with the daemon's `Retry-After` (5 if it sent none) |
+| no answer (daemon stopped, unreachable, timed out) | 503 with `Retry-After: 10` |
+| 410 (gone from Telegram, not accessible) | 410 "File no longer available" |
+| 504 (Telegram slow) | 504; the download goes on, so asking again soon is cheap |
+| 404 | 404 |
+| 416 (offset past the end of a big file) | 416, `Content-Range: bytes */<file_size>` |
+| anything else (400, 401, 500, a malformed answer) | 502, logged |
+
+Served bytes, from the store or from TDLib, count as an access (below)
+and, for a signed-in request, write the same `media` audit row as a
+stored file.
 
 ## Caching
 
@@ -40,8 +99,9 @@ The daemon evicts the least recently accessed files, and only it
 writes `telegram_files`, so the web tells it which files it serves:
 
 - Every file served (200 or 206) adds the id of the row whose bytes
-  were sent, after `alias_of`, to a process-wide set. Nothing on the
-  request path waits for the daemon.
+  were sent, after `alias_of` (for a `stored` fetch, the answer's
+  `id`), to a process-wide set. Nothing on the request path waits for
+  the daemon.
 - Every 60 seconds a timer on the main loop sends the set to
   `POST /v1/files/access` in batches of at most 1000 ids and empties
   it. A file served many times in a minute is reported once.

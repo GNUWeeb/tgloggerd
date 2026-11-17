@@ -18,6 +18,11 @@ namespace tgweb::controllers {
  * the file id is never exposed in the clear or enumerable. The on-disk path is
  * resolved from telegram_files.id -> SHA-256 -> the daemon's 5-level hex fan-out, all
  * derived from the database, never from the request.
+ *
+ * A file whose bytes are not in the store is fetched from Telegram through the
+ * daemon (web/docs/media.md): a small one lands in the store and is served
+ * from there, a big one is served range by range from TDLib's cache, at a path
+ * the daemon names and this controller checks is inside the TDLib directory.
  */
 class MediaController : public drogon::HttpController<MediaController> {
 public:
