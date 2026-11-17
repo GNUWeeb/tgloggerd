@@ -10,10 +10,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
 	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/webdb"
 )
 
@@ -48,17 +50,31 @@ type userJSON struct {
 	ID       uint64 `json:"id"`
 	Username string `json:"username"`
 	Role     string `json:"role"`
+	// MustChangePassword: the account signed in with a temporary
+	// password; everything but session, logout and POST
+	// /api/account/password answers 403 password_change_required.
+	MustChangePassword bool `json:"must_change_password"`
 }
 
 type ctxKey int
 
-const sessionKey ctxKey = 0
+const (
+	sessionKey ctxKey = iota
+	scopeKey
+)
 
 // SessionFrom is the verified session RequireSession put in the
 // request's context.
 func SessionFrom(ctx context.Context) (auth.Session, bool) {
 	s, ok := ctx.Value(sessionKey).(auth.Session)
 	return s, ok
+}
+
+// ScopeFrom is the request scope RequireSession built for the request
+// (Server.requestScope); without one, the anonymous scope.
+func ScopeFrom(ctx context.Context) scope.Scope {
+	sc, _ := ctx.Value(scopeKey).(scope.Scope)
+	return sc
 }
 
 func noStore(w http.ResponseWriter) {
@@ -77,12 +93,26 @@ func writeError(w http.ResponseWriter, status int, code string, extra map[string
 // AuthFilter does. Where the Drogon filter redirects to /login, the API
 // answers 401, clearing a revoked cookie; a session that could not be
 // checked for a database error gets 503 and keeps its cookie.
-func (s *Server) RequireSession(next http.HandlerFunc) http.HandlerFunc {
+//
+// It puts the session and the request scope in the request's context
+// (SessionFrom, ScopeFrom). While the scope has a gate (a forced
+// password change, later a missing address), the request answers 403
+// with the gate as its error code, unless the route passes that gate:
+// the operations that take the step, and the session itself.
+func (s *Server) RequireSession(next http.HandlerFunc, passes ...scope.Gate) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess, c := s.verifier.Verify(r.Context(), r)
 		switch c {
 		case auth.Valid:
-			next(w, r.WithContext(context.WithValue(r.Context(), sessionKey, sess)))
+			sc := s.requestScope(r, &sess)
+			if g := sc.Gate(); g != scope.None && !slices.Contains(passes, g) {
+				noStore(w)
+				writeError(w, http.StatusForbidden, string(g),
+					map[string]any{"message": gateMessages[g]})
+				return
+			}
+			ctx := context.WithValue(r.Context(), sessionKey, sess)
+			next(w, r.WithContext(context.WithValue(ctx, scopeKey, sc)))
 			return
 		case auth.Revoked:
 			s.cookies.Clear(w)
@@ -99,12 +129,21 @@ func (s *Server) RequireSession(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// gateMessages are the sentences of the gates' 403 answers.
+var gateMessages = map[scope.Gate]string{
+	scope.PasswordChange: "Choose a new password before going on.",
+	scope.EmailRequired:  "Add and verify an email address before going on.",
+}
+
+// allGates is what a route that every signed-in account may use passes.
+var allGates = []scope.Gate{scope.PasswordChange, scope.EmailRequired}
+
 // session answers who is signed in and the CSRF token to send.
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	sess, _ := SessionFrom(r.Context())
 	noStore(w)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user": userJSON{sess.UID, sess.Username, sess.Role},
+		"user": userJSON{sess.UID, sess.Username, sess.Role, sess.MustChangePassword},
 		"csrf": s.signer.SessionCSRF(auth.RawSession(r)),
 	})
 }
@@ -231,7 +270,7 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 
 	raw := s.cookies.Issue(w, s.cookies.NewSession(u.ID, u.Username, u.Role, u.Epoch))
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user": userJSON{u.ID, u.Username, u.Role},
+		"user": userJSON{u.ID, u.Username, u.Role, u.MustChangePassword},
 		"csrf": s.signer.SessionCSRF(raw),
 	})
 }

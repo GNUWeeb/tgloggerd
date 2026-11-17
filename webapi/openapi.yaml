@@ -50,7 +50,18 @@ info:
     sentence (the Error schema). Visibility follows the request scope
     of web-accounts.md section 9: something the viewer may not see
     answers exactly like something that does not exist, 404
-    not_found, never 403.
+    not_found, never 403. A forbidden action on something the viewer
+    may see answers 403 forbidden.
+
+
+    Gates: an account that signed in with a temporary password
+    (SessionUser.must_change_password) must choose its own first
+    (decisions/2026-11-18-temporary-passwords.md). Until it does,
+    every operation that needs a session answers 403
+    password_change_required, except GET /api/session, POST
+    /api/logout and POST /api/account/password; page data answers the
+    password_change route. The email gate (email_required) works the
+    same way once accounts have verified addresses.
 servers:
   - url: /
 security:
@@ -268,8 +279,11 @@ paths:
       tags: [auth]
       summary: Who is signed in
       description: >-
-        The account of a valid session (signature, expiry and the
-        account's session_epoch) and the CSRF token to send with it.
+        The account of a valid session (signature, expiry, the
+        account's session_epoch, and an account that is not disabled)
+        and the CSRF token to send with it. The role is the account's
+        current one, read on every request, not the one the cookie was
+        issued with.
       responses:
         '200':
           description: The session's account and CSRF token.
@@ -602,6 +616,11 @@ paths:
         acts on the page.
 
 
+        A signed-in account that must change its temporary password
+        gets the password_change route for every page path, before the
+        email gate, until it has chosen its own.
+
+
         A signed-in account with no verified email address
         (web-accounts.md section 8) gets the email_required route for
         every page path except those three, until an address is
@@ -888,14 +907,18 @@ paths:
 
   /api/account/password:
     post:
-      x-tgd-status: planned
       operationId: changePassword
       tags: [account]
       summary: Change the password
       description: >-
         Every other session of the account ends (its session_epoch
-        moves on). This one is issued a new session cookie, which
-        changes its CSRF token: the answer carries the new one.
+        moves on), on both web services. This one is issued a new
+        session cookie, which changes its CSRF token: the answer
+        carries the new one. It also ends a forced change after a
+        temporary password, and is served while that gate is up. The
+        new password must differ from the current one. Wrong current
+        passwords are throttled per account like sign-ins. Audited as
+        password_change or password_change_fail.
       security:
         - session: []
           csrf: []
@@ -927,7 +950,8 @@ paths:
         '400':
           description: >-
             A wrong current password (error wrong_password), a new one
-            too short (error weak_password), or a malformed body.
+            shorter than 8 bytes or equal to the current one (error
+            weak_password), or a malformed body (error bad_request).
           content:
             application/json:
               schema:
@@ -936,6 +960,14 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Csrf'
+        '429':
+          description: Too many wrong current passwords (error rate_limited).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Internal'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
@@ -1268,17 +1300,72 @@ paths:
           $ref: '#/components/responses/Csrf'
 
   /api/accounts:
+    get:
+      operationId: listAccounts
+      tags: [accounts]
+      summary: The accounts the viewer manages
+      description: >-
+        A superadmin gets every account, an admin the members of its
+        federations (until federations exist, every member), by
+        username (web-accounts.md sections 2 and 3). To a member the
+        accounts administration does not exist (404).
+      parameters:
+        - name: role
+          in: query
+          required: false
+          description: Only accounts of this role.
+          schema:
+            $ref: '#/components/schemas/Role'
+      responses:
+        '200':
+          description: The accounts.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accounts]
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AccountRow'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Gate'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
     post:
-      x-tgd-status: planned
       operationId: createAccount
       tags: [accounts]
       summary: Create an account
       description: >-
-        Emails the new account a one-time set-password link. A
-        superadmin creates any role. An admin creates members only, and
-        must file them in at least one federation it administers
+        A superadmin creates any role. An admin creates members only,
+        and must file them in at least one federation it administers
         (grants), since it manages only the members of its federations
         (web-accounts.md sections 2 and 3).
+
+
+        Until set-password links exist (web-email), the new account
+        gets a random temporary password, answered once here and never
+        stored or logged in plain text, which it must replace at its
+        first sign-in (decisions/2026-11-18-temporary-passwords.md;
+        see Gates). When links arrive, creation sends one instead and
+        temporary_password goes.
+
+
+        Until federations exist (web-federations), Default (fed 0) is
+        the only federation, every superadmin and admin administers it,
+        and groups cannot be granted (web-member-access): a grant is
+        {"fed": 0, "group_ids": []}. Audited as account_create, without
+        the password.
       security:
         - session: []
           csrf: []
@@ -1291,18 +1378,33 @@ paths:
       responses:
         '201':
           description: Created.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Created'
+                $ref: '#/components/schemas/AccountCreated'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: >-
+            A malformed body or role (error bad_request), a username
+            that is not 1 to 64 letters, digits, dots, dashes or
+            underscores starting with a letter or digit (bad_username),
+            a name over 128 characters or with control characters
+            (bad_name), not an address (bad_email), an admin's member
+            without grants (grants_required), or groups in a grant
+            (not_supported).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
           description: >-
-            The CSRF token is wrong (error csrf), or the role or a
-            federation is not the viewer's to give (error forbidden).
+            The CSRF token is wrong (error csrf), the role or a
+            federation is not the viewer's to give (error forbidden),
+            or a gate is up (see Gates).
           content:
             application/json:
               schema:
@@ -1310,21 +1412,56 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: The username is taken (error taken).
+          description: >-
+            The username is taken (error taken), or the address is
+            another account's (error email_taken).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
 
   /api/accounts/{id}:
+    get:
+      operationId: getAccount
+      tags: [accounts]
+      summary: One account the viewer manages
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: The account as the accounts page shows it.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountRow'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Gate'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
     patch:
-      x-tgd-status: planned
       operationId: updateAccount
       tags: [accounts]
       summary: Change an account
       description: >-
-        Changes the fields given. A changed email address is verified
-        by a link before use. Every change is audited.
+        Changes the fields given: name, email and role. A role change
+        ends the account's sessions on both services. admin_of and
+        restrict are a superadmin's to send; until federations, admin
+        restrictions and member grants and abilities exist, they are
+        accepted only as what they are today (admin_of [] or [0],
+        restrictions all off, grants to fed 0 with no groups, no
+        abilities) and anything else answers 400 not_supported, so the
+        accounts page can send its whole form. A changed address is
+        recorded; it is verified by a link once web-email exists.
+        Audited as account_update, naming the fields changed.
       security:
         - session: []
           csrf: []
@@ -1344,13 +1481,20 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccountRow'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: >-
+            A malformed body or role (error bad_request), bad_name,
+            bad_email, or a field that cannot be set yet
+            (not_supported).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
           description: >-
-            The CSRF token is wrong (error csrf), or the change is not
-            the viewer's to make (error forbidden).
+            The CSRF token is wrong (error csrf), the change is not
+            the viewer's to make (error forbidden), or a gate is up.
           content:
             application/json:
               schema:
@@ -1358,17 +1502,27 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          $ref: '#/components/responses/LastSuperadmin'
+          description: >-
+            The change would demote the last active superadmin (error
+            last_superadmin), or the address is another account's
+            (error email_taken).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
 
   /api/accounts/{id}/disable:
     post:
-      x-tgd-status: planned
       operationId: disableAccount
       tags: [accounts]
       summary: Disable an account
       description: >-
-        Accounts are disabled, never deleted. Its sessions end; its
-        forwarding keeps running, flagged "owner disabled".
+        Accounts are disabled, never deleted. Its sessions end on both
+        services; it can no longer sign in. Its forwarding keeps
+        running, flagged "owner disabled" (web-ownership). Audited as
+        account_disable; disabling a disabled account changes nothing.
       security:
         - session: []
           csrf: []
@@ -1385,13 +1539,15 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/LastSuperadmin'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
 
   /api/accounts/{id}/enable:
     post:
-      x-tgd-status: planned
       operationId: enableAccount
       tags: [accounts]
       summary: Enable a disabled account
+      description: Audited as account_enable.
       security:
         - session: []
           csrf: []
@@ -1406,34 +1562,49 @@ paths:
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
 
   /api/accounts/{id}/password-reset:
     post:
-      x-tgd-status: planned
       operationId: resetAccountPassword
       tags: [accounts]
-      summary: Email the account a password reset link
-      description: The administrator never sees the password or the link.
+      summary: Reset an account to a temporary password
+      description: >-
+        Until reset links exist (web-email), gives the account a new
+        random temporary password, answered once here and never stored
+        or logged in plain text; the account must replace it at its
+        next sign-in (decisions/2026-11-18-temporary-passwords.md).
+        Every session of the account ends on both services. Audited as
+        account_password_reset, without the password. When links
+        arrive, this sends one by email instead.
       security:
         - session: []
           csrf: []
       parameters:
         - $ref: '#/components/parameters/Id'
       responses:
-        '204':
-          description: The link is on its way.
+        '200':
+          description: The temporary password, shown once.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [temporary_password]
+                properties:
+                  temporary_password:
+                    type: string
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
-        '409':
-          description: The account has no verified address (error no_verified_email).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
 
   /api/accounts/{id}/resend-invite:
     post:
@@ -1441,6 +1612,10 @@ paths:
       operationId: resendInvite
       tags: [accounts]
       summary: Email a new set-password link to an invited account
+      description: >-
+        Comes with set-password links (web-email); until then an
+        invited account gets a new temporary password from
+        password-reset.
       security:
         - session: []
           csrf: []
@@ -1458,10 +1633,13 @@ paths:
 
   /api/accounts/{id}/sign-out-everywhere:
     post:
-      x-tgd-status: planned
       operationId: signOutAccountEverywhere
       tags: [accounts]
       summary: End every session of an account
+      description: >-
+        On both services, by moving the account's session_epoch on;
+        the viewer's own sessions too when it is the viewer's account.
+        Audited as account_signout_everywhere.
       security:
         - session: []
           csrf: []
@@ -1476,6 +1654,8 @@ paths:
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
 
   /api/federations:
     post:
@@ -2176,7 +2356,9 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     Csrf:
-      description: The CSRF token is missing or wrong (error csrf).
+      description: >-
+        The CSRF token is missing or wrong (error csrf), or a gate is
+        up (see Gates in the description).
       content:
         application/json:
           schema:
@@ -2184,6 +2366,14 @@ components:
     NotFound:
       description: >-
         No such thing, or one the viewer may not see (error not_found).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Gate:
+      description: >-
+        A gate is up (see Gates in the description): error
+        password_change_required, later email_required.
       content:
         application/json:
           schema:
@@ -2279,7 +2469,7 @@ components:
           type: string
     SessionUser:
       type: object
-      required: [id, username, role]
+      required: [id, username, role, must_change_password]
       properties:
         id:
           type: integer
@@ -2287,11 +2477,13 @@ components:
         username:
           type: string
         role:
-          type: string
+          $ref: '#/components/schemas/Role'
+        must_change_password:
+          type: boolean
           description: >-
-            The account's role as stored (today admin or viewer;
-            superadmin, admin or member once the roles of
-            web-accounts.md land).
+            The account signed in with a temporary password and must
+            choose its own (POST /api/account/password) before anything
+            else; see Gates in the description.
     Session:
       type: object
       required: [user, csrf]
@@ -2460,6 +2652,7 @@ components:
         - $ref: '#/components/schemas/PageMcpTokens'
         - $ref: '#/components/schemas/PageLinkPage'
         - $ref: '#/components/schemas/PageEmailRequired'
+        - $ref: '#/components/schemas/PagePasswordChange'
     PageLinkPage:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -2481,6 +2674,16 @@ components:
               enum: [email_required]
             props:
               $ref: '#/components/schemas/EmailRequiredProps'
+    PagePasswordChange:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          required: [route, props]
+          properties:
+            route:
+              enum: [password_change]
+            props:
+              $ref: '#/components/schemas/PasswordChangeProps'
     PageLogin:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -3311,6 +3514,19 @@ components:
         next:
           type: string
           description: The page that was asked for, to go on to once verified.
+    PasswordChangeProps:
+      type: object
+      description: >-
+        The forced password change after a temporary password
+        (decisions/2026-11-18-temporary-passwords.md); the page posts
+        to POST /api/account/password, then loads `next`.
+      required: [username, next]
+      properties:
+        username:
+          type: string
+        next:
+          type: string
+          description: The path of the page asked for.
     LoginProps:
       type: object
       required: [next]
@@ -3747,9 +3963,12 @@ components:
           type: [string, 'null']
         email_verified:
           type: boolean
+          description: Always false until addresses are verified (web-email).
         invited:
           type: boolean
-          description: Has not set a password from its invitation yet.
+          description: >-
+            Has not chosen its own password yet (it has a temporary
+            one, or none).
         role:
           $ref: '#/components/schemas/Role'
         active:
@@ -3826,9 +4045,23 @@ components:
           description: >-
             A member's federations and groups. Required, with at least
             one federation the viewer administers, when an admin
-            creates the member.
+            creates the member (else 400 grants_required). Until
+            web-federations, only {"fed": 0, "group_ids": []}.
           items:
             $ref: '#/components/schemas/GrantWrite'
+    AccountCreated:
+      type: object
+      required: [id, temporary_password]
+      properties:
+        id:
+          type: integer
+          format: int64
+        temporary_password:
+          type: string
+          description: >-
+            Shown once; give it to the account's owner, who must
+            replace it at the first sign-in. Goes when set-password
+            links arrive (web-email).
     AccountPatch:
       type: object
       description: The fields to change; the others stay.

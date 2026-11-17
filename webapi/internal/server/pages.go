@@ -109,30 +109,10 @@ func defaultPages() []pageRoute {
 	}
 }
 
-// navPages are the route ids of the menu's pages.
-var navPages = []string{
-	"dashboard", "users", "groups", "group_messages", "private_messages",
-	"files", "platform_fwd", "join_chat", "mcp", "accounts", "federations",
-}
-
-// pageNav lists the pages the menu shows. Hidden pages are absent,
-// never disabled; web-roles filters them by the scope here. Until then
-// every signed-in account sees every page.
-func pageNav(_ scope.Scope) []string {
-	return append([]string(nil), navPages...)
-}
-
-// viewerRole names a session's role as pages do. The web's accounts
-// still have the roles admin and viewer, which web-roles turns into
-// superadmin and member; the new names pass through.
-func viewerRole(role string) string {
-	switch role {
-	case "admin":
-		return "superadmin"
-	case "viewer":
-		return "member"
-	}
-	return role
+// pageNav lists the pages the menu shows, from the scope: hidden
+// pages are absent, never disabled.
+func pageNav(sc scope.Scope) []string {
+	return sc.Nav()
 }
 
 // registerPages serves the document of every page that has a loader at
@@ -318,7 +298,7 @@ func (s *Server) pageViewer(sess *auth.Session, sc scope.Scope) render.Viewer {
 		// Accounts get a display name with web-roles; until then
 		// the name is the login name.
 		Name: sess.Username,
-		Role: viewerRole(sess.Role),
+		Role: sess.Role,
 	}
 	v.Nav = pageNav(sc)
 	return v

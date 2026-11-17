@@ -25,6 +25,7 @@ import (
 	"tgloggerd/webapi/internal/live"
 	"tgloggerd/webapi/internal/live/livetest"
 	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/webdb"
 )
 
 // The GET /api/events tests need no database: the session's epoch
@@ -60,8 +61,9 @@ func newLiveEnv(t *testing.T, o liveOpts) *liveEnv {
 		signer:  signer,
 		cookies: e.cookies,
 		verifier: &auth.Verifier{Cookies: e.cookies,
-			Epoch: func(context.Context, uint64) (uint32, error) {
-				return e.epoch.Load(), nil
+			State: func(context.Context, uint64) (webdb.SessionState, error) {
+				return webdb.SessionState{Epoch: e.epoch.Load(),
+					Role: "superadmin", Active: true}, nil
 			}},
 		liveCfg: o.cfg,
 	}

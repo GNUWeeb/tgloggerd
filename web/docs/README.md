@@ -13,6 +13,9 @@ but not served yet. The pages below explain behaviour; a port moves or
 updates its page in the same series, and the operation's shape is the
 one in the description.
 
+- [accounts.md](accounts.md) — the roles superadmin, admin and member, the
+  request scope they give in the Go service, the accounts API, temporary
+  passwords, and how the Drogon pages treat the roles.
 - [contact-names.md](contact-names.md) — a contact's own name versus the
   name the logging account saved them under: what each column means, what
   the pages show, and the admin action "Look up real name" with its routes.

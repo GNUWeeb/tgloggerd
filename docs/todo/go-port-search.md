@@ -17,7 +17,7 @@ The React application's lists and search pages use it.
 
 ## Depends on
 
-- `web-roles`
+Nothing.
 
 ## Done when
 

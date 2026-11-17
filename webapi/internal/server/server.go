@@ -60,10 +60,10 @@ type Deps struct {
 	// /app/assets/; nil answers 404 there.
 	AssetFiles *os.Root
 
-	// pages replaces the page table, and epoch the database's session
-	// epochs, for tests.
+	// pages replaces the page table, and state the database's account
+	// state behind a session, for tests.
 	pages []pageRoute
-	epoch auth.EpochFunc
+	state auth.StateFunc
 }
 
 // Server carries what the handlers share.
@@ -103,7 +103,7 @@ func New(d Deps) http.Handler {
 		cookies:     d.Cookies,
 		limiter:     d.Limiter,
 		acctLimiter: d.AcctLimiter,
-		verifier:    &auth.Verifier{Cookies: d.Cookies, Epoch: auth.DBEpoch(d.App)},
+		verifier:    &auth.Verifier{Cookies: d.Cookies, State: auth.DBState(d.App)},
 		daemon:      d.Daemon,
 		tokens:      d.Tokens,
 		access:      d.Access,
@@ -120,8 +120,8 @@ func New(d Deps) http.Handler {
 	if s.pages == nil {
 		s.pages = defaultPages()
 	}
-	if d.epoch != nil {
-		s.verifier.Epoch = d.epoch
+	if d.state != nil {
+		s.verifier.State = d.state
 	}
 
 	mux := http.NewServeMux()
@@ -148,11 +148,20 @@ func (s *Server) routes() []route {
 		{"GET /api/login", s.getLogin},
 		{"POST /api/login", s.postLogin},
 		{"POST /api/logout", s.postLogout},
-		{"GET /api/session", s.RequireSession(s.session)},
+		{"GET /api/session", s.RequireSession(s.session, allGates...)},
 		{"GET /files/{token}", s.serveFile},
 		{"GET /api/events", s.RequireSession(s.events)},
 		{"GET /api/page/{path...}", s.getPage},
 		{"GET /app/assets/{file...}", s.serveAsset},
+		{"POST /api/account/password", s.RequireSession(s.changePassword, scope.PasswordChange)},
+		{"GET /api/accounts", s.RequireSession(s.listAccounts)},
+		{"POST /api/accounts", s.RequireSession(s.createAccount)},
+		{"GET /api/accounts/{id}", s.RequireSession(s.getAccount)},
+		{"PATCH /api/accounts/{id}", s.RequireSession(s.updateAccount)},
+		{"POST /api/accounts/{id}/disable", s.RequireSession(s.disableAccount)},
+		{"POST /api/accounts/{id}/enable", s.RequireSession(s.enableAccount)},
+		{"POST /api/accounts/{id}/password-reset", s.RequireSession(s.resetAccountPassword)},
+		{"POST /api/accounts/{id}/sign-out-everywhere", s.RequireSession(s.signOutAccountEverywhere)},
 	}
 }
 

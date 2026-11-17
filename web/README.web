@@ -93,12 +93,15 @@ same change as the migration that creates it.
 
 # First administrator
 
-Create (or reset) the first admin — it prompts for the password twice:
+Create (or reset) the first superadmin — it prompts for the password
+twice:
 
     docker compose exec web web/build/tgloggerd_web --seed-admin admin
 
-Re-running --seed-admin for an existing user resets its password and
-re-enables the account.
+Re-running --seed-admin for an existing user resets its password,
+re-enables the account and makes it a superadmin. Further accounts are
+created by a superadmin (or, for members, an admin) through the Go
+service's accounts API (web/docs/accounts.md).
 
 # Environment variables
 

@@ -24,7 +24,16 @@ password and hear about changes to their account
   to the old address), sign-in from a new device, account disabled,
   role changed.
 - Account creation by an admin sends the set-password link instead of
-  a temporary password.
+  a temporary password: `POST /api/accounts` and
+  `POST /api/accounts/{id}/password-reset` answer `temporary_password`
+  until then (decisions/2026-11-18-temporary-passwords.md); that path
+  goes, and `resend-invite` (planned in webapi/openapi.yaml) is served.
+- `web_users.email` exists since web migration 000004 (unique,
+  NULL-able, recorded at creation but unverified); this item adds the
+  verification and requires it. The gate is in place: set
+  `scope.Viewer.EmailVerified` from the account in
+  `Server.requestScope`, and `RequireSession` answers 403
+  `email_required` for routes that do not pass `scope.EmailRequired`.
 - `web/docs/` describes the flows; the OpenAPI description covers the
   endpoints.
 
@@ -56,7 +65,7 @@ password and hear about changes to their account
 
 ## Depends on
 
-- `web-roles`
+Nothing.
 
 ## Done when
 

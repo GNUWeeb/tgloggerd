@@ -99,12 +99,30 @@ func (s *Server) mediaError(w http.ResponseWriter, what string, err error) {
 		"The file could not be served.")
 }
 
-// requestScope is what the request may see. It is the one place where
-// web-roles plugs in visibility for media: every request sees
-// everything until then. The route is public (the token is the
-// authorization), so sess is nil for a request without a valid session.
-func (s *Server) requestScope(_ *http.Request, _ *auth.Session) scope.Scope {
-	return scope.Everything()
+// requestScope is what the request may see and do: the one place
+// where a request's scope is built (docs/design/web-accounts.md
+// section 9). sess is the verified session, nil for a request without
+// one; its Role and MustChangePassword are the account's as read on
+// this request (auth.Verifier), not the cookie's. Later items add the
+// account's federations, restrictions, grants and verified address
+// here.
+func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
+	if sess == nil {
+		return scope.Anonymous()
+	}
+	role, ok := scope.ParseRole(sess.Role)
+	if !ok {
+		s.log.Warn("account with an unknown role", "uid", sess.UID, "role", sess.Role)
+		return scope.Anonymous()
+	}
+	return scope.For(scope.Viewer{
+		ID:                 sess.UID,
+		Role:               role,
+		MustChangePassword: sess.MustChangePassword,
+		// No address is verified before web-email; until then the
+		// email gate stays open.
+		EmailVerified: true,
+	})
 }
 
 // fileHeaders go on every file answer.

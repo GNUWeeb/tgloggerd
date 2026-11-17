@@ -61,9 +61,13 @@ func file(ctx context.Context, db *sql.DB, id uint64) (File, error) {
 
 // GetFile is the file a request asked for by id, within its scope.
 //
-// The scope is not applied yet: every request sees every file until
-// web-roles gives it something to check. It goes into this query, so
-// that a file outside it is ErrNotFound like a missing one.
+// The scope is not applied: the file token is the authorization, and
+// a request without a session (scope.Anonymous) gets every file its
+// token opens, so filtering a signed-in request's files would only
+// make it see less than a signed-out one. web-member-access decides
+// how tokens and a member's grants combine; the filter goes into this
+// query, so that a file outside the scope is ErrNotFound like a
+// missing one.
 func GetFile(ctx context.Context, db *sql.DB, sc scope.Scope, id uint64) (File, error) {
 	_ = sc
 	return file(ctx, db, id)

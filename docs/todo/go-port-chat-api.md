@@ -17,7 +17,7 @@ The React chat view and the user and group pages need them.
 
 ## Depends on
 
-- `web-roles`
+Nothing.
 
 ## Done when
 

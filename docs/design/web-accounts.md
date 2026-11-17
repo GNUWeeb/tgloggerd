@@ -1,7 +1,10 @@
 # Web accounts: roles, federations, ownership and settings
 
-Status: designed 2026-11-18 with the project owner, not implemented.
-The items that implement it are in the "Web interface" section of
+Status: designed 2026-11-18 with the project owner. The roles
+(section 2) and the request scope (section 9, from roles alone) are
+built in the Go service (web/docs/accounts.md); federations,
+restrictions, member grants, ownership, settings and email are not.
+The items that implement the rest are in the "Web interface" section of
 [../TODO.md](../TODO.md); the decisions are in
 [decisions/2026-11-18-web-accounts.md](decisions/2026-11-18-web-accounts.md).
 

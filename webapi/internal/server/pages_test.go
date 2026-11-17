@@ -24,6 +24,7 @@ import (
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/render/rendertest"
+	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/webdb"
 )
 
@@ -39,9 +40,11 @@ type pagesEnv struct {
 	cookies *auth.Cookies
 	signer  *auth.Signer
 	standin *rendertest.StandIn
-	// epochs is the fake web_users.session_epoch; a missing id is a
-	// deleted account, epochErr a database that does not answer.
+	// epochs and roles are the fake web_users rows (session_epoch,
+	// role); a missing id is a deleted account, epochErr a database
+	// that does not answer.
 	epochs   map[uint64]uint32
+	roles    map[uint64]string
 	epochErr error
 }
 
@@ -60,6 +63,7 @@ func newPagesEnv(t *testing.T, o pagesOpts) *pagesEnv {
 		cookies: &auth.Cookies{Signer: signer, Timeout: 3600, Secure: true},
 		standin: rendertest.Start(t, testBuild),
 		epochs:  map[uint64]uint32{1: 0, 2: 0},
+		roles:   map[uint64]string{1: "superadmin", 2: "member"},
 	}
 	if o.timeout == 0 {
 		o.timeout = 2 * time.Second
@@ -82,15 +86,15 @@ func newPagesEnv(t *testing.T, o pagesOpts) *pagesEnv {
 			Entry: "/app/assets/entry.js"},
 		AssetFiles: root,
 		pages:      o.pages,
-		epoch: func(_ context.Context, uid uint64) (uint32, error) {
+		state: func(_ context.Context, uid uint64) (webdb.SessionState, error) {
 			if e.epochErr != nil {
-				return 0, e.epochErr
+				return webdb.SessionState{}, e.epochErr
 			}
 			ep, ok := e.epochs[uid]
 			if !ok {
-				return 0, webdb.ErrNoUser
+				return webdb.SessionState{}, webdb.ErrNoUser
 			}
-			return ep, nil
+			return webdb.SessionState{Epoch: ep, Role: e.roles[uid], Active: true}, nil
 		},
 	})
 	return e
@@ -197,7 +201,7 @@ func TestPageNotFoundShape(t *testing.T) {
 		"viewer": map[string]any{
 			"signed_in": true, "now": "",
 			"account": map[string]any{"id": 1.0, "username": "admin", "name": "admin", "role": "superadmin"},
-			"nav":     toAny(navPages),
+			"nav":     toAny(scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin, EmailVerified: true}).Nav()),
 		},
 	}
 	if got := g.page(t); !reflect.DeepEqual(got, want) {

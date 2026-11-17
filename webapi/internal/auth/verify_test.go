@@ -61,11 +61,13 @@ func TestVerifier(t *testing.T) {
 	c := &Cookies{Signer: NewSigner(testKey), Timeout: 3600}
 	var epoch uint32
 	var dbErr error
-	v := &Verifier{Cookies: c, Epoch: func(_ context.Context, uid uint64) (uint32, error) {
+	active := true
+	v := &Verifier{Cookies: c, State: func(_ context.Context, uid uint64) (webdb.SessionState, error) {
 		if uid != 9 {
-			return 0, webdb.ErrNoUser
+			return webdb.SessionState{}, webdb.ErrNoUser
 		}
-		return epoch, dbErr
+		return webdb.SessionState{Epoch: epoch, Role: "member", Active: active,
+			MustChangePassword: true}, dbErr
 	}}
 	req := func(cookie string) *http.Request {
 		r := httptest.NewRequest("GET", "/", nil)
@@ -83,21 +85,25 @@ func TestVerifier(t *testing.T) {
 		cookie string
 		epoch  uint32
 		err    error
+		active bool
 		want   Check
 	}{
-		{"no cookie", "", 0, nil, None},
-		{"forged", "eA.eA", 0, nil, None},
-		{"valid", good, 0, nil, Valid},
-		{"epoch bumped", good, 1, nil, Revoked},
-		{"account gone", gone, 0, nil, Revoked},
-		{"database down", good, 0, errors.New("down"), Unverified},
+		{"no cookie", "", 0, nil, true, None},
+		{"forged", "eA.eA", 0, nil, true, None},
+		{"valid", good, 0, nil, true, Valid},
+		{"epoch bumped", good, 1, nil, true, Revoked},
+		{"account gone", gone, 0, nil, true, Revoked},
+		{"disabled", good, 0, nil, false, Revoked},
+		{"database down", good, 0, errors.New("down"), true, Unverified},
 	} {
-		epoch, dbErr = tc.epoch, tc.err
+		epoch, dbErr, active = tc.epoch, tc.err, tc.active
 		s, got := v.Verify(ctx, req(tc.cookie))
 		if got != tc.want {
 			t.Errorf("%s: Verify = %v, want %v", tc.name, got, tc.want)
 		}
-		if got == Valid && (s.UID != 9 || s.Username != "bob") {
+		// The role and the flag are the account's, not the cookie's.
+		if got == Valid && (s.UID != 9 || s.Username != "bob" ||
+			s.Role != "member" || !s.MustChangePassword) {
 			t.Errorf("%s: session %+v", tc.name, s)
 		}
 	}

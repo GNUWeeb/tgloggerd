@@ -57,7 +57,11 @@ minted by one opens in the other. Tests check this against values the
 Drogon code produced (internal/auth/testdata).
 
 The session is the signed cookie tgw_session. Each request with one is
-checked against web_users.session_epoch, as Drogon's AuthFilter does.
+checked against web_users.session_epoch, as Drogon's AuthFilter does,
+and against is_active, which Drogon does not check (disabling an
+account bumps the epoch as well, so it ends there too). The role and
+the forced password change are read from that row, not from the
+cookie, so a change applies to the next request.
 State-changing requests carry a CSRF token in the X-CSRF-Token header:
 for a signed-in request the token GET /api/session or POST /api/login
 answers, which is the same token the Drogon pages put in their forms;
@@ -99,6 +103,30 @@ text) and a fresh pre-login "csrf" token on refused logins.
                       could not be checked against the database; the
                       cookie is kept.
 
+    POST /api/account/password
+                      X-CSRF-Token: <session token>
+                      {"current_password":"...","new_password":"..."}
+                      200 {"csrf":"<new session token>"} and a new
+                      session cookie; every other session of the
+                      account ends. 400 wrong_password, weak_password
+                      (under 8 bytes, or unchanged), bad_request. 429
+                      rate_limited after repeated wrong current
+                      passwords.
+
+The user object also carries must_change_password: the account signed
+in with a temporary password. Until it has chosen its own, every
+operation behind a session answers 403 password_change_required,
+except GET /api/session, POST /api/logout and POST
+/api/account/password (the gate of the request scope; see The request
+scope).
+
+The accounts administration (GET and POST /api/accounts, GET and PATCH
+/api/accounts/{id}, and its disable, enable, password-reset and
+sign-out-everywhere actions) is described in openapi.yaml and
+web/docs/accounts.md: who manages whom comes from the request scope,
+new accounts and resets get a temporary password shown once, and the
+last active superadmin cannot be disabled or demoted.
+
 The login throttle is in the process's memory, as in Drogon, so each
 service counts failures on its own. The address logged and throttled
 on is the connection's peer, as in Drogon.
@@ -133,8 +161,9 @@ not open answers 404 like an unknown id. In short:
 
 Who may see which file is decided by the request scope,
 Server.requestScope (internal/server/media.go), passed to the one
-query that looks the token's file up (logdb.GetFile). Until web-roles
-it lets every request see every file.
+query that looks the token's file up (logdb.GetFile). That query does
+not filter yet: the token is the authorization, signed in or not
+(see The request scope).
 
 A session counts only when it is valid, epoch included, as for the
 API; one that cannot be checked (a database error) counts as none, and
@@ -268,6 +297,7 @@ The Go server's own header limit is the standard library's default,
 http2 on;): browsers allow six HTTP/1.1 connections per host and each
 tab holds one for its stream, so with a few tabs open page requests
 would queue.
+
 # Pages
 
 The React application's pages (web/app) have real URLs; the service
@@ -322,6 +352,25 @@ nginx sends a page path here once its loader is in place, as it does
 
 internal/render/rendertest is a stand-in render service on a Unix
 socket, used by the tests.
+
+# The request scope
+
+Server.requestScope (internal/server/media.go) builds, once per
+request, what it may see and do (internal/scope; docs/design/
+web-accounts.md section 9), from the verified session: the account's
+id, role and forced password change, as read from web_users on that
+request. Every query over the logger's schema takes it and filters by
+it, and every permission check asks it; there is no other mechanism.
+Something outside it answers 404, a forbidden action on something
+inside it 403.
+
+So far it is built from the role alone (web/docs/accounts.md has the
+table): superadmins and admins see every group, private chat and user;
+members see no group, private chat or user until grants exist
+(web-member-access); admins may do all but join chats and look up real
+names. Federations, restrictions, grants and the verified-address gate
+plug into the scope without changing its callers. Without a session
+the scope sees nothing; a file token is its own authorization.
 
 # Layout
 
