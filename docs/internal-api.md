@@ -20,6 +20,7 @@ username that the daemon parses itself.
 | `TG_API_LISTEN` | empty | `host:port` (or `[v6]:port`) to listen on. Empty: the API is off and nothing listens. |
 | `TG_API_THREADS` | 4 | Handler threads. Each may hold a database connection, so the daemon's default DB pool grows by this many when the API is on. |
 | `WEB_APP_KEY` | none | The secret the web and the daemon share; the bearer key is derived from it (below). |
+| `TG_CONTACT_LOOKUP_INTERVAL` | 300 | Least seconds between two lookups of `POST /v1/users/{id}/lookup-name`; at least 60. |
 
 In the compose deployment `TG_API_LISTEN=0.0.0.0:8091`. Inside the
 container that means loopback and the tgnet address 10.0.88.5; the
@@ -92,13 +93,16 @@ change.
 | 400 | `bad_request` | Malformed: a body that is not JSON or not of the endpoint's shape, a bad id, too many ids. |
 | 401 | `unauthorized` | Missing or wrong bearer key. Comes with `WWW-Authenticate: Bearer`. |
 | 403 | `forbidden` | The deployment does not allow it: a real sweep asked for while `TG_STORAGE_DRY_RUN=1`. |
-| 404 | `not_found` | Unknown file id, or no such endpoint. |
+| 404 | `not_found` | Unknown file or user id, or no such endpoint. |
 | 405 | `method_not_allowed` | The path exists under another method; `Allow` lists them. |
+| 409 | `not_a_contact`, `unsupported` | The operation does not apply to this user as they are (see the endpoint). |
 | 410 | `gone` | The file is gone from Telegram or not accessible to the account. |
 | 413 | `too_large` | Request body over 64 KiB. The connection is closed. |
 | 416 | `bad_range` | A fetch's `offset` is at or past the end of the file. |
+| 429 | `rate_limited`, `flood_wait` | The daemon's own limit for the operation, or Telegram's flood wait. Comes with `Retry-After` (seconds). Not retried by the daemon. |
 | 500 | `internal` | A bug or a database failure; the daemon logs the detail. |
-| 503 | `unavailable` | Busy (too many requests in flight, a fetch limit reached), the TDLib client not authorized, or the daemon shutting down. Comes with `Retry-After` (seconds). |
+| 502 | `telegram_error` | Telegram refused the operation for another reason; `message` has its error. |
+| 503 | `unavailable`, `restore_pending` | Busy (too many requests in flight, a fetch limit reached, another lookup running), the TDLib client not authorized, or the daemon shutting down; `restore_pending`: see the lookup. Comes with `Retry-After` (seconds). |
 | 504 | `timeout` | The operation did not finish in time (a fetch waiting on Telegram). |
 
 ## Endpoints
@@ -437,6 +441,76 @@ Joining has consequences on the account (Telegram's rate limits, a
 visible join in the chat): the web asks for a confirmation and audits
 every attempt. Once joined, chat-membership tracking picks the chat
 up, and its media start being downloaded.
+
+### POST /v1/users/{id}/lookup-name
+
+"Look up real name": reads the own name of a user who is a contact of the
+logging account. Telegram shows an account a contact's name as the account
+saved it, and the user's own name only while they are not a contact, so the
+daemon removes the contact, reads the name TDLib then reports, and adds the
+contact back exactly as it was. One user per request, never in bulk; the
+web offers it as an admin action on a contact's page.
+
+No body. `{id}` is a positive decimal user id.
+
+    200 {
+      "user_id": 742278412,
+      "first_name": "Moe",
+      "last_name": "",
+      "contact_first_name": "Michael William Jonathan",
+      "contact_last_name": "",
+      "checked_at": 1763450000
+    }
+
+`first_name`/`last_name` are the own name, now stored in
+`telegram_users.first_name`/`last_name` with `own_name_checked_at`;
+`contact_*` are the contact name as it was, and is again.
+
+The cycle (`src/tgloggerd/ContactLookup.cpp`):
+
+1. Any contact an earlier cycle left removed is added back first; if one
+   cannot be, the request is refused with `restore_pending` and nothing
+   else happens.
+2. A row in `telegram_contact_lookups` records the contact as the account
+   has it: the contact name, the phone number if the account knows it, the
+   private note (`userFullInfo.note`, with its formatting) and whether the
+   account shares its phone number with the user
+   (`!userFullInfo.need_phone_number_privacy_exception`).
+3. `removeContacts([id])`, then up to 10 seconds for TDLib to report the
+   user as no contact, with their own name.
+4. `addContact(id, importedContact{phone, first, last, note},
+   share_phone_number)` with the journalled values. A flood wait of up to
+   30 seconds is waited out and the re-add tried again, up to 3 times.
+5. The own name and the check time are stored, and only then the journal
+   row is deleted.
+
+A daemon that stops between 3 and 4 finds the row at its next start and
+adds the contact back before anything else, retrying until it succeeds. A
+re-add that keeps failing while the daemon runs leaves the row, answers
+`restore_pending`, and is retried by the next lookup request or start.
+
+Side effects the web states before an admin confirms: the user can briefly
+see a change (the mutual-contact status, the account's phone number), and
+per-contact settings TDLib does not expose, such as a custom photo set for
+the contact, are not restored.
+
+Errors:
+
+- 400 bad id.
+- 404 `not_found`: TDLib does not know the user.
+- 409 `not_a_contact`: nothing to look up. 409 `unsupported`: the note has
+  formatting `addContact` would not take back; nothing changed.
+- 429 `rate_limited`: less than `TG_CONTACT_LOOKUP_INTERVAL` seconds since
+  the last lookup that changed a contact. 429 `flood_wait`: Telegram refused
+  the removal; nothing changed. Both with `Retry-After`; neither is retried.
+- 502 `telegram_error`: another Telegram error before anything changed.
+- 503 `unavailable`: another lookup is running, or TDLib is not ready.
+  503 `restore_pending`: the contact (or one from an earlier lookup) is
+  removed and not added back yet; the daemon keeps it in the journal and
+  adds it back later. `Retry-After` at least 60.
+- 504 `timeout`: the contact is added back, but TDLib did not report the
+  own name in time; nothing was stored.
+- 500 `internal`: the contact is added back, but storing the name failed.
 
 ## Adding an endpoint
 

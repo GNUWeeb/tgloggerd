@@ -260,6 +260,30 @@ public:
 	std::vector<models::FileSource> listFileSources(uint64_t files_id,
 							size_t limit);
 
+	/*
+	 * telegram_contact_lookups: the journal of the "Look up real name"
+	 * cycle (ContactLookup.hpp, models/ContactLookup.cpp).
+	 */
+	struct ContactLookupRow {
+		int64_t		user_id = 0;
+		std::string	phone_number;
+		std::string	first_name;
+		std::string	last_name;
+		std::optional<std::string>	note_json;
+		bool		share_phone_number = false;
+	};
+	/* Throws on a duplicate: a pending row is never overwritten. */
+	void insertContactLookup(const ContactLookupRow &c);
+	void markContactLookupRemoved(int64_t user_id);
+	void noteContactLookupFailure(int64_t user_id, const std::string &err);
+	void deleteContactLookup(int64_t user_id);
+	std::vector<ContactLookupRow> listContactLookups(void);
+	/*
+	 * Store a looked-up own name: first_name/last_name, own_name_known
+	 * and own_name_checked_at = NOW(), with name history as upsertUser
+	 * records it.
+	 */
+	void recordOwnNameLookup(int64_t user_id, const models::Name &own);
 	/* The source message's text/reply/file, to re-render it for a tombstone. */
 	std::optional<MessageForward> getMessageForward(int64_t chat_id,
 							int64_t message_id);
