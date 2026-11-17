@@ -69,11 +69,17 @@ step needs care, and the last one needs the owner's go.
     `bytes` and `last_sweep.bytes_after` are at most
     `low_watermark`, and a few evicted files (`on_disk = 0`) have no
     blob left while their `updated_at` is unchanged.
+  - `web-access-reporting`: with
+    `WEB_TGLOGGERD_API=http://10.0.88.5:8091`, the web's log has
+    `tgloggerd-api: using http://10.0.88.5:8091`; viewing a file
+    whose `accessed_at` is over an hour old moves it within about a minute, `updated_at`
+    unchanged; `/files/<token>` answers `Cache-Control: public,
+    max-age=604800`; with tgloggerd stopped, stored files are still
+    served and the web logs one "access report failed" line.
 
 ## Depends on
 
 - `file-fetch-on-demand`
-- `web-access-reporting`
 - `web-fetch-unstored-media`
 
 ## Done when

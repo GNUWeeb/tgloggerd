@@ -20,6 +20,8 @@
 #include "auth/Password.hpp"
 #include "auth/Token.hpp"
 #include "auth/FileToken.hpp"
+#include "daemon/AccessReport.hpp"
+#include "daemon/Api.hpp"
 #include "dao/Accounts.hpp"
 #include "views/Render.hpp"
 
@@ -169,6 +171,14 @@ int main(int argc, char **argv)
 			     "WEB_APP_KEY\n";
 		return 1;
 	}
+
+	/* The daemon's internal API is optional: a bad setting turns it off
+	 * (api::init() says why) instead of stopping the web, which serves
+	 * everything it can without the daemon. */
+	if (tgweb::daemon::api::init() && tgweb::daemon::api::enabled())
+		fprintf(stderr, "tgloggerd-api: using %s\n",
+			tgweb::daemon::api::baseUrl().c_str());
+	tgweb::daemon::access::start();
 
 	/* Template rendering and static assets. */
 	tgweb::views::Render::init(tgweb::env("WEB_TEMPLATE_DIR", "views/templates"),

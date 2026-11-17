@@ -11,6 +11,7 @@
 #include "controllers/Common.hpp"
 #include "dao/Browse.hpp"
 #include "dao/Audit.hpp"
+#include "daemon/AccessReport.hpp"
 
 #include <cctype>
 #include <cstdint>
@@ -155,23 +156,38 @@ MediaController::serve(drogon::HttpRequestPtr req, std::string token)
 
 	auto ro = drogon::app().getDbClient("ro");
 	auto meta = co_await dao::browse::getFile(ro, fid);
-	if (!meta || !isHex64(meta->hex))
+	if (!meta)
 		co_return renderStatus(req, drogon::k404NotFound, "File not found",
 				       "No file exists with that id.");
 
+	/*
+	 * A row whose bytes turned out to be another row's points at that row
+	 * (alias_of) instead of holding the sha256 itself; follow it one hop
+	 * for the bytes, as the daemon does. The name and type shown stay this
+	 * row's, the one the token was minted for.
+	 */
+	std::optional<dao::browse::FileMeta> target;
+	if (meta->aliasOf)
+		target = co_await dao::browse::getFile(ro,
+						       (int64_t)meta->aliasOf);
+	const dao::browse::FileMeta &blob = target ? *target : *meta;
+
 	/* Too large to keep: only the metadata was recorded. */
-	if (!meta->onDisk)
+	if (!blob.onDisk)
 		co_return renderStatus(req, drogon::k404NotFound,
 				       "File not stored",
 				       "This file was too large to keep in "
 				       "storage; only its metadata was recorded.");
+	if (!isHex64(blob.hex))
+		co_return renderStatus(req, drogon::k404NotFound, "File not found",
+				       "No file exists with that id.");
 
 	/* DB-derived path only: <dir>/aa/bb/cc/dd/ee/<hex>[.ext]. */
-	std::string ext = safeExt(meta->ext);
+	std::string ext = safeExt(blob.ext);
 	std::filesystem::path path = storageDir();
 	for (int i = 0; i < 5; i++)
-		path /= meta->hex.substr((size_t)i * 2, 2);
-	std::string name = meta->hex;
+		path /= blob.hex.substr((size_t)i * 2, 2);
+	std::string name = blob.hex;
 	if (!ext.empty())
 		name += "." + ext;
 	path /= name;
@@ -180,6 +196,10 @@ MediaController::serve(drogon::HttpRequestPtr req, std::string token)
 	if (!std::filesystem::is_regular_file(path, ec))
 		co_return renderStatus(req, drogon::k404NotFound, "File not found",
 				       "The file is recorded but not in storage.");
+
+	/* Count the use for eviction: the row whose bytes are served, which
+	 * is the one the store keeps or evicts. Never waits on the daemon. */
+	daemon::access::record(target ? meta->aliasOf : (uint64_t)fid);
 
 	/* Audit only authenticated access. The route is public, so anonymous
 	 * hits (hotlinked images, crawlers) must not flood the audit log. */
@@ -224,10 +244,14 @@ MediaController::serve(drogon::HttpRequestPtr req, std::string token)
 			path.string(), attachment, drogon::CT_NONE, "", req);
 	}
 
-	/* Advertise range support on every response; a token maps to one
-	 * immutable, content-addressed file, so it stays cacheable. */
+	/*
+	 * Advertise range support on every response. A token's bytes never
+	 * change, so the file stays cacheable, but only for a week and not
+	 * "immutable": a browser that keeps showing it asks again, and that
+	 * request is what keeps the file from being evicted as unused.
+	 */
 	resp->addHeader("Accept-Ranges", "bytes");
-	resp->addHeader("Cache-Control", "public, max-age=31536000, immutable");
+	resp->addHeader("Cache-Control", "public, max-age=604800");
 	co_return resp;
 }
 

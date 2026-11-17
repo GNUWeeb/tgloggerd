@@ -21,8 +21,8 @@ they would all be 404s.
   other pages listed in the design: unstored photos and stickers load
   normally, video, audio and documents get "Load from Telegram";
   the chat JSON gains `fetchable`.
-- `web/docs/media.md` (new) and `web/README.web` (the stale "/media"
-  and Range notes).
+- `web/docs/media.md` (started by web-access-reporting) and
+  `web/README.web` (the stale "/media" and Range notes).
 - Not in scope: the React rework, which takes the contract from
   `web/docs/media.md`.
 
