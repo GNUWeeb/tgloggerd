@@ -13,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -117,6 +118,13 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+// ReadFrom passes io.Copy through to the underlying writer, which
+// sends files with sendfile(2); without it every file served would be
+// copied through a buffer.
+func (w *statusWriter) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(w.ResponseWriter, r)
 }
 
 // Unwrap lets http.ResponseController reach the underlying writer
