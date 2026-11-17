@@ -15,7 +15,7 @@ import type { GroupSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 
 export interface McpIndexProps { exposed_groups: number; exposed_messages: number; active_tokens: number; last_used: string | null; endpoint: string }
-export interface McpGroupsProps { groups: { group: GroupSummary & { msg_count: number }; public_now: boolean; note: string; added: string }[]; group_options: PickItem[] }
+export interface McpGroupsProps { groups: { group: GroupSummary & { msg_count: number }; public_now: boolean; note: string; added: string }[] }
 export interface McpTokensProps { tokens: { id: number; name: string; owner: string; created: string; last_used: string | null; revoked: string | null }[] }
 
 function errText(x: unknown) { return x instanceof ApiError ? x.message : 'The server could not be reached.'; }
@@ -52,6 +52,7 @@ function McpGroups({ page }: { page: PageData<McpGroupsProps> }) {
 	const [pick, setPick] = useState<PickItem | null>(null);
 	const [note, setNote] = useState('');
 	const [err, setErr] = useState('');
+	const exposed = new Set(page.props.groups.map((g) => g.group.id));
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
 	const act = async (fn: () => Promise<unknown>) => { setErr(''); try { await fn(); setAdding(false); refresh(); } catch (x) { setErr(errText(x)); } };
 	return (
@@ -83,7 +84,7 @@ function McpGroups({ page }: { page: PageData<McpGroupsProps> }) {
 				<Modal title="Expose a group" onClose={() => setAdding(false)}
 					footer={<><span className="a-grow" /><Btn ghost onClick={() => setAdding(false)}>Cancel</Btn><Btn primary disabled={!pick} onClick={() => void act(() => mutate('POST', '/api/mcp/groups', { group_id: pick!.id, note }))}>Expose</Btn></>}>
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
-					<Field label="Group" hint="Busiest groups first. Groups already exposed are not listed."><ChatPicker value={pick} onChange={setPick} options={page.props.group_options} /></Field>
+					<Field label="Group" hint="Busiest groups first. Groups already exposed are not listed."><ChatPicker value={pick} onChange={setPick} search={{ kind: 'group' }} exclude={exposed} placeholder="Search groups and channels" /></Field>
 					<Field label="Note" hint="Why it is exposed, for whoever reviews this later."><input value={note} onChange={(e) => setNote(e.target.value)} maxLength={255} /></Field>
 					<div className="a-banner warn"><ShieldAlert size={15} /><span>Its whole history becomes readable on the web without signing in.</span></div>
 				</Modal>

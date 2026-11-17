@@ -1,7 +1,9 @@
 // Form parts for the settings and administration pages.
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Check, Search, X } from 'lucide-react';
 import { Avatar } from './primitives.tsx';
+import { searchChats, type ChatQuery } from '../api/search.ts';
+import type { PickItem } from '../types.ts';
 
 export function Field({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode }) {
 	return (
@@ -22,13 +24,39 @@ export function Switch({ checked, onChange, label, disabled }: { checked: boolea
 	);
 }
 
-export interface PickItem { id: number; title: string; kind: 'group' | 'user'; sub?: string; photo?: string | null }
+export type { PickItem };
 
-// One chat (group, channel or user), searched by name.
-export function ChatPicker({ value, onChange, options }: { value: PickItem | null; onChange: (v: PickItem) => void; options: PickItem[] }) {
+// Search results for a picker, fetched while it is open: debounced, the
+// previous request aborted, `exclude` dropped from the list.
+function useChatResults(query: ChatQuery | undefined, q: string, open: boolean, exclude: ReadonlySet<number>) {
+	const [state, setState] = useState<{ items: PickItem[]; loading: boolean; failed: boolean }>({ items: [], loading: false, failed: false });
+	const key = query ? `${query.kind ?? ''}|${query.federation ?? ''}` : '';
+	useEffect(() => {
+		if (!query || !open) return;
+		const ac = new AbortController();
+		setState((s) => ({ ...s, loading: true, failed: false }));
+		const t = setTimeout(() => {
+			searchChats({ ...query, q: q.trim(), limit: 20 }, ac.signal)
+				.then((page) => setState({ items: page.items, loading: false, failed: false }))
+				.catch(() => { if (!ac.signal.aborted) setState({ items: [], loading: false, failed: true }); });
+		}, q ? 200 : 0);
+		return () => { clearTimeout(t); ac.abort(); };
+	}, [key, q, open]);
+	return { ...state, items: state.items.filter((o) => !exclude.has(o.id)) };
+}
+
+const NO_IDS: ReadonlySet<number> = new Set();
+
+function PickEmpty({ loading, failed, q }: { loading: boolean; failed: boolean; q: string }) {
+	return <li className="a-muted a-picker-empty">{loading ? 'Searching...' : failed ? 'The search failed; try again.' : q ? 'No chat matches.' : 'Nothing to choose.'}</li>;
+}
+
+// One chat (group, channel or user), searched on the server.
+export function ChatPicker({ value, onChange, search, exclude = NO_IDS, placeholder = 'Search groups, channels, users' }: { value: PickItem | null; onChange: (v: PickItem) => void; search: ChatQuery; exclude?: ReadonlySet<number>; placeholder?: string }) {
 	const [q, setQ] = useState('');
 	const [open, setOpen] = useState(false);
-	const list = options.filter((o) => o.title.toLowerCase().includes(q.toLowerCase())).slice(0, 7);
+	const r = useChatResults(search, q, open, exclude);
+	const list = r.items.slice(0, 8);
 	return (
 		<div className="a-picker">
 			<button type="button" className="a-picker-btn" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -37,8 +65,8 @@ export function ChatPicker({ value, onChange, options }: { value: PickItem | nul
 			</button>
 			{open && (
 				<div className="a-picker-pop">
-					<div className="a-picker-search"><Search size={14} /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search groups, channels, users" /></div>
-					<ul>
+					<div className="a-picker-search"><Search size={14} /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} /></div>
+					<ul aria-busy={r.loading}>
 						{list.map((o) => (
 							<li key={o.kind + o.id}>
 								<button type="button" onClick={() => { onChange(o); setOpen(false); }}>
@@ -48,7 +76,7 @@ export function ChatPicker({ value, onChange, options }: { value: PickItem | nul
 								</button>
 							</li>
 						))}
-						{!list.length && <li className="a-muted a-picker-empty">No chat matches.</li>}
+						{!list.length && <PickEmpty loading={r.loading} failed={r.failed} q={q} />}
 					</ul>
 				</div>
 			)}
@@ -56,14 +84,16 @@ export function ChatPicker({ value, onChange, options }: { value: PickItem | nul
 	);
 }
 
-// Several items as removable chips.
-export function MultiPicker({ value, onChange, options, placeholder = 'Add...' }: { value: PickItem[]; onChange: (v: PickItem[]) => void; options: PickItem[]; placeholder?: string }) {
+// Several items as removable chips: chats searched on the server
+// (`search`), or a short list the page already holds (`options`).
+export function MultiPicker({ value, onChange, options, search, placeholder = 'Add...' }: { value: PickItem[]; onChange: (v: PickItem[]) => void; options?: PickItem[]; search?: ChatQuery; placeholder?: string }) {
 	const [q, setQ] = useState('');
 	const [open, setOpen] = useState(false);
 	const ids = new Set(value.map((v) => v.id));
-	const list = options.filter((o) => !ids.has(o.id) && o.title.toLowerCase().includes(q.toLowerCase())).slice(0, 6);
+	const r = useChatResults(search, q, open, ids);
+	const list = (search ? r.items : (options ?? []).filter((o) => !ids.has(o.id) && o.title.toLowerCase().includes(q.toLowerCase()))).slice(0, 6);
 	return (
-		<div className="a-multi">
+		<div className="a-multi" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false); }}>
 			<div className="a-multi-box" onClick={() => setOpen(true)}>
 				{value.map((v) => (
 					<span key={v.id} className="a-chip a-chip-entity">
@@ -73,8 +103,8 @@ export function MultiPicker({ value, onChange, options, placeholder = 'Add...' }
 				))}
 				<input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder={value.length ? '' : placeholder} />
 			</div>
-			{open && list.length > 0 && (
-				<ul className="a-multi-pop">
+			{open && (list.length > 0 || (search && (r.loading || r.failed || q))) && (
+				<ul className="a-multi-pop" aria-busy={search ? r.loading : undefined}>
 					{list.map((o) => (
 						<li key={o.id}>
 							<button type="button" onClick={() => { onChange([...value, o]); setQ(''); }}>
@@ -83,6 +113,7 @@ export function MultiPicker({ value, onChange, options, placeholder = 'Add...' }
 							</button>
 						</li>
 					))}
+					{!list.length && <PickEmpty loading={r.loading} failed={r.failed} q={q} />}
 				</ul>
 			)}
 		</div>

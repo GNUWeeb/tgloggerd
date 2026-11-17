@@ -164,3 +164,7 @@ export interface ChatWindow {
 	has_older: boolean;
 	has_newer: boolean;
 }
+
+// A chat as the pickers show it: a group or channel, or a user's private
+// chat. `sub` is a short second line ("supergroup", "private chat").
+export interface PickItem { id: number; title: string; kind: 'group' | 'user'; sub?: string; photo?: string | null }
