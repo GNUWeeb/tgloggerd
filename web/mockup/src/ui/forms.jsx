@@ -1,24 +1,28 @@
-// Form parts for the admin pages: side drawer, switch, chat picker.
+// Form parts for the admin pages: modal, switch, chat picker.
 import { useEffect, useState } from 'react';
 import { X, Search, Check } from 'lucide-react';
 import { Avatar } from './primitives.jsx';
 
-export function Drawer({ title, onClose, children, footer }) {
+// A centered dialog: the one pattern for every add/edit form and preview.
+export function Modal({ title, icon, onClose, children, footer, wide = false }) {
 	useEffect(() => {
 		const on = (e) => e.key === 'Escape' && onClose();
 		addEventListener('keydown', on);
-		return () => removeEventListener('keydown', on);
+		const prev = document.body.style.overflow;
+		document.body.style.overflow = 'hidden';
+		return () => { removeEventListener('keydown', on); document.body.style.overflow = prev; };
 	}, [onClose]);
 	return (
-		<div className="a-drawer-wrap" onClick={onClose}>
-			<aside className="a-drawer a-formdrawer" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
-				<header className="a-drawer-head">
-					<b className="a-grow">{title}</b>
+		<div className="a-modal-wrap" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+			<div className={`a-modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
+				<header className="a-modal-head">
+					{icon}
+					<b className="a-grow a-ellipsis">{title}</b>
 					<button type="button" className="a-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
 				</header>
-				<div className="a-form">{children}</div>
-				{footer && <footer className="a-drawer-foot">{footer}</footer>}
-			</aside>
+				<div className="a-modal-body a-form">{children}</div>
+				{footer && <footer className="a-modal-foot">{footer}</footer>}
+			</div>
 		</div>
 	);
 }

@@ -3,7 +3,7 @@ import { ArrowRight, Plus, Pencil, Trash2, Send, Eye, EyeOff, ArrowLeftRight } f
 import { Link } from '../router.jsx';
 import Shell from '../ui/Shell.jsx';
 import { Avatar, Pill, PageHead, Btn } from '../ui/primitives.jsx';
-import { Drawer, Field, Switch, ChatPicker, TypeChecks, CONTENT_KINDS } from '../ui/forms.jsx';
+import { Modal, Field, Switch, ChatPicker, TypeChecks, CONTENT_KINDS } from '../ui/forms.jsx';
 import { t2d, d2t, chatOptions } from '../data/admin.js';
 import { fmt, ago } from '../data/seed.js';
 
@@ -110,7 +110,7 @@ export function TelegramDiscord() {
 				</ul>
 			</div>
 			{edit && (
-				<Drawer title={edit.id ? 'Edit webhook' : 'Add webhook'} onClose={() => setEdit(null)}
+				<Modal title={edit.id ? 'Edit webhook' : 'Add webhook'} onClose={() => setEdit(null)}
 					footer={<><Btn ghost icon={Send}>Send test message</Btn><span className="a-grow" /><Btn ghost onClick={() => setEdit(null)}>Cancel</Btn><Btn primary onClick={() => setEdit(null)}>Save</Btn></>}>
 					<Field label="Telegram chat" hint="A group, channel or user the logger has already seen.">
 						<ChatPicker value={edit.chat} onChange={(c) => setEdit({ ...edit, chat: c })} options={chatOptions} />
@@ -125,7 +125,7 @@ export function TelegramDiscord() {
 						<TypeChecks value={edit.types} onChange={(t) => setEdit({ ...edit, types: t })} />
 					</Field>
 					<Switch checked={edit.enabled} onChange={(v) => setEdit({ ...edit, enabled: v })} label="Enabled" />
-				</Drawer>
+				</Modal>
 			)}
 		</Shell>
 	);
@@ -176,7 +176,7 @@ export function DiscordTelegram() {
 				</ul>
 			</div>
 			{edit && (
-				<Drawer title={edit.id ? 'Edit route' : 'Add route'} onClose={() => setEdit(null)}
+				<Modal title={edit.id ? 'Edit route' : 'Add route'} onClose={() => setEdit(null)}
 					footer={<><span className="a-grow" /><Btn ghost onClick={() => setEdit(null)}>Cancel</Btn><Btn primary onClick={() => setEdit(null)}>Save</Btn></>}>
 					<Field label="Discord channel ID" hint="Developer mode on, then right-click the channel and Copy Channel ID.">
 						<input value={edit.channel} onChange={(e) => setEdit({ ...edit, channel: e.target.value })} inputMode="numeric" placeholder="1093447120571433021" />
@@ -191,7 +191,7 @@ export function DiscordTelegram() {
 						<TypeChecks value={edit.types} onChange={(t) => setEdit({ ...edit, types: t })} kinds={kinds} />
 					</Field>
 					<Switch checked={edit.enabled} onChange={(v) => setEdit({ ...edit, enabled: v })} label="Enabled" />
-				</Drawer>
+				</Modal>
 			)}
 		</Shell>
 	);

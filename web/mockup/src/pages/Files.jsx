@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Download, LayoutGrid, List, X, MessageSquare, CloudOff, Copy } from 'lucide-react';
+import { Download, LayoutGrid, List, MessageSquare, CloudOff, CloudDownload, Copy } from 'lucide-react';
+import { Modal } from '../ui/forms.jsx';
 import { Link, useQuery } from '../router.jsx';
 import Shell from '../ui/Shell.jsx';
 import { useList } from '../ui/hooks.js';
@@ -22,27 +22,15 @@ function msgHref(f) {
 }
 
 function Preview({ f, onClose }) {
-	useEffect(() => {
-		const on = (e) => e.key === 'Escape' && onClose();
-		addEventListener('keydown', on);
-		return () => removeEventListener('keydown', on);
-	}, [onClose]);
 	const big = f.file_type === 'photo' || f.file_type === 'video' || f.file_type === 'animation' || f.file_type === 'sticker';
 	return (
-		<div className="a-drawer-wrap" onClick={onClose}>
-			<aside className="a-drawer" role="dialog" aria-label={f.name} onClick={(e) => e.stopPropagation()}>
-				<header className="a-drawer-head">
-					<TypeIcon type={f.file_type} />
-					<b className="a-ellipsis a-grow">{f.name}</b>
-					<button type="button" className="a-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
-				</header>
+		<Modal wide title={f.name} icon={<TypeIcon type={f.file_type} />} onClose={onClose}
+			footer={<><Btn to={msgHref(f)} ghost icon={MessageSquare}>Open message</Btn><span className="a-grow" />
+				{f.stored ? <Btn primary icon={Download}>Download</Btn> : <Btn primary icon={CloudDownload} title="Needs the fetch-from-Telegram permission">Fetch from Telegram</Btn>}</>}>
+			<div className="a-previewgrid">
 				<div className={`a-preview ${big ? 'big' : ''}`}>
 					{f.stored ? <Thumb f={f} size={big ? 280 : 96} radius={big ? 12 : 16} />
-						: <div className="a-preview-missing"><CloudOff size={28} /><span>Not stored. Telegram still has it, but the archive skipped the download.</span></div>}
-				</div>
-				<div className="a-drawer-actions">
-					<Btn primary icon={Download} disabled={!f.stored}>Download</Btn>
-					<Btn to={msgHref(f)} icon={MessageSquare}>Open message</Btn>
+						: <div className="a-preview-missing"><CloudOff size={28} /><span>Not stored. Telegram may still have it; fetching downloads it into the archive.</span></div>}
 				</div>
 				<KV rows={[
 					[null, 'Type', f.file_type],
@@ -56,8 +44,8 @@ function Preview({ f, onClose }) {
 					[null, 'Telegram ID', <span className="a-break">{f.tg_file_id} <button type="button" className="a-icon-btn sm" aria-label="Copy"><Copy size={12} /></button></span>, true],
 					[null, 'First seen', f.created_at, true],
 				]} />
-			</aside>
-		</div>
+			</div>
+		</Modal>
 	);
 }
 

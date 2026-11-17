@@ -3,7 +3,7 @@ import { ArrowRight, Plus, Copy, Globe, KeyRound, TriangleAlert, Trash2, Check, 
 import { Link } from '../router.jsx';
 import Shell from '../ui/Shell.jsx';
 import { Avatar, Pill, PageHead, Btn, Card } from '../ui/primitives.jsx';
-import { Drawer, Field, ChatPicker } from '../ui/forms.jsx';
+import { Modal, Field, ChatPicker } from '../ui/forms.jsx';
 import { GroupCell } from './Groups.jsx';
 import { mcpExposed, mcpTokens } from '../data/admin.js';
 import { groups } from '../data/groups.js';
@@ -81,7 +81,7 @@ export function McpGroups() {
 			</div>
 			<p className="a-muted a-foot"><b>Public on Telegram</b> says whether the group still has a public username. A group that went private stays exposed until it is removed here.</p>
 			{adding && (
-				<Drawer title="Expose a group" onClose={() => setAdding(false)}
+				<Modal title="Expose a group" onClose={() => setAdding(false)}
 					footer={<><span className="a-grow" /><Btn ghost onClick={() => setAdding(false)}>Cancel</Btn><Btn primary onClick={() => setAdding(false)}>Expose</Btn></>}>
 					<Field label="Group" hint="Busiest groups first. Groups already exposed are not listed.">
 						<ChatPicker value={pick} onChange={setPick} options={groups.filter((g) => !g.exposed).slice(0, 40)} />
@@ -90,7 +90,7 @@ export function McpGroups() {
 						<input maxLength={255} placeholder="e.g. public community, admins agreed" />
 					</Field>
 					<div className="a-banner warn"><ShieldAlert size={15} /><span>Its whole history becomes readable on the web without signing in.</span></div>
-				</Drawer>
+				</Modal>
 			)}
 		</Shell>
 	);
@@ -147,12 +147,12 @@ export function McpTokens() {
 			</div>
 			<p className="a-muted a-foot">Revoking keeps the row for the audit trail; the token stops working at once. Deactivating an account disables its tokens too.</p>
 			{minting && (
-				<Drawer title="Mint a token" onClose={() => setMinting(false)}
+				<Modal title="Mint a token" onClose={() => setMinting(false)}
 					footer={<><span className="a-grow" /><Btn ghost onClick={() => setMinting(false)}>Cancel</Btn><Btn primary onClick={() => { setMinting(false); setCopied(false); setMinted('tgmcp_' + 'x'.repeat(8) + '-example-token-shown-once'); }}>Mint</Btn></>}>
 					<Field label="Name" hint="A label, so this one can be revoked later without guessing which is which.">
 						<input maxLength={64} placeholder="laptop" autoComplete="off" />
 					</Field>
-				</Drawer>
+				</Modal>
 			)}
 		</Shell>
 	);
