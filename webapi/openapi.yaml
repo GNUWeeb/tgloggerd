@@ -76,6 +76,8 @@ tags:
     description: Joining Telegram groups and channels with the logging account.
   - name: mcp
     description: Administration of the MCP endpoint's exposed groups and tokens.
+  - name: live
+    description: Live updates as Server-Sent Events.
 
 paths:
 
@@ -435,6 +437,115 @@ paths:
             text/html:
               schema:
                 type: string
+
+  /api/events:
+    get:
+      operationId: getEvents
+      tags: [live]
+      summary: Live updates as Server-Sent Events
+      description: >-
+        What changes in the archive, as a text/event-stream for as long
+        as the connection stays open (docs/design/web-live.md). An
+        event says what changed, never the new content; the page
+        refetches what it names through the other operations. Only
+        events about chats and users the viewer may see are sent, so
+        the stream reveals no activity in a hidden group.
+
+
+        Framing: a `retry:` line first, then one frame per event with
+        `id:` its seq, `event:` its kind and `data:` the LiveEvent as
+        JSON. The first event is a `hello` (the events after its seq
+        follow) or a `resync` (what the client missed cannot be sent:
+        refetch what is shown, the events after its seq follow). A
+        `resync` can also come later, when the client reads too slowly
+        to keep up. A comment line (`: keepalive`) about every 15
+        seconds keeps a quiet stream alive. A `session` event, without
+        an id, ends the stream when the session was revoked or expired
+        (reason revoked: sign in again) or the viewer's access changed
+        (reason scope_changed: refetch everything, then reconnect).
+        The server also closes the stream without an event when the
+        daemon stays away; reconnecting then answers 503.
+
+
+        To resume, reconnect with the last seq seen, as `last` or as
+        the Last-Event-ID header the browser sends on its own
+        reconnect (the header wins). Recent events are kept, so a
+        short disconnect loses nothing; a longer one, or one across a
+        restart of the daemon, starts with a resync.
+
+
+        Topics: `chat:<chat_id>` (message.new, message.edited,
+        message.deleted and file.stored of one chat), `messages` (the
+        same for every chat the viewer may see), `user:<id>`
+        (user.updated), `group:<chat_id>` (group.updated) and `stats`
+        (stats.changed). Repeats count once; at most 2000 topics, and
+        the request line may run to tens of kilobytes. Kinds may be
+        added; a client skips kinds it does not know.
+      parameters:
+        - name: topics
+          in: query
+          required: true
+          description: >-
+            Comma-separated topics, e.g.
+            chat:-1001234567890,user:42,messages,stats.
+          schema:
+            type: string
+        - name: last
+          in: query
+          required: false
+          description: The last seq the client has seen; without it the stream starts from now.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: >-
+            Set by the browser's EventSource on its own reconnect;
+            wins over last. A value that is not a seq resumes nothing
+            (a resync).
+          schema:
+            type: string
+      responses:
+        '200':
+          description: >-
+            The stream. Each frame's data is a LiveEvent, as JSON.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            X-Accel-Buffering:
+              description: no, so nginx passes each frame on at once.
+              schema:
+                type: string
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              x-tgd-event:
+                $ref: '#/components/schemas/LiveEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          description: >-
+            No stream: live updates are off or the daemon's stream is
+            not connected (error live_off), too many streams are open
+            (error unavailable), or the session could not be checked
+            (error unavailable). The client polls meanwhile and tries
+            again after Retry-After seconds.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+            Retry-After:
+              description: Seconds to wait before trying again.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/page/{path}:
     get:
@@ -2541,6 +2652,70 @@ components:
               $ref: '#/components/schemas/McpTokensProps'
 
     # Shapes shared by the pages and the chat operations.
+    LiveEvent:
+      type: object
+      description: >-
+        One event of GET /api/events: what changed, never the content.
+        Ids are as stored: chat_id is Telegram's chat id (negative for
+        groups, the other user's id for private chats), message_id the
+        message tables' message_id, file_id the file's id.
+      required: [kind]
+      properties:
+        seq:
+          type: integer
+          format: int64
+          description: >-
+            Grows with each event and is the frame's id; compare, do not
+            compute with it. Absent on a session event.
+        kind:
+          type: string
+          enum: [hello, resync, session, message.new, message.edited, message.deleted, user.updated, group.updated, file.stored, stats.changed]
+          description: The frame's event name. New kinds may be added.
+        chat_id:
+          type: integer
+          format: int64
+          description: message.*, file.stored (for message media), group.updated.
+        message_id:
+          type: integer
+          format: int64
+          description: message.*, file.stored (for message media).
+        user_id:
+          type: integer
+          format: int64
+          description: user.updated.
+        file_id:
+          type: integer
+          format: int64
+          description: file.stored.
+        fields:
+          type: array
+          items:
+            type: string
+          description: >-
+            user.updated and group.updated, when present: the parts
+            that may have changed (users: name, photo, bio, birthday,
+            personal_chat; groups: photo, admins). Absent: anything.
+        chat_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: >-
+            stats.changed: the visible chats whose counters moved
+            (groups negative, private chats positive).
+        user_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: stats.changed, the visible senders whose message counts moved.
+        more:
+          type: boolean
+          description: stats.changed, the lists were cut; treat every counter as changed.
+        reason:
+          type: string
+          enum: [revoked, scope_changed]
+          description: session, why the stream ends.
     UserSummary:
       type: object
       required: [id, name, username, type, photo]

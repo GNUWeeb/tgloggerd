@@ -1,23 +1,24 @@
 # web-live-events
 
-Push live updates to browsers with Server-Sent Events from the Go web
-service, filtered by what each viewer may see.
+Put the live updates of the Go web service into service: route the
+event stream through nginx and check it on the running site.
 
 ## Why
 
 Pages should update as things happen, for messages, names, photos and
-statistics alike (docs/design/web-live.md).
+statistics alike (docs/design/web-live.md). The service side is built:
+GET /api/events in webapi/ (webapi/README, "Live updates"), fed by
+the daemon's GET /v1/events. What is left needs the deployment.
 
 ## Scope
 
-- One subscription from the Go service to the daemon's event stream
-  (`GET /v1/events`, docs/internal-api.md), resuming by `seq`, behind
-  an interface a broker could replace later.
-- `GET /api/events`: Server-Sent Events for the chats and users the
-  page shows, with `Last-Event-ID` resume and a resynchronise event;
-  each event checked against the viewer's request scope.
-- nginx: buffering off for `/api/events`, HTTP/1.1 upstream.
-- The OpenAPI description and the generated client cover it.
+- nginx: the `location = /api/events` block and the
+  `large_client_header_buffers` setting of webapi/README ("Routing
+  /api/events through nginx"), and HTTP/2 to the browsers if the site
+  does not serve it yet.
+- Check on the running site that the stream stays open through nginx
+  (heartbeats arrive every 15 seconds, events are not held back) and
+  that the webapi container reaches the daemon's internal API.
 
 ## Depends on
 

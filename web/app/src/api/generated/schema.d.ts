@@ -110,6 +110,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live updates as Server-Sent Events
+         * @description What changes in the archive, as a text/event-stream for as long as the connection stays open (docs/design/web-live.md). An event says what changed, never the new content; the page refetches what it names through the other operations. Only events about chats and users the viewer may see are sent, so the stream reveals no activity in a hidden group.
+         *
+         *     Framing: a `retry:` line first, then one frame per event with `id:` its seq, `event:` its kind and `data:` the LiveEvent as JSON. The first event is a `hello` (the events after its seq follow) or a `resync` (what the client missed cannot be sent: refetch what is shown, the events after its seq follow). A `resync` can also come later, when the client reads too slowly to keep up. A comment line (`: keepalive`) about every 15 seconds keeps a quiet stream alive. A `session` event, without an id, ends the stream when the session was revoked or expired (reason revoked: sign in again) or the viewer's access changed (reason scope_changed: refetch everything, then reconnect). The server also closes the stream without an event when the daemon stays away; reconnecting then answers 503.
+         *
+         *     To resume, reconnect with the last seq seen, as `last` or as the Last-Event-ID header the browser sends on its own reconnect (the header wins). Recent events are kept, so a short disconnect loses nothing; a longer one, or one across a restart of the daemon, starts with a resync.
+         *
+         *     Topics: `chat:<chat_id>` (message.new, message.edited, message.deleted and file.stored of one chat), `messages` (the same for every chat the viewer may see), `user:<id>` (user.updated), `group:<chat_id>` (group.updated) and `stats` (stats.changed). Repeats count once; at most 2000 topics, and the request line may run to tens of kilobytes. Kinds may be added; a client skips kinds it does not know.
+         */
+        get: operations["getEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/page/{path}": {
         parameters: {
             query?: never;
@@ -1073,6 +1099,52 @@ export interface components {
             /** @enum {unknown} */
             route: "mcp_tokens";
             props: components["schemas"]["McpTokensProps"];
+        };
+        /** @description One event of GET /api/events: what changed, never the content. Ids are as stored: chat_id is Telegram's chat id (negative for groups, the other user's id for private chats), message_id the message tables' message_id, file_id the file's id. */
+        LiveEvent: {
+            /**
+             * Format: int64
+             * @description Grows with each event and is the frame's id; compare, do not compute with it. Absent on a session event.
+             */
+            seq?: number;
+            /**
+             * @description The frame's event name. New kinds may be added.
+             * @enum {string}
+             */
+            kind: "hello" | "resync" | "session" | "message.new" | "message.edited" | "message.deleted" | "user.updated" | "group.updated" | "file.stored" | "stats.changed";
+            /**
+             * Format: int64
+             * @description message.*, file.stored (for message media), group.updated.
+             */
+            chat_id?: number;
+            /**
+             * Format: int64
+             * @description message.*, file.stored (for message media).
+             */
+            message_id?: number;
+            /**
+             * Format: int64
+             * @description user.updated.
+             */
+            user_id?: number;
+            /**
+             * Format: int64
+             * @description file.stored.
+             */
+            file_id?: number;
+            /** @description user.updated and group.updated, when present: the parts that may have changed (users: name, photo, bio, birthday, personal_chat; groups: photo, admins). Absent: anything. */
+            fields?: string[];
+            /** @description stats.changed: the visible chats whose counters moved (groups negative, private chats positive). */
+            chat_ids?: number[];
+            /** @description stats.changed, the visible senders whose message counts moved. */
+            user_ids?: number[];
+            /** @description stats.changed, the lists were cut; treat every counter as changed. */
+            more?: boolean;
+            /**
+             * @description session, why the stream ends.
+             * @enum {string}
+             */
+            reason?: "revoked" | "scope_changed";
         };
         UserSummary: {
             /** Format: int64 */
@@ -2198,6 +2270,51 @@ export interface operations {
                 };
                 content: {
                     "text/html": string;
+                };
+            };
+        };
+    };
+    getEvents: {
+        parameters: {
+            query: {
+                /** @description Comma-separated topics, e.g. chat:-1001234567890,user:42,messages,stats. */
+                topics: string;
+                /** @description The last seq the client has seen; without it the stream starts from now. */
+                last?: number;
+            };
+            header?: {
+                /** @description Set by the browser's EventSource on its own reconnect; wins over last. A value that is not a seq resumes nothing (a resync). */
+                "Last-Event-ID"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stream. Each frame's data is a LiveEvent, as JSON. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @description no, so nginx passes each frame on at once. */
+                    "X-Accel-Buffering"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            /** @description No stream: live updates are off or the daemon's stream is not connected (error live_off), too many streams are open (error unavailable), or the session could not be checked (error unavailable). The client polls meanwhile and tries again after Retry-After seconds. */
+            503: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    /** @description Seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };

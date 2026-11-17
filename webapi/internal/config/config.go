@@ -82,6 +82,20 @@ type Config struct {
 	// X-Forwarded-For hops are skipped to find a request's client.
 	// Empty: the connection's peer is the client.
 	TrustedProxies []netip.Prefix
+
+	// Live is WEBAPI_LIVE != "0": GET /api/events, fed by the daemon's
+	// event stream (so only with DaemonAPI set).
+	Live bool
+	// LiveMaxSubscribers caps the open event streams
+	// (WEBAPI_LIVE_MAX_SUBSCRIBERS); LiveBuffer is how many events may
+	// wait for one (WEBAPI_LIVE_BUFFER); LiveHistory how many recent
+	// events are kept for streams that reconnect (WEBAPI_LIVE_HISTORY).
+	LiveMaxSubscribers int
+	LiveBuffer         int
+	LiveHistory        int
+	// LiveRecheck is how often an open stream checks its session again
+	// (WEBAPI_LIVE_RECHECK, seconds).
+	LiveRecheck time.Duration
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -242,6 +256,22 @@ func FromEnv() (*Config, error) {
 	if c.TrustedProxies, err = trustedProxies("WEBAPI_TRUSTED_PROXIES"); err != nil {
 		return nil, err
 	}
+
+	c.Live = env("WEBAPI_LIVE", "1") != "0"
+	if c.LiveMaxSubscribers, err = positive("WEBAPI_LIVE_MAX_SUBSCRIBERS", "256"); err != nil {
+		return nil, err
+	}
+	if c.LiveBuffer, err = positive("WEBAPI_LIVE_BUFFER", "256"); err != nil {
+		return nil, err
+	}
+	if c.LiveHistory, err = positive("WEBAPI_LIVE_HISTORY", "4096"); err != nil {
+		return nil, err
+	}
+	recheck, err := positive("WEBAPI_LIVE_RECHECK", "30")
+	if err != nil {
+		return nil, err
+	}
+	c.LiveRecheck = time.Duration(recheck) * time.Second
 
 	return &c, nil
 }

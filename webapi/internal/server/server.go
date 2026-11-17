@@ -20,6 +20,8 @@ import (
 
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/daemon"
+	"tgloggerd/webapi/internal/live"
+	"tgloggerd/webapi/internal/scope"
 )
 
 // Deps is what the service is built from.
@@ -43,6 +45,10 @@ type Deps struct {
 	// Proxies are the reverse proxies whose X-Forwarded-For hops are
 	// skipped to find a request's client (WEBAPI_TRUSTED_PROXIES).
 	Proxies TrustedProxies
+	// Live fans the daemon's events out to GET /api/events; nil when
+	// live updates are off.
+	Live    *live.Hub
+	LiveCfg LiveConfig
 }
 
 // Server carries what the handlers share.
@@ -60,6 +66,10 @@ type Server struct {
 	access      *daemon.AccessReporter
 	media       MediaConfig
 	proxies     TrustedProxies
+	live        *live.Hub
+	liveCfg     LiveConfig
+	// liveFilter replaces eventInScope in tests.
+	liveFilter func(scope.Scope, live.Event) (live.Event, bool)
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -79,6 +89,8 @@ func New(d Deps) http.Handler {
 		access:      d.Access,
 		media:       d.Media,
 		proxies:     d.Proxies,
+		live:        d.Live,
+		liveCfg:     d.LiveCfg,
 	}
 
 	mux := http.NewServeMux()
@@ -106,6 +118,7 @@ func (s *Server) routes() []route {
 		{"POST /api/logout", s.postLogout},
 		{"GET /api/session", s.RequireSession(s.session)},
 		{"GET /files/{token}", s.serveFile},
+		{"GET /api/events", s.RequireSession(s.events)},
 	}
 }
 
