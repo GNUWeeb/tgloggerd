@@ -1,7 +1,8 @@
 # Server rendering of web pages
 
 Status: decided 2026-11-18; the Go side is built (webapi/README
-"Pages"), the render service not deployed yet. This document details
+"Pages"), the render service is a compose service (web/app/README
+"Deployment"), not deployed yet. This document details
 [web-go.md](web-go.md) section 4 and is the shared specification of
 the render protocol between the Go service and the render service.
 Decisions:

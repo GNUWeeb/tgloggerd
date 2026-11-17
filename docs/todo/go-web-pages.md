@@ -32,8 +32,8 @@ nginx still sends every page path to the Drogon web.
 - The build id comes from the bundle's `build.json`, which the build
   writes for the client bundle and the render entry alike;
   `WEBAPI_APP_BUILD` overrides it.
-- Needs the render service deployed (`ssr-render-service`, which lists
-  this item as its dependency for the Go side) before the route moves.
+- Needs the render service deployed (`ssr-render-service`) before the
+  route moves.
 
 ## Depends on
 
