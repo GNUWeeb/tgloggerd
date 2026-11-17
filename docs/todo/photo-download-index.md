@@ -23,7 +23,7 @@ again.
 
 ## Depends on
 
-- `files-cache-schema`
+Nothing.
 
 ## Done when
 

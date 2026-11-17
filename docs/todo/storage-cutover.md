@@ -40,7 +40,6 @@ step needs care, and the last one needs the owner's go.
 
 ## Depends on
 
-- `files-cache-schema`
 - `media-record-without-download`
 - `internal-api-server`
 - `seed-file-access`

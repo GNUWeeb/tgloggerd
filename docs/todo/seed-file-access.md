@@ -33,7 +33,7 @@ Without seeding, the first sweep would evict files people did look at.
 
 ## Depends on
 
-- `files-cache-schema`
+Nothing.
 
 ## Done when
 

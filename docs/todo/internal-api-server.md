@@ -39,7 +39,7 @@ the daemon, and there is none.
 
 ## Depends on
 
-- `files-cache-schema`
+Nothing.
 
 ## Done when
 

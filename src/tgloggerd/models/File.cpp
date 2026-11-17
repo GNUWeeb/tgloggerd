@@ -41,7 +41,9 @@ uint64_t DB::upsertFile(const models::File &f)
 			" new.orig_file_name, telegram_files.orig_file_name),"
 			/* Once stored, stay stored; a metadata-only re-store
 			 * must not clear a copy that is already on disk. */
-			" on_disk = telegram_files.on_disk OR new.on_disk",
+			" on_disk = telegram_files.on_disk OR new.on_disk,"
+			/* A file seen again is in use: keep it from eviction. */
+			" accessed_at = NOW()",
 			{
 				f.tg_file_id,
 				f.file_type,

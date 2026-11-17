@@ -36,7 +36,7 @@ it (TDLib's temp dir reached 13 GiB during one sweep).
 
 ## Depends on
 
-- `files-cache-schema`
+Nothing.
 
 ## Done when
 
