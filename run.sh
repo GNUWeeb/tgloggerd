@@ -215,10 +215,18 @@ apply_web_grants() {
 	fi
 }
 
+# docker-compose.yml loads the whole .env into every service, so each one
+# starts with every secret of the deployment. Each mode below unsets the ones
+# its component does not use, before building it, so neither the build nor
+# the process run.sh execs holds them. The mysql service's own passwords
+# (MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD) go everywhere, MYSQL_ROOT_PASSWORD
+# only after the daemon's grants step has used it. This covers the processes
+# run.sh starts; `docker exec` into a container still gets the whole .env.
 case "$MODE" in
 daemon)
 	: "${TG_DB_HOST:?TG_DB_HOST is not set}" "${TG_DB_PORT:?TG_DB_PORT is not set}"
 	: "${TG_DB_USER:?}" "${TG_DB_PASSWORD:?}" "${TG_DB_NAME:?}"
+	unset MYSQL_PASSWORD WEB_DB_RO_PASSWORD WEB_DB_APP_PASSWORD DISCORD_BOT_TOKEN
 
 	ensure_submodules submodules/td submodules/mysql-connector-cpp
 
@@ -233,6 +241,7 @@ daemon)
 	run_migrate "$TG_DB_USER" "$TG_DB_PASSWORD" "$TG_DB_HOST" "$TG_DB_PORT" \
 		"$TG_DB_NAME" "" -path migrations up
 	apply_web_grants
+	unset MYSQL_ROOT_PASSWORD
 
 	log "Starting tgloggerd"
 	exec build/tgloggerd
@@ -241,6 +250,7 @@ daemon)
 web)
 	: "${WEB_DB_HOST:?WEB_DB_HOST is not set}" "${WEB_DB_PORT:?WEB_DB_PORT is not set}"
 	: "${WEB_DB_APP_USER:?}" "${WEB_DB_APP_PASSWORD:?}" "${WEB_DB_APP_NAME:?}"
+	unset MYSQL_ROOT_PASSWORD MYSQL_PASSWORD TG_DB_PASSWORD DISCORD_BOT_TOKEN
 
 	ensure_submodules submodules/drogon submodules/mariadb-connector-c
 
@@ -263,6 +273,9 @@ discord)
 	: "${TG_DB_HOST:?TG_DB_HOST is not set}" "${TG_DB_PORT:?TG_DB_PORT is not set}"
 	: "${TG_DB_USER:?}" "${TG_DB_PASSWORD:?}" "${TG_DB_NAME:?}"
 	: "${DISCORD_BOT_TOKEN:?DISCORD_BOT_TOKEN is not set}"
+	# discordd mints no /files/ links, so it needs no WEB_APP_KEY.
+	unset MYSQL_ROOT_PASSWORD MYSQL_PASSWORD WEB_DB_RO_PASSWORD \
+		WEB_DB_APP_PASSWORD WEB_APP_KEY
 
 	# discordd links TDLib (it sends to Telegram as a bot) and the JDBC
 	# connector, so it needs the same submodules as the daemon.
@@ -283,6 +296,10 @@ discord)
 	;;
 
 webapi)
+	# WEB_APP_KEY stays: the service is taking over the web's features, and
+	# the web signs its sessions with that key.
+	unset MYSQL_ROOT_PASSWORD MYSQL_PASSWORD TG_DB_PASSWORD DISCORD_BOT_TOKEN
+
 	# Only vendor/ is used: GOPROXY=off makes a missing module an error
 	# instead of a download. The build cache lives in the bind-mounted
 	# webapi/build/, so a restart rebuilds incrementally.
