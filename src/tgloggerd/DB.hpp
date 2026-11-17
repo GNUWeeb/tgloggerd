@@ -313,6 +313,15 @@ public:
 	 */
 	std::unordered_map<std::string, models::KnownFile> loadFileIndex(void);
 
+	/*
+	 * Load the tg_unique_id -> telegram_files row index of photos
+	 * (file_type 'photo'), so a user's or group's photo seen again under
+	 * another remote id is linked instead of re-downloaded. A row that
+	 * is an alias (alias_of) maps to the row it points at.
+	 */
+	std::unordered_map<std::string, models::KnownFile>
+	loadPhotoUniqueIndex(void);
+
 	/* Point a user's profile_photo_file_id at a files row. */
 	void setUserProfilePhoto(int64_t user_id, uint64_t file_id);
 

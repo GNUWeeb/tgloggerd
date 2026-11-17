@@ -122,6 +122,17 @@ struct MessageFileLink {
 };
 
 /*
+ * A user's profile photo or a group's photo that is already recorded in the
+ * files table (see setPhotoLookup): point the user or group at the existing
+ * row without re-downloading the photo.
+ */
+struct PhotoLink {
+	int64_t		owner_id;	/* user id, or group (chat) id */
+	bool		is_group;
+	uint64_t	file_id;	/* existing telegram_files.id */
+};
+
+/*
  * A chat file recorded without downloading it (storage-cache.md section 6):
  * it comes from a chat the account is not a member of, or its known size is
  * at or over the per-file cap. The receiver records the row by unique id
@@ -302,6 +313,26 @@ public:
 	 */
 	void setMessageFileLinkHandler(
 		std::function<void(const MessageFileLink &)> cb);
+
+	/*
+	 * Predicate used before downloading a user's or group's photo: given
+	 * the photo's remote id and unique id (either may be empty), return
+	 * the existing telegram_files row if it is already recorded. The
+	 * unique id matters here: a photo seen again in a later updateUser or
+	 * getChat often carries a different remote id. Runs on the loop
+	 * thread.
+	 */
+	void setPhotoLookup(
+		std::function<std::optional<models::KnownFile>(
+			const std::string &, const std::string &)> cb);
+
+	/*
+	 * Set the callback invoked to point a user or group at a photo that
+	 * is already recorded (see setPhotoLookup), instead of downloading it
+	 * again. Without it, or without setPhotoLookup, every photo that
+	 * TDLib does not hold locally is downloaded.
+	 */
+	void setPhotoLinkHandler(std::function<void(const PhotoLink &)> cb);
 
 	/*
 	 * Set the callback invoked for a chat file recorded without its bytes
