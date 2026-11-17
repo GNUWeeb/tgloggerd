@@ -2,6 +2,17 @@
 
 Developer docs for the tgloggerd web UI (Drogon + MySQL).
 
+The web backend is moving to the Go service in `webapi/`
+([../../docs/design/web-go.md](../../docs/design/web-go.md)). Its JSON
+API under `/api/` and the file URLs `/files/<token>` are
+described in [../../webapi/openapi.yaml](../../webapi/openapi.yaml)
+(OpenAPI 3.1), the API contract: the React application's client is
+generated from it, and a test keeps it in line with the routes the
+service serves. Operations marked `x-tgd-status: planned` are designed
+but not served yet. The pages below explain behaviour; a port moves or
+updates its page in the same series, and the operation's shape is the
+one in the description.
+
 - [contact-names.md](contact-names.md) — a contact's own name versus the
   name the logging account saved them under: what each column means, what
   the pages show, and the admin action "Look up real name" with its routes.

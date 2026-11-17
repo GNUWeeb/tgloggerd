@@ -18,6 +18,32 @@ checking the routing.
 
 It also serves the files, /files/<token>, described under Files.
 
+# The API contract
+
+openapi.yaml (OpenAPI 3.1) is the contract of the service's API: every
+route served is described there, with its status codes, headers and
+bodies, and the React application generates its client from it
+(web/app, npm run gen:api). The sections below explain the behaviour;
+should they and the description ever differ, that is a bug in one of
+them, fixed in both at once.
+
+Operations designed but not served yet are in the description too,
+marked `x-tgd-status: planned`: the page data of every React page
+(GET /api/page/{path}), the chat window and search, and the account,
+forwarding, Join chat and MCP administration actions. A port serves
+the operation and drops the marker in the same change. A per-account
+bearer-token scheme for clients without cookies is reserved there
+(apiToken) and planned as well.
+
+internal/server/openapi_test.go compares the description with the
+route table (Server.routes in internal/server/server.go). It fails when
+a served route is not described, when a described operation is not
+served and not marked planned, or when a served one is still marked
+planned. Every route goes into that table; a route registered anywhere
+else escapes the check. The test reads the YAML with a small reader of
+its own (the standard library has none), which accepts only the layout
+the file's header comment describes.
+
 # Authentication
 
 Sessions, CSRF tokens, file tokens, password hashes and the daemon's
@@ -144,6 +170,7 @@ the daemon does, so the paths the daemon answers with open in it.
 
 # Layout
 
+    openapi.yaml           The API description (see The API contract).
     go.mod                 Module tgloggerd/webapi and its requirements.
     go.sum                 Checksums of the required modules.
     cmd/webapi/            main: configuration, the two pools, the HTTP

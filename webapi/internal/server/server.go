@@ -72,14 +72,31 @@ func New(d Deps) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", s.health)
-	mux.HandleFunc("GET /api/login", s.getLogin)
-	mux.HandleFunc("POST /api/login", s.postLogin)
-	mux.HandleFunc("POST /api/logout", s.postLogout)
-	mux.HandleFunc("GET /api/session", s.RequireSession(s.session))
-	mux.HandleFunc("GET /files/{token}", s.serveFile)
+	for _, rt := range s.routes() {
+		mux.HandleFunc(rt.pattern, rt.handler)
+	}
 
 	return s.logRequests(mux)
+}
+
+// route is one entry of the route table.
+type route struct {
+	pattern string // ServeMux pattern, "METHOD /path"
+	handler http.HandlerFunc
+}
+
+// routes is the service's route table. It only builds handler values
+// and touches none of s's fields, so the OpenAPI test lists it from a
+// zero Server; every operation served must be in webapi/openapi.yaml.
+func (s *Server) routes() []route {
+	return []route{
+		{"GET /api/health", s.health},
+		{"GET /api/login", s.getLogin},
+		{"POST /api/login", s.postLogin},
+		{"POST /api/logout", s.postLogout},
+		{"GET /api/session", s.RequireSession(s.session)},
+		{"GET /files/{token}", s.serveFile},
+	}
 }
 
 // healthTimeout bounds each pool's check, so a database that does not
