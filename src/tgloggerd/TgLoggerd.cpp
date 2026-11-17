@@ -227,15 +227,14 @@ int TgLoggerd::start(void)
 	pr_debug(l_, "skip_nonmember_media: %d", (int)skip_nonmember_media_);
 
 	/*
-	 * Seed the tg_file_id -> telegram_files.id index so the loop thread can link a
-	 * message to a file we already recorded instead of re-downloading it.
+	 * Seed the file index so the loop thread can link a message to a file
+	 * we already recorded instead of re-downloading it.
 	 */
 	try {
-		known_files_ = db_->loadFileIndex();
-		pr_debug(l_, "file index: %zu known files", known_files_.size());
-		known_photo_uids_ = db_->loadPhotoUniqueIndex();
-		pr_debug(l_, "file index: %zu photos by unique id",
-			 known_photo_uids_.size());
+		known_files_.load(db_->loadFileIndex(), db_->loadUniqueIndex());
+		auto n = known_files_.size();
+		pr_debug(l_, "file index: %zu known files, %zu by unique id",
+			 n.first, n.second);
 	} catch (const std::exception &e) {
 		pr_error(l_, "Failed to load file index: %s", e.what());
 	}
@@ -488,28 +487,10 @@ int TgLoggerd::start(void)
 		});
 	});
 	/* Loop-thread predicate: is this file already recorded? */
-	tdlib_->setFileLookup([this](const std::string &tg_file_id)
+	tdlib_->setFileLookup([this](const std::string &tg_file_id,
+				     const std::string &tg_unique_id)
 			      -> std::optional<models::KnownFile> {
-		std::lock_guard<std::mutex> lk(known_files_mtx_);
-		auto it = known_files_.find(tg_file_id);
-		if (it == known_files_.end())
-			return std::nullopt;
-		return it->second;
-	});
-	/* Loop-thread predicate for photos: by remote id, else unique id. */
-	tdlib_->setPhotoLookup([this](const std::string &tg_file_id,
-				      const std::string &tg_unique_id)
-			       -> std::optional<models::KnownFile> {
-		std::lock_guard<std::mutex> lk(known_files_mtx_);
-		auto it = known_files_.find(tg_file_id);
-		if (it != known_files_.end() && !it->second.meta_only)
-			return it->second;
-		auto uit = known_photo_uids_.find(tg_unique_id);
-		if (uit != known_photo_uids_.end())
-			return uit->second;
-		if (it != known_files_.end())
-			return it->second;
-		return std::nullopt;
+		return known_files_.find(tg_file_id, tg_unique_id);
 	});
 	/* Point a user or group at an already-stored photo. */
 	tdlib_->setPhotoLinkHandler([this](const PhotoLink &pl) {
@@ -907,7 +888,7 @@ void TgLoggerd::onMessageFileLink(const MessageFileLink &lk)
 
 /*
  * Point a user or group at a photo already recorded, looked up on the loop
- * thread (see setPhotoLookup). Runs on serial_, after the user or group row
+ * thread (see setFileLookup). Runs on serial_, after the user or group row
  * was written, through the same setters (and so the same photo history) as
  * onProfilePhoto and onGroupPhoto, without downloading or storing it again.
  */
@@ -948,12 +929,7 @@ void TgLoggerd::onFileMeta(const FileMeta &m)
 		f.file_ext = ext;
 
 	models::KnownFile k = db_->upsertFileMeta(f);
-	{
-		std::lock_guard<std::mutex> lk(known_files_mtx_);
-		known_files_[m.tg_file_id] = k;
-		if (m.content_type == "photo" && !m.tg_unique_id.empty())
-			known_photo_uids_[m.tg_unique_id] = k;
-	}
+	known_files_.put(m.tg_file_id, m.tg_unique_id, k);
 
 	pr_info(l_, "Recorded file without its bytes | tg_file_id=%s"
 		" unique_id=%s size=%lld file_id=%llu%s", m.tg_file_id.c_str(),
@@ -1052,14 +1028,8 @@ TgLoggerd::storeDownloadedFile(const std::string &local_path,
 
 	uint64_t id = db_->upsertFile(f);
 	/* Remember it so later references link instead of re-downloading. */
-	{
-		std::lock_guard<std::mutex> lk(known_files_mtx_);
-		known_files_[tg_file_id] = models::KnownFile{ id, false };
-		if (std::strcmp(file_type, "photo") == 0 &&
-		    !tg_unique_id.empty())
-			known_photo_uids_[tg_unique_id] =
-				models::KnownFile{ id, false };
-	}
+	known_files_.put(tg_file_id, tg_unique_id,
+			 models::KnownFile{ id, false });
 	return id;
 }
 

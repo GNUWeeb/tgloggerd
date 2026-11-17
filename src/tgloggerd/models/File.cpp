@@ -279,7 +279,7 @@ std::unordered_map<std::string, models::KnownFile> DB::loadFileIndex(void)
 }
 
 std::unordered_map<std::string, models::KnownFile>
-DB::loadPhotoUniqueIndex(void)
+DB::loadUniqueIndex(void)
 {
 	/* Follow alias_of (one hop, see migration 000032): the leftover
 	 * metadata-only row keeps the unique id, the target has the bytes. */
@@ -288,7 +288,7 @@ DB::loadPhotoUniqueIndex(void)
 		" IF(a.id IS NULL, f.sha256, a.sha256) IS NULL"
 		" FROM telegram_files f"
 		" LEFT JOIN telegram_files a ON a.id = f.alias_of"
-		" WHERE f.file_type = 'photo' AND f.tg_unique_id IS NOT NULL");
+		" WHERE f.tg_unique_id IS NOT NULL");
 
 	std::unordered_map<std::string, models::KnownFile> out;
 	out.reserve(rows.size());
