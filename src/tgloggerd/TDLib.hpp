@@ -5,10 +5,12 @@
 #ifndef TGLOGGERD__TDLIB_HPP
 #define TGLOGGERD__TDLIB_HPP
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <memory>
 #include <functional>
+#include <future>
 #include <optional>
 
 #include <tgloggerd/models/User.hpp>
@@ -21,6 +23,21 @@
 
 #include <utility>
 #include <vector>
+
+/*
+ * Just enough of TDLib's types to declare TDLib::request() without pulling
+ * in td_api.h; callers that build requests or read answers include it.
+ */
+namespace td {
+namespace tl {
+template <class T>
+class unique_ptr;
+} /* namespace tl */
+namespace td_api {
+class Object;
+class Function;
+} /* namespace td_api */
+} /* namespace td */
 
 namespace tgloggerd {
 
@@ -358,6 +375,52 @@ public:
 	 * so the file can be re-downloaded on demand.
 	 */
 	void deleteLocalFile(int32_t file_id);
+
+	/* td_api::object_ptr<td_api::Object> / <td_api::Function>. */
+	using TdObject = td::tl::unique_ptr<td::td_api::Object>;
+	using TdFunction = td::tl::unique_ptr<td::td_api::Function>;
+
+	/*
+	 * td_api::error codes request() answers with when TDLib itself was
+	 * never asked or never answered. Telegram's own errors come back
+	 * unchanged, with their own codes.
+	 */
+	static constexpr int32_t kRequestNotReady = 503; /* not authorized,
+							     closing or closed */
+	static constexpr int32_t kRequestTimeout = 504;
+	static constexpr int32_t kRequestWrongThread = 500;
+
+	/*
+	 * Send a TDLib function from any thread but the loop thread and get
+	 * its answer: the answer object, or a td_api::error (errors are
+	 * values; the future never holds an exception).
+	 *
+	 * While the client is not authorized, or once it is closing, the
+	 * request is not sent and the future is ready at once with
+	 * kRequestNotReady. Requests still pending when the client closes,
+	 * when close() is called, or when this object is destroyed are
+	 * answered the same way.
+	 *
+	 * Never call it from the loop thread: the answer is delivered by
+	 * loop(), so the caller would wait for itself (asserted; in a
+	 * release build the future is ready at once with
+	 * kRequestWrongThread). Do not call it from a serial_ or files_
+	 * pool job either: the loop thread can block posting into those
+	 * pools when their queues are full, and then never delivers the
+	 * answer the job waits for.
+	 *
+	 * Callers must be done with request() before this object is
+	 * destroyed.
+	 */
+	std::future<TdObject> request(TdFunction f);
+
+	/*
+	 * request() and wait at most @timeout for the answer. On timeout the
+	 * request is forgotten, so a late answer is dropped, and the result
+	 * is a td_api::error with kRequestTimeout. Same thread rules as
+	 * request().
+	 */
+	TdObject request(TdFunction f, std::chrono::milliseconds timeout);
 
 	/*
 	 * Queue a full-info refetch of a user / group (by chat_id). Thread-safe
