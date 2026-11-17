@@ -47,7 +47,7 @@ function Groups({ page }: { page: PageData<GroupsProps> }) {
 	return (
 		<Shell crumbs={[['Groups', null]]}>
 			<PageHead title="Groups" sub={member ? `${L.total} groups granted to you` : `${fmt(page.props.archive_total ?? L.total)} groups and channels the logger has seen`} />
-			<FilterBar L={L} fields={FIELDS} placeholder="Title, @username or ID" quick={QUICK} />
+			<FilterBar L={L} fields={FIELDS} placeholder="Title, @username or ID" name="Groups" quick={QUICK} />
 			<DataTable
 				L={L} cols={cols} noun="groups" empty="No groups match these filters."
 				href={(g) => `/groups/${g.id}`}

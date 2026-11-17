@@ -1,8 +1,11 @@
 // Search, filters, a sortable table (a card list on phones) and a pager
 // for the advanced-search pages. All list state lives in the URL; every
 // change navigates, and the server answers with the filtered page.
-import { useState, type ReactNode } from 'react';
-import { Search, Plus, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState, type FormEvent, type ReactNode } from 'react';
+import { Search, Plus, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Bookmark, BookmarkCheck, TriangleAlert } from 'lucide-react';
+import { Modal } from './Modal.tsx';
+import { Btn } from './primitives.tsx';
+import { ApiError, api, ok } from '../api/client.ts';
 import { Link, setQuery, useNav } from '../nav.tsx';
 import { fmt } from '../format.ts';
 import type { Cond, FieldDef, ListProps, Op } from '../types.ts';
@@ -62,7 +65,47 @@ function FilterAdd({ fields, onAdd }: { fields: FieldDef[]; onAdd: (c: Cond) => 
 	);
 }
 
-export function FilterBar<T>({ L, fields, placeholder, quick }: { L: ListNav<T>; fields: FieldDef[]; placeholder: string; quick?: [string, Cond[]][] }) {
+// Save the current search (query and filters) under a title; it then
+// shows in Settings > Preferences. The title defaults to what the
+// search is: the text, the filters and the list's name.
+function SaveSearch({ name, title: initial }: { name: string; title: string }) {
+	const { page } = useNav();
+	const [open, setOpen] = useState(false);
+	const [title, setTitle] = useState(initial);
+	const [err, setErr] = useState('');
+	const [saved, setSaved] = useState(false);
+	const save = async (e: FormEvent) => {
+		e.preventDefault();
+		setErr('');
+		try {
+			await ok(api.POST('/api/account/saved-searches', { body: { title: title.trim() || initial, url: setQuery(page.url, { page: undefined }) } }));
+			setSaved(true);
+		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }
+	};
+	const close = () => { setOpen(false); setSaved(false); setErr(''); };
+	return (
+		<>
+			<button type="button" className="a-link a-savesearch" onClick={() => { setTitle(initial); setOpen(true); }}><Bookmark size={13} />Save search</button>
+			{open && (
+				<Modal title="Save this search" icon={<Bookmark size={16} />} onClose={close}
+					footer={saved ? <><span className="a-grow" /><Btn primary onClick={close}>Done</Btn></>
+						: <><span className="a-grow" /><Btn ghost onClick={close}>Cancel</Btn><button type="submit" form="save-search" className="a-btn a-btn-primary">Save</button></>}>
+					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+					{saved
+						? <div className="a-banner" role="status"><BookmarkCheck size={15} /><span>Saved. Your saved searches are listed in <Link to="/settings/preferences" className="a-link" onClick={close}>Settings, Preferences</Link>.</span></div>
+						: (
+							<form id="save-search" className="a-form" onSubmit={(e) => void save(e)}>
+								<label className="a-field"><span className="a-field-label">Title</span><input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus maxLength={120} /></label>
+								<span className="a-muted sm">{name}: the search text, filters and sort as they are now.</span>
+							</form>
+						)}
+				</Modal>
+			)}
+		</>
+	);
+}
+
+export function FilterBar<T>({ L, fields, placeholder, quick, name }: { L: ListNav<T>; fields: FieldDef[]; placeholder: string; quick?: [string, Cond[]][]; name: string }) {
 	const [q, setQ] = useState(L.q);
 	const label = (c: Cond) => fields.find((x) => x.key === c.field)?.label ?? c.field;
 	return (
@@ -84,6 +127,7 @@ export function FilterBar<T>({ L, fields, placeholder, quick }: { L: ListNav<T>;
 			))}
 			<FilterAdd fields={fields} onAdd={(c) => L.setConds([...L.conds, c])} />
 			{(L.conds.length > 0 || L.q) && <button type="button" className="a-link" onClick={() => { setQ(''); L.setConds([]); }}>Clear all</button>}
+			{(L.conds.length > 0 || L.q) && <SaveSearch name={name} title={[L.q && `"${L.q}"`, ...L.conds.map((c) => `${label(c)} ${c.op}${c.op === 'empty' ? '' : ' ' + c.value}`)].filter(Boolean).join(', ') + ` in ${name}`} />}
 		</div>
 	);
 }

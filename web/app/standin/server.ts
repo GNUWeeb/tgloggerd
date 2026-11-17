@@ -196,6 +196,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 			if (!st.pinned.some((x: { id: number }) => x.id === g.id)) st.pinned.push(g);
 			res.writeHead(204); res.end(); return;
 		}
+		if (p === 'saved-searches' && req.method === 'POST') {
+			if (!body.title || typeof body.url !== 'string' || !body.url.startsWith('/')) { send(res, 400, { error: 'bad_request', message: 'A title and a search path are required.' }); return; }
+			const id = Math.max(0, ...st.saved.map((x: { id: number }) => x.id)) + 1;
+			st.saved.push({ id, title: String(body.title), url: body.url });
+			send(res, 201, { id }); return;
+		}
 		if ((am = p.match(/^saved-searches\/(\d+)$/)) && req.method === 'DELETE') { st.saved = st.saved.filter((x: { id: number }) => String(x.id) !== am![1]); res.writeHead(204); res.end(); return; }
 		if ((am = p.match(/^sessions\/(\w+)$/)) && req.method === 'DELETE') { st.sessions = st.sessions.filter((x: { id: string; current: boolean }) => x.current || x.id !== am![1]); res.writeHead(204); res.end(); return; }
 		if (p === 'sessions/sign-out-others' && req.method === 'POST') { st.sessions = st.sessions.filter((x: { current: boolean }) => x.current); res.writeHead(204); res.end(); return; }
