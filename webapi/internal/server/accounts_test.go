@@ -268,7 +268,9 @@ func TestLastSuperadmin(t *testing.T) {
 	}
 
 	// With a second one, either may go, but not both: two superadmins
-	// disabling each other at once leave one.
+	// disabling each other at once leave one. The one disabled first
+	// loses its session, so its own request answers 401 when it comes
+	// second, or 409 when it reached the last-superadmin check first.
 	secondID, temp := create(t, root, account("sue", "superadmin"))
 	sue := firstPassword(t, h, "sue", temp, "sue-own-password")
 	var wg sync.WaitGroup
@@ -289,7 +291,11 @@ func TestLastSuperadmin(t *testing.T) {
 		"AND is_active = 1").Scan(&active); err != nil {
 		t.Fatal(err)
 	}
-	if active != 1 || codes[0]+codes[1] != 204+409 {
+	ok := (codes[0] == 204) != (codes[1] == 204)
+	for _, c := range codes {
+		ok = ok && (c == 204 || c == 401 || c == 409)
+	}
+	if active != 1 || !ok {
 		t.Fatalf("disabling each other: %v, %d active", codes, active)
 	}
 }
