@@ -321,6 +321,11 @@ answer for paths that are no page and for things the scope hides,
 nginx sends a page path here once its loader is in place, as it does
 /api/ and /files/.
 
+In the compose deployment the render service is the "render" service,
+and the render-build service builds both it and the client bundle;
+web/app/README "Deployment" has the steps, including when this
+service must be restarted.
+
 internal/render/rendertest is a stand-in render service on a Unix
 socket, used by the tests.
 

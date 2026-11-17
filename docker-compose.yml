@@ -110,11 +110,79 @@ services:
     env_file: .env
     volumes:
       - .:/workspace
+      # The render service's socket (RENDER_SOCKET); pages fall back to
+      # browser rendering while it is not there.
+      - render-socket:/run/tgloggerd-render
     # Not published to the host; nginx reaches it on http://10.0.88.7:8081
     # (WEBAPI_LISTEN_PORT) over the tgnet network.
     networks:
       tgnet:
         ipv4_address: 10.0.88.7
+
+  # The render service (web/app/server): turns a page's route and data into
+  # HTML for the webapi service, over a Unix socket in the render-socket
+  # volume, its only shared one (docs/design/web-ssr.md section 8). It runs
+  # what render-build built into web/app, mounted read-only: no network, no
+  # secrets (no env_file), a read-only file system and no capabilities.
+  render:
+    image: &node-image node:26.8.1-bookworm-slim
+    container_name: tgloggerd-render
+    restart: unless-stopped
+    user: "${TG_UID:-1000}:${TG_GID:-1000}"
+    init: true
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    working_dir: /app
+    command: [node, server/main.ts]
+    environment:
+      RENDER_SOCKET: /run/tgloggerd-render/render.sock
+      RENDER_WORKERS: ${RENDER_WORKERS:-2}
+    volumes:
+      - ./web/app:/app:ro
+      - render-socket:/run/tgloggerd-render
+    healthcheck:
+      test: [CMD, node, server/health.ts]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      start_interval: 1s
+
+  # One-off build of web/app, for the render service and the webapi
+  # service alike: npm ci from the lock file, then npm run build, which
+  # writes the render entry (dist/server), the client bundle the webapi
+  # service serves (dist/client) and their common build id
+  # (dist/client/build.json). The only step that uses the network (the npm
+  # registry); not started by `up`:
+  #   docker compose run --rm render-build
+  render-build:
+    image: *node-image
+    profiles: [build]
+    # Docker's default bridge, for the registry: no project network is
+    # created for a one-off build, and none of the services is reachable.
+    network_mode: bridge
+    user: "${TG_UID:-1000}:${TG_GID:-1000}"
+    init: true
+    working_dir: /app
+    command: [sh, -c, "npm ci && npm run build"]
+    environment:
+      HOME: /tmp
+      npm_config_update_notifier: "false"
+      npm_config_fund: "false"
+      npm_config_audit: "false"
+    volumes:
+      - ./web/app:/app
+
+# The render socket's directory, shared by render and webapi and nothing
+# else. A tmpfs owned by the services' uid: the render service can create
+# its socket there, and no stale socket outlives a restart of the host.
+volumes:
+  render-socket:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "uid=${TG_UID:-1000},gid=${TG_GID:-1000},mode=0770"
 
 networks:
   tgnet:
