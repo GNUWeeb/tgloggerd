@@ -179,6 +179,14 @@ technical.
   never have cured a section 6 further-restrictions problem. GPLv3 section 1 is
   the same shape. Citing it as a failed rescue implies a rescue that does not
   exist.
+- **The Go web service's vendored modules are compatible.**
+  `webapi/vendor/` holds `github.com/go-sql-driver/mysql` (MPL-2.0, with
+  no "Incompatible With Secondary Licenses" notice, so MPL-2.0 section
+  3.3 lets it be combined with GPL-2.0-or-later code) and
+  `filippo.io/edwards25519` (BSD-3-Clause). Both are listed in
+  `LICENSE`. Their source ships in the tree, so the MPL's
+  source-availability condition is met for those files. Check any
+  module added later the same way. **[verified]**
 - **The relicense remedies nothing retroactively, and did not need to.** GPLv2
   section 6 binds licensees; a copyright owner conveying their own work needs no
   licence from themselves. Copies already published under `GPL-2.0-only`,
