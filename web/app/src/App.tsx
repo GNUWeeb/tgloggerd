@@ -1,6 +1,9 @@
-import type { PageData } from './page.ts';
+import { NavProvider, useNav } from './nav.tsx';
 import { routes } from './routes/index.tsx';
-import { UnknownRoute } from './page.ts';
+import { UnknownRoute, type PageData } from './page.ts';
+import './styles/base.css';
+import './styles/app.css';
+import './styles/chat.css';
 
 export function routeOf(page: PageData) {
 	const r = routes[page.route];
@@ -8,7 +11,17 @@ export function routeOf(page: PageData) {
 	return r;
 }
 
-export default function App({ page }: { page: PageData }) {
+function Current() {
+	const { page } = useNav();
 	const { Page } = routeOf(page);
 	return <Page page={page} />;
+}
+
+export default function App({ page }: { page: PageData }) {
+	routeOf(page); // unknown routes fail before rendering anything
+	return (
+		<NavProvider initial={page}>
+			<Current />
+		</NavProvider>
+	);
 }
