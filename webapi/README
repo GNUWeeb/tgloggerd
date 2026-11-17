@@ -341,14 +341,20 @@ answer for paths that are no page and for things the scope hides,
   - The client bundle is WEBAPI_APP_DIST, read at start: the entry,
     styles and preloads come from its .vite/manifest.json, and its
     assets/ directory is served under /app/assets/ as immutable.
-    WEBAPI_APP_BUILD must be the TGD_BUILD the bundle and the render
-    service were built with; the render service refuses another one
-    (409), and the page falls back.
+    The build id is the one the build recorded in the bundle's
+    build.json (web/app README), which the render service was built
+    with too; WEBAPI_APP_BUILD, when set, overrides it. The render
+    service refuses another id (409), and the page falls back.
   - Signed-in answers are private, no-store; a public page asked for
     without a session cookie may be cached for a minute.
 
 nginx sends a page path here once its loader is in place, as it does
 /api/ and /files/.
+
+In the compose deployment the render service is the "render" service,
+and the render-build service builds both it and the client bundle;
+web/app/README "Deployment" has the steps, including when this
+service must be restarted.
 
 internal/render/rendertest is a stand-in render service on a Unix
 socket, used by the tests.
@@ -572,7 +578,8 @@ and its own:
     WEBAPI_LIVE_RECHECK  seconds between two session checks of an open
                          stream, default 30
     WEBAPI_APP_DIST      the client bundle, default web/app/dist/client
-    WEBAPI_APP_BUILD     its build id, default dev
+    WEBAPI_APP_BUILD     its build id; default the one in its
+                         build.json, or dev when it has none
     RENDER_SOCKET        the render service's socket, default
                          /run/tgloggerd-render/render.sock
     RENDER_TIMEOUT       milliseconds a render may take, default 500

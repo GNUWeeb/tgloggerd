@@ -131,7 +131,7 @@ The web backend moves from Drogon to Go:
 [design/web-go.md](design/web-go.md).
 
 - [`go-web-pages`](todo/go-web-pages.md): Route the page paths the Go service serves through nginx to it.
-- [`ssr-render-service`](todo/ssr-render-service.md): Deploy the Node render service that turns a page's route and data into HTML.
+- [`ssr-render-service`](todo/ssr-render-service.md): Deploy the render service and its build on the running stack.
 - [`web-live-events`](todo/web-live-events.md): Route the live updates stream through nginx and check it on the running site.
 - [`go-port-media`](todo/go-port-media.md): Switch /files/<token> over to the Go service after checking it against the Drogon web.
 - [`go-port-search`](todo/go-port-search.md): Port the advanced search API to the Go service, enforcing the request scope.

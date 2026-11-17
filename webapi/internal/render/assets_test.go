@@ -63,3 +63,51 @@ func TestLoadAssetsMissing(t *testing.T) {
 		t.Error("a manifest without the entry is accepted")
 	}
 }
+
+// writeBundle writes a client bundle's manifest into a directory of
+// the test's own, and build.json with the given content unless empty.
+func writeBundle(t *testing.T, buildJSON string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".vite"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".vite", "manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if buildJSON != "" {
+		if err := os.WriteFile(filepath.Join(dir, BuildFile), []byte(buildJSON), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// The build id comes from build.json (as web/app/scripts/build.ts
+// writes it) unless one is configured.
+func TestLoadAssetsBuildFile(t *testing.T) {
+	t.Parallel()
+	dir := writeBundle(t, `{"build":"207b3e9e0d73"}`+"\n")
+	a, err := LoadAssets(dir, "")
+	if err != nil || a.Build != "207b3e9e0d73" || a.Entry == "" {
+		t.Errorf("recorded id: %+v, %v", a, err)
+	}
+	if a, err := LoadAssets(dir, "configured"); err != nil || a.Build != "configured" {
+		t.Errorf("configured id: %+v, %v", a, err)
+	}
+
+	// A bundle built without the build script records none.
+	if a, err := LoadAssets(writeBundle(t, ""), ""); err != nil || a.Build != DevBuild || a.Entry == "" {
+		t.Errorf("no build.json: %+v, %v", a, err)
+	}
+	if b, err := ReadBuild(t.TempDir()); err != nil || b != DevBuild {
+		t.Errorf("empty directory: %q, %v", b, err)
+	}
+
+	for _, bad := range []string{`{"build":""}`, `{}`, `"x"`, `{"build":`} {
+		a, err := LoadAssets(writeBundle(t, bad), "")
+		if err == nil || a.Build != DevBuild || a.Entry != "" {
+			t.Errorf("build.json %s: %+v, %v", bad, a, err)
+		}
+	}
+}

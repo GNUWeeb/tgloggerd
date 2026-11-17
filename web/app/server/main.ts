@@ -16,6 +16,14 @@ const ENTRY = process.env.RENDER_ENTRY || fileURLToPath(new URL('../dist/server/
 
 const log = (e: Record<string, unknown>) => process.stdout.write(JSON.stringify({ t: new Date().toISOString(), pid: process.pid, ...e }) + '\n');
 
+// Without a built entry every worker would die at its import and be
+// forked again at once; exit instead and let the container's restart
+// policy retry, with its back-off, until the build is there.
+if (cluster.isPrimary && !existsSync(ENTRY)) {
+	log({ msg: 'no render entry; run npm run build', entry: ENTRY });
+	process.exit(1);
+}
+
 if (cluster.isPrimary && WORKERS > 1) {
 	// A socket left by a crash would make listen() fail.
 	if (existsSync(SOCKET)) unlinkSync(SOCKET);

@@ -105,7 +105,8 @@ type Config struct {
 	RenderBackoff time.Duration
 	// AppDist is the client bundle vite build wrote (WEBAPI_APP_DIST),
 	// with .vite/manifest.json and assets/; AppBuild is its build id
-	// (WEBAPI_APP_BUILD), the TGD_BUILD it was built with.
+	// (WEBAPI_APP_BUILD), empty for the one the build recorded in the
+	// bundle (render.ReadBuild).
 	AppDist  string
 	AppBuild string
 }
@@ -304,7 +305,7 @@ func FromEnv() (*Config, error) {
 		return nil, err
 	}
 	c.AppDist = env("WEBAPI_APP_DIST", "web/app/dist/client")
-	c.AppBuild = env("WEBAPI_APP_BUILD", "dev")
+	c.AppBuild = env("WEBAPI_APP_BUILD", "")
 
 	return &c, nil
 }
