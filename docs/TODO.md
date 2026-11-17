@@ -110,7 +110,6 @@ The file store as a capped cache in front of Telegram:
 The web backend moves from Drogon to Go:
 [design/web-go.md](design/web-go.md).
 
-- [`go-web-auth`](todo/go-web-auth.md): Make the Go service's sessions, passwords, CSRF and file tokens interchangeable with the Drogon web's.
 - [`go-web-openapi`](todo/go-web-openapi.md): Describe the Go API in OpenAPI and generate the React application's TypeScript client.
 - [`go-web-pages`](todo/go-web-pages.md): Serve pages from the Go service: page routes, a data loader per route, the render client and a browser-rendered fallback.
 - [`ssr-render-service`](todo/ssr-render-service.md): Deploy the Node render service that turns a page's route and data into HTML.

@@ -16,22 +16,54 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/daemon"
 )
+
+// Deps is what the service is built from.
+type Deps struct {
+	Log     *slog.Logger
+	RO      *sql.DB // SELECT-only over the logger's schema
+	App     *sql.DB // read-write over the web's own schema
+	Signer  *auth.Signer
+	Cookies *auth.Cookies
+	Limiter *auth.RateLimiter
+	Daemon  *daemon.Client // nil when the daemon API is off
+}
 
 // Server carries what the handlers share.
 type Server struct {
-	log *slog.Logger
-	ro  *sql.DB
-	app *sql.DB
+	log      *slog.Logger
+	ro       *sql.DB
+	app      *sql.DB
+	signer   *auth.Signer
+	cookies  *auth.Cookies
+	limiter  *auth.RateLimiter
+	verifier *auth.Verifier
+	daemon   *daemon.Client
 }
 
 // New returns the service's handler: the routes wrapped in request
 // logging.
-func New(log *slog.Logger, ro, app *sql.DB) http.Handler {
-	s := &Server{log: log, ro: ro, app: app}
+func New(d Deps) http.Handler {
+	s := &Server{
+		log:      d.Log,
+		ro:       d.RO,
+		app:      d.App,
+		signer:   d.Signer,
+		cookies:  d.Cookies,
+		limiter:  d.Limiter,
+		verifier: &auth.Verifier{Cookies: d.Cookies, Epoch: auth.DBEpoch(d.App)},
+		daemon:   d.Daemon,
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.health)
+	mux.HandleFunc("GET /api/login", s.getLogin)
+	mux.HandleFunc("POST /api/login", s.postLogin)
+	mux.HandleFunc("POST /api/logout", s.postLogout)
+	mux.HandleFunc("GET /api/session", s.RequireSession(s.session))
 
 	return s.logRequests(mux)
 }

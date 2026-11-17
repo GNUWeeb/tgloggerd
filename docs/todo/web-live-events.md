@@ -21,7 +21,6 @@ statistics alike (docs/design/web-live.md).
 ## Depends on
 
 - `daemon-event-stream`
-- `go-web-auth`
 
 ## Done when
 

@@ -22,7 +22,9 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
+	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/config"
+	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/server"
 )
 
@@ -71,10 +73,33 @@ func run(log *slog.Logger, cfg *config.Config) error {
 	}
 	defer app.Close()
 
+	dc, err := daemon.New(cfg.DaemonAPI, cfg.AppKey, cfg.FetchTimeout)
+	switch {
+	case err != nil:
+		log.Warn("the daemon API stays off", "err", err)
+	case dc.Enabled():
+		log.Info("daemon API", "url", dc.BaseURL())
+	}
+
+	signer := auth.NewSigner(cfg.AppKey)
+	handler := server.New(server.Deps{
+		Log:    log,
+		RO:     ro,
+		App:    app,
+		Signer: signer,
+		Cookies: &auth.Cookies{
+			Signer:  signer,
+			Timeout: cfg.SessionTimeout,
+			Secure:  cfg.SecureCookie,
+		},
+		Limiter: auth.NewRateLimiter(cfg.LoginMaxAttempts, cfg.LoginWindow),
+		Daemon:  dc,
+	})
+
 	addr := net.JoinHostPort(cfg.ListenAddr, strconv.Itoa(int(cfg.ListenPort)))
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.New(log, ro, app),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),

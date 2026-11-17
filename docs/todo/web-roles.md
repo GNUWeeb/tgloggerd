@@ -34,7 +34,7 @@ multi-user dashboard (docs/design/web-accounts.md).
 
 ## Depends on
 
-- `go-web-auth`
+Nothing.
 
 ## Done when
 

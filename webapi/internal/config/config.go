@@ -7,8 +7,10 @@
 //
 // The database settings are the Drogon web's (web/src/Config.hpp), with
 // the same names, defaults and fallbacks, so one .env serves both web
-// services while they run side by side. Only the listening address is
-// the service's own (WEBAPI_*), since both listen at the same time.
+// services while they run side by side; so are the key, session, login
+// and daemon settings, which must agree for sessions and tokens to work
+// in both. Only the listening address is the service's own (WEBAPI_*),
+// since both listen at the same time.
 package config
 
 import (
@@ -17,6 +19,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
+
+	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/daemon"
 )
 
 // DB is one database pool's settings.
@@ -38,6 +44,23 @@ type Config struct {
 
 	RO  DB // SELECT-only over the logger's schema
 	App DB // read-write over the web's own schema (accounts, audit)
+
+	// AppKey is WEB_APP_KEY, decoded: it signs sessions and CSRF
+	// tokens, encrypts file tokens and keys the daemon API.
+	AppKey []byte
+	// SessionTimeout is WEB_SESSION_TIMEOUT in seconds; <= 0 = never.
+	SessionTimeout int
+	// SecureCookie is WEB_SECURE_COOKIE != "0".
+	SecureCookie bool
+	// LoginMaxAttempts failed logins per (ip, username) are allowed
+	// within LoginWindow (WEB_LOGIN_MAX_ATTEMPTS, WEB_LOGIN_WINDOW).
+	LoginMaxAttempts int
+	LoginWindow      time.Duration
+
+	// DaemonAPI is WEB_TGLOGGERD_API, "" when the daemon API is off;
+	// FetchTimeout is how long a fetch through it may take.
+	DaemonAPI    string
+	FetchTimeout time.Duration
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -56,6 +79,15 @@ func port(key, def string) (uint16, error) {
 		return 0, fmt.Errorf("%s: %q is not a TCP port", key, s)
 	}
 	return uint16(n), nil
+}
+
+func integer(key, def string) (int, error) {
+	s := env(key, def)
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %q is not a number", key, s)
+	}
+	return n, nil
 }
 
 func positive(key, def string) (int, error) {
@@ -124,6 +156,30 @@ func FromEnv() (*Config, error) {
 	if c.App.Conns, err = positive("WEB_DB_APP_CONNS", "2"); err != nil {
 		return nil, err
 	}
+
+	// Without the key nothing can be signed in or served, so a missing
+	// or unusable one stops the service, as it stops the Drogon web.
+	if c.AppKey, err = auth.DecodeAppKey(os.Getenv("WEB_APP_KEY")); err != nil {
+		return nil, err
+	}
+	if c.SessionTimeout, err = integer("WEB_SESSION_TIMEOUT", "43200"); err != nil {
+		return nil, err
+	}
+	c.SecureCookie = env("WEB_SECURE_COOKIE", "1") != "0"
+	if c.LoginMaxAttempts, err = integer("WEB_LOGIN_MAX_ATTEMPTS", "5"); err != nil {
+		return nil, err
+	}
+	window, err := integer("WEB_LOGIN_WINDOW", "900")
+	if err != nil {
+		return nil, err
+	}
+	c.LoginWindow = time.Duration(window) * time.Second
+
+	// A malformed WEB_TGLOGGERD_API only turns the daemon client off
+	// (cmd/webapi logs it), as in the Drogon web, which works without
+	// the daemon.
+	c.DaemonAPI = env("WEB_TGLOGGERD_API", "")
+	c.FetchTimeout = daemon.FetchTimeout(os.Getenv("TG_FETCH_TIMEOUT_SECS"))
 
 	return &c, nil
 }

@@ -1,0 +1,233 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Copyright (C) 2026 Alviro Iskandar Setiawan <alviro.iskandar@gnuweeb.org>
+ */
+
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
+
+	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/webdb"
+)
+
+// Sign-in for the JSON API, done as web/src/controllers/AuthController.cpp
+// does it for the Drogon pages: the same CSRF scheme, throttle, audit
+// rows and session cookie, so a session started here is valid there
+// and the other way round. The contract is in webapi/README.
+
+// CSRFHeader carries the CSRF token of every state-changing API
+// request. The Drogon forms send it as the "csrf" field instead; the
+// token is the same.
+const CSRFHeader = "X-CSRF-Token"
+
+// loginPath scopes the pre-login CSRF cookie to the login endpoint, as
+// the Drogon web scopes its own to /login.
+const loginPath = "/api/login"
+
+// maxLoginBody bounds a login request's body.
+const maxLoginBody = 64 << 10
+
+// The messages are the Drogon login page's.
+const (
+	msgExpired  = "Your session expired. Please try again."
+	msgThrottle = "Too many attempts. Please wait and try again."
+	msgInvalid  = "Invalid username or password."
+)
+
+type userJSON struct {
+	ID       uint64 `json:"id"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
+}
+
+type ctxKey int
+
+const sessionKey ctxKey = 0
+
+// SessionFrom is the verified session RequireSession put in the
+// request's context.
+func SessionFrom(ctx context.Context) (auth.Session, bool) {
+	s, ok := ctx.Value(sessionKey).(auth.Session)
+	return s, ok
+}
+
+// clientIP is the connection's peer address, the address the Drogon
+// web logs and throttles on.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func noStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+}
+
+func writeError(w http.ResponseWriter, status int, code string, extra map[string]any) {
+	body := map[string]any{"error": code}
+	for k, v := range extra {
+		body[k] = v
+	}
+	writeJSON(w, status, body)
+}
+
+// RequireSession lets only requests with a valid session through, as
+// AuthFilter does. Where the Drogon filter redirects to /login, the API
+// answers 401, clearing a revoked cookie; a session that could not be
+// checked for a database error gets 503 and keeps its cookie.
+func (s *Server) RequireSession(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sess, c := s.verifier.Verify(r.Context(), r)
+		switch c {
+		case auth.Valid:
+			next(w, r.WithContext(context.WithValue(r.Context(), sessionKey, sess)))
+			return
+		case auth.Revoked:
+			s.cookies.Clear(w)
+			noStore(w)
+			writeError(w, http.StatusUnauthorized, "unauthenticated", nil)
+		case auth.Unverified:
+			s.log.Warn("session not verified", "uid", sess.UID)
+			noStore(w)
+			writeError(w, http.StatusServiceUnavailable, "unavailable", nil)
+		default:
+			noStore(w)
+			writeError(w, http.StatusUnauthorized, "unauthenticated", nil)
+		}
+	}
+}
+
+// session answers who is signed in and the CSRF token to send.
+func (s *Server) session(w http.ResponseWriter, r *http.Request) {
+	sess, _ := SessionFrom(r.Context())
+	noStore(w)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": userJSON{sess.UID, sess.Username, sess.Role},
+		"csrf": s.signer.SessionCSRF(auth.RawSession(r)),
+	})
+}
+
+// newLoginToken sets a fresh pre-login CSRF cookie and returns the
+// token to echo, as the Drogon login page does on every render.
+func (s *Server) newLoginToken(w http.ResponseWriter) string {
+	tok := s.signer.NewLoginToken()
+	s.cookies.SetLoginCookie(w, tok, loginPath)
+	return tok
+}
+
+// getLogin starts a sign-in. A signed-in caller (by the cookie's
+// signature alone, as GET /login checks it) gets no token.
+func (s *Server) getLogin(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	if _, ok := s.cookies.Current(r); ok {
+		writeJSON(w, http.StatusOK, map[string]any{"signed_in": true})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"signed_in": false,
+		"csrf":      s.newLoginToken(w),
+	})
+}
+
+// loginFailure answers a refused sign-in with a fresh login token, so
+// the client can try again.
+func (s *Server) loginFailure(w http.ResponseWriter, status int, code, msg string) {
+	tok := s.newLoginToken(w)
+	writeError(w, status, code, map[string]any{"message": msg, "csrf": tok})
+}
+
+func (s *Server) internalError(w http.ResponseWriter, what string, err error) {
+	s.log.Error(what, "err", err)
+	writeError(w, http.StatusInternalServerError, "internal", nil)
+}
+
+// postLogin checks the credentials in the order AuthController does:
+// CSRF, then the throttle, then the account and its password.
+func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	ctx := r.Context()
+
+	if !s.signer.CheckLogin(r, r.Header.Get(CSRFHeader)) {
+		s.loginFailure(w, http.StatusForbidden, "csrf", msgExpired)
+		return
+	}
+
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLoginBody))
+	if err := dec.Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request",
+			map[string]any{"message": "The body must be a JSON object."})
+		return
+	}
+
+	ip := clientIP(r)
+	key := ip + "\n" + in.Username
+	if !s.limiter.Allowed(key) {
+		if err := webdb.Audit(ctx, s.app, nil, "login_ratelimited", ip, in.Username); err != nil {
+			s.internalError(w, "audit", err)
+			return
+		}
+		s.loginFailure(w, http.StatusTooManyRequests, "rate_limited", msgThrottle)
+		return
+	}
+
+	u, err := webdb.FindByUsername(ctx, s.app, in.Username)
+	if err != nil && !errors.Is(err, webdb.ErrNoUser) {
+		s.internalError(w, "account lookup", err)
+		return
+	}
+	ok := err == nil && u.IsActive && auth.VerifyPassword(u.PasswordHash, in.Password)
+	if !ok {
+		s.limiter.RecordFailure(key)
+		if err := webdb.Audit(ctx, s.app, nil, "login_fail", ip, in.Username); err != nil {
+			s.internalError(w, "audit", err)
+			return
+		}
+		s.loginFailure(w, http.StatusUnauthorized, "invalid_credentials", msgInvalid)
+		return
+	}
+
+	s.limiter.Reset(key)
+	if err := webdb.Audit(ctx, s.app, &u.ID, "login_ok", ip, u.Username); err != nil {
+		s.internalError(w, "audit", err)
+		return
+	}
+
+	raw := s.cookies.Issue(w, s.cookies.NewSession(u.ID, u.Username, u.Role, u.Epoch))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": userJSON{u.ID, u.Username, u.Role},
+		"csrf": s.signer.SessionCSRF(raw),
+	})
+}
+
+// postLogout ends the session on this browser, as POST /logout does:
+// the CSRF token must match the session cookie, the logout is audited
+// when the cookie opens, and the cookie is cleared. The account's other
+// sessions stay; a password change ends those.
+func (s *Server) postLogout(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	if !s.signer.CheckSessionCSRF(r, r.Header.Get(CSRFHeader)) {
+		writeError(w, http.StatusForbidden, "csrf", nil)
+		return
+	}
+	if sess, ok := s.cookies.Current(r); ok {
+		uid := sess.UID
+		if err := webdb.Audit(r.Context(), s.app, &uid, "logout", clientIP(r), sess.Username); err != nil {
+			s.internalError(w, "audit", err)
+			return
+		}
+	}
+	s.cookies.Clear(w)
+	w.WriteHeader(http.StatusNoContent)
+}

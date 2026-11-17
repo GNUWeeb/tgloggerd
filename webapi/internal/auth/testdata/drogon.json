@@ -1,0 +1,689 @@
+{
+	"app_key": "q83vEjRWeJCrze8SNFZ4kKvN7xI0VniQq83vEjRWeJA=",
+	"daemon": [
+		{
+			"name": "ok-json",
+			"reply": {
+				"body": {
+					"ok": true
+				},
+				"error": "",
+				"retry_after": "",
+				"sent": true,
+				"status": 200
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "{\"a\":1}",
+				"content-type": "application/json; charset=utf-8",
+				"request_line": "POST /v1/x HTTP/1.1"
+			},
+			"response": "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: 11\r\n\r\n{\"ok\":true}"
+		},
+		{
+			"name": "404-error",
+			"reply": {
+				"body": {
+					"error": "no such file"
+				},
+				"error": "HTTP 404 no such file",
+				"retry_after": "",
+				"sent": true,
+				"status": 404
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "",
+				"request_line": "GET /v1/files/7 HTTP/1.1"
+			},
+			"response": "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: 24\r\n\r\n{\"error\":\"no such file\"}"
+		},
+		{
+			"name": "503-retry-after",
+			"reply": {
+				"body": {
+					"error": "not ready"
+				},
+				"error": "HTTP 503 not ready",
+				"retry_after": "7",
+				"sent": true,
+				"status": 503
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "{}",
+				"content-type": "application/json; charset=utf-8",
+				"request_line": "POST /v1/y HTTP/1.1"
+			},
+			"response": "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nRetry-After: 7\r\nContent-Type: application/json\r\nContent-Length: 21\r\n\r\n{\"error\":\"not ready\"}"
+		},
+		{
+			"name": "500-not-json",
+			"reply": {
+				"body": null,
+				"error": "HTTP 500",
+				"retry_after": "",
+				"sent": true,
+				"status": 500
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "",
+				"request_line": "GET /v1/z HTTP/1.1"
+			},
+			"response": "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\nContent-Length: 4\r\n\r\noops"
+		},
+		{
+			"name": "204-empty",
+			"reply": {
+				"body": null,
+				"error": "",
+				"retry_after": "",
+				"sent": true,
+				"status": 204
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "",
+				"request_line": "POST /v1/w HTTP/1.1"
+			},
+			"response": "HTTP/1.1 204 No Content\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+		},
+		{
+			"name": "400-error-not-string",
+			"reply": {
+				"body": {
+					"error": 5
+				},
+				"error": "HTTP 400",
+				"retry_after": "",
+				"sent": true,
+				"status": 400
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "",
+				"request_line": "GET /v1/v HTTP/1.1"
+			},
+			"response": "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 11\r\n\r\n{\"error\":5}"
+		},
+		{
+			"name": "record-access",
+			"reply": {
+				"body": null,
+				"error": "",
+				"retry_after": "",
+				"sent": true,
+				"status": 204
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "{\"ids\":[1,2,18446744073709551615]}",
+				"content-type": "application/json; charset=utf-8",
+				"request_line": "POST /v1/files/access HTTP/1.1"
+			},
+			"response": "HTTP/1.1 204 No Content\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+		},
+		{
+			"name": "record-access-empty",
+			"reply": {
+				"body": null,
+				"error": "",
+				"retry_after": "",
+				"sent": true,
+				"status": 204
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "{\"ids\":[]}",
+				"content-type": "application/json; charset=utf-8",
+				"request_line": "POST /v1/files/access HTTP/1.1"
+			},
+			"response": "HTTP/1.1 204 No Content\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+		},
+		{
+			"name": "fetch",
+			"reply": {
+				"body": {
+					"id": 5,
+					"state": "stored"
+				},
+				"error": "",
+				"retry_after": "",
+				"sent": true,
+				"status": 200
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "{\"length\":0,\"offset\":10}",
+				"content-type": "application/json; charset=utf-8",
+				"request_line": "POST /v1/files/5/fetch HTTP/1.1"
+			},
+			"response": "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 25\r\n\r\n{\"state\":\"stored\",\"id\":5}"
+		},
+		{
+			"name": "resolve-chat",
+			"reply": {
+				"body": {},
+				"error": "",
+				"retry_after": "",
+				"sent": true,
+				"status": 200
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "{\"ref\":\"@gnu\"}",
+				"content-type": "application/json; charset=utf-8",
+				"request_line": "POST /v1/chats/resolve HTTP/1.1"
+			},
+			"response": "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\n{}"
+		},
+		{
+			"name": "join-chat",
+			"reply": {
+				"body": {},
+				"error": "",
+				"retry_after": "",
+				"sent": true,
+				"status": 200
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "{\"ref\":\"https://t.me/x\"}",
+				"content-type": "application/json; charset=utf-8",
+				"request_line": "POST /v1/chats/join HTTP/1.1"
+			},
+			"response": "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\n{}"
+		},
+		{
+			"name": "lookup-name",
+			"reply": {
+				"body": {},
+				"error": "",
+				"retry_after": "",
+				"sent": true,
+				"status": 200
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "{}",
+				"content-type": "application/json; charset=utf-8",
+				"request_line": "POST /v1/users/-100123/lookup-name HTTP/1.1"
+			},
+			"response": "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\n{}"
+		},
+		{
+			"name": "timeout",
+			"reply": {
+				"body": null,
+				"error": "Timeout",
+				"retry_after": "",
+				"sent": false,
+				"status": 0
+			},
+			"request": {
+				"authorization": "Bearer ceb804530adce5b649f8ae02a033d5135facdcead9fd56c135e6d957c0cdccb8",
+				"body": "",
+				"request_line": "GET /v1/slow HTTP/1.1"
+			},
+			"response": ""
+		}
+	],
+	"file_token_decrypt": [
+		{
+			"id": null,
+			"token": "052d24a77fb0c771f9ef20389d9b1e222e1465fdd42fa1613a61b242953a658d"
+		},
+		{
+			"id": null,
+			"token": "952d24a77fb0c771f9ef20389d9b1e222e1465fdd42fa1613a61b242953a6580"
+		},
+		{
+			"id": null,
+			"token": "952d24a77fb0c771f9ef20389d9b1e222e1465fdd42fa1613a61b242953a65"
+		},
+		{
+			"id": null,
+			"token": "952d24a77fb0c771f9ef20389d9b1e222e1465fdd42fa1613a61b242953a658d00"
+		},
+		{
+			"id": null,
+			"token": "0000000000000000000000000000000000000000000000000000000000000000"
+		},
+		{
+			"id": null,
+			"token": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"
+		},
+		{
+			"id": "42",
+			"token": "952D24A77FB0C771F9EF20389D9B1E222E1465FDD42FA1613A61B242953A658D"
+		}
+	],
+	"file_tokens": [
+		{
+			"id": "0",
+			"roundtrip": true,
+			"token": "93558d6c71618c102992b5817021cd96a3a67024037323efa2279adea0bcee21"
+		},
+		{
+			"id": "1",
+			"roundtrip": true,
+			"token": "f750c797422fa6d16caa6286118ed4785b84fbf23a44c7e445f789d12a2ced17"
+		},
+		{
+			"id": "2",
+			"roundtrip": true,
+			"token": "4bd665f17110445546dc1eec1cfe95860a0c8d783c14c288d56ebd0191814b18"
+		},
+		{
+			"id": "42",
+			"roundtrip": true,
+			"token": "952d24a77fb0c771f9ef20389d9b1e222e1465fdd42fa1613a61b242953a658d"
+		},
+		{
+			"id": "4294967296",
+			"roundtrip": true,
+			"token": "c3e83dd7a318ca06b07a158d2dc708142b119097916187b8845ae65ffac47628"
+		},
+		{
+			"id": "123456789012345",
+			"roundtrip": true,
+			"token": "d96a6181abb76024326aae48de9a9b47fe456ae6330cb056b19341dfa9217f85"
+		},
+		{
+			"id": "18446744073709551615",
+			"roundtrip": true,
+			"token": "b7ed82097a0159e5ff90b1850788b150f70a4b936a63f45ae4f55edf2820b459"
+		}
+	],
+	"key_spellings": [
+		{
+			"file_token_1": "f750c797422fa6d16caa6286118ed4785b84fbf23a44c7e445f789d12a2ced17",
+			"filetoken_init": true,
+			"tag_abc": "LK6DYpaRCBYq-xmM9OwfR1rHz6YOrtzJl6vly0JI2HQ",
+			"token_init": true,
+			"value": "q83vEjRWeJCrze8SNFZ4kKvN7xI0VniQq83vEjRWeJA="
+		},
+		{
+			"file_token_1": "f750c797422fa6d16caa6286118ed4785b84fbf23a44c7e445f789d12a2ced17",
+			"filetoken_init": true,
+			"tag_abc": "LK6DYpaRCBYq-xmM9OwfR1rHz6YOrtzJl6vly0JI2HQ",
+			"token_init": true,
+			"value": "q83vEjRWeJCrze8SNFZ4kKvN7xI0VniQq83vEjRWeJA"
+		},
+		{
+			"file_token_1": "f750c797422fa6d16caa6286118ed4785b84fbf23a44c7e445f789d12a2ced17",
+			"filetoken_init": true,
+			"tag_abc": "LK6DYpaRCBYq-xmM9OwfR1rHz6YOrtzJl6vly0JI2HQ",
+			"token_init": true,
+			"value": "q83vEjRWeJCrze8SNFZ4kKvN7xI0VniQq83vEjRWeJA="
+		},
+		{
+			"file_token_1": "d0f9e383ff0e1f36af54b79304bd07c14cd62cf7530eb63441041ecb90b1b966",
+			"filetoken_init": true,
+			"tag_abc": "UjEucNeRSLKP-zvqDFhdwfUxP3br_TGHoxOez4aKgK8",
+			"token_init": true,
+			"value": "_-_-_-_-_-_-_-_-_-_-_-_-"
+		},
+		{
+			"filetoken_init": false,
+			"token_init": false,
+			"value": "_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_A=="
+		},
+		{
+			"filetoken_init": false,
+			"token_init": false,
+			"value": "_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_g="
+		},
+		{
+			"file_token_1": "0c9375bab527d919f4d7d9c1a3338066d65f2292d155a893af5f4b5de596ed66",
+			"filetoken_init": true,
+			"tag_abc": "-_RRWRRfDF-EJCewOx1GFk92E9XJGyHrB6nB2kJZu1I",
+			"token_init": true,
+			"value": "_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_g"
+		},
+		{
+			"file_token_1": "5319e724076744544e53c669588c9aaa652fb0cabe6f5939a9d6595732ba823c",
+			"filetoken_init": true,
+			"tag_abc": "_XrbFSwF74Dcz1Ch-kwF1aPsbalVdfwxKufF0JGDY1E",
+			"token_init": true,
+			"value": "AAAAAAAAAAAAAAAAAAAAAA=="
+		},
+		{
+			"file_token_1": "5319e724076744544e53c669588c9aaa652fb0cabe6f5939a9d6595732ba823c",
+			"filetoken_init": true,
+			"tag_abc": "_XrbFSwF74Dcz1Ch-kwF1aPsbalVdfwxKufF0JGDY1E",
+			"token_init": true,
+			"value": "AAAAAAAAAAAAAAAAAAAAAA"
+		},
+		{
+			"filetoken_init": false,
+			"token_init": false,
+			"value": "AAAAAAAAAAAAAAAAAAAA"
+		},
+		{
+			"filetoken_init": false,
+			"token_init": false,
+			"value": "AAAAAAAAAAAAAAAAAAAAAB=="
+		},
+		{
+			"filetoken_init": false,
+			"token_init": false,
+			"value": "AAAAAAAAAAAAAAAAAAAAAA="
+		},
+		{
+			"filetoken_init": false,
+			"token_init": false,
+			"value": "AAAAAAAAAAAAAAAAAAAAAA==\n"
+		},
+		{
+			"filetoken_init": false,
+			"token_init": false,
+			"value": "AAAAAAAA AAAAAAAAAAAAAA=="
+		},
+		{
+			"filetoken_init": false,
+			"token_init": false,
+			"value": "not base64 at all!"
+		},
+		{
+			"filetoken_init": false,
+			"token_init": false,
+			"value": ""
+		}
+	],
+	"login_cookie": "Set-Cookie: tgw_csrf=tok; Max-Age=1800; Path=/login; SameSite=Lax; Secure; HttpOnly\r\n",
+	"login_tokens": [
+		{
+			"check": true,
+			"token": "eGNZYUJ6TW8tdzRIampRS1hKakhYbThDZlZVdUhzM2FFS0VLU2k0M1pybw.Odj9brvUjniJYfb4UsAhDVRNxhjfVRmy29ztTTm6Lik"
+		},
+		{
+			"check": true,
+			"token": "NWFRRGFsVGNXLWZSZFhXaC1ndHF4dDczMTI3dGJUSXl4dE1xVEpxQmdQUQ.amxcMXC6QvyinViy87zFcbGPxn8Ed7BapxbmKvS5AoA"
+		},
+		{
+			"check": true,
+			"token": "aXdxbE1KMGhSVGxZRUFHZU9hLW5Jdl9OLUU0VEJ2Q0RxSTVYRV9KUUJhVQ.0LxqHPJiQQzYK0eVozy034sPIjfEZ8YfC5KANGqwWU4"
+		}
+	],
+	"open": [
+		{
+			"payload_hex": "68656c6c6f",
+			"token": "aGVsbG8.I2eD9jBuJqoxgU8wH8MOdajaUcCMvdKEhuNn11TFijY"
+		},
+		{
+			"payload_hex": null,
+			"token": "aGVsbG8.I2eD9jBuJqoxgU8wH8MOdajaUcCMvdKEhuNn11TFijYx"
+		},
+		{
+			"payload_hex": null,
+			"token": "xaGVsbG8.I2eD9jBuJqoxgU8wH8MOdajaUcCMvdKEhuNn11TFijY"
+		},
+		{
+			"payload_hex": null,
+			"token": "nodot"
+		},
+		{
+			"payload_hex": null,
+			"token": "."
+		},
+		{
+			"payload_hex": null,
+			"token": "aGVsbG8"
+		},
+		{
+			"payload_hex": "68656c6c6f",
+			"token": "aGVsbG8.I2eD9jBuJqoxgU8wH8MOdajaUcCMvdKEhuNn11TFijY"
+		},
+		{
+			"payload_hex": null,
+			"token": "aGVsbG8.I2eD9jBuJqoxgU8wH8MOdajaUcCMvdKEhuNn11TFijY.extra"
+		}
+	],
+	"passwords": [
+		{
+			"hash": "$argon2id$v=19$m=65536,t=2,p=1$YGZpsnBksG413y1KsW6Jaw$QL3aX8OQTFYNafs1AZwsR/fIqpvgHisjglx6bobZS+o",
+			"password_hex": "68756e74657232",
+			"verify": true,
+			"verify_wrong": false
+		},
+		{
+			"hash": "$argon2id$v=19$m=65536,t=2,p=1$9zWTJdp3MM/j4QnsBdsSog$YByo4f19RDGvfC1xT0K3uR/3gkRtGR54J1RUBXs1Xrc",
+			"password_hex": "",
+			"verify": true,
+			"verify_wrong": false
+		},
+		{
+			"hash": "$argon2id$v=19$m=65536,t=2,p=1$aLZE5WuJc0GxvovIdlNCAw$CXGulNhNGhOzIsyQuRd6nMX9XFPMaKXvWkIoHBz8Jb8",
+			"password_hex": "70c3a473732077c3b6726420e29c93",
+			"verify": true,
+			"verify_wrong": false
+		},
+		{
+			"hash": "$argon2id$v=19$m=65536,t=2,p=1$dPVj9eomzsxCGAAxFr/Ajw$A7kicdEhVcy1raPPCui1ndEkszaFgQEgSLthFlDE8e0",
+			"password_hex": "7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a",
+			"verify": true,
+			"verify_wrong": false
+		}
+	],
+	"session_clear": "Set-Cookie: tgw_session=; Max-Age=0; Path=/; SameSite=Lax; Secure; HttpOnly\r\n",
+	"session_current": [
+		{
+			"cookie": "NQowCjMKYWRtaW4KYm9i.2DyxBy0WPl3mMM3qPU6MQ2dh-EdAdQSdvtH7sWcZqW8",
+			"current": {
+				"epoch": 3,
+				"exp": 0,
+				"role": "admin",
+				"uid": "5",
+				"username": "bob"
+			},
+			"payload_hex": "350a300a330a61646d696e0a626f62"
+		},
+		{
+			"cookie": "NQoxCjMKYWRtaW4KYm9i.iWFnhkg6x_ZVbD_SkLQC-xvgbWpzzSXey-p9hq2cgDU",
+			"current": null,
+			"payload_hex": "350a310a330a61646d696e0a626f62"
+		},
+		{
+			"cookie": "NQo0MTAyNDQ0ODAwCjMKdmlld2VyCngKeQ.4e2TA8aOZmitvi1gG9ixSmAzsp9QA2nvMDUg3DKp-Fo",
+			"current": {
+				"epoch": 3,
+				"exp": 4102444800,
+				"role": "viewer",
+				"uid": "5",
+				"username": "x\ny"
+			},
+			"payload_hex": "350a343130323434343830300a330a7669657765720a780a79"
+		},
+		{
+			"cookie": "NQowCmFkbWluCmJvYg.wFaKk61S8b68W3kZD7Cfi34jYRFDDlzVrtkBCJM-_qw",
+			"current": null,
+			"payload_hex": "350a300a61646d696e0a626f62"
+		},
+		{
+			"cookie": "YWJjCjAKMwphZG1pbgpib2I.W6xE5YNjU_kkNl0htoBNIcyHqpSkxUqLkvIENLbBWtE",
+			"current": null,
+			"payload_hex": "6162630a300a330a61646d696e0a626f62"
+		},
+		{
+			"cookie": "NQowCjQyOTQ5NjcyOTYKYWRtaW4KYm9i.FcQL3RjSwQie9Sc1_C0N-ZgwJNnlKH4pa_Mf3HOd0YQ",
+			"current": {
+				"epoch": 0,
+				"exp": 0,
+				"role": "admin",
+				"uid": "5",
+				"username": "bob"
+			},
+			"payload_hex": "350a300a343239343936373239360a61646d696e0a626f62"
+		},
+		{
+			"cookie": "NQowCjMKCg.t9MlCu-NZGAkEwXsGhRjtRroV_QehOHV4y2ByuCYTnA",
+			"current": {
+				"epoch": 3,
+				"exp": 0,
+				"role": "",
+				"uid": "5",
+				"username": ""
+			},
+			"payload_hex": "350a300a330a0a"
+		},
+		{
+			"cookie": "LTEKMAozCmFkbWluCmJvYg.V2_GRC3Fd_YQR1WgLOZ9-zGJTYwvUGKlrR3xpUsCYs4",
+			"current": {
+				"epoch": 3,
+				"exp": 0,
+				"role": "admin",
+				"uid": "18446744073709551615",
+				"username": "bob"
+			},
+			"payload_hex": "2d310a300a330a61646d696e0a626f62"
+		},
+		{
+			"cookie": "IDV4CiArMAorM3kKYWRtaW4KYm9i.eaL8CTLHcAV3ZsaMVXzer3odcZhYagiN08PlhbRE-IE",
+			"current": {
+				"epoch": 3,
+				"exp": 0,
+				"role": "admin",
+				"uid": "5",
+				"username": "bob"
+			},
+			"payload_hex": "2035780a202b300a2b33790a61646d696e0a626f62"
+		},
+		{
+			"cookie": "NQotMQozCmFkbWluCmJvYg._HGsxe2ZDWoC8kSd-mwbJNys4vZNSFzjBnHkIZLytME",
+			"current": null,
+			"payload_hex": "350a2d310a330a61646d696e0a626f62"
+		},
+		{
+			"cookie": "NQowCi0xCmFkbWluCmJvYg._i1QGyaqDmWiTMc8KBtFfTY39tzIYci4ono8We0bmb8",
+			"current": {
+				"epoch": 4294967295,
+				"exp": 0,
+				"role": "admin",
+				"uid": "5",
+				"username": "bob"
+			},
+			"payload_hex": "350a300a2d310a61646d696e0a626f62"
+		},
+		{
+			"cookie": "MTg0NDY3NDQwNzM3MDk1NTE2MTYKMAozCmFkbWluCmJvYg.l48RAGzdYiAOwtmqNAuAw-wl_wl310WJoyjJVPwcIEE",
+			"current": null,
+			"payload_hex": "31383434363734343037333730393535313631360a300a330a61646d696e0a626f62"
+		},
+		{
+			"cookie": "NQo5MjIzMzcyMDM2ODU0Nzc1ODA4CjMKYWRtaW4KYm9i.fA054v0EIbaz68f59y9xP2WAVhws3W6fRu5c4k-AMoM",
+			"current": null,
+			"payload_hex": "350a393232333337323033363835343737353830380a330a61646d696e0a626f62"
+		},
+		{
+			"cookie": "NQowCjE4NDQ2NzQ0MDczNzA5NTUxNjE2CmFkbWluCmJvYg.zXYMm-y08TeYf3gEcxeVfQL6ZNeTbXN60-kwAItZl4M",
+			"current": null,
+			"payload_hex": "350a300a31383434363734343037333730393535313631360a61646d696e0a626f62"
+		},
+		{
+			"cookie": "CjAKMwphZG1pbgpib2I.rf5kXbdAiibgcaEKYjsg-N4GEDB5sCdVutjwx_wNujU",
+			"current": null,
+			"payload_hex": "0a300a330a61646d696e0a626f62"
+		},
+		{
+			"cookie": "NQowCjMKYWRtaW4.i43__ddDgpgHn_9AuRfkW116ipkNf8xb3SM_f5AMNms",
+			"current": null,
+			"payload_hex": "350a300a330a61646d696e"
+		}
+	],
+	"sessions": [
+		{
+			"cookie": "MQoxNzk0OTg4NTAzCjAKYWRtaW4KYWRtaW4.1_2qEFxc_xt6vadtRbkc4hAj_6J0QtyhLtu0WyPi0TM",
+			"csrf": "Gy2XhEYD-TzMRqd5ZFZsq-8sKlWV7CTizf6EPRqvMSk",
+			"current": {
+				"epoch": 0,
+				"exp": 1794988503,
+				"role": "admin",
+				"uid": "1",
+				"username": "admin"
+			},
+			"epoch": 0,
+			"issued_between": [
+				1794945303,
+				1794945303
+			],
+			"role": "admin",
+			"set_cookie": "Set-Cookie: tgw_session=MQoxNzk0OTg4NTAzCjAKYWRtaW4KYWRtaW4.1_2qEFxc_xt6vadtRbkc4hAj_6J0QtyhLtu0WyPi0TM; Max-Age=43200; Path=/; SameSite=Lax; Secure; HttpOnly\r\n",
+			"uid": "1",
+			"username": "admin"
+		},
+		{
+			"cookie": "MTg0NDY3NDQwNzM3MDk1NTE2MTUKMTc5NDk4ODUwMwo0Mjk0OTY3Mjk1CnZpZXdlcgp3ZQppcmQgIm5hbWUiIDs9.Ujpev0zHA6NaphkOT5GVN95DnBUoo_Gs_4ll8D2gb9s",
+			"csrf": "wVHFIF0B0Kh162rq7MCg0n8ViDZhnPUCtyEUdKrUK0g",
+			"current": {
+				"epoch": 4294967295,
+				"exp": 1794988503,
+				"role": "viewer",
+				"uid": "18446744073709551615",
+				"username": "we\nird \"name\" ;="
+			},
+			"epoch": 4294967295,
+			"issued_between": [
+				1794945303,
+				1794945303
+			],
+			"role": "viewer",
+			"set_cookie": "Set-Cookie: tgw_session=MTg0NDY3NDQwNzM3MDk1NTE2MTUKMTc5NDk4ODUwMwo0Mjk0OTY3Mjk1CnZpZXdlcgp3ZQppcmQgIm5hbWUiIDs9.Ujpev0zHA6NaphkOT5GVN95DnBUoo_Gs_4ll8D2gb9s; Max-Age=43200; Path=/; SameSite=Lax; Secure; HttpOnly\r\n",
+			"uid": "18446744073709551615",
+			"username": "we\nird \"name\" ;="
+		},
+		{
+			"cookie": "NDIKMTc5NDk4ODUwMwo3CnZpZXdlcgo.ubttjrQve-j33WYpENmm62dnxY7LHdJkfoCiUlhLPY8",
+			"csrf": "8ZgDicdAnJovYor_egKO53Ke4yXp1JZYQac1fCe465g",
+			"current": {
+				"epoch": 7,
+				"exp": 1794988503,
+				"role": "viewer",
+				"uid": "42",
+				"username": ""
+			},
+			"epoch": 7,
+			"issued_between": [
+				1794945303,
+				1794945303
+			],
+			"role": "viewer",
+			"set_cookie": "Set-Cookie: tgw_session=NDIKMTc5NDk4ODUwMwo3CnZpZXdlcgo.ubttjrQve-j33WYpENmm62dnxY7LHdJkfoCiUlhLPY8; Max-Age=43200; Path=/; SameSite=Lax; Secure; HttpOnly\r\n",
+			"uid": "42",
+			"username": ""
+		}
+	],
+	"tags": [
+		{
+			"msg_hex": "",
+			"tag": "b6Yp10JVMp-62CvqWOrSzRV8cF6u7rS6xPlVOJQ24WE"
+		},
+		{
+			"msg_hex": "637372660a6162632e646566",
+			"tag": "kkQQCqk5rOSyjaUFCsOkG976avQvkgTqI0MPTb8xAh4"
+		}
+	],
+	"tokens": [
+		{
+			"payload_hex": "",
+			"token": ".b6Yp10JVMp-62CvqWOrSzRV8cF6u7rS6xPlVOJQ24WE"
+		},
+		{
+			"payload_hex": "61",
+			"token": "YQ.Vc25Hl_rXp1sDvJmr1eIy0PaAvVKsVcRjStrFZNyGqE"
+		},
+		{
+			"payload_hex": "310a300a300a61646d696e0a726f6f74",
+			"token": "MQowCjAKYWRtaW4Kcm9vdA.Ik2lv9yceHW0cUX-rlwoAiZa2wszHD_w06zQJjwagmE"
+		},
+		{
+			"payload_hex": "00fffe2062696e617279200a00",
+			"token": "AP_-IGJpbmFyeSAKAA.GCqa1uVzEokLmZS4o2oPXaY7ues65i8OukyZIdO0aWg"
+		},
+		{
+			"payload_hex": "7878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+			"token": "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg.ZM_LASU8ZpvecwNMy49DaMZb0Vm0olmJ1ghBCngMvtA"
+		}
+	]
+}
