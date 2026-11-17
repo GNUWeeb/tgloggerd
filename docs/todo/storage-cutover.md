@@ -58,12 +58,18 @@ step needs care, and the last one needs the owner's go.
     401 without the bearer (docs/internal-api.md) and the file's
     status with it; `POST /v1/files/access` with an id last accessed
     over an hour ago moves its `accessed_at` but not its `updated_at`.
+  - `web-access-reporting`: with
+    `WEB_TGLOGGERD_API=http://10.0.88.5:8091`, the web's log has
+    `tgloggerd-api: using http://10.0.88.5:8091`; viewing a file whose `accessed_at` is over
+    an hour old moves it within about a minute, `updated_at`
+    unchanged; `/files/<token>` answers `Cache-Control: public,
+    max-age=604800`; with tgloggerd stopped, stored files are still
+    served and the web logs one "access report failed" line.
 
 ## Depends on
 
 - `file-fetch-on-demand`
 - `storage-janitor`
-- `web-access-reporting`
 - `web-fetch-unstored-media`
 
 ## Done when

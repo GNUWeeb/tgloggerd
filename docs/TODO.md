@@ -102,7 +102,6 @@ The file store as a capped cache in front of Telegram:
 
 - [`file-fetch-on-demand`](todo/file-fetch-on-demand.md): Fetch a file from Telegram when asked, whole into the store if small, by byte range if big.
 - [`storage-janitor`](todo/storage-janitor.md): Evict files by retention and by the total cap, with a dry run and a status endpoint.
-- [`web-access-reporting`](todo/web-access-reporting.md): Report the files the web serves to the daemon in batches, and cache them for a week, not a year.
 - [`web-fetch-unstored-media`](todo/web-fetch-unstored-media.md): Serve unstored files by fetching them through the daemon, with byte ranges, and show them as loadable.
 - [`storage-cutover`](todo/storage-cutover.md): Deploy the storage cache, dry-run the first sweep, and enable eviction once the owner agrees.
 - [`photo-download-index`](todo/photo-download-index.md): Stop re-downloading user and group photos that are already stored (optional).
