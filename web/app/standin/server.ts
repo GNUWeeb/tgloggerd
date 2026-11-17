@@ -7,6 +7,14 @@
 //   ?as=superadmin|admin|member|public   view as a sample account, or signed out
 //                                 (remembered in a cookie)
 //   ?ssr=0                        skip server rendering, as when the render service is down
+//
+// Live updates: GET /api/events is a Server-Sent Events stream as
+// web-live.md specifies. Events come from POST /api/_standin/emit
+// {kind, chat_id?, message_id?, user_id?}, which also makes the change
+// in the fixtures; POST /api/_standin/events {"off": true} makes the
+// stream refuse and drops open ones, to exercise the polling fallback.
+// TGD_STANDIN_TICK=<ms> emits a new message into a subscribed chat that
+// often.
 import { createServer as createHttp, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createVite } from 'vite';
 import { documentHtml } from './document.ts';
@@ -45,6 +53,68 @@ function readBody(req: IncomingMessage): Promise<string> {
 		req.on('end', () => resolve(s));
 		req.on('error', reject);
 	});
+}
+
+// The live event stream.
+interface LiveClient { res: ServerResponse; who: Persona; topics: Set<string> }
+type Ev = { seq: number; kind: string; chat_id?: number; user_id?: number; [k: string]: unknown };
+const liveClients = new Set<LiveClient>();
+const liveRing: Ev[] = [];
+let liveSeq = 1000;
+let liveOff = false;
+
+function evTopics(e: Ev): string[] | null {
+	if (e.kind.startsWith('message.') || e.kind === 'file.stored') return [`chat:${e.chat_id}`, 'messages'];
+	if (e.kind === 'user.updated') return [`user:${e.user_id}`];
+	if (e.kind === 'group.updated') return [`group:${e.chat_id}`];
+	if (e.kind === 'stats.changed') return ['stats'];
+	return null;
+}
+
+function sendEv(c: LiveClient, e: Ev): void {
+	c.res.write(`id: ${e.seq}\nevent: ${e.kind}\ndata: ${JSON.stringify(e)}\n\n`);
+}
+
+async function publish(e: Omit<Ev, 'seq'>): Promise<Ev> {
+	const fx = await vite.ssrLoadModule('/standin/fixtures.ts');
+	const ev = { ...e, seq: ++liveSeq } as Ev;
+	liveRing.push(ev);
+	if (liveRing.length > 500) liveRing.shift();
+	const ts = evTopics(ev);
+	for (const c of liveClients) {
+		if (ts && !ts.some((t) => c.topics.has(t))) continue;
+		if (!fx.liveVisible(c.who, ev)) continue;
+		sendEv(c, ev);
+	}
+	return ev;
+}
+
+async function openStream(req: IncomingMessage, res: ServerResponse, url: URL, who: Persona): Promise<void> {
+	if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+	if (liveOff) { send(res, 503, { error: 'live_off', message: 'Live updates are off.' }); return; }
+	const fx = await vite.ssrLoadModule('/standin/fixtures.ts');
+	const c: LiveClient = { res, who, topics: new Set((url.searchParams.get('topics') || '').split(',').filter(Boolean)) };
+	res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', 'x-accel-buffering': 'no' });
+	res.write('retry: 2000\n\n');
+	const last = Number(req.headers['last-event-id'] || url.searchParams.get('last') || 0);
+	if (last) {
+		if (liveRing.length && last < liveRing[0]!.seq - 1) sendEv(c, { seq: liveSeq, kind: 'resync' });
+		else for (const e of liveRing) if (e.seq > last && (evTopics(e) ?? []).some((t) => c.topics.has(t)) && fx.liveVisible(who, e)) sendEv(c, e);
+	}
+	liveClients.add(c);
+	const beat = setInterval(() => res.write(': heartbeat\n\n'), 15000);
+	req.on('close', () => { clearInterval(beat); liveClients.delete(c); });
+}
+
+const TICK = Number(process.env.TGD_STANDIN_TICK) || 0;
+if (TICK) {
+	setInterval(async () => {
+		const chats = [...new Set([...liveClients].flatMap((c) => [...c.topics]).filter((t) => t.startsWith('chat:')))];
+		if (!chats.length) return;
+		const fx = await vite.ssrLoadModule('/standin/fixtures.ts');
+		const e = fx.liveChange('message.new', { chat_id: Number(chats[Math.floor(Math.random() * chats.length)]!.slice(5)) });
+		if (e) await publish(e);
+	}, TICK);
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -117,6 +187,20 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		if ((am = p.match(/^sessions\/(\w+)$/)) && req.method === 'DELETE') { st.sessions = st.sessions.filter((x: { id: string; current: boolean }) => x.current || x.id !== am![1]); res.writeHead(204); res.end(); return; }
 		if (p === 'sessions/sign-out-others' && req.method === 'POST') { st.sessions = st.sessions.filter((x: { current: boolean }) => x.current); res.writeHead(204); res.end(); return; }
 		send(res, 404, { error: 'not_found' }); return;
+	}
+	if (url.pathname === '/api/events' && req.method === 'GET') { await openStream(req, res, url, who); return; }
+	if (url.pathname === '/api/_standin/emit' && req.method === 'POST') {
+		const b = JSON.parse((await readBody(req)) || '{}');
+		const e = fx.liveChange(String(b.kind), b);
+		if (!e) { send(res, 400, { error: 'bad_request' }); return; }
+		send(res, 200, await publish(e));
+		return;
+	}
+	if (url.pathname === '/api/_standin/events' && req.method === 'POST') {
+		liveOff = !!JSON.parse((await readBody(req)) || '{}').off;
+		if (liveOff) for (const c of liveClients) c.res.end();
+		send(res, 200, { off: liveOff });
+		return;
 	}
 	if (/^\/api\/(accounts|federations|forwarding|join-chat|mcp)(\/|$)/.test(url.pathname)) {
 		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }

@@ -5,7 +5,7 @@
 import { users, getUser, getUserHistory, getUsernames, getActivity, queryUsers, TOTAL_USERS } from '../../mockup/src/data/users.js';
 import { groups, getGroupsOfUser, queryGroups, getGroup, getAdmins, getGroupHistory, getTopPosters } from '../../mockup/src/data/groups.js';
 import { queryFiles, files } from '../../mockup/src/data/files.js';
-import { groupMessages, senderOf, queryMessages, getMessage, chatStream, chatOf } from '../../mockup/src/data/messages.js';
+import { groupMessages, privateMessages, senderOf, queryMessages, getMessage, chatStream, chatOf } from '../../mockup/src/data/messages.js';
 import { accounts, federations, mySessions, SECURITY_NOTICES, allFeds, fedGroups, fedAdmins, fedMembers, activeSuperadmins, auditFor, fedById } from '../../mockup/src/data/accounts.js';
 import { buildScope, allowed } from '../../mockup/src/viewer.jsx';
 import { TOTALS } from '../../mockup/src/data/totals.js';
@@ -516,4 +516,62 @@ export function searchChats(persona: Persona, q: URLSearchParams): [number, unkn
 		.sort((x, y) => (y.msg_count || 0) - (x.msg_count || 0));
 	const page = hits.slice(off, off + limit);
 	return [200, { items: page.map(pick), next_cursor: off + limit < hits.length ? String(off + limit) : null }];
+}
+
+// Stand-in changes behind the live event stream: each makes a change in
+// the fixtures and returns the event the daemon would emit for it.
+const chatById = (id: number) => (id < 0 ? getGroup(id) : getUser(id));
+// Fixture dates are 'YYYY-MM-DD HH:MM:SS' (UTC), as the mockup data has them.
+const stamp = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+const parseStamp = (s: string) => Date.parse(s.replace(' ', 'T') + 'Z');
+
+export function liveChange(kind: string, b: { chat_id?: number; message_id?: number; user_id?: number }): Record<string, unknown> | null {
+	if (kind === 'message.new') {
+		const chat = chatById(Number(b.chat_id));
+		if (!chat) return null;
+		const all = chatStream(chat);
+		const prev = all[all.length - 1];
+		const n = all.length;
+		const date = stamp(parseStamp(prev.date) + 30000);
+		const m = { ...prev, id: prev.id + 100000 + n, message_id: prev.message_id + 1, date, text: `Live message ${n + 1} from the stand-in`, content_type: 'text', media: null, album: [], reply_to: null, forward: null, edits: null, edited_at: null, deleted_at: null, link_preview: null };
+		all.push(m);
+		// The message search lists are built once; put it on top of its list.
+		const list = chat.kind === 'user' ? privateMessages() : groupMessages();
+		if (!list.includes(m) && list.some((x) => x.chat === chat)) list.unshift(Object.assign(m, { is_deleted: false, is_edited: false, is_forwarded: false }));
+		return { kind, chat_id: chat.id, message_id: m.message_id };
+	}
+	if (kind === 'message.edited' || kind === 'message.deleted') {
+		const chat = chatById(Number(b.chat_id));
+		const m = chat && chatStream(chat).find((x) => x.message_id === Number(b.message_id));
+		if (!m) return null;
+		if (kind === 'message.edited') { m.edits = [...(m.edits || []), { at: m.edited_at || m.date, text: m.text }]; m.text = `${m.text} (edited live)`; m.edited_at = stamp(parseStamp(NOW.replace('T', ' ').slice(0, 19))); }
+		else m.deleted_at = stamp(parseStamp(NOW.replace('T', ' ').slice(0, 19)));
+		return { kind, chat_id: chat.id, message_id: m.message_id };
+	}
+	if (kind === 'user.updated') {
+		const u = getUser(Number(b.user_id));
+		if (!u) return null;
+		u.name = u.name.replace(/ \(renamed \d+\)$/, '') + ` (renamed ${Math.floor(Math.random() * 900 + 100)})`;
+		return { kind, user_id: u.id, fields: ['name'] };
+	}
+	if (kind === 'group.updated') {
+		const g = getGroup(Number(b.chat_id));
+		if (!g) return null;
+		g.title = g.title.replace(/ \(renamed \d+\)$/, '') + ` (renamed ${Math.floor(Math.random() * 900 + 100)})`;
+		return { kind, chat_id: g.id, fields: ['title'] };
+	}
+	if (kind === 'stats.changed') return { kind, chat_ids: b.chat_id ? [b.chat_id] : [], user_ids: b.user_id ? [b.user_id] : [] };
+	return null;
+}
+
+// Whether a persona may see an event (web-live.md section 3).
+export function liveVisible(persona: Persona, e: { kind: string; chat_id?: number; user_id?: number }): boolean {
+	const s = scopeOf(persona);
+	if (s.role === 'public') return false;
+	if (e.chat_id !== undefined) {
+		if (e.chat_id < 0) { const g = getGroup(e.chat_id); return !!g && s.group(g); }
+		return allowed(s, 'private_messages');
+	}
+	if (e.user_id !== undefined) { const u = getUser(e.user_id); return !!u && s.user(u); }
+	return true;
 }

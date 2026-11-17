@@ -1,4 +1,7 @@
+import type { ReactNode } from 'react';
 import { NavProvider, useNav } from './nav.tsx';
+import { LiveProvider } from './live/react.tsx';
+import { PageLive } from './live/PageLive.tsx';
 import { routes } from './routes/index.tsx';
 import { UnknownRoute, type PageData } from './page.ts';
 import './styles/base.css';
@@ -11,6 +14,11 @@ export function routeOf(page: PageData) {
 	return r;
 }
 
+function LiveRoot({ children }: { children: ReactNode }) {
+	const { viewer } = useNav();
+	return <LiveProvider enabled={viewer.signed_in}><PageLive>{children}</PageLive></LiveProvider>;
+}
+
 function Current() {
 	const { page } = useNav();
 	const { Page } = routeOf(page);
@@ -21,7 +29,7 @@ export default function App({ page }: { page: PageData }) {
 	routeOf(page); // unknown routes fail before rendering anything
 	return (
 		<NavProvider initial={page}>
-			<Current />
+			<LiveRoot><Current /></LiveRoot>
 		</NavProvider>
 	);
 }

@@ -7,6 +7,7 @@ import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { duration } from '../ui/media.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
+import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { bytes, fmt } from '../format.ts';
 import { TYPE_LABEL } from './groups.tsx';
 import type { PageData, Viewer } from '../page.ts';
@@ -139,11 +140,16 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const [atBottom, setAtBottom] = useState(true);
 	const [searching, setSearching] = useState(false);
 	const [flash, setFlash] = useState<number | null>(p.at);
+	const [unseen, setUnseen] = useState(0);
 	const scroller = useRef<HTMLDivElement>(null);
 	const busy = useRef(false);
+	const msgsRef = useRef(msgs);
+	msgsRef.current = msgs;
+	const liveState = useLiveState();
+	const refetch = useRefetcher();
 
 	// A new page (another chat, or ?at=) replaces the window.
-	useEffect(() => { setMsgs(p.messages); setOlder(p.has_older); setNewer(p.has_newer); setFlash(p.at); }, [p]);
+	useEffect(() => { setMsgs(p.messages); setOlder(p.has_older); setNewer(p.has_newer); setFlash(p.at); setUnseen(0); }, [p]);
 
 	useLayoutEffect(() => {
 		const el = scroller.current;
@@ -171,30 +177,63 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		const el = scroller.current;
 		if (!el) return;
 		const on = () => {
-			setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+			const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+			setAtBottom(bottom);
+			if (bottom) setUnseen(0);
 			if (el.scrollTop < 300) void loadOlder();
 		};
 		el.addEventListener('scroll', on, { passive: true });
 		return () => el.removeEventListener('scroll', on);
 	}, [loadOlder]);
 
-	// Live tail by polling, until the event stream takes over
-	// (web-live-client.md): newest window only, visible tabs only.
-	useEffect(() => {
-		if (!live || newer || publicView) return;
-		const t = setInterval(async () => {
-			if (document.hidden) return;
-			const last = msgs[msgs.length - 1];
+	// The live tail (web-live-client.md section 4). New messages are
+	// fetched from the cursor and appended: at the bottom the view
+	// follows them, scrolled up nothing moves and the jump button counts
+	// them. Edits, deletions and stored files replace the message in
+	// place. The stream drives it; while it is down, poll every second.
+	const fetchNewer = useCallback(async () => {
+		for (let pages = 0; pages < 3; pages++) {
+			const last = msgsRef.current[msgsRef.current.length - 1];
 			if (!last) return;
-			const w = await fetchChatWindow(scope, chatId, { after: last.message_id }).catch(() => null);
-			if (!w || !w.messages.length) return;
+			const w = await fetchChatWindow(scope, chatId, { after: last.message_id });
 			const el = scroller.current;
 			const stick = el ? el.scrollHeight - el.scrollTop - el.clientHeight < 80 : false;
-			setMsgs((cur) => [...cur, ...w.messages.filter((x) => !cur.some((c) => c.id === x.id))]);
-			if (stick && el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
-		}, 1000);
+			const have = new Set(msgsRef.current.map((c) => c.id));
+			const add = w.messages.filter((x) => !have.has(x.id));
+			if (add.length) {
+				msgsRef.current = [...msgsRef.current, ...add];
+				setMsgs(msgsRef.current);
+				if (stick && el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+				else setUnseen((n) => n + add.length);
+			}
+			if (!w.has_newer) return;
+		}
+		// Too far behind to follow: leave the window, as when scrolled back.
+		setNewer(true);
+	}, [scope, chatId]);
+
+	const replaceMessage = useCallback(async (messageId: number) => {
+		const w = await fetchChatWindow(scope, chatId, { around: messageId }, 3);
+		const got = new Map(w.messages.map((m) => [m.id, m]));
+		setMsgs((cur) => cur.map((m) => got.get(m.id) ?? m));
+	}, [scope, chatId]);
+
+	const following = live && !newer && !publicView;
+	useLive(following ? [`chat:${chatId}`] : null, (e) => {
+		const run = (key: string, fn: () => Promise<unknown>) => (refetch ? refetch.request(key, 250, fn) : void fn().catch(() => {}));
+		if (e.kind === 'message.new' || e.kind === 'resync') run(`chat:${chatId}:tail`, fetchNewer);
+		else if ((e.kind === 'message.edited' || e.kind === 'message.deleted' || e.kind === 'file.stored') && e.message_id !== undefined && msgsRef.current.some((m) => m.message_id === e.message_id)) {
+			const id = e.message_id;
+			run(`chat:${chatId}:m${id}`, () => replaceMessage(id));
+		}
+	});
+
+	const polling = following && (liveState === 'polling' || liveState === 'idle');
+	useEffect(() => {
+		if (!polling) return;
+		const t = setInterval(() => { if (!document.hidden) void fetchNewer().catch(() => {}); }, 1000);
 		return () => clearInterval(t);
-	}, [live, newer, publicView, msgs, scope, chatId]);
+	}, [polling, fetchNewer]);
 
 	const onReply = (id: number) => {
 		const t = document.getElementById('m' + id);
@@ -247,9 +286,9 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 					<Feed msgs={msgs} v={v} isGroup={isGroup} flash={flash} onReply={onReply} />
 				</div>
 			</div>
-			{(!atBottom || newer) && <button type="button" className="c-tobottom" aria-label="Jump to latest" onClick={toLatest}><ChevronDown size={22} /></button>}
+			{(!atBottom || newer) && <button type="button" className="c-tobottom" aria-label={unseen ? `Jump to latest, ${unseen} new` : 'Jump to latest'} onClick={toLatest}><ChevronDown size={22} />{unseen > 0 && <span className="c-unseen">{unseen > 99 ? '99+' : unseen}</span>}</button>}
 			<footer className="c-readonly">
-				{publicView ? <><Globe size={14} />Public archive of {title}. Read only.</> : <>Archive view, read only. {live ? 'New messages appear as they are logged.' : 'Live updates paused.'}</>}
+				{publicView ? <><Globe size={14} />Public archive of {title}. Read only.</> : <>Archive view, read only. {!live ? 'Live updates paused.' : liveState === 'polling' ? 'Live updates unavailable; checking for new messages every second.' : 'New messages appear as they are logged.'}</>}
 			</footer>
 		</div>
 	);

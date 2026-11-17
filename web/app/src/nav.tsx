@@ -10,6 +10,9 @@ interface Nav {
 	viewer: Viewer;
 	loading: boolean;
 	navigate: (to: string, opts?: { replace?: boolean; scroll?: boolean }) => void;
+	// Refetch the current page's data in place: no history entry, no
+	// scrolling, no loading state. Dropped if a navigation starts.
+	refresh: () => Promise<void>;
 }
 
 const Ctx = createContext<Nav | null>(null);
@@ -18,9 +21,12 @@ export function NavProvider({ initial, children }: { initial: PageData; children
 	const [page, setPage] = useState(initial);
 	const [loading, setLoading] = useState(false);
 	const abort = useRef<AbortController | null>(null);
+	const quiet = useRef<AbortController | null>(null);
+	const current = useRef(initial.url);
 
 	const load = useCallback(async (url: string, push: 'push' | 'replace' | 'none', scroll: boolean) => {
 		abort.current?.abort();
+		quiet.current?.abort();
 		const ac = new AbortController();
 		abort.current = ac;
 		setLoading(true);
@@ -32,6 +38,7 @@ export function NavProvider({ initial, children }: { initial: PageData; children
 			}
 			if (push === 'push') history.pushState(null, '', url);
 			if (push === 'replace') history.replaceState(null, '', url);
+			current.current = r.page.url;
 			setPage(r.page);
 			if (scroll) scrollTo(0, 0);
 		} catch (e) {
@@ -51,7 +58,20 @@ export function NavProvider({ initial, children }: { initial: PageData; children
 		void load(to, opts.replace ? 'replace' : 'push', opts.scroll ?? !opts.replace);
 	}, [load]);
 
-	return <Ctx.Provider value={{ page, viewer: page.viewer, loading, navigate }}>{children}</Ctx.Provider>;
+	const refresh = useCallback(async () => {
+		const url = current.current;
+		quiet.current?.abort();
+		const ac = new AbortController();
+		quiet.current = ac;
+		try {
+			const r = await fetchPage(url, ac.signal);
+			// A page that now needs a full load (signed out, no longer a
+			// React page) is left alone until the next navigation.
+			if (r.kind === 'page' && !ac.signal.aborted && current.current === url) setPage(r.page);
+		} catch { /* the next event or poll tries again */ }
+	}, []);
+
+	return <Ctx.Provider value={{ page, viewer: page.viewer, loading, navigate, refresh }}>{children}</Ctx.Provider>;
 }
 
 export function useNav(): Nav {
