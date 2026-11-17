@@ -103,7 +103,17 @@ bool isLoggedIn(const drogon::HttpRequestPtr &req)
 bool isAdmin(const drogon::HttpRequestPtr &req)
 {
 	auto s = current(req);
-	return s && s->role == "admin";
+	return s && isAdminRole(s->role);
+}
+
+bool isAdminRole(const std::string &role)
+{
+	/*
+	 * These pages know only "admin or not". A superadmin and an admin
+	 * both get today's admin rights here; the admin restrictions of
+	 * docs/design/web-accounts.md section 4 exist only in the Go service.
+	 */
+	return role == "superadmin" || role == "admin";
 }
 
 void issue(const drogon::HttpResponsePtr &resp, uint64_t uid,

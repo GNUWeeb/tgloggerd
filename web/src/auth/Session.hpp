@@ -31,7 +31,7 @@ constexpr const char *kCookie = "tgw_session";
 struct Session {
 	uint64_t    uid = 0;
 	std::string username;
-	std::string role;      /* "admin" or "viewer". */
+	std::string role;      /* "superadmin", "admin" or "member". */
 	int64_t     exp = 0;   /* absolute Unix expiry; 0 = never. */
 	uint32_t    epoch = 0; /* account session epoch carried by the cookie. */
 };
@@ -44,6 +44,9 @@ std::string rawCookie(const drogon::HttpRequestPtr &req);
 
 bool isLoggedIn(const drogon::HttpRequestPtr &req);
 bool isAdmin(const drogon::HttpRequestPtr &req);
+
+/* Whether a role gets the admin pages: superadmin and admin. */
+bool isAdminRole(const std::string &role);
 
 /* Set the signed session cookie on the response (call on successful login, or
  * to re-issue with a bumped epoch after a password change). */

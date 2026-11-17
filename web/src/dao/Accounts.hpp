@@ -20,7 +20,7 @@ struct WebUser {
 	uint64_t    id;
 	std::string username;
 	std::string passwordHash;
-	std::string role;      /* "admin" or "viewer". */
+	std::string role;      /* "superadmin", "admin" or "member". */
 	bool        isActive;
 	uint32_t    epoch;     /* session_epoch: bumped to invalidate cookies. */
 };

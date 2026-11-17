@@ -75,11 +75,11 @@ std::string readSecret(const char *prompt)
 }
 
 /*
- * Seed (or reset) an admin account. Prompts for the password twice on stdin,
- * hashes it with argon2id, then upserts the row over the "app" DbClient. The
- * write is driven by Drogon's own event loop (registerBeginningAdvice +
- * async_run) rather than a standalone client, then the loop quits. Returns a
- * process exit code.
+ * Seed (or reset) a superadmin account. Prompts for the password twice on
+ * stdin, hashes it with argon2id, then upserts the row over the "app"
+ * DbClient. The write is driven by Drogon's own event loop
+ * (registerBeginningAdvice + async_run) rather than a standalone client, then
+ * the loop quits. Returns a process exit code.
  */
 int seedAdmin(const tgweb::Config &cfg, const std::string &username)
 {
@@ -88,7 +88,7 @@ int seedAdmin(const tgweb::Config &cfg, const std::string &username)
 		return 1;
 	}
 
-	std::string p1 = readSecret("New admin password: ");
+	std::string p1 = readSecret("New superadmin password: ");
 	std::string p2 = readSecret("Confirm password: ");
 	if (p1.empty()) {
 		std::cerr << "error: password must not be empty\n";
@@ -114,7 +114,7 @@ int seedAdmin(const tgweb::Config &cfg, const std::string &username)
 				auto db = drogon::app().getDbClient("app");
 				co_await tgweb::dao::accounts::seedAdmin(db,
 						username, hash);
-				std::cerr << "Seeded admin account '"
+				std::cerr << "Seeded superadmin account '"
 					  << username << "'.\n";
 			} catch (const std::exception &e) {
 				std::cerr << "error: " << e.what() << "\n";
@@ -134,7 +134,7 @@ int main(int argc, char **argv)
 {
 	tgweb::Config cfg = tgweb::Config::fromEnv();
 
-	/* CLI: --seed-admin <username> creates/resets an admin, then exits. */
+	/* CLI: --seed-admin <username> creates/resets a superadmin, then exits. */
 	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--seed-admin")) {
 			if (i + 1 >= argc) {

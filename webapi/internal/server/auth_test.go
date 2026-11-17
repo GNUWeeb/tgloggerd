@@ -157,7 +157,7 @@ func (c *client) login(user, pw string) answer {
 func TestLoginSessionLogout(t *testing.T) {
 	db := testDB(t)
 	hash, _ := auth.HashPassword("s3cret")
-	alice := addUser(t, db, "alice", hash, "viewer", true)
+	alice := addUser(t, db, "alice", hash, "member", true)
 	addUser(t, db, "bob", hash, "admin", false)
 	c := &client{t: t, h: newHandler(db, 5), cookies: map[string]string{}}
 
@@ -199,7 +199,7 @@ func TestLoginSessionLogout(t *testing.T) {
 		t.Fatalf("login answer %v, cookie %q", a.body, raw)
 	}
 	user := a.body["user"].(map[string]any)
-	if user["username"] != "alice" || user["role"] != "viewer" || user["id"] != float64(alice) {
+	if user["username"] != "alice" || user["role"] != "member" || user["id"] != float64(alice) {
 		t.Fatalf("login user %v", user)
 	}
 

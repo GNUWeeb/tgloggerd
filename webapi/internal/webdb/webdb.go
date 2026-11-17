@@ -21,7 +21,7 @@ type User struct {
 	ID           uint64
 	Username     string
 	PasswordHash string
-	Role         string // "admin" or "viewer"
+	Role         string // "superadmin", "admin" or "member"
 	IsActive     bool
 	Epoch        uint32 // session_epoch: bumped to end every session
 }

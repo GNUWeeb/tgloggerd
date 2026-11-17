@@ -24,14 +24,9 @@ const neverMaxAge = 315360000
 type Session struct {
 	UID      uint64
 	Username string
-	Role     string // "admin" or "viewer"
+	Role     string // "superadmin", "admin" or "member"
 	Exp      int64  // absolute Unix expiry; 0 = never
 	Epoch    uint32 // the account's session_epoch when it was issued
-}
-
-// IsAdmin reports whether the session's role is admin.
-func (s Session) IsAdmin() bool {
-	return s.Role == "admin"
 }
 
 // Cookies issues and reads the session and login CSRF cookies with the

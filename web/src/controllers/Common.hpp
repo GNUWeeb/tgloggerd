@@ -76,7 +76,7 @@ inline nlohmann::json pageBase(const drogon::HttpRequestPtr &req)
 	nlohmann::json j;
 	j["username"] = views::Render::esc(s ? s->username : std::string());
 	j["csrf"] = auth::csrf::forSession(req);
-	j["is_admin"] = s && s->role == "admin";
+	j["is_admin"] = s && auth::session::isAdminRole(s->role);
 	return j;
 }
 

@@ -13,15 +13,16 @@ drogon::Task<void> seedAdmin(drogon::orm::DbClientPtr db,
 {
 	/*
 	 * INSERT ... ON DUPLICATE KEY UPDATE makes --seed-admin idempotent: a
-	 * fresh run creates the admin, a repeat run resets the password and
-	 * re-enables the account. All values are bound parameters.
+	 * fresh run creates the superadmin, a repeat run resets the password,
+	 * re-enables the account and makes it a superadmin. All values are
+	 * bound parameters.
 	 */
 	co_await db->execSqlCoro(
 		"INSERT INTO web_users (username, password_hash, role, is_active) "
-		"VALUES (?, ?, 'admin', 1) "
+		"VALUES (?, ?, 'superadmin', 1) "
 		"ON DUPLICATE KEY UPDATE "
 		"password_hash = VALUES(password_hash), "
-		"role = 'admin', is_active = 1",
+		"role = 'superadmin', is_active = 1, must_change_password = 0",
 		username, passwordHash);
 	co_return;
 }
@@ -74,10 +75,12 @@ drogon::Task<uint32_t> setPassword(drogon::orm::DbClientPtr db, uint64_t id,
 				   std::string passwordHash)
 {
 	/* Bump the epoch in the same statement so the change is atomic, then read
-	 * back the new value to re-issue the caller's cookie. */
+	 * back the new value to re-issue the caller's cookie. A password the
+	 * account chose itself ends a forced change (must_change_password). */
 	co_await db->execSqlCoro(
 		"UPDATE web_users "
-		"SET password_hash = ?, session_epoch = session_epoch + 1 "
+		"SET password_hash = ?, session_epoch = session_epoch + 1, "
+		"must_change_password = 0 "
 		"WHERE id = ?",
 		passwordHash, id);
 
