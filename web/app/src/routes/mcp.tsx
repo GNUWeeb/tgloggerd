@@ -1,0 +1,157 @@
+// Integrations > MCP: the exposure allowlist and the access tokens
+// (web/docs/mcp.md). Exposing a group also publishes its chat on the web.
+import { useState } from 'react';
+import { ArrowRight, Check, Copy, Globe, KeyRound, Plus, ShieldAlert, Trash2, TriangleAlert } from 'lucide-react';
+import Shell from '../ui/Shell.tsx';
+import { Link, useNav } from '../nav.tsx';
+import { Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
+import { ChatPicker, Field, type PickItem } from '../ui/forms.tsx';
+import { GroupCell } from '../ui/bits.tsx';
+import { Modal } from '../ui/Modal.tsx';
+import { ApiError, mutate } from '../api/mutate.ts';
+import { ago, compact, fmt } from '../format.ts';
+import type { PageData } from '../page.ts';
+import type { GroupSummary } from '../types.ts';
+import type { RouteDef } from './index.tsx';
+
+export interface McpIndexProps { exposed_groups: number; exposed_messages: number; active_tokens: number; last_used: string | null; endpoint: string }
+export interface McpGroupsProps { groups: { group: GroupSummary & { msg_count: number }; public_now: boolean; note: string; added: string }[]; group_options: PickItem[] }
+export interface McpTokensProps { tokens: { id: number; name: string; owner: string; created: string; last_used: string | null; revoked: string | null }[] }
+
+function errText(x: unknown) { return x instanceof ApiError ? x.message : 'The server could not be reached.'; }
+
+function McpIndex({ page }: { page: PageData<McpIndexProps> }) {
+	const p = page.props;
+	return (
+		<Shell crumbs={[['MCP', null]]}>
+			<PageHead title="MCP" sub="The Model Context Protocol endpoint lets a language model read this archive. Two things gate it: which groups are exposed, and who holds a token." />
+			<div className="a-dircards">
+				<Link to="/mcp-admin/groups" className="a-card a-dircard">
+					<div className="a-dircard-top"><Globe size={18} /><h2>Exposed groups</h2><ArrowRight size={16} className="a-muted" /></div>
+					<p className="a-muted">The allowlist. Nothing is readable through MCP until a group is added here. Private groups and direct messages are never exposed.</p>
+					<div className="a-dircard-foot"><span><b className="num">{p.exposed_groups}</b> groups</span><span className="a-muted">{compact(p.exposed_messages)} messages readable</span></div>
+				</Link>
+				<Link to="/mcp-admin/tokens" className="a-card a-dircard">
+					<div className="a-dircard-top"><KeyRound size={18} /><h2>Access tokens</h2><ArrowRight size={16} className="a-muted" /></div>
+					<p className="a-muted">Bearer tokens for MCP clients. Shown once when minted and stored only as a hash.</p>
+					<div className="a-dircard-foot"><span><b className="num">{p.active_tokens}</b> active tokens</span><span className="a-muted">{p.last_used ? `last used ${ago(p.last_used, page.viewer)}` : 'never used'}</span></div>
+				</Link>
+			</div>
+			<Card title="Connecting a client" className="a-mt">
+				<p className="a-muted">Point an MCP client at this endpoint and pass a token as a bearer credential. The endpoint is read only.</p>
+				<div className="a-code"><pre>{`URL            ${p.endpoint}\nAuthorization  Bearer tgmcp_...`}</pre></div>
+			</Card>
+		</Shell>
+	);
+}
+
+function McpGroups({ page }: { page: PageData<McpGroupsProps> }) {
+	const { navigate } = useNav();
+	const v = page.viewer;
+	const [adding, setAdding] = useState(false);
+	const [pick, setPick] = useState<PickItem | null>(null);
+	const [note, setNote] = useState('');
+	const [err, setErr] = useState('');
+	const refresh = () => navigate(page.url, { replace: true, scroll: false });
+	const act = async (fn: () => Promise<unknown>) => { setErr(''); try { await fn(); setAdding(false); refresh(); } catch (x) { setErr(errText(x)); } };
+	return (
+		<Shell crumbs={[['MCP', '/mcp-admin'], ['Exposed groups', null]]}>
+			<PageHead title="Exposed groups" sub="Only these groups can be read through MCP. Everything else in the archive stays private."
+				actions={<Btn primary icon={Plus} onClick={() => setAdding(true)}>Expose a group</Btn>} />
+			<div className="a-banner warn"><ShieldAlert size={15} /><span><b>Exposing a group also publishes its chat on the web.</b> Anyone can read its history and files at /groups/&lt;id&gt;/chat without signing in.</span></div>
+			{err && !adding && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+			<div className="a-card a-tablecard">
+				<div className="a-tablescroll">
+					<table className="a-table">
+						<thead><tr><th>Group</th><th className="r">Messages</th><th>Public on Telegram</th><th>Note</th><th>Added</th><th /></tr></thead>
+						<tbody>{page.props.groups.map((e) => (
+							<tr key={e.group.id}>
+								<td><GroupCell g={e.group} /></td>
+								<td className="r num">{fmt(e.group.msg_count)}</td>
+								<td>{e.public_now ? <Pill tone="ok">public</Pill> : <Pill tone="danger"><TriangleAlert size={11} />no longer public</Pill>}</td>
+								<td className="a-muted a-clip">{e.note}</td>
+								<td title={e.added}>{ago(e.added, v)}</td>
+								<td className="a-rowactions"><Btn ghost danger icon={Trash2} onClick={() => { if (confirm(`Stop exposing ${e.group.title}?`)) void act(() => mutate('DELETE', `/api/mcp/groups/${e.group.id}`)); }}>Remove</Btn></td>
+							</tr>
+						))}</tbody>
+					</table>
+				</div>
+				{!page.props.groups.length && <div className="a-empty">Nothing is exposed.</div>}
+			</div>
+			<p className="a-muted a-foot"><b>Public on Telegram</b> says whether the group still has a public username. A group that went private stays exposed until it is removed here.</p>
+			{adding && (
+				<Modal title="Expose a group" onClose={() => setAdding(false)}
+					footer={<><span className="a-grow" /><Btn ghost onClick={() => setAdding(false)}>Cancel</Btn><Btn primary disabled={!pick} onClick={() => void act(() => mutate('POST', '/api/mcp/groups', { group_id: pick!.id, note }))}>Expose</Btn></>}>
+					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+					<Field label="Group" hint="Busiest groups first. Groups already exposed are not listed."><ChatPicker value={pick} onChange={setPick} options={page.props.group_options} /></Field>
+					<Field label="Note" hint="Why it is exposed, for whoever reviews this later."><input value={note} onChange={(e) => setNote(e.target.value)} maxLength={255} /></Field>
+					<div className="a-banner warn"><ShieldAlert size={15} /><span>Its whole history becomes readable on the web without signing in.</span></div>
+				</Modal>
+			)}
+		</Shell>
+	);
+}
+
+function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
+	const { navigate } = useNav();
+	const v = page.viewer;
+	const [minting, setMinting] = useState(false);
+	const [name, setName] = useState('');
+	const [minted, setMinted] = useState<string | null>(null);
+	const [copied, setCopied] = useState(false);
+	const [err, setErr] = useState('');
+	const refresh = () => navigate(page.url, { replace: true, scroll: false });
+	const mint = async () => {
+		setErr('');
+		try {
+			const r = await mutate<{ token: string }>('POST', '/api/mcp/tokens', { name });
+			setMinting(false); setCopied(false); setMinted(r.token); setName(''); refresh();
+		} catch (x) { setErr(errText(x)); }
+	};
+	const revoke = async (id: number) => { try { await mutate('POST', `/api/mcp/tokens/${id}/revoke`); refresh(); } catch (x) { setErr(errText(x)); } };
+	return (
+		<Shell crumbs={[['MCP', '/mcp-admin'], ['Access tokens', null]]}>
+			<PageHead title="Access tokens" sub="A token reads every exposed group, so treat one like a password."
+				actions={<Btn primary icon={Plus} onClick={() => setMinting(true)}>Mint a token</Btn>} />
+			{err && !minting && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+			{minted && (
+				<div className="a-card a-minted">
+					<div className="a-cardhead"><h2><KeyRound size={15} /> Copy this token now</h2></div>
+					<p className="a-muted">This is the only time it is shown. Only a hash is stored; if it is lost, revoke it and mint another.</p>
+					<div className="a-code"><pre>{minted}</pre>
+						<button type="button" className="a-btn" onClick={() => { void navigator.clipboard?.writeText(minted); setCopied(true); }}>{copied ? <><Check size={14} />Copied</> : <><Copy size={14} />Copy</>}</button></div>
+					<Btn ghost onClick={() => setMinted(null)}>Done</Btn>
+				</div>
+			)}
+			<div className="a-card a-tablecard">
+				<div className="a-tablescroll">
+					<table className="a-table">
+						<thead><tr><th>Name</th><th>Owner</th><th>Created</th><th>Last used</th><th>Status</th><th /></tr></thead>
+						<tbody>{page.props.tokens.map((t) => (
+							<tr key={t.id} className={t.revoked ? 'a-off' : ''}>
+								<td>{t.name ? <b>{t.name}</b> : <span className="a-muted">(unnamed)</span>}</td>
+								<td>{t.owner}</td>
+								<td title={t.created}>{ago(t.created, v)}</td>
+								<td>{t.last_used ? ago(t.last_used, v) : <span className="a-muted">never</span>}</td>
+								<td>{t.revoked ? <span className="a-muted">revoked {ago(t.revoked, v)}</span> : <Pill tone="ok">active</Pill>}</td>
+								<td className="a-rowactions">{!t.revoked && <Btn ghost danger onClick={() => { if (confirm(`Revoke ${t.name || 'this token'}? Clients using it stop working at once.`)) void revoke(t.id); }}>Revoke</Btn>}</td>
+							</tr>
+						))}</tbody>
+					</table>
+				</div>
+			</div>
+			<p className="a-muted a-foot">Revoking keeps the row for the audit trail; the token stops working at once.</p>
+			{minting && (
+				<Modal title="Mint a token" onClose={() => setMinting(false)}
+					footer={<><span className="a-grow" /><Btn ghost onClick={() => setMinting(false)}>Cancel</Btn><Btn primary onClick={() => void mint()}>Mint</Btn></>}>
+					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+					<Field label="Name" hint="A label, so this one can be revoked later without guessing which is which."><input value={name} onChange={(e) => setName(e.target.value)} maxLength={64} autoComplete="off" /></Field>
+				</Modal>
+			)}
+		</Shell>
+	);
+}
+
+export const mcpIndexRoute: RouteDef<McpIndexProps> = { Page: McpIndex, head: () => ({ title: 'MCP - tgloggerd', robots: 'noindex' }) };
+export const mcpGroupsRoute: RouteDef<McpGroupsProps> = { Page: McpGroups, head: () => ({ title: 'Exposed groups - tgloggerd', robots: 'noindex' }) };
+export const mcpTokensRoute: RouteDef<McpTokensProps> = { Page: McpTokens, head: () => ({ title: 'MCP tokens - tgloggerd', robots: 'noindex' }) };

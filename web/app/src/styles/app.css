@@ -606,3 +606,5 @@
 .app .a-uname .a-verified { margin-left: 4px; vertical-align: -2px; }
 .app .a-thumb img { display: block; }
 .app .a-thumb-play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; background: rgb(0 0 0 / .25); }
+.app .a-warn { color: var(--danger); display: inline-flex; align-items: center; gap: 4px; }
+.app .a-row .a-ok { display: inline-flex; align-items: center; gap: 4px; }

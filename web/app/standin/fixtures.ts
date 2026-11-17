@@ -6,9 +6,10 @@ import { users, getUser, getUserHistory, getUsernames, getActivity, queryUsers, 
 import { groups, getGroupsOfUser, queryGroups, getGroup, getAdmins, getGroupHistory, getTopPosters } from '../../mockup/src/data/groups.js';
 import { queryFiles, files } from '../../mockup/src/data/files.js';
 import { groupMessages, senderOf, queryMessages, getMessage, chatStream, chatOf } from '../../mockup/src/data/messages.js';
-import { accounts, federations } from '../../mockup/src/data/accounts.js';
+import { accounts, federations, mySessions, SECURITY_NOTICES, allFeds, fedGroups, fedAdmins, fedMembers, activeSuperadmins, auditFor, fedById } from '../../mockup/src/data/accounts.js';
 import { buildScope, allowed } from '../../mockup/src/viewer.jsx';
 import { TOTALS } from '../../mockup/src/data/totals.js';
+import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/data/admin.js';
 import type { PageData, Viewer } from '../src/page.ts';
 
 const NOW = '2026-11-17T16:00:00Z';
@@ -31,12 +32,15 @@ function scopeOf(persona: Persona) {
 export function viewerOf(persona: Persona): Viewer {
 	if (persona === 'public') return { signed_in: false, now: NOW };
 	const s = scopeOf(persona);
+	const pr = settingsState(persona).prefs;
 	return {
+		timezone: pr.timezone ?? undefined, date_format: pr.date_format ?? undefined, theme: pr.theme ?? undefined,
+		rows_per_page: pr.rows_per_page ?? undefined,
 		signed_in: true,
 		account: { id: s.acct.id, username: s.acct.username, name: s.acct.name, role: s.acct.role },
 		now: NOW,
 		nav: PAGE_KEYS.filter((k) => allowed(s, k)),
-		pinned: groups.slice(0, 12).filter(s.group).slice(0, 3).map((g) => ({ id: g.id, title: g.title })),
+		pinned: settingsState(persona).pinned.map((g) => ({ id: g.id, title: g.title })),
 	};
 }
 
@@ -48,6 +52,13 @@ function userSummary(u, full: boolean) {
 		is_support: u.is_support, language: u.language, created_at: iso(u.created_at), updated_at: iso(u.updated_at),
 	};
 }
+
+const pick = (c) => ({ id: c.id, title: c.title || c.name, kind: c.kind === 'user' ? 'user' : 'group', sub: c.kind === 'user' ? 'private chat' : c.type, photo: null });
+const JOIN_LOG = [
+	{ at: '2026-11-17T13:00:00Z', by: 'gw_admin', ref: '@asm_lounge', title: 'Assembly Lounge', outcome: 'joined' },
+	{ at: '2026-11-16T14:00:00Z', by: 'admin', ref: 'https://t.me/+AbCdEfGhIjKl', title: 'Homelab & Self-hosting', outcome: 'request_sent' },
+	{ at: '2026-11-13T16:00:00Z', by: 'admin', ref: '@some_big_channel', title: 'Some Big Channel', outcome: 'flood_wait' },
+];
 
 const groupSummary = (g) => ({ id: g.id, title: g.title, username: g.username, type: g.type, photo: null, exposed: g.exposed });
 
@@ -241,7 +252,238 @@ export function load(url: string, persona: Persona): Loaded {
 		};
 	}
 	if (persona === 'public') return notFound;
+	if (path.startsWith('/platform-fwd')) {
+		if (!allowed(s, 'platform_fwd')) return notFound;
+		const vis = (list) => (s.role === 'member' ? list.filter((r) => r.owner === PERSONAS[persona]) : list.filter((r) => (r.chat.kind === 'group' ? s.group(r.chat) : allowed(s, 'private_messages'))));
+		if (path === '/platform-fwd') {
+			const n = (list) => ({ active: vis(list).filter((r) => r.enabled).length, total: vis(list).length, sent: vis(list).reduce((a, r) => a + r.sent, 0) });
+			return { route: 'platform_fwd', status: 200, props: { t2d: n(t2d), d2t: n(d2t) } };
+		}
+		const owned = (r) => {
+			const o = accounts.find((a) => a.id === r.owner);
+			const f = fedById(r.fed);
+			const cands = s.role === 'superadmin' ? accounts.filter((a) => a.active) : [...fedAdmins(f), ...fedMembers(f)].filter((a) => a.active && (a.role !== 'member' || a.abilities.includes('forward')));
+			return { id: r.id, owner: { id: o.id, name: o.name, active: o.active }, federation: { id: f.id, name: f.name }, transfer_candidates: cands.map((a) => ({ id: a.id, name: a.name, role: a.role })) };
+		};
+		const chatOpts = chatOptions.filter((c) => (c.kind === 'group' ? s.group(c) : s.role !== 'member' && allowed(s, 'private_messages'))).map(pick);
+		const myFeds = s.role === 'superadmin' ? allFeds() : s.role === 'admin' ? s.manageableFeds : allFeds().filter((f) => s.acct.grants.some((g) => g.fed === f.id));
+		const fedList = myFeds.map((f) => ({ id: f.id, name: f.name }));
+		if (path === '/platform-fwd/telegram-discord') {
+			return { route: 'fwd_telegram_discord', status: 200, props: { chat_options: chatOpts, federations: fedList, routes: vis(t2d).map((r) => ({ ...owned(r), chat: pick(r.chat), url_masked: r.url.slice(0, r.url.lastIndexOf('/') + 5) + '...', types: r.types, enabled: r.enabled, sent: r.sent, last_sent: r.last ? iso(r.last) : null })) } };
+		}
+		if (path === '/platform-fwd/discord-telegram') {
+			return { route: 'fwd_discord_telegram', status: 200, props: { chat_options: chatOpts, federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: pick(r.chat), channel_id: r.channel, channel_name: r.channel_name, bot: r.bot, types: r.types, enabled: r.enabled, sent: r.sent })) } };
+		}
+		return notFound;
+	}
+	if (path === '/join-chat') {
+		if (!allowed(s, 'join_chat')) return notFound;
+		const feds = s.role === 'superadmin' ? federations : s.manageableFeds.filter((f) => f.id !== 0);
+		return { route: 'join_chat', status: 200, props: { federations: feds.map((f) => ({ id: f.id, name: f.name })), recent: JOIN_LOG } };
+	}
+	if (path.startsWith('/mcp-admin')) {
+		if (!allowed(s, 'mcp')) return notFound;
+		const ex = mcpExposed.filter((e) => s.group(e.group));
+		if (path === '/mcp-admin') {
+			const live = mcpTokens.filter((t) => !t.revoked);
+			return { route: 'mcp', status: 200, props: { exposed_groups: ex.length, exposed_messages: ex.reduce((a, e) => a + e.group.msg_count, 0), active_tokens: live.length, last_used: live[0]?.last_used ? iso(live[0].last_used) : null, endpoint: 'https://tgd.example.org/mcp' } };
+		}
+		if (path === '/mcp-admin/groups') {
+			return { route: 'mcp_groups', status: 200, props: { groups: ex.map((e) => ({ group: { ...groupSummary(e.group), msg_count: e.group.msg_count }, public_now: e.public_now, note: e.note, added: iso(e.added) })), group_options: groups.filter((g) => !g.exposed && s.group(g)).slice(0, 40).map(pick) } };
+		}
+		if (path === '/mcp-admin/tokens') {
+			return { route: 'mcp_tokens', status: 200, props: { tokens: mcpTokens.map((t) => ({ id: t.id, name: t.name, owner: t.owner, created: iso(t.created), last_used: t.last_used ? iso(t.last_used) : null, revoked: t.revoked ? iso(t.revoked) : null })) } };
+		}
+		return notFound;
+	}
+	if (path === '/settings/accounts') {
+		if (!allowed(s, 'accounts')) return notFound;
+		const list = s.role === 'superadmin' ? accounts : accounts.filter((a) => a.role === 'member' && a.grants.some((g) => s.manageableFeds.some((f) => f.id === g.fed)));
+		const feds = s.role === 'superadmin' ? allFeds() : s.manageableFeds;
+		return {
+			route: 'accounts', status: 200, props: {
+				accounts: list.map(accountRow),
+				federations: feds.map((f) => ({ id: f.id, name: f.name, default: f.id === 0, groups: fedGroups(f).filter(s.group).slice(0, 10).map(groupSummary) })),
+				all_federations: allFeds().map((f) => ({ id: f.id, name: f.name, default: f.id === 0 })),
+				group_options: groups.slice(0, 60).map(groupSummary),
+			},
+		};
+	}
+	if (path === '/settings/federations') {
+		if (!allowed(s, 'federations')) return notFound;
+		const feds = s.role === 'superadmin' ? allFeds() : s.manageableFeds;
+		const person = (a) => ({ id: a.id, username: a.username, name: a.name });
+		return {
+			route: 'federations', status: 200, props: {
+				editable: s.role === 'superadmin',
+				federations: feds.map((f) => {
+					const gs = fedGroups(f).filter(s.group);
+					return { id: f.id, name: f.name, default: f.id === 0, created: f.created ? iso(f.created) : null, groups: gs.slice(0, 12).map(groupSummary), group_count: gs.length, admins: fedAdmins(f).map(person), members: fedMembers(f).map(person) };
+				}),
+				group_options: groups.slice(0, 80).map(groupSummary),
+				admin_options: accounts.filter((a) => a.role === 'admin').map(person),
+			},
+		};
+	}
+	if (path === '/settings' || path === '/settings/preferences' || path === '/settings/sessions') {
+		const st = settingsState(persona);
+		const acct = accounts.find((a) => a.id === PERSONAS[persona]);
+		if (path === '/settings') {
+			return { route: 'settings', status: 200, props: { account: { username: acct.username, name: acct.name, role: acct.role, email: acct.email || null, email_verified: !!acct.verified }, notices: SECURITY_NOTICES } };
+		}
+		if (path === '/settings/sessions') return { route: 'settings_sessions', status: 200, props: { sessions: st.sessions } };
+		return {
+			route: 'settings_preferences', status: 200, props: {
+				prefs: st.prefs,
+				timezones: ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/Berlin', 'UTC'],
+				landing_options: [['/', 'Dashboard'], ['/groups', 'Groups'], ['/group_messages', 'Group messages'], ...st.pinned.map((g) => [`/groups/${g.id}/chat`, `${g.title} chat`])],
+				pinned: st.pinned.map((g) => ({ id: g.id, title: g.title, photo: null })),
+				saved_searches: st.saved,
+			},
+		};
+	}
 	return notFound;
+}
+
+// Per-account settings the stand-in keeps in memory (lost on reload of
+// this module); the Go service keeps them in the web database.
+const SETTINGS = new Map();
+export function settingsState(persona: Persona) {
+	if (!SETTINGS.has(persona)) {
+		const s = scopeOf(persona);
+		SETTINGS.set(persona, {
+			prefs: {},
+			pinned: groups.slice(0, 12).filter(s.group).slice(0, 3),
+			saved: [
+				{ id: 1, title: 'Deleted messages', url: '/group_messages?f=' + encodeURIComponent(JSON.stringify([{ field: 'is_deleted', op: 'is', value: 'yes' }])) },
+				{ id: 2, title: 'Premium users', url: '/users?f=' + encodeURIComponent(JSON.stringify([{ field: 'is_premium', op: 'is', value: 'yes' }])) },
+			],
+			sessions: mySessions.map((x) => ({ id: x.id, device: x.device, ip: x.ip, place: x.place, started: iso(x.started), last: iso(x.last), current: !!x.current })),
+		});
+	}
+	return SETTINGS.get(persona);
+}
+
+export function accountRow(a) {
+	return {
+		id: a.id, username: a.username, name: a.name, email: a.email || null, email_verified: !!a.verified, invited: !!a.invited,
+		role: a.role, active: a.active, last_signin: a.last ? iso(a.last) : null,
+		last_superadmin: a.role === 'superadmin' && a.active && activeSuperadmins().length === 1,
+		admin_of: a.adminOf || [], restrict: a.restrict ? { hide_private: a.restrict.hide_private, hide_groups: a.restrict.hide_groups, join_chat: a.restrict.join_chat } : null,
+		grants: (a.grants || []).map((g) => ({ fed: g.fed, group_ids: g.groupIds })), abilities: a.abilities || [],
+		audit: auditFor(a).map((r) => ({ ...r, at: iso(r.at) })),
+	};
+}
+
+// Stand-in versions of the proposed /api/accounts and /api/federations.
+export function adminApi(method: string, p: string, body, persona: Persona): [number, unknown] {
+	const s = scopeOf(persona);
+	let m;
+	if (p === 'accounts' && method === 'POST') {
+		if (!allowed(s, 'accounts')) return [404, { error: 'not_found' }];
+		if (!body.username || !body.email) return [400, { error: 'bad_request', message: 'Username and email address are required.' }];
+		if (accounts.some((a) => a.username === body.username)) return [409, { error: 'taken', message: 'That username is taken.' }];
+		if (s.role !== 'superadmin' && body.role !== 'member') return [403, { error: 'forbidden', message: 'Admins create members only.' }];
+		const id = Math.max(...accounts.map((a) => a.id)) + 1;
+		accounts.push({ id, username: body.username, name: body.name || body.username, email: body.email, verified: false, invited: true, role: body.role, active: true, last: '', created: '2026-11-17 16:00:00', hue: 200, adminOf: [], restrict: { hide_private: false, hide_groups: [], join_chat: false }, grants: [], abilities: [] });
+		return [201, { id }];
+	}
+	if ((m = p.match(/^accounts\/(\d+)(?:\/([\w-]+))?$/))) {
+		const a = accounts.find((x) => String(x.id) === m[1]);
+		if (!a || !allowed(s, 'accounts')) return [404, { error: 'not_found' }];
+		if (!m[2] && method === 'PATCH') {
+			if (a.role === 'superadmin' && body.role && body.role !== 'superadmin' && activeSuperadmins().length === 1) return [409, { error: 'last_superadmin', message: 'The last active superadmin cannot be demoted.' }];
+			if (body.name) a.name = body.name;
+			if (body.role) a.role = body.role;
+			if (body.email !== undefined) { a.email = body.email; a.verified = false; }
+			if (body.admin_of) a.adminOf = body.admin_of;
+			if (body.restrict) a.restrict = body.restrict;
+			if (body.grants) a.grants = body.grants.map((g) => ({ fed: g.fed, groupIds: g.group_ids }));
+			if (body.abilities) a.abilities = body.abilities;
+			return [200, accountRow(a)];
+		}
+		if (m[2] === 'disable') {
+			if (a.role === 'superadmin' && activeSuperadmins().length === 1) return [409, { error: 'last_superadmin', message: 'The last active superadmin cannot be disabled.' }];
+			a.active = false; return [204, null];
+		}
+		if (m[2] === 'enable') { a.active = true; return [204, null]; }
+		if (['password-reset', 'resend-invite', 'sign-out-everywhere'].includes(m[2]) && method === 'POST') return [204, null];
+	}
+	// Forwarding: /api/forwarding/<telegram-discord|discord-telegram>[/<id>[/transfer]|/test]
+	if ((m = p.match(/^forwarding\/(telegram-discord|discord-telegram)(?:\/(\d+|test))?(?:\/(transfer))?$/))) {
+		if (!allowed(s, 'platform_fwd')) return [404, { error: 'not_found' }];
+		const list = m[1] === 'telegram-discord' ? t2d : d2t;
+		if (m[2] === 'test') return [204, null];
+		if (!m[2] && method === 'POST') {
+			const chat = chatOptions.find((c) => c.id === body.chat_id);
+			if (!chat) return [400, { error: 'bad_request', message: 'Choose a chat.' }];
+			const id = Math.max(0, ...list.map((r) => r.id)) + 1;
+			const fed = body.federation_id ?? 0;
+			list.push(m[1] === 'telegram-discord'
+				? { id, owner: PERSONAS[persona], fed, chat, url: body.webhook_url || '', types: body.types, enabled: body.enabled, last: null, sent: 0 }
+				: { id, owner: PERSONAS[persona], fed, channel: body.discord_channel_id, channel_name: '#new-channel', chat, bot: '@standin_bot', types: body.types, enabled: body.enabled, sent: 0 });
+			return [201, { id }];
+		}
+		const r = list.find((x) => String(x.id) === m[2]);
+		if (!r || (s.role === 'member' && r.owner !== PERSONAS[persona])) return [404, { error: 'not_found' }];
+		if (m[3] === 'transfer') {
+			if (s.role === 'member') return [404, { error: 'not_found' }];
+			r.owner = body.owner_id; return [204, null];
+		}
+		if (method === 'PATCH') { Object.assign(r, { ...(body.types ? { types: body.types } : {}), ...(body.enabled !== undefined ? { enabled: body.enabled } : {}) }); return [204, null]; }
+		if (method === 'DELETE') { list.splice(list.indexOf(r), 1); return [204, null]; }
+	}
+	if (p === 'join-chat/preview' || p === 'join-chat/join') {
+		if (!allowed(s, 'join_chat')) return [404, { error: 'not_found' }];
+		const ref = String(body.ref || '').trim();
+		if (!ref) return [400, { error: 'bad_request', message: 'Enter an invite link or a username.' }];
+		const chat = { chat_id: -1001999000001, title: 'Compiler Nerds ID', type: 'supergroup', member_count: 1843, username: ref.replace(/^@|^https?:\/\/t\.me\//, ''), is_member: false, needs_approval: false };
+		if (p === 'join-chat/preview') return [200, { outcome: 'ok', message: '', chat }];
+		JOIN_LOG.unshift({ at: NOW, by: s.acct.username, ref, title: chat.title, outcome: 'joined' });
+		return [200, { outcome: 'joined', message: `Joined. The chat is now logged, media included${(body.federation_ids || []).length ? ', and added to the chosen federations' : ''}.`, chat: { ...chat, is_member: true } }];
+	}
+	if ((m = p.match(/^mcp\/groups(?:\/(-?\d+))?$/))) {
+		if (!allowed(s, 'mcp')) return [404, { error: 'not_found' }];
+		if (!m[1] && method === 'POST') {
+			const g = groups.find((x) => x.id === body.group_id);
+			if (!g) return [400, { error: 'bad_request', message: 'Choose a group.' }];
+			g.exposed = true; mcpExposed.push({ group: g, public_now: true, note: body.note || '', added: '2026-11-17 16:00:00' });
+			return [201, { group_id: g.id }];
+		}
+		const i = mcpExposed.findIndex((e) => String(e.group.id) === m[1]);
+		if (i < 0) return [404, { error: 'not_found' }];
+		mcpExposed[i].group.exposed = false; mcpExposed.splice(i, 1); return [204, null];
+	}
+	if ((m = p.match(/^mcp\/tokens(?:\/(\d+)\/(revoke))?$/))) {
+		if (!allowed(s, 'mcp')) return [404, { error: 'not_found' }];
+		if (!m[1] && method === 'POST') {
+			const id = Math.max(...mcpTokens.map((t) => t.id)) + 1;
+			mcpTokens.push({ id, name: body.name || '', owner: s.acct.username, created: '2026-11-17 16:00:00', last_used: '', revoked: null });
+			return [201, { id, token: 'tgmcp_standin_' + id + '_shown_once' }];
+		}
+		const t = mcpTokens.find((x) => String(x.id) === m[1]);
+		if (!t) return [404, { error: 'not_found' }];
+		t.revoked = '2026-11-17 16:00:00'; return [204, null];
+	}
+	if (p === 'federations' && method === 'POST') {
+		if (s.role !== 'superadmin') return [404, { error: 'not_found' }];
+		const id = Math.max(...federations.map((f) => f.id)) + 1;
+		federations.push({ id, name: body.name, groupIds: body.group_ids || [], created: '2026-11-17 16:00:00' });
+		for (const a of accounts) if ((body.admin_ids || []).includes(a.id) && a.role === 'admin') a.adminOf.push(id);
+		return [201, { id }];
+	}
+	if ((m = p.match(/^federations\/(\d+)$/)) && method === 'PATCH') {
+		if (s.role !== 'superadmin') return [404, { error: 'not_found' }];
+		const f = fedById(Number(m[1]));
+		if (!f) return [404, { error: 'not_found' }];
+		if (f.id !== 0) { if (body.name) f.name = body.name; if (body.group_ids) f.groupIds = body.group_ids; }
+		for (const a of accounts.filter((x) => x.role === 'admin')) {
+			const want = (body.admin_ids || []).includes(a.id);
+			a.adminOf = want ? [...new Set([...a.adminOf, f.id])] : a.adminOf.filter((x) => x !== f.id);
+		}
+		return [200, { id: f.id }];
+	}
+	return [404, { error: 'not_found' }];
 }
 
 export function pageData(url: string, persona: Persona): PageData {

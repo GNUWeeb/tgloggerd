@@ -90,6 +90,42 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		else send(res, 200, { user: fx.viewerOf(who).account, csrf: 'standin-csrf' });
 		return;
 	}
+	// The account endpoints proposed for the Go service (settings pages).
+	if (url.pathname.startsWith('/api/account/')) {
+		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+		if (req.headers['x-csrf-token'] !== 'standin-csrf') { send(res, 403, { error: 'csrf' }); return; }
+		// Fixture state is untyped JavaScript-shaped data.
+		const st: any = fx.settingsState(who);
+		const body = req.method === 'GET' || req.method === 'DELETE' ? {} : JSON.parse((await readBody(req)) || '{}');
+		const p = url.pathname.slice('/api/account/'.length);
+		let am: RegExpMatchArray | null;
+		if (p === 'password' && req.method === 'POST') {
+			if (body.current_password !== 'standin') { send(res, 400, { error: 'wrong_password', message: 'The current password is wrong.' }); return; }
+			st.sessions = st.sessions.filter((x: { current: boolean }) => x.current);
+			res.writeHead(204); res.end(); return;
+		}
+		if (p === 'email' && req.method === 'POST') {
+			if (body.password !== 'standin') { send(res, 400, { error: 'wrong_password', message: 'The current password is wrong.' }); return; }
+			send(res, 202, { pending: body.email }); return;
+		}
+		if (p === 'preferences' && req.method === 'PUT') {
+			st.prefs = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== null));
+			send(res, 200, { prefs: st.prefs }); return;
+		}
+		if ((am = p.match(/^pinned\/(-?\d+)$/)) && req.method === 'DELETE') { st.pinned = st.pinned.filter((g: { id: number }) => String(g.id) !== am![1]); res.writeHead(204); res.end(); return; }
+		if ((am = p.match(/^saved-searches\/(\d+)$/)) && req.method === 'DELETE') { st.saved = st.saved.filter((x: { id: number }) => String(x.id) !== am![1]); res.writeHead(204); res.end(); return; }
+		if ((am = p.match(/^sessions\/(\w+)$/)) && req.method === 'DELETE') { st.sessions = st.sessions.filter((x: { id: string; current: boolean }) => x.current || x.id !== am![1]); res.writeHead(204); res.end(); return; }
+		if (p === 'sessions/sign-out-others' && req.method === 'POST') { st.sessions = st.sessions.filter((x: { current: boolean }) => x.current); res.writeHead(204); res.end(); return; }
+		send(res, 404, { error: 'not_found' }); return;
+	}
+	if (/^\/api\/(accounts|federations|forwarding|join-chat|mcp)(\/|$)/.test(url.pathname)) {
+		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+		if (req.method !== 'GET' && req.headers['x-csrf-token'] !== 'standin-csrf') { send(res, 403, { error: 'csrf' }); return; }
+		const body = req.method === 'GET' ? {} : JSON.parse((await readBody(req)) || '{}');
+		const [status, out] = fx.adminApi(req.method || 'GET', url.pathname.slice('/api/'.length), body, who);
+		if (status === 204) { res.writeHead(204); res.end(); } else send(res, status, out);
+		return;
+	}
 	let cm;
 	if ((cm = url.pathname.match(/^\/api\/chats\/(group|private)\/(-?\d+)\/messages$/))) {
 		const chat = fx.chatFor(cm[1], cm[2], who);
