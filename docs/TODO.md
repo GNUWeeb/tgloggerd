@@ -134,7 +134,6 @@ The web backend moves from Drogon to Go:
 - [`ssr-render-service`](todo/ssr-render-service.md): Deploy the Node render service that turns a page's route and data into HTML.
 - [`web-live-events`](todo/web-live-events.md): Push live updates of messages, names, photos and statistics to browsers with Server-Sent Events.
 - [`go-port-media`](todo/go-port-media.md): Switch /files/<token> over to the Go service after checking it against the Drogon web.
-- [`web-roles`](todo/web-roles.md): Give the web several accounts with the roles superadmin, admin and member.
 - [`go-port-search`](todo/go-port-search.md): Port the advanced search API to the Go service, enforcing the request scope.
 - [`go-port-chat-api`](todo/go-port-chat-api.md): Port the chat API and the user and group page data to the Go service.
 - [`go-port-admin`](todo/go-port-admin.md): Port forwarding, Join chat, contact lookup and MCP administration to the Go service.

@@ -24,6 +24,12 @@ section 5).
 
 - Watch query plans on the big tables: the grant filter must use the
   chat_id indexes.
+- The scope's hooks are in place (webapi/internal/scope):
+  `GroupFilter`, `SeesGroup`, `SeesChat`, `SeesUser` and `Can` answer
+  "nothing" for members today; fill them from the grants, loaded once
+  per request. `logdb.GetFile` takes the scope but does not filter,
+  since a file token works without a session too; decide how a
+  member's grants and tokens combine.
 
 ## Depends on
 

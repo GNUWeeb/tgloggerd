@@ -24,7 +24,7 @@ may follow (docs/design/web-accounts.md section 6).
 
 ## Depends on
 
-- `web-roles`
+Nothing.
 
 ## Done when
 

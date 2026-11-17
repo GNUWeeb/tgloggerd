@@ -19,6 +19,12 @@ Different people administer different groups
 - Admin management limited to its federations: members of its
   federations, grants within its federations' groups.
 - Not in scope: Join chat's federation chips (join-chat-federations).
+- Until this lands, Default (API id 0, `scope.DefaultFederation`) is
+  the only federation and every admin administers it
+  (`Scope.AdministersFederation`, `Scope.SeesAccount` in
+  webapi/internal/scope): an admin manages every member. The
+  migration that adds the tables must keep that: make today's admins
+  admins of Default and file today's members in it.
 
 ## Design notes
 
@@ -27,7 +33,7 @@ Different people administer different groups
 
 ## Depends on
 
-- `web-roles`
+Nothing.
 
 ## Done when
 

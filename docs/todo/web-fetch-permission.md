@@ -25,8 +25,8 @@ to do it, not something every page view triggers.
 
 ## Design notes
 
-- Builds on the fetch path of web-fetch-unstored-media and the roles
-  and grants of web-roles and web-member-access
+- Builds on the fetch path of web-fetch-unstored-media, the roles
+  (`scope.FetchFiles`) and the grants of web-member-access
   (docs/design/web-accounts.md); agree the exact rule for page views
   and tokens with the project owner before building.
 - The fetch decision is one function, `media::mayFetch()` in

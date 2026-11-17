@@ -30,7 +30,7 @@ display defaults (docs/design/web-accounts.md section 7).
 
 ## Depends on
 
-- `web-roles`
+Nothing.
 
 ## Done when
 
