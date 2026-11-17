@@ -8,7 +8,7 @@ import { Link, useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
 import { Field, MultiPicker, type PickItem } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { ApiError, mutate } from '../api/mutate.ts';
+import { ApiError, api, ok } from '../api/client.ts';
 import { searchAllChats } from '../api/search.ts';
 import { ago } from '../format.ts';
 import type { PageData } from '../page.ts';
@@ -49,7 +49,7 @@ function Editor({ fed, props, onClose, onSaved }: { fed: FederationRow | null; p
 		if (!groups) return;
 		const body = { name, group_ids: isDefault ? undefined : groups.map((g) => g.id), admin_ids: admins.map((a) => a.id) };
 		try {
-			await (fed ? mutate('PATCH', `/api/federations/${fed.id}`, body) : mutate('POST', '/api/federations', body));
+			await (fed ? ok(api.PATCH('/api/federations/{id}', { params: { path: { id: fed.id } }, body })) : ok(api.POST('/api/federations', { body })));
 			onSaved();
 			onClose();
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }

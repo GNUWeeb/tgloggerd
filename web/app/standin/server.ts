@@ -226,7 +226,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		return;
 	}
 	if (url.pathname.startsWith('/api/page/') || url.pathname === '/api/page') {
-		const target = cleanUrl(new URL(url.pathname.slice('/api/page'.length) + url.search || '/', 'http://x'));
+		// The path's slashes may come encoded as %2F, as the client sends them.
+		const target = cleanUrl(new URL(url.pathname.slice('/api/page'.length).replace(/%2F/gi, '/') + url.search || '/', 'http://x'));
 		const page = fx.pageData(target, who);
 		res.writeHead(page.status, { 'content-type': 'application/json', 'set-cookie': cookie, 'cache-control': 'no-store' });
 		res.end(JSON.stringify(page));

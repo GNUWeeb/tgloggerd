@@ -6,7 +6,7 @@ import { CircleCheck, Clock, Info, LogIn, Network, Search, TriangleAlert, Users 
 import Shell from '../ui/Shell.tsx';
 import { Avatar, Btn, Card, PageHead, Pill, type Tone } from '../ui/primitives.tsx';
 import { CheckChips, Field } from '../ui/forms.tsx';
-import { ApiError, mutate } from '../api/mutate.ts';
+import { ApiError, api, ok } from '../api/client.ts';
 import { ago, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
@@ -38,9 +38,9 @@ function JoinChat({ page }: { page: PageData<JoinChatProps> }) {
 	const doPreview = async (e: FormEvent) => {
 		e.preventDefault();
 		setResult(null);
-		setPreview(await run(() => mutate<Outcome>('POST', '/api/join-chat/preview', { ref })));
+		setPreview(await run(() => ok(api.POST('/api/join-chat/preview', { body: { ref } }))));
 	};
-	const join = async () => setResult(await run(() => mutate<Outcome>('POST', '/api/join-chat/join', { ref, federation_ids: feds.map(Number) })));
+	const join = async () => setResult(await run(() => ok(api.POST('/api/join-chat/join', { body: { ref, federation_ids: feds.map(Number) } }))));
 	const c = preview?.chat;
 	return (
 		<Shell crumbs={[['Join chat', null]]}>

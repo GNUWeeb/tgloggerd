@@ -8,7 +8,7 @@ import { useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
 import { Field, MultiPicker, Seg, Switch, type PickItem } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { ApiError, mutate } from '../api/mutate.ts';
+import { ApiError, api, ok } from '../api/client.ts';
 import { ago } from '../format.ts';
 import type { PageData, Role } from '../page.ts';
 import type { RouteDef } from './index.tsx';
@@ -82,18 +82,18 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }
 	};
 	const save = () => call(() => (isNew
-		? mutate('POST', '/api/accounts', { username: a.username, name: a.name, email: a.email, role: a.role })
-		: mutate('PATCH', `/api/accounts/${a.id}`, {
+		? ok(api.POST('/api/accounts', { body: { username: a.username, name: a.name, email: a.email ?? '', role: a.role } }))
+		: ok(api.PATCH('/api/accounts/{id}', { params: { path: { id: a.id } }, body: {
 			name: a.name, role: a.role,
-			...(a.email !== init.email ? { email: a.email } : {}),
-			...(a.role === 'admin' ? { admin_of: a.admin_of, restrict: a.restrict && { ...a.restrict, hide_groups: a.restrict.hide_groups.map((g) => g.id) } } : {}),
+			...(a.email !== init.email ? { email: a.email ?? '' } : {}),
+			...(a.role === 'admin' ? { admin_of: a.admin_of, ...(a.restrict ? { restrict: { ...a.restrict, hide_groups: a.restrict.hide_groups.map((g) => g.id) } } : {}) } : {}),
 			...(a.role === 'member' ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })), abilities: a.abilities } : {}),
-		})), 'close');
+		} }))), 'close');
 	const restrict = a.restrict ?? { hide_private: false, hide_groups: [], join_chat: false };
 	return (
 		<Modal wide title={isNew ? 'New account' : init.name} icon={!isNew ? <Avatar id={init.id} name={init.name} size={24} /> : undefined} onClose={onClose}
 			footer={<>
-				{!isNew && !init.last_superadmin && <Btn ghost danger icon={Ban} onClick={() => void call(() => mutate('POST', `/api/accounts/${a.id}/${a.active ? 'disable' : 'enable'}`), 'close')}>{a.active ? 'Disable account' : 'Enable account'}</Btn>}
+				{!isNew && !init.last_superadmin && <Btn ghost danger icon={Ban} onClick={() => void call(() => ok(a.active ? api.POST('/api/accounts/{id}/disable', { params: { path: { id: a.id } } }) : api.POST('/api/accounts/{id}/enable', { params: { path: { id: a.id } } })), 'close')}>{a.active ? 'Disable account' : 'Enable account'}</Btn>}
 				{init.last_superadmin && <span className="a-muted sm a-note"><Info size={13} />The last active superadmin cannot be disabled or demoted.</span>}
 				<span className="a-grow" />
 				<Btn ghost onClick={onClose}>Cancel</Btn>
@@ -128,9 +128,9 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 						)}
 						{isNew ? <div className="a-banner"><Mail size={15} /><span>The account gets an email with a one-time link to choose its own password. No password is ever shown here or sent by email.</span></div> : (
 							<div className="a-btnrow">
-								{a.invited ? <Btn ghost icon={Send} onClick={() => void call(() => mutate('POST', `/api/accounts/${a.id}/resend-invite`), 'A new set-password link is on its way.')}>Resend set-password link</Btn>
-									: <Btn ghost icon={KeyRound} disabled={!a.email_verified} onClick={() => void call(() => mutate('POST', `/api/accounts/${a.id}/password-reset`), 'A password reset link is on its way.')}>Send password reset link</Btn>}
-								<Btn ghost icon={LogOut} onClick={() => void call(() => mutate('POST', `/api/accounts/${a.id}/sign-out-everywhere`), 'Every session of this account has been signed out.')}>Sign out everywhere</Btn>
+								{a.invited ? <Btn ghost icon={Send} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/resend-invite', { params: { path: { id: a.id } } })), 'A new set-password link is on its way.')}>Resend set-password link</Btn>
+									: <Btn ghost icon={KeyRound} disabled={!a.email_verified} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/password-reset', { params: { path: { id: a.id } } })), 'A password reset link is on its way.')}>Send password reset link</Btn>}
+								<Btn ghost icon={LogOut} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/sign-out-everywhere', { params: { path: { id: a.id } } })), 'Every session of this account has been signed out.')}>Sign out everywhere</Btn>
 							</div>
 						)}
 					</section>
