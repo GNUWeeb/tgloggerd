@@ -1,0 +1,85 @@
+#!/bin/bash
+# Run the mockup's Node tooling in Docker, so nothing but Docker is
+# needed on the host.
+#
+#   ./dev npm <args>                  npm in the Node image (e.g. ./dev npm ci)
+#   ./dev up                          start the Vite dev server, published on
+#                                     127.0.0.1:$MOCKUP_PORT (default 51737)
+#   ./dev down                        stop it
+#   ./dev logs                        follow its output
+#   ./dev shoot <outdir> <path>...    screenshots (see scripts/shoot.mjs)
+#   ./dev click <out.png> <path> <names> [width] [scheme]
+#
+# Containers run as the calling user, so files written into the tree
+# stay theirs. The npm cache lives in $MOCKUP_NPM_CACHE (default
+# ~/.cache/tgd-mockup-npm). Set TGD_AS to view the mockup as another
+# sample account when taking screenshots.
+set -euo pipefail
+
+NODE_IMAGE=node:26.8.1-bookworm-slim
+PW_IMAGE=mcr.microsoft.com/playwright:v1.65.1-noble
+NAME=tgd-mockup-dev
+NET=tgd-mockup
+PORT=${MOCKUP_PORT:-51737}
+CACHE=${MOCKUP_NPM_CACHE:-$HOME/.cache/tgd-mockup-npm}
+DIR=$(cd "$(dirname "$0")" && pwd)
+
+mkdir -p "$CACHE"
+tty=()
+[ -t 0 ] && [ -t 1 ] && tty=(-it)
+
+net() {
+	docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
+}
+
+node_run() {
+	docker run --rm --init "${tty[@]}" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -e npm_config_cache=/cache \
+		-v "$DIR:/app" -v "$CACHE:/cache" -w /app "$@"
+}
+
+# Screenshots go to a directory on the host, mounted at /out.
+pw_run() {
+	local outdir=$1; shift
+	mkdir -p "$outdir"
+	net
+	docker run --rm --init --network "$NET" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -e MOCKUP_URL="http://$NAME:5173" -e TGD_AS="${TGD_AS:-}" \
+		-v "$DIR:/app:ro" -v "$(cd "$outdir" && pwd):/out" -w /app \
+		"$PW_IMAGE" node "$@"
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case $cmd in
+npm)
+	node_run "$NODE_IMAGE" npm "$@"
+	;;
+up)
+	net
+	docker rm -f "$NAME" >/dev/null 2>&1 || true
+	docker run -d --init --name "$NAME" --network "$NET" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -p "127.0.0.1:$PORT:5173" \
+		-v "$DIR:/app" -w /app "$NODE_IMAGE" \
+		npx vite --host 0.0.0.0 --port 5173 --strictPort >/dev/null
+	echo "Mockup at http://127.0.0.1:$PORT/ (./dev logs to follow, ./dev down to stop)"
+	;;
+down)
+	docker rm -f "$NAME" >/dev/null 2>&1 || true
+	;;
+logs)
+	docker logs -f "$NAME"
+	;;
+shoot)
+	out=${1:?usage: ./dev shoot <outdir> <path>...}; shift
+	pw_run "$out" scripts/shoot.mjs /out "$@"
+	;;
+click)
+	out=${1:?usage: ./dev click <out.png> <path> <names> [width] [scheme]}; shift
+	pw_run "$(dirname "$out")" scripts/click.mjs "/out/$(basename "$out")" "$@"
+	;;
+*)
+	sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+	exit 2
+	;;
+esac

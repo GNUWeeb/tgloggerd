@@ -7,13 +7,19 @@ on phones). It is a design aid only: all data is synthetic (src/data,
 generated from fixed seeds), nothing talks to the backend, and none of
 it is built into the web image.
 
-Run it:
+Run it with Docker (nothing else needed on the host):
 
     cd web/mockup
-    npm ci
-    npm run dev
+    ./dev npm ci
+    ./dev up
 
-then open the printed address.
+then open http://127.0.0.1:51737/ (MOCKUP_PORT changes the port);
+./dev down stops it. ./dev shoot <outdir> <path>... takes screenshots
+in light and dark, at desktop and phone width, through a Playwright
+container, and ./dev click screenshots a dialog or tab after clicking
+through it; TGD_AS=1, 3 or 5 views the mockup as a superadmin, a
+restricted admin or a member. Running `npm ci` and `npm run dev`
+directly also works where Node is installed.
 
 Screens live at the same paths the production server answers (/users,
 /users/<id>/history, /groups/<id>/chat, ...), never behind a fragment,
@@ -28,3 +34,4 @@ Layout:
   src/ui/      shell, table, filter bar, timeline and small parts
   src/pages/   one module per page
   src/styles/  stylesheets
+  scripts/     screenshot scripts run by ./dev
