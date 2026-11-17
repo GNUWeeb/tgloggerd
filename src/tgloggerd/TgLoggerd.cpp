@@ -6,6 +6,7 @@
 #include <tgloggerd/TgLoggerd.hpp>
 #include <tgloggerd/InternalApi.hpp>
 #include <tgloggerd/FileApi.hpp>
+#include <tgloggerd/StoragePath.hpp>
 #include <stdexcept>
 #include <cstdlib>
 #include <cstring>
@@ -833,16 +834,12 @@ TgLoggerd::storeDownloadedFile(const std::string &local_path,
 		return std::nullopt;
 	}
 
-	/* Content-addressed destination name: <sha256>[.ext]. */
+	/* Content-addressed: the blob is named <sha256>[.ext]. */
 	std::string ext = fs::path(local_path).extension().string();
 	if (!ext.empty() && ext[0] == '.')
 		ext.erase(0, 1);
 	std::transform(ext.begin(), ext.end(), ext.begin(),
 		       [](unsigned char c) { return (char)std::tolower(c); });
-
-	std::string name = *hex;
-	if (!ext.empty())
-		name += "." + ext;
 
 	/*
 	 * Storage is limited. Files at or above max_store_file_size_ are not
@@ -859,15 +856,9 @@ TgLoggerd::storeDownloadedFile(const std::string &local_path,
 			   (size_for_policy < max_store_file_size_);
 
 	if (store_bytes) {
-		/*
-		 * Fan out into 5 levels of two-hex-digit directories based on
-		 * the first 5 octets of the digest, e.g. for 0a533d97ed... the
-		 * file is stored as 0a/53/3d/97/ed/<sha256>[.ext].
-		 */
-		fs::path dir = storage_dir_;
-		for (int i = 0; i < 5; i++)
-			dir /= hex->substr((size_t)i * 2, 2);
-		fs::path dest = dir / name;
+		/* 0a/53/3d/97/ed/<sha256>[.ext]; see blobPath(). */
+		fs::path dest = blobPath(storage_dir_, *hex, ext);
+		fs::path dir = dest.parent_path();
 
 		std::error_code ec;
 		fs::create_directories(dir, ec);

@@ -78,6 +78,7 @@ add_executable(tgloggerd
 	src/tgloggerd/DiscordClient.hpp
 	src/tgloggerd/DiscordForwarder.cpp
 	src/tgloggerd/DiscordForwarder.hpp
+	src/tgloggerd/StoragePath.hpp
 	src/tgloggerd/tgloggerd_extern.cpp
 	src/tgloggerd/tgloggerd_extern.h
 	src/tgloggerd/TgLoggerd.cpp
