@@ -108,6 +108,8 @@ add_executable(tgloggerd_web
 	src/auth/AdminFilter.hpp
 	src/auth/RateLimiter.cpp
 	src/auth/RateLimiter.hpp
+	src/daemon/Api.cpp
+	src/daemon/Api.hpp
 	src/dao/Accounts.cpp
 	src/dao/Accounts.hpp
 	src/dao/Audit.cpp

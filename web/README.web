@@ -110,6 +110,12 @@ All configuration is in .env (see .env.example). The web variables:
     WEB_TEMPLATE_DIR       inja templates (default web/views/templates).
     WEB_STATIC_DIR         Static assets served at / (default web/static).
     WEB_STORAGE_DIR        File store; MUST equal the daemon's TG_STORAGE_DIR.
+    WEB_TGLOGGERD_API      The daemon's internal API, http://host:port
+                           (http://10.0.88.5:8091 in compose; default empty =
+                           off). The web reports the files it serves there;
+                           see docs/internal-api.md. The bearer key is derived
+                           from WEB_APP_KEY, so the daemon must share it. A
+                           bad value turns it off, never stops the web.
 
 The container serves /media from the daemon's downloaded files (the shared
 data/storage/files tree), so WEB_STORAGE_DIR must equal TG_STORAGE_DIR. The
