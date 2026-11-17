@@ -32,14 +32,24 @@ namespace tgloggerd {
  * mysql::Database, so the rest of tgloggerd never writes SQL directly.
  */
 
+/* What a message upsert did to the row, once it is committed. */
+enum class MsgChange {
+	None,		/* nothing visible: a re-ingest, a repeated deletion */
+	New,		/* the row was inserted */
+	Edited,		/* a copy with a later edit_date replaced the content */
+	Deleted,	/* deleted_at was stamped */
+};
+
 /*
  * Returned by the message upserts: a user and/or group whose msg_count just
  * crossed a multiple of 10 on this insert, so its full info should be
- * refetched. Empty on edits/deletes (no new message was recorded).
+ * refetched (empty on edits/deletes: no new message was recorded), and what
+ * the upsert changed, for the event stream.
  */
 struct MsgCountRefetch {
 	std::optional<int64_t> user;
 	std::optional<int64_t> group;
+	MsgChange change = MsgChange::None;
 };
 
 /*

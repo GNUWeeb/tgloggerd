@@ -79,6 +79,10 @@ add_executable(tgloggerd
 	src/tgloggerd/InternalApi.hpp
 	src/tgloggerd/FileApi.cpp
 	src/tgloggerd/FileApi.hpp
+	src/tgloggerd/EventBus.cpp
+	src/tgloggerd/EventBus.hpp
+	src/tgloggerd/EventApi.cpp
+	src/tgloggerd/EventApi.hpp
 	src/tgloggerd/FetchState.cpp
 	src/tgloggerd/FetchState.hpp
 	src/tgloggerd/FileFetcher.cpp
