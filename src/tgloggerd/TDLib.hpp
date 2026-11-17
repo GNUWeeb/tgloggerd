@@ -474,6 +474,27 @@ public:
 	TdObject request(TdFunction f, std::chrono::milliseconds timeout);
 
 	/*
+	 * Fetch @src afresh and take the file out of it the way ingest does
+	 * (message_content_file, link_preview_image, the big chat or profile
+	 * photo). The answer is the td_api::file, or a td_api::error: TDLib's
+	 * own (the message is gone, the chat is not accessible), or code 404
+	 * when the source no longer carries a file. Within @timeout in all;
+	 * same thread rules as request().
+	 */
+	TdObject resolveFile(const models::FileSource &src,
+			     std::chrono::milliseconds timeout);
+
+	/*
+	 * Whether ingest is waiting for TDLib file @file_id to finish
+	 * downloading (a message attachment, link preview image, group or
+	 * profile photo). Such a download asked for the whole file, so a
+	 * ranged downloadFile must not be issued over it. Thread-safe. A
+	 * download that failed stays listed (TDLib reports no failure), so
+	 * combine it with the file's local.is_downloading_active.
+	 */
+	bool isIngestDownloading(int32_t file_id) const;
+
+	/*
 	 * Queue a full-info refetch of a user / group (by chat_id). Thread-safe
 	 * (callable from a worker thread); the refetch runs on the loop thread
 	 * and its upserts record any changed fields as history. Used to refresh

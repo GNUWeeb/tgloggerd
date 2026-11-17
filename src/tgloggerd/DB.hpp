@@ -113,6 +113,20 @@ struct EvictCandidate {
 	std::string	accessed_at;
 };
 
+/* A file row as the on-demand fetch service needs it (FileFetcher). */
+struct FetchRow {
+	uint64_t		id = 0;
+	std::string		tg_file_id;
+	std::string		tg_unique_id;	/* empty if unknown */
+	std::string		file_type;	/* "photo", "video", ... */
+	uint64_t		file_size = 0;	/* 0 if unknown */
+	std::string		sha256_hex;	/* empty: bytes never seen */
+	std::string		ext;		/* may be empty */
+	std::string		orig_file_name;
+	bool			on_disk = false;
+	std::optional<uint64_t>	alias_of;
+};
+
 /* A Discord message the forwarder posted, for applying a later edit/delete. */
 /*
  * The Discord message a Telegram message was bridged FROM.
@@ -232,6 +246,19 @@ public:
 	 * row; only then may the blob be unlinked.
 	 */
 	bool evictFile(uint64_t files_id, const std::string &accessed_at);
+
+	/* A file row for fetching it from Telegram; nullopt if none. */
+	std::optional<FetchRow> getFileForFetch(uint64_t files_id);
+	/*
+	 * Up to @limit things that reference the file and can be fetched
+	 * afresh for a valid file reference, best first: the newest live
+	 * messages carrying it (as attachment, then as link preview image),
+	 * then the groups and users whose current photo it is. Deleted
+	 * messages are left out: the server no longer has them.
+	 */
+	std::vector<models::FileSource> listFileSources(uint64_t files_id,
+							size_t limit);
+
 	/* The source message's text/reply/file, to re-render it for a tombstone. */
 	std::optional<MessageForward> getMessageForward(int64_t chat_id,
 							int64_t message_id);

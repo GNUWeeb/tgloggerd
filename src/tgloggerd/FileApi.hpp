@@ -7,6 +7,7 @@
 
 #include "InternalApi.hpp"
 #include "DB.hpp"
+#include "FileFetcher.hpp"
 
 namespace tgloggerd {
 
@@ -14,11 +15,11 @@ namespace tgloggerd {
 constexpr size_t kMaxAccessBatch = 1000;
 
 /*
- * Register the file status and access routes of the internal API
- * (docs/internal-api.md): GET /v1/files/{id}, POST /v1/files/access.
- * db must outlive the API.
+ * Register the file routes of the internal API (docs/internal-api.md):
+ * GET /v1/files/{id}, POST /v1/files/access and, with a fetcher,
+ * POST /v1/files/{id}/fetch. db and fetcher must outlive the API.
  */
-void registerFileApi(InternalApi &api, DB &db);
+void registerFileApi(InternalApi &api, DB &db, FileFetcher *fetcher);
 
 /* Parse a path's file id: decimal, 1 .. 2^64-1; throws a 400 otherwise. */
 uint64_t parseFileId(const std::string &s);

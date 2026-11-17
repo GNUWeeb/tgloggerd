@@ -25,11 +25,28 @@ uint64_t parseFileId(const std::string &s)
 	throw InternalApi::Error::badRequest("bad file id");
 }
 
-void registerFileApi(InternalApi &api, DB &db)
+namespace {
+
+/* A body field that must be a non-negative integer; @def when absent. */
+uint64_t body_u64(const nlohmann::json &b, const char *key, uint64_t def)
+{
+	if (!b.contains(key))
+		return def;
+	const auto &v = b[key];
+	if (!v.is_number_unsigned() &&
+	    !(v.is_number_integer() && v.get<int64_t>() >= 0))
+		throw InternalApi::Error::badRequest(
+			std::string(key) + " must be a non-negative integer");
+	return v.get<uint64_t>();
+}
+
+} /* namespace */
+
+void registerFileApi(InternalApi &api, DB &db, FileFetcher *fetcher)
 {
 	DB *d = &db;
 
-	api.route("GET", "/v1/files/{id}", [d](const InternalApi::Request &req) {
+	api.route("GET", "/v1/files/{id}", [d, fetcher](const InternalApi::Request &req) {
 		uint64_t id = parseFileId(req.param("id"));
 		auto st = d->getFileStatus(id);
 		if (!st)
@@ -46,9 +63,9 @@ void registerFileApi(InternalApi &api, DB &db)
 			{ "alias_of", st->alias_of ? nlohmann::json(*st->alias_of)
 						   : nlohmann::json(nullptr) },
 			{ "has_unique_id", st->has_unique_id },
-			/* Every row keeps its tg_file_id; file-fetch-on-demand
-			 * turns this false for files found gone from Telegram. */
-			{ "fetchable", true },
+			/* Every row keeps its tg_file_id; only a file found
+			 * gone from Telegram within the hour is not. */
+			{ "fetchable", !(fetcher && fetcher->isGone(id)) },
 			{ "accessed_at", st->accessed_at },
 		};
 		return r;
@@ -79,6 +96,37 @@ void registerFileApi(InternalApi &api, DB &db)
 		uint64_t n = d->touchFiles(ids);
 		InternalApi::Response r;
 		r.body = { { "ids", ids.size() }, { "updated", n } };
+		return r;
+	});
+
+	if (!fetcher)
+		return;
+
+	api.route("POST", "/v1/files/{id}/fetch",
+		  [fetcher](const InternalApi::Request &req) {
+		uint64_t id = parseFileId(req.param("id"));
+		const auto &b = req.body;
+		if (!b.is_null() && !b.is_object())
+			throw InternalApi::Error::badRequest(
+				"want {\"offset\": n, \"length\": n}");
+		uint64_t offset = 0, length = 0;
+		if (b.is_object()) {
+			offset = body_u64(b, "offset", 0);
+			length = body_u64(b, "length", 0);
+		}
+
+		FileFetcher::Result res = fetcher->fetch(id, offset, length);
+		InternalApi::Response r;
+		if (res.stored)
+			r.body = { { "state", "stored" }, { "id", res.id } };
+		else
+			r.body = {
+				{ "state", "partial" },
+				{ "path", res.path },
+				{ "offset", res.offset },
+				{ "available", res.available },
+				{ "size", res.size },
+			};
 		return r;
 	});
 }

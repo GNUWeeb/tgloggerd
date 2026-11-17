@@ -1304,6 +1304,16 @@ struct TDLib::Impl {
 	 */
 	std::unordered_multimap<int32_t, PendingMsgFile> pending_message_file_;
 
+	/*
+	 * The TDLib file ids in pending_photo_, pending_group_photo_ and
+	 * pending_message_file_, readable from other threads
+	 * (TDLib::isIngestDownloading). Written on the loop thread next to
+	 * those maps: note_ingest_download() on every insert,
+	 * ingest_download_done() once a completed file has been handled.
+	 */
+	mutable std::mutex		ingest_dl_mtx_;
+	std::unordered_set<int32_t>	ingest_dl_;
+
 	/* Reply targets already fetched, so a chain is not re-walked. */
 	std::set<std::pair<int64_t, int64_t>>		resolved_reply_targets_;
 
@@ -1443,6 +1453,10 @@ struct TDLib::Impl {
 	void refetch_user_info(int64_t user_id);
 	void refetch_group_info(int64_t chat_id);
 	void handle_file_update(const td_api::file &f);
+	void note_ingest_download(int32_t file_id);
+	void ingest_download_done(int32_t file_id);
+	Object resolve_file(const models::FileSource &src,
+			    std::chrono::milliseconds timeout);
 	void emit_photo(int64_t user_id, const td_api::file &f);
 	void handle_new_chat(const td_api::chat &chat, bool from_chat_list);
 	void fetch_group_admins(int64_t supergroup_id, int64_t chat_id);
@@ -2684,6 +2698,7 @@ void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
 		return;
 	}
 	pending_message_file_.emplace(img->id_, std::move(ref));
+	note_ingest_download(img->id_);
 	send_query(td_api::make_object<td_api::downloadFile>(img->id_, 1, 0, 0,
 							     false), {});
 }
@@ -2741,6 +2756,7 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 
 	/* Otherwise request the download and remember the message for it. */
 	pending_message_file_.emplace(f->id_, std::move(ref));
+	note_ingest_download(f->id_);
 	send_query(td_api::make_object<td_api::downloadFile>(
 			   f->id_, 1, 0, 0, false), {});
 }
@@ -2967,14 +2983,38 @@ void TDLib::Impl::maybe_download_profile_photo(const td_api::user &u)
 
 	/* Otherwise request the download and remember which user it is for. */
 	pending_photo_[big.id_] = u.id_;
+	note_ingest_download(big.id_);
 	send_query(td_api::make_object<td_api::downloadFile>(
 			   big.id_, 1, 0, 0, false), {});
+}
+
+void TDLib::Impl::note_ingest_download(int32_t file_id)
+{
+	std::lock_guard<std::mutex> lk(ingest_dl_mtx_);
+	ingest_dl_.insert(file_id);
+}
+
+/* Loop thread: drop @file_id from the set unless a pending map still has it. */
+void TDLib::Impl::ingest_download_done(int32_t file_id)
+{
+	if (pending_photo_.count(file_id) || pending_group_photo_.count(file_id) ||
+	    pending_message_file_.count(file_id))
+		return;
+	std::lock_guard<std::mutex> lk(ingest_dl_mtx_);
+	ingest_dl_.erase(file_id);
 }
 
 void TDLib::Impl::handle_file_update(const td_api::file &f)
 {
 	if (!f.local_ || !f.local_->is_downloading_completed_)
 		return;
+
+	/* Whichever branch below handles it, the set follows the maps. */
+	struct IngestSync {
+		Impl	*impl;
+		int32_t	id;
+		~IngestSync() { impl->ingest_download_done(id); }
+	} ingest_sync{ this, f.id_ };
 
 	auto it = pending_photo_.find(f.id_);
 	if (it != pending_photo_.end()) {
@@ -3525,6 +3565,7 @@ void TDLib::Impl::maybe_download_group_photo(int64_t group_id,
 	}
 
 	pending_group_photo_[big.id_] = group_id;
+	note_ingest_download(big.id_);
 	send_query(td_api::make_object<td_api::downloadFile>(
 			   big.id_, 1, 0, 0, false), {});
 }
@@ -3562,6 +3603,93 @@ void TDLib::Impl::emit_group_photo(int64_t group_id, const td_api::file &f)
 	p.tg_local_file_id = f.id_;
 	p.file_size = f.size_;
 	group_photo_handler_(p);
+}
+
+
+/*
+ * TDLib::resolveFile. Runs on the caller's thread, never the loop thread: it
+ * touches no loop-thread state, only request_wait() and the extraction
+ * helpers ingest uses, so a refetched source yields the same file ingest
+ * would have taken from it.
+ */
+Object TDLib::Impl::resolve_file(const models::FileSource &src,
+				 std::chrono::milliseconds timeout)
+{
+	using Kind = models::FileSource::Kind;
+	using std::chrono::steady_clock;
+	const auto deadline = steady_clock::now() + timeout;
+	auto left = [deadline] {
+		auto d = std::chrono::duration_cast<std::chrono::milliseconds>(
+			deadline - steady_clock::now());
+		return d.count() > 0 ? d : std::chrono::milliseconds(0);
+	};
+
+	td_api::object_ptr<td_api::Function> q;
+	int32_t want = 0;
+	switch (src.kind) {
+	case Kind::Message:
+	case Kind::LinkPreview:
+		/* Stored ids are server ids; TDLib wants its own. */
+		q = td_api::make_object<td_api::getMessage>(
+			src.chat_id, src.message_id * kTdMsgIdShift);
+		want = td_api::message::ID;
+		break;
+	case Kind::GroupPhoto:
+		q = td_api::make_object<td_api::getChat>(src.chat_id);
+		want = td_api::chat::ID;
+		break;
+	case Kind::UserPhoto:
+		q = td_api::make_object<td_api::getUser>(src.chat_id);
+		want = td_api::user::ID;
+		break;
+	}
+
+	Object obj = request_wait(std::move(q), left());
+	if (!obj || obj->get_id() != want) {
+		if (obj && obj->get_id() == td_api::error::ID)
+			return obj;
+		return td_api::make_object<td_api::error>(
+			500, "unexpected answer while resolving a file");
+	}
+
+	const td_api::file *f = nullptr;
+	const char *category = "unknown";
+	std::string file_name;
+	switch (src.kind) {
+	case Kind::Message: {
+		auto &m = static_cast<const td_api::message &>(*obj);
+		if (m.content_)
+			f = message_content_file(*m.content_, &category,
+						 &file_name);
+		break;
+	}
+	case Kind::LinkPreview: {
+		auto &m = static_cast<const td_api::message &>(*obj);
+		const td_api::linkPreview *lp =
+			m.content_ ? message_link_preview(*m.content_) : nullptr;
+		if (lp)
+			f = link_preview_image(lp->type_.get(), &category);
+		break;
+	}
+	case Kind::GroupPhoto: {
+		auto &c = static_cast<const td_api::chat &>(*obj);
+		if (c.photo_)
+			f = c.photo_->big_.get();
+		break;
+	}
+	case Kind::UserPhoto: {
+		auto &u = static_cast<const td_api::user &>(*obj);
+		if (u.profile_photo_)
+			f = u.profile_photo_->big_.get();
+		break;
+	}
+	}
+	if (!f)
+		return td_api::make_object<td_api::error>(
+			404, "the source no longer carries a file");
+
+	/* The file object lives inside obj; ask for it on its own. */
+	return request_wait(td_api::make_object<td_api::getFile>(f->id_), left());
 }
 
 
@@ -3759,6 +3887,18 @@ std::future<TDLib::TdObject> TDLib::request(TdFunction f)
 TDLib::TdObject TDLib::request(TdFunction f, std::chrono::milliseconds timeout)
 {
 	return impl_->request_wait(std::move(f), timeout);
+}
+
+TDLib::TdObject TDLib::resolveFile(const models::FileSource &src,
+				   std::chrono::milliseconds timeout)
+{
+	return impl_->resolve_file(src, timeout);
+}
+
+bool TDLib::isIngestDownloading(int32_t file_id) const
+{
+	std::lock_guard<std::mutex> lk(impl_->ingest_dl_mtx_);
+	return impl_->ingest_dl_.count(file_id) != 0;
 }
 
 void TDLib::setPruneOnStart(bool on)

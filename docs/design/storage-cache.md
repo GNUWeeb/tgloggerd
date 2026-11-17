@@ -162,8 +162,9 @@ Endpoints (the full contract is [../internal-api.md](../internal-api.md)):
 | `POST /v1/storage/sweep` | Runs a sweep now, optionally as a dry run |
 
 Errors: 400 malformed, 401 bad bearer, 404 unknown file, 410 gone from
-Telegram or not accessible to the account, 503 busy or not authorized
-(with `Retry-After`), 504 timed out.
+Telegram or not accessible to the account, 416 a fetch offset past the
+end of the file, 503 busy or not authorized (with `Retry-After`), 504
+timed out.
 
 ## 8. Fetching on demand
 
@@ -184,7 +185,11 @@ priority 32 and handed to the existing `storeDownloadedFile` path,
 which hashes and copies them and marks the row stored with
 `accessed_at = NOW()`. If the bytes already belong to another row, the
 row gets `alias_of` instead and that row's blob is made present. The
-reply says `stored`, and the web serves from the store as usual.
+reply says `stored` with the id of the row holding the bytes, and the
+web serves from the store as usual. With `TG_PRUNE_TDLIB_FILES` on,
+TDLib's copy is deleted a minute after storing rather than at once:
+ingest may have picked up the same completed download for a message
+and still be about to hash it.
 
 Big files are never copied into the store. The service runs
 `downloadFile(id, 32, offset, min(length, TG_FETCH_CHUNK), true)`, asks
@@ -203,7 +208,10 @@ Limits and housekeeping:
 - a partial file is deleted from TDLib's cache (`deleteFile`) once it
   has not been asked for in `TG_FETCH_IDLE_SECS`;
 - a file the ingest pipeline is already downloading is waited for, not
-  requested again with a conflicting range.
+  requested again with a conflicting range. Ingest asks for the whole
+  file (offset 0, no limit), so a small file's fetch asks the same and
+  only raises the priority; a big file's fetch does that too and waits
+  for its range to arrive.
 
 ## 9. Eviction: the StorageJanitor
 
