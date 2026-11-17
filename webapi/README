@@ -1,0 +1,107 @@
+# tgloggerd webapi
+
+The Go web service of tgloggerd. The web backend moves from the Drogon
+application in web/ to this service, one feature at a time
+(docs/design/web-go.md). While both run, nginx sends /api/ here and
+everything else to Drogon. Both read the same databases with the same
+users and grants.
+
+So far the service serves one endpoint:
+
+    GET /api/health   200 {"status":"ok","checks":{"ro":"ok","app":"ok"}}
+                      503 when a pool does not answer; that pool's check
+                      reads "unavailable" and the reason is logged.
+
+It needs no login and exists for probes and for checking the routing.
+
+# Layout
+
+    go.mod                 Module tgloggerd/webapi and its requirements.
+    go.sum                 Checksums of the required modules.
+    cmd/webapi/            main: configuration, the two pools, the HTTP
+                           server, shutdown on SIGTERM.
+    internal/config/       Settings from the environment.
+    internal/server/       Routes and handlers.
+    vendor/                The third-party modules, committed.
+    build/                 Build output (git-ignored).
+
+Routes use the standard library's ServeMux with method and path
+patterns ("GET /api/health"). Add a third-party router only with a
+reason it cannot give.
+
+# The module path names no host
+
+The module path is `tgloggerd/webapi`, and the service's own imports are
+`tgloggerd/webapi/...`. It must never start with a repository host
+and account, the way third-party paths do: the code is the same wherever a copy of the
+repository is hosted, and moving it changes nothing. Third-party modules
+keep their upstream paths; those are the only host names under webapi/,
+in go.mod, go.sum and vendor/. To check:
+
+    grep -rnE '[a-z0-9-]+\.(com|org|net|io|dev)/' webapi \
+        --exclude-dir=vendor --exclude=go.sum
+
+must print only the third-party require lines of go.mod and the
+imports of those modules.
+
+# Build and run
+
+In the compose deployment the "webapi" service (container
+tgloggerd-webapi) runs `run.sh webapi`, which builds this directory into
+webapi/build/webapi with the toolchain pinned in the Dockerfile and
+execs it. The build uses only vendor/ (GOFLAGS=-mod=vendor, GOPROXY=off),
+so it never reaches the network. The container is not published to the
+host; nginx reaches it on its tgnet address (see web/README.web).
+
+By hand, from this directory, with the same Go version:
+
+    GOFLAGS=-mod=vendor GOPROXY=off go build -o build/webapi ./cmd/webapi
+    go vet ./...
+
+The service applies no migrations: the web service owns the web schema
+and the daemon the logger's.
+
+# Configuration
+
+The database settings are the Drogon web's, with the same defaults, so
+one .env serves both (see .env.example):
+
+    WEB_DB_HOST, WEB_DB_PORT     the MySQL server; fall back to
+                                 TG_DB_HOST, TG_DB_PORT
+    WEB_DB_RO_NAME, _USER, _PASSWORD, _CONNS
+                                 the read-only pool over the logger's
+                                 schema
+    WEB_DB_APP_NAME, _USER, _PASSWORD, _CONNS
+                                 the read-write pool over the web's own
+                                 schema
+
+and its own:
+
+    WEBAPI_LISTEN_ADDR   default 127.0.0.1
+    WEBAPI_LISTEN_PORT   default 8081
+    WEBAPI_LOG_LEVEL     debug, info (default), warn or error
+
+An empty value counts as unset. A malformed number stops the service at
+start. Logs are structured (log/slog, key=value) on stderr, one line per
+request.
+
+On SIGTERM (docker stop) or SIGINT the service stops accepting
+connections, lets requests in flight finish for up to 8 seconds, closes
+the pools and exits 0.
+
+# Updating the vendored modules
+
+Third-party modules are few and each needs a reason. Adding or updating
+one is the only step that uses the network, and the result is committed:
+
+    go get <module>@<version>    # or edit go.mod
+    go mod tidy
+    go mod vendor
+    go build ./... && go vet ./...
+
+Commit go.mod, go.sum and vendor/ together, and add any new module and
+its license to the third-party list in LICENSE. Run it with the same Go
+version as the image, with GOFLAGS unset (-mod=vendor would stop go get).
+The go directive in go.mod is the oldest Go the code and its modules
+need, not the image's version; raising the image's toolchain does not
+change it.

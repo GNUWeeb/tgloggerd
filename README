@@ -114,6 +114,9 @@ secrets. The daemon variables are prefixed `TG_`, the web variables
     web/                       Optional server-rendered web interface for
                                browsing the database (a separate Drogon
                                application; see web/README.web).
+    webapi/                    The Go web service that is replacing the
+                               Drogon web, serving the JSON API under /api/
+                               (see webapi/README).
 
 # Database table naming
 
