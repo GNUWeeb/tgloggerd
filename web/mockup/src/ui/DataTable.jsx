@@ -111,7 +111,7 @@ export function Pager({ L, noun = 'results' }) {
 
 // cols: [{ key, label, sort?: bool, align?: 'right', cls?, render(row) }]
 // mobile(row) -> { lead, title, sub, extra, side }
-export function DataTable({ L, cols, href, mobile, empty = 'Nothing matches these filters.', noun }) {
+export function DataTable({ L, cols, href, onRow, mobile, empty = 'Nothing matches these filters.', noun }) {
 	const Sort = ({ k }) => (L.sort === k ? (L.dir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />) : null);
 	return (
 		<div className="a-card a-tablecard">
@@ -150,7 +150,13 @@ export function DataTable({ L, cols, href, mobile, empty = 'Nothing matches thes
 							{m.side && <span className="a-list-side">{m.side}</span>}
 						</>
 					);
-					return <li key={row.id}>{href ? <Link to={href(row)}>{body}</Link> : <div className="a-list-row">{body}</div>}</li>;
+					return (
+						<li key={row.id}>
+							{href ? <Link to={href(row)}>{body}</Link>
+								: onRow ? <button type="button" className="a-list-row a-plain" onClick={() => onRow(row)}>{body}</button>
+									: <div className="a-list-row">{body}</div>}
+						</li>
+					);
 				})}
 			</ul>
 			<Pager L={L} noun={noun} />

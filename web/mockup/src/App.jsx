@@ -3,6 +3,9 @@ import Users from './pages/Users.jsx';
 import User from './pages/User.jsx';
 import Groups from './pages/Groups.jsx';
 import Group from './pages/Group.jsx';
+import Files from './pages/Files.jsx';
+import Messages from './pages/Messages.jsx';
+import Message from './pages/Message.jsx';
 import NotFound, { Pending } from './pages/NotFound.jsx';
 
 // The same paths the production server answers, so each screen here maps
@@ -16,7 +19,12 @@ const ROUTES = [
 	[/^\/groups\/(-?\d+)$/, (m) => <Group id={m[1]} tab="group" />],
 	[/^\/groups\/(-?\d+)\/admins$/, (m) => <Group id={m[1]} tab="admins" />],
 	[/^\/groups\/(-?\d+)\/history$/, (m) => <Group id={m[1]} tab="history" />],
-	[/^\/(groups\/-?\d+\/chat|files|group_messages|private_messages|platform-fwd|mcp-admin|settings|login|messages|users\/-?\d+\/chat)(\/.*)?$/, (m) => <Pending title={m[1]} />],
+	[/^\/files$/, () => <Files />],
+	[/^\/group_messages$/, () => <Messages scope="group" key="group" />],
+	[/^\/private_messages$/, () => <Messages scope="private" key="private" />],
+	[/^\/messages\/(group|private)$/, (m) => <Messages scope={m[1]} key={m[1]} />],
+	[/^\/messages\/(group|private)\/(\d+)$/, (m) => <Message scope={m[1]} id={m[2]} />],
+	[/^\/(groups\/-?\d+\/chat|platform-fwd|mcp-admin|settings|login|users\/-?\d+\/chat)(\/.*)?$/, (m) => <Pending title={m[1]} />],
 ];
 
 function Routes() {
