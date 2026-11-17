@@ -51,7 +51,9 @@ function PickEmpty({ loading, failed, q }: { loading: boolean; failed: boolean; 
 	return <li className="a-muted a-picker-empty">{loading ? 'Searching...' : failed ? 'The search failed; try again.' : q ? 'No chat matches.' : 'Nothing to choose.'}</li>;
 }
 
-// One chat (group, channel or user), searched on the server.
+// One chat (group, channel or user), searched on the server. Its
+// buttons name themselves: inside a Field's <label> they would otherwise
+// be named after the label's whole text, hint and listed chats included.
 export function ChatPicker({ value, onChange, search, exclude = NO_IDS, placeholder = 'Search groups, channels, users' }: { value: PickItem | null; onChange: (v: PickItem) => void; search: ChatQuery; exclude?: ReadonlySet<number>; placeholder?: string }) {
 	const [q, setQ] = useState('');
 	const [open, setOpen] = useState(false);
@@ -59,7 +61,7 @@ export function ChatPicker({ value, onChange, search, exclude = NO_IDS, placehol
 	const list = r.items.slice(0, 8);
 	return (
 		<div className="a-picker">
-			<button type="button" className="a-picker-btn" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+			<button type="button" className="a-picker-btn" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label={value ? `Chat: ${value.title}. Change` : 'Choose a chat'}>
 				{value ? <><Avatar id={value.id} name={value.title} photo={value.photo} size={22} square={value.kind === 'group'} /><span className="a-ellipsis">{value.title}</span>{value.sub && <span className="a-muted sm">{value.sub}</span>}</>
 					: <span className="a-muted">Choose a chat...</span>}
 			</button>
@@ -69,7 +71,7 @@ export function ChatPicker({ value, onChange, search, exclude = NO_IDS, placehol
 					<ul aria-busy={r.loading}>
 						{list.map((o) => (
 							<li key={o.kind + o.id}>
-								<button type="button" onClick={() => { onChange(o); setOpen(false); }}>
+								<button type="button" aria-label={o.sub ? `${o.title}, ${o.sub}` : o.title} onClick={() => { onChange(o); setOpen(false); }}>
 									<Avatar id={o.id} name={o.title} photo={o.photo} size={26} square={o.kind === 'group'} />
 									<span className="a-grow a-ellipsis">{o.title}{o.sub && <span className="a-muted sm"> . {o.sub}</span>}</span>
 									{value?.id === o.id && <Check size={15} />}
@@ -101,13 +103,13 @@ export function MultiPicker({ value, onChange, options, search, placeholder = 'A
 						<button type="button" aria-label={`Remove ${v.title}`} onClick={(e) => { e.stopPropagation(); onChange(value.filter((x) => x.id !== v.id)); }}><X size={12} /></button>
 					</span>
 				))}
-				<input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder={value.length ? '' : placeholder} />
+				<input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder={value.length ? '' : placeholder} aria-label={placeholder} />
 			</div>
 			{open && (list.length > 0 || (search && (r.loading || r.failed || q))) && (
 				<ul className="a-multi-pop" aria-busy={search ? r.loading : undefined}>
 					{list.map((o) => (
 						<li key={o.id}>
-							<button type="button" onClick={() => { onChange([...value, o]); setQ(''); }}>
+							<button type="button" aria-label={`Add ${o.title}`} onClick={() => { onChange([...value, o]); setQ(''); }}>
 								<Avatar id={o.id} name={o.title} photo={o.photo} size={22} square={o.kind === 'group'} />
 								<span className="a-grow a-ellipsis">{o.title}</span>
 							</button>

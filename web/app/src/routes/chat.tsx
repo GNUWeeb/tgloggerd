@@ -142,6 +142,19 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const busy = useRef(false);
 	const msgsRef = useRef(msgs);
 	msgsRef.current = msgs;
+	// A scroll to make once the next messages are rendered: keep the view
+	// where it was after older ones went in above it, or follow new ones
+	// at the bottom. Done in a layout effect, not a frame callback, which
+	// can run before React has rendered them.
+	const afterRender = useRef<{ prepend: number } | { bottom: true } | null>(null);
+	useLayoutEffect(() => {
+		const el = scroller.current;
+		const a = afterRender.current;
+		afterRender.current = null;
+		if (!el || !a) return;
+		if ('prepend' in a) el.scrollTop += el.scrollHeight - a.prepend;
+		else el.scrollTop = el.scrollHeight;
+	}, [msgs]);
 	const liveState = useLiveState();
 	const refetch = useRefetcher();
 
@@ -163,10 +176,11 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		busy.current = true;
 		try {
 			const w = await fetchChatWindow(scope, chatId, { before: first.message_id });
-			const h = el.scrollHeight;
+			// Once the older messages are rendered, keep the reader where
+			// they were (see the layout effect below).
+			afterRender.current = { prepend: el.scrollHeight };
 			setMsgs((cur) => [...w.messages, ...cur]);
 			setOlder(w.has_older);
-			requestAnimationFrame(() => { el.scrollTop += el.scrollHeight - h; });
 		} finally { busy.current = false; }
 	}, [msgs, older, scope, chatId]);
 
@@ -199,9 +213,9 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 			const add = w.messages.filter((x) => !have.has(x.id));
 			if (add.length) {
 				msgsRef.current = [...msgsRef.current, ...add];
-				setMsgs(msgsRef.current);
-				if (stick && el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+				if (stick && el) afterRender.current = { bottom: true };
 				else setUnseen((n) => n + add.length);
+				setMsgs(msgsRef.current);
 			}
 			if (!w.has_newer) return;
 		}
