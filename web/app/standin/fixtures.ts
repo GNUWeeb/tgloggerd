@@ -319,7 +319,6 @@ export function load(url: string, persona: Persona): Loaded {
 					const gs = fedGroups(f).filter(s.group);
 					return { id: f.id, name: f.name, default: f.id === 0, created: f.created ? iso(f.created) : null, groups: gs.slice(0, 12).map(groupSummary), group_count: gs.length, admins: fedAdmins(f).map(person), members: fedMembers(f).map(person) };
 				}),
-				group_options: groups.slice(0, 80).map(groupSummary),
 				admin_options: accounts.filter((a) => a.role === 'admin').map(person),
 			},
 		};

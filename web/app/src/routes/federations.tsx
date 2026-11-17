@@ -1,7 +1,7 @@
 // Administration > Federations (web-accounts.md section 3): named sets
 // of groups that decide what each admin manages. Superadmins edit them;
 // an admin sees the federations it administers, read only.
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Info, Network, Pencil, Plus, TriangleAlert } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
@@ -9,6 +9,7 @@ import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
 import { Field, MultiPicker, type PickItem } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
 import { ApiError, mutate } from '../api/mutate.ts';
+import { searchAllChats } from '../api/search.ts';
 import { ago } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { GroupSummary } from '../types.ts';
@@ -31,11 +32,10 @@ export interface FederationRow {
 export interface FederationsProps {
 	federations: FederationRow[];
 	editable: boolean;
-	group_options: GroupSummary[];
+	// Admins that may be given a federation.
 	admin_options: Person[];
 }
 
-const gPick = (g: GroupSummary): PickItem => ({ id: g.id, title: g.title, kind: 'group', photo: g.photo });
 const pPick = (p: Person): PickItem => ({ id: p.id, title: p.name, kind: 'user' });
 
 function Stack<T>({ items, render, max = 3 }: { items: T[]; render: (x: T) => ReactNode; max?: number }) {
@@ -45,10 +45,22 @@ function Stack<T>({ items, render, max = 3 }: { items: T[]; render: (x: T) => Re
 function Editor({ fed, props, onClose, onSaved }: { fed: FederationRow | null; props: FederationsProps; onClose: () => void; onSaved: () => void }) {
 	const isDefault = !!fed?.default;
 	const [name, setName] = useState(fed?.name ?? '');
-	const [groups, setGroups] = useState<PickItem[]>((fed?.groups ?? []).map(gPick));
+	// The card shows a preview of the groups; the editor loads all of
+	// them, because saving sends the complete list.
+	const [groups, setGroups] = useState<PickItem[] | null>(fed && !isDefault ? null : []);
+	const [loadErr, setLoadErr] = useState('');
+	useEffect(() => {
+		if (!fed || isDefault) return;
+		const ac = new AbortController();
+		searchAllChats({ kind: 'group', federation: fed.id }, 5000, ac.signal)
+			.then((r) => { if (r.truncated) setLoadErr('This federation has too many groups to edit here.'); else setGroups(r.items); })
+			.catch(() => { if (!ac.signal.aborted) setLoadErr('The groups of this federation could not be loaded.'); });
+		return () => ac.abort();
+	}, [fed, isDefault]);
 	const [admins, setAdmins] = useState<PickItem[]>((fed?.admins ?? []).map(pPick));
 	const [err, setErr] = useState('');
 	const save = async () => {
+		if (!groups) return;
 		const body = { name, group_ids: isDefault ? undefined : groups.map((g) => g.id), admin_ids: admins.map((a) => a.id) };
 		try {
 			await (fed ? mutate('PATCH', `/api/federations/${fed.id}`, body) : mutate('POST', '/api/federations', body));
@@ -58,14 +70,15 @@ function Editor({ fed, props, onClose, onSaved }: { fed: FederationRow | null; p
 	};
 	return (
 		<Modal wide title={fed ? fed.name : 'New federation'} icon={<Network size={16} />} onClose={onClose}
-			footer={<><span className="a-grow" /><Btn ghost onClick={onClose}>Cancel</Btn><Btn primary onClick={() => void save()}>{fed ? 'Save changes' : 'Create federation'}</Btn></>}>
-			{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+			footer={<><span className="a-grow" /><Btn ghost onClick={onClose}>Cancel</Btn><Btn primary disabled={!groups} onClick={() => void save()}>{fed ? 'Save changes' : 'Create federation'}</Btn></>}>
+			{(err || loadErr) && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err || loadErr}</span></div>}
 			{isDefault
 				? <div className="a-banner"><Info size={15} /><span>Default holds every group that is in no other federation, including every group joined from now on. Its groups follow from the other federations; only its admins are set here.</span></div>
 				: <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Security community" /></Field>}
 			{!isDefault && (
 				<Field label="Groups" hint="A group may belong to several federations. Groups taken out of every federation return to Default.">
-					<MultiPicker value={groups} onChange={setGroups} options={props.group_options.map(gPick)} placeholder="Add a group..." />
+					{groups ? <MultiPicker value={groups} onChange={setGroups} search={{ kind: 'group' }} placeholder="Add a group..." />
+						: !loadErr && <span className="a-muted sm" aria-busy="true">Loading {fed?.group_count} groups...</span>}
 				</Field>
 			)}
 			<Field label="Admins" hint="They manage this federation's members, their grants and its forwarding.">
