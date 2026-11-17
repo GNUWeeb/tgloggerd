@@ -128,6 +128,10 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "audit", err)
 		return
 	}
-	raw := s.cookies.Issue(w, s.cookies.NewSession(u.ID, u.Username, u.Role, epoch))
+	raw, err := s.startSession(ctx, w, r, u.ID, u.Username, u.Role, epoch, sess.Row)
+	if err != nil {
+		s.internalError(w, "start session", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"csrf": s.signer.SessionCSRF(raw)})
 }

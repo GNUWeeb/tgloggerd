@@ -6,6 +6,7 @@
 package auth
 
 import (
+	"crypto/sha256"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,6 +31,29 @@ type Session struct {
 	// MustChangePassword is not in the cookie: Verifier sets it, and
 	// the role, from the account.
 	MustChangePassword bool
+
+	// Key identifies the session in web_sessions: the SHA-256 of the
+	// cookie value (SessionKey). Row is the session's web_sessions.id,
+	// 0 while it is not recorded yet; Stale says its recorded last use
+	// is old enough to be recorded again. Verifier sets all three.
+	Key   [32]byte
+	Row   uint64
+	Stale bool
+}
+
+// NeverExpires is the expiry this service gives a session when
+// sessions never expire (WEB_SESSION_TIMEOUT <= 0), instead of 0: the
+// last second of the year 9999. Sessions are told apart by their
+// cookie, so each new one needs an expiry of its own, which a constant
+// 0 cannot give; one second less is taken for each session that
+// already has this one (see the server's startSession).
+const NeverExpires int64 = 253402300799
+
+// SessionKey is the key of the session a cookie value carries. The
+// value is canonical (Signer.Open accepts one spelling of a token
+// only), so a cookie cannot be respelled to dodge its row.
+func SessionKey(raw string) [32]byte {
+	return sha256.Sum256([]byte(raw))
 }
 
 // Cookies issues and reads the session and login CSRF cookies with the

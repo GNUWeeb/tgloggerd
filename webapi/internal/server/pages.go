@@ -312,6 +312,7 @@ func (s *Server) pageSession(w http.ResponseWriter, r *http.Request) (*auth.Sess
 	sess, c := s.verifier.Verify(r.Context(), r)
 	switch c {
 	case auth.Valid:
+		s.noteSessionUse(r, &sess)
 		return &sess, true
 	case auth.Revoked:
 		s.cookies.Clear(w)

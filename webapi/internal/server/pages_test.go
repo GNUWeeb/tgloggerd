@@ -86,7 +86,7 @@ func newPagesEnv(t *testing.T, o pagesOpts) *pagesEnv {
 			Entry: "/app/assets/entry.js"},
 		AssetFiles: root,
 		pages:      o.pages,
-		state: func(_ context.Context, uid uint64) (webdb.SessionState, error) {
+		state: func(_ context.Context, uid uint64, _ [32]byte) (webdb.SessionState, error) {
 			if e.epochErr != nil {
 				return webdb.SessionState{}, e.epochErr
 			}
@@ -94,7 +94,9 @@ func newPagesEnv(t *testing.T, o pagesOpts) *pagesEnv {
 			if !ok {
 				return webdb.SessionState{}, webdb.ErrNoUser
 			}
-			return webdb.SessionState{Epoch: ep, Role: e.roles[uid], Active: true}, nil
+			// A recorded, fresh session: nothing to write.
+			return webdb.SessionState{Epoch: ep, Role: e.roles[uid], Active: true,
+				SessionRow: 1}, nil
 		},
 	})
 	return e

@@ -63,21 +63,35 @@ func FindByID(ctx context.Context, db *sql.DB, id uint64) (User, error) {
 // SessionState is what every signed-in request reads of its account:
 // the cookie's epoch is checked against Epoch, and the role and flags
 // come from here, not from the cookie, so a change applies at once.
+// The Session fields are the cookie's own record (web_sessions).
 type SessionState struct {
 	Epoch              uint32
 	Role               string
 	Active             bool
 	MustChangePassword bool
+	// SessionRow is the session's web_sessions.id, 0 when it has no
+	// row yet; SessionEnded: it was signed out; SessionStale: its last
+	// use was recorded more than TouchInterval ago.
+	SessionRow   uint64
+	SessionEnded bool
+	SessionStale bool
 }
 
-// LoadSessionState is an account's SessionState, or ErrNoUser when the
-// account is gone. One primary-key lookup per request.
-func LoadSessionState(ctx context.Context, db *sql.DB, id uint64) (SessionState, error) {
+// LoadSessionState is an account's SessionState with the record of
+// the session whose cookie key is given, or ErrNoUser when the account
+// is gone. One primary-key lookup per request, with the session's row
+// by its unique key.
+func LoadSessionState(ctx context.Context, db *sql.DB, id uint64, key [32]byte) (SessionState, error) {
 	var st SessionState
 	err := db.QueryRowContext(ctx,
-		"SELECT session_epoch, role, is_active, must_change_password "+
-			"FROM web_users WHERE id = ?", id).
-		Scan(&st.Epoch, &st.Role, &st.Active, &st.MustChangePassword)
+		"SELECT u.session_epoch, u.role, u.is_active, u.must_change_password, "+
+			"COALESCE(s.id, 0), s.revoked_at IS NOT NULL, "+
+			"COALESCE(s.last_used_at < NOW() - INTERVAL ? SECOND, 0) "+
+			"FROM web_users u LEFT JOIN web_sessions s "+
+			"ON s.token_hash = ? AND s.web_user_id = u.id WHERE u.id = ?",
+		int(TouchInterval.Seconds()), key[:], id).
+		Scan(&st.Epoch, &st.Role, &st.Active, &st.MustChangePassword,
+			&st.SessionRow, &st.SessionEnded, &st.SessionStale)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SessionState{}, ErrNoUser
 	}

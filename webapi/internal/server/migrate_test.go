@@ -64,7 +64,9 @@ func TestMigrationUpgradesRoles(t *testing.T) {
 		t.Fatalf("audit row after the upgrade: %v %v", target, err)
 	}
 
-	// Both sign in with their old passwords, with the new roles.
+	// Both sign in with their old passwords, with the new roles, once
+	// the later migrations are in as well.
+	migrateAppDB(t, db, "")
 	h := newHandler(db, 5)
 	for name, role := range map[string]string{"boss": "superadmin", "peek": "member"} {
 		c := &client{t: t, h: h, cookies: map[string]string{}}

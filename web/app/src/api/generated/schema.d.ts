@@ -59,7 +59,7 @@ export interface paths {
         put?: never;
         /**
          * Sign out this browser
-         * @description Clears the session cookie and audits a logout when the cookie opens. The account's other sessions stay signed in. The CSRF token must match the session cookie; a request without a session cookie fails that check.
+         * @description Clears the session cookie, ends the session's record, so a copy of the cookie stops working on both web services, and audits a logout when the cookie opens. The account's other sessions stay signed in. The CSRF token must match the session cookie; a request without a session cookie fails that check.
          */
         post: operations["logout"];
         delete?: never;

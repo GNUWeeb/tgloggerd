@@ -104,6 +104,7 @@ func (s *Server) RequireSession(next http.HandlerFunc, passes ...scope.Gate) htt
 		sess, c := s.verifier.Verify(r.Context(), r)
 		switch c {
 		case auth.Valid:
+			s.noteSessionUse(r, &sess)
 			sc := s.requestScope(r, &sess)
 			if g := sc.Gate(); g != scope.None && !slices.Contains(passes, g) {
 				noStore(w)
@@ -268,7 +269,11 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw := s.cookies.Issue(w, s.cookies.NewSession(u.ID, u.Username, u.Role, u.Epoch))
+	raw, err := s.startSession(ctx, w, r, u.ID, u.Username, u.Role, u.Epoch, 0)
+	if err != nil {
+		s.internalError(w, "start session", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": userJSON{u.ID, u.Username, u.Role, u.MustChangePassword},
 		"csrf": s.signer.SessionCSRF(raw),
@@ -277,8 +282,10 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 
 // postLogout ends the session on this browser, as POST /logout does:
 // the CSRF token must match the session cookie, the logout is audited
-// when the cookie opens, and the cookie is cleared. The account's other
-// sessions stay; a password change ends those.
+// when the cookie opens, and the cookie is cleared. The session's
+// record is ended too, so a copy of the cookie stops working on both
+// services. The account's other sessions stay; the sessions page or a
+// password change ends those.
 func (s *Server) postLogout(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	if !s.signer.CheckSessionCSRF(r, r.Header.Get(CSRFHeader)) {
@@ -287,6 +294,13 @@ func (s *Server) postLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	if sess, ok := s.cookies.Current(r); ok {
 		uid := sess.UID
+		if err := webdb.EndSessionKey(r.Context(), s.app, webdb.NewSession{
+			UID: uid, Key: auth.SessionKey(auth.RawSession(r)), Epoch: sess.Epoch,
+			Expires: sess.Exp, UserAgent: r.UserAgent(), IP: clientIP(r),
+		}); err != nil {
+			s.internalError(w, "end session", err)
+			return
+		}
 		if err := webdb.Audit(r.Context(), s.app, &uid, "logout", clientIP(r), sess.Username); err != nil {
 			s.internalError(w, "audit", err)
 			return

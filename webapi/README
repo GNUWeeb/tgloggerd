@@ -62,6 +62,19 @@ and against is_active, which Drogon does not check (disabling an
 account bumps the epoch as well, so it ends there too). The role and
 the forced password change are read from that row, not from the
 cookie, so a change applies to the next request.
+
+Each session also has a row in web_sessions, keyed by the SHA-256 of
+its cookie value (decisions/2026-11-18-sessions-list.md), read in the
+same query as the account. A sign-in here records it with the device
+(User-Agent) and address; a session signed in by the Drogon web, or
+before the records existed, is recorded the first time it reaches
+this service. A request records the last use and address once a
+minute at most. A session whose row is ended (signed out) is refused
+by both services, so POST /api/logout ends a copied cookie too. As
+sessions are told apart by their cookie, a sign-in here picks an
+expiry no other session of the account has (one second earlier per
+clash), and with sessions that never expire the expiry is the end of
+the year 9999 instead of 0.
 State-changing requests carry a CSRF token in the X-CSRF-Token header:
 for a signed-in request the token GET /api/session or POST /api/login
 answers, which is the same token the Drogon pages put in their forms;
@@ -93,9 +106,10 @@ text) and a fresh pre-login "csrf" token on refused logins.
                       login_fail or login_ratelimited, as from Drogon.
 
     POST /api/logout  X-CSRF-Token: <session token>
-                      204 and the session cookie cleared; a logout row
-                      in web_audit. 403 csrf. Other sessions of the
-                      account stay signed in.
+                      204 and the session cookie cleared; the session's
+                      record ended; a logout row in web_audit. 403
+                      csrf. Other sessions of the account stay signed
+                      in.
 
     GET /api/session  200 {"user":{...},"csrf":"<session token>"}.
                       401 unauthenticated: no valid session (a revoked
