@@ -104,8 +104,6 @@ The file store as a capped cache in front of Telegram:
 - [`orphan-blob-audit`](todo/orphan-blob-audit.md): Act on the store audit's list of blobs no row describes, as the owner agrees (optional).
 - [`file-index-unique-id`](todo/file-index-unique-id.md): Look message media up in the file index by unique id too, and index alias rows as their target (optional).
 
-- [`photo-message-pending-overlap`](todo/photo-message-pending-overlap.md): Link a message to its media even when the same file is also a photo waiting to be stored.
-
 ## Logging
 
 ## Web backend in Go
