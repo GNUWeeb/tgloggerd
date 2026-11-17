@@ -52,8 +52,8 @@ export function getGroup(id) {
 	return byId.get(String(id));
 }
 
-export function queryGroups(state) {
-	return queryRows(groups, state, (g) => `${g.title} ${g.username} ${g.id}`);
+export function queryGroups(state, keep) {
+	return queryRows(keep ? groups.filter(keep) : groups, state, (g) => `${g.title} ${g.username} ${g.id}`);
 }
 
 export const GROUP_FIELDS = [

@@ -14,6 +14,7 @@ import { bytes, fmt, dayLabel } from '../data/seed.js';
 import { TYPE_LABEL } from './Groups.jsx';
 import { snippet } from './Messages.jsx';
 import NotFound from './NotFound.jsx';
+import { useViewer } from '../viewer.jsx';
 
 const PAGE = 60;
 
@@ -131,6 +132,7 @@ function Feed({ chat, msgs, at }) {
 
 export default function Chat({ kind, id, publicView }) {
 	const chat = chatOf(kind, id);
+	const v = useViewer();
 	const [p, set] = useQuery();
 	const [live, setLive] = useState(true);
 	const [searching, setSearching] = useState(false);
@@ -165,7 +167,7 @@ export default function Chat({ kind, id, publicView }) {
 		return () => el.removeEventListener('scroll', on);
 	}, [from]);
 
-	if (!chat) return <NotFound what="chat" />;
+	if (!chat || (kind === 'group' && !publicView && !v.group(chat))) return <NotFound what="chat" />;
 	const title = chat.title || chat.name;
 	const back = kind === 'group' ? `/groups/${chat.id}` : `/users/${chat.id}`;
 	const sub = kind === 'group'

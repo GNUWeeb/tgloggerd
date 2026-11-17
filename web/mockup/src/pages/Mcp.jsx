@@ -8,6 +8,7 @@ import { GroupCell } from './Groups.jsx';
 import { mcpExposed, mcpTokens } from '../data/admin.js';
 import { groups } from '../data/groups.js';
 import { fmt, ago, compact } from '../data/seed.js';
+import { useViewer } from '../viewer.jsx';
 
 export function McpIndex() {
 	const live = mcpTokens.filter((t) => !t.revoked).length;
@@ -39,6 +40,8 @@ export function McpIndex() {
 }
 
 export function McpGroups() {
+	const v = useViewer();
+	const exposed = mcpExposed.filter((e) => v.group(e.group));
 	const [adding, setAdding] = useState(false);
 	const [pick, setPick] = useState(null);
 	return (
@@ -54,7 +57,7 @@ export function McpGroups() {
 					<table className="a-table">
 						<thead><tr><th>Group</th><th className="r">Messages</th><th>Public on Telegram</th><th>Note</th><th>Added</th><th /></tr></thead>
 						<tbody>
-							{mcpExposed.map((e) => (
+							{exposed.map((e) => (
 								<tr key={e.group.id}>
 									<td><GroupCell g={e.group} /></td>
 									<td className="r num">{fmt(e.group.msg_count)}</td>
@@ -68,7 +71,7 @@ export function McpGroups() {
 					</table>
 				</div>
 				<ul className="a-list">
-					{mcpExposed.map((e) => (
+					{exposed.map((e) => (
 						<li key={e.group.id}>
 							<Link to={`/groups/${e.group.id}`}>
 								<Avatar e={e.group} size={36} square />
@@ -84,7 +87,7 @@ export function McpGroups() {
 				<Modal title="Expose a group" onClose={() => setAdding(false)}
 					footer={<><span className="a-grow" /><Btn ghost onClick={() => setAdding(false)}>Cancel</Btn><Btn primary onClick={() => setAdding(false)}>Expose</Btn></>}>
 					<Field label="Group" hint="Busiest groups first. Groups already exposed are not listed.">
-						<ChatPicker value={pick} onChange={setPick} options={groups.filter((g) => !g.exposed).slice(0, 40)} />
+						<ChatPicker value={pick} onChange={setPick} options={groups.filter((g) => !g.exposed && v.group(g)).slice(0, 40)} />
 					</Field>
 					<Field label="Note" hint="Why it is exposed, for whoever reviews this later.">
 						<input maxLength={255} placeholder="e.g. public community, admins agreed" />

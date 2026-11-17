@@ -10,7 +10,6 @@ export function SettingsNav({ on }) {
 	return (
 		<nav className="a-settingsnav" aria-label="Settings sections">
 			<Link to="/settings" className={on === 'account' ? 'on' : ''}>Your account</Link>
-			<Link to="/settings/accounts" className={on === 'accounts' ? 'on' : ''}>Accounts</Link>
 		</nav>
 	);
 }

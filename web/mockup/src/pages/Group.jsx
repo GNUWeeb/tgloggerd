@@ -14,6 +14,7 @@ import { getGroup, getAdmins, getGroupHistory, getTopPosters } from '../data/gro
 import { getActivity } from '../data/users.js';
 import { fmt, ago, compact } from '../data/seed.js';
 import NotFound from './NotFound.jsx';
+import { useViewer } from '../viewer.jsx';
 
 const KIND = {
 	title: [Type, 'Title changed'],
@@ -82,8 +83,9 @@ function Admins({ g }) {
 
 export default function Group({ id, tab }) {
 	const g = getGroup(id);
+	const v = useViewer();
 	const [kind, setKind] = useState('all');
-	if (!g) return <NotFound what="group" />;
+	if (!g || !v.group(g)) return <NotFound what="group" />;
 	const hist = getGroupHistory(g);
 	const posters = getTopPosters(g);
 	const act = getActivity(-g.id, g.msg_count / 40);

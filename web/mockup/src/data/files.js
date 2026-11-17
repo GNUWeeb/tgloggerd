@@ -54,8 +54,8 @@ export const FILE_FIELDS = [
 	{ key: 'created_at', label: 'First seen', type: 'date' },
 ];
 
-export function queryFiles(state) {
-	return queryRows(files(), state, (f) => `${f.name} ${f.id} ${f.chat_title}`);
+export function queryFiles(state, keep) {
+	return queryRows(keep ? files().filter(keep) : files(), state, (f) => `${f.name} ${f.id} ${f.chat_title}`);
 }
 
 export function totalBytes() {

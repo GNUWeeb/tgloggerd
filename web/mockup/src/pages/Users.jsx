@@ -6,6 +6,7 @@ import { Avatar, Flags, PageHead, Btn } from '../ui/primitives.jsx';
 import { DataTable, FilterBar } from '../ui/DataTable.jsx';
 import { queryUsers, USER_FIELDS, userFlags, TOTAL_USERS } from '../data/users.js';
 import { fmt, compact, ago } from '../data/seed.js';
+import { useViewer } from '../viewer.jsx';
 
 export function UserCell({ u, size = 28 }) {
 	return (
@@ -30,9 +31,10 @@ const QUICK = [
 ];
 
 export default function Users() {
-	const L = useList(queryUsers, { sort: 'msg_count' });
+	const v = useViewer();
+	const L = useList((s) => queryUsers(s, v.role === 'member' ? v.user : null), { sort: v.fullUser ? 'msg_count' : 'name', dir: v.fullUser ? 'desc' : 'asc' });
 	const max = Math.max(1, ...L.rows.map((u) => u.msg_count));
-	const cols = [
+	const all = [
 		{ key: 'name', label: 'User', sort: true, cls: 'c-name', render: (u) => <UserCell u={u} /> },
 		{ key: 'id', label: 'ID', sort: true, cls: 'mono a-dim', render: (u) => u.id },
 		{ key: 'type', label: 'Type', sort: true, render: (u) => <><span className={`a-dot a-dot-${u.type}`} />{u.type}</> },
@@ -42,10 +44,12 @@ export default function Users() {
 		{ key: 'created_at', label: 'First seen', sort: true, render: (u) => <span title={u.created_at}>{ago(u.created_at)}</span> },
 		{ key: 'updated_at', label: 'Updated', sort: true, cls: 'a-hide-md', render: (u) => <span title={u.updated_at}>{ago(u.updated_at)}</span> },
 	];
+	// Members see people only through their groups: no global counts.
+	const cols = v.fullUser ? all : all.filter((c) => !['msg_count', 'flags', 'language', 'updated_at', 'created_at'].includes(c.key));
 	return (
 		<Shell crumbs={[['Users', null]]}>
-			<PageHead title="Users" sub={`${fmt(TOTAL_USERS)} users seen across all logged chats`} actions={<Btn ghost icon={Download}>Export</Btn>} />
-			<FilterBar L={L} fields={USER_FIELDS} placeholder="Name, @username or ID" quick={QUICK} />
+			<PageHead title="Users" sub={v.fullUser ? `${fmt(TOTAL_USERS)} users seen across all logged chats` : `${fmt(L.total)} people in your groups`} actions={<Btn ghost icon={Download}>Export</Btn>} />
+			<FilterBar L={L} fields={v.fullUser ? USER_FIELDS : USER_FIELDS.filter((f) => ['id', 'name', 'username'].includes(f.key))} placeholder="Name, @username or ID" quick={v.fullUser ? QUICK : null} />
 			<DataTable
 				L={L} cols={cols} noun="users"
 				href={(u) => `/users/${u.id}`}
@@ -54,8 +58,8 @@ export default function Users() {
 					lead: <Avatar e={u} size={36} />,
 					title: u.name,
 					sub: u.username ? '@' + u.username : u.id,
-					extra: userFlags(u).length ? <Flags flags={userFlags(u)} /> : null,
-					side: <><span className="num">{compact(u.msg_count)}</span><span className="a-muted">msgs</span></>,
+					extra: v.fullUser && userFlags(u).length ? <Flags flags={userFlags(u)} /> : null,
+					side: v.fullUser ? <><span className="num">{compact(u.msg_count)}</span><span className="a-muted">msgs</span></> : null,
 				})}
 			/>
 		</Shell>

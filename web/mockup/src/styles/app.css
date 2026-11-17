@@ -326,20 +326,19 @@
 }
 
 /* ---- dashboard ---- */
-.app .a-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.app .a-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .app .a-kpi { display: flex; flex-direction: column; gap: 4px; }
 .app .a-kpi:hover { border-color: var(--border-2); }
 .app .a-kpi-top { display: flex; align-items: center; gap: 7px; color: var(--fg-2); font-weight: 550; }
 .app .a-kpi b { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
 .app .a-kpi-delta { color: var(--ok); font-size: 12.5px; font-weight: 550; }
 .app .a-dash { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.app .a-dash > :nth-child(n+3) { grid-column: span 1; }
 .app .a-dash { grid-template-areas: "chart status" "busy changes" "busy deleted"; }
 .app .a-dash-wide { grid-area: chart; }
 .app .a-status { grid-area: status; align-self: stretch; }
-.app .a-dash > :nth-child(3) { grid-area: busy; }
-.app .a-dash > :nth-child(4) { grid-area: changes; }
-.app .a-dash > :nth-child(5) { grid-area: deleted; }
+.app .a-d-busy { grid-area: busy; }
+.app .a-d-changes { grid-area: changes; }
+.app .a-d-deleted { grid-area: deleted; }
 .app .a-bigchart { color: var(--accent); }
 .app .a-axis { display: flex; justify-content: space-between; color: var(--fg-3); font-size: 11.5px; margin-top: 6px; }
 .app .a-statuslist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
@@ -426,7 +425,6 @@
 .app .a-login-foot { display: flex; justify-content: center; }
 
 @media (max-width: 1080px) {
-	.app .a-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 	.app .a-dash { grid-template-columns: minmax(0, 1fr); grid-template-areas: "chart" "status" "busy" "changes" "deleted"; }
 }
 @media (max-width: 860px) {
@@ -524,3 +522,29 @@
 	.app .a-acctgrid { grid-template-columns: minmax(0, 1fr); }
 	.app .a-settings:has(> .a-tablecard) { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---- role preview (mockup only) ---- */
+.persona { position: fixed; z-index: 100; right: 14px; bottom: 14px; display: flex; align-items: center; gap: 2px; padding: 4px; background: rgb(20 20 24 / .9); color: #fff; border-radius: 999px; box-shadow: 0 6px 24px rgb(0 0 0 / .25); font: 600 12px/1 system-ui, sans-serif; backdrop-filter: blur(8px); }
+.persona-l { padding: 0 8px 0 10px; opacity: .65; }
+.persona button { border: 0; background: none; color: inherit; height: 28px; padding: 0 11px; border-radius: 999px; cursor: pointer; font: inherit; }
+.persona button:hover { background: rgb(255 255 255 / .12); }
+.persona button.on { background: #fff; color: #111; }
+.app .a-me-name { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.app .a-me-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 860px) { .persona { left: 8px; right: 8px; bottom: 8px; justify-content: center; } .persona-l { display: none; } }
+.app .a-contactlabel { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--fg-3); }
+.app .a-dash.member { grid-template-areas: "chart busy" "deleted busy"; }
+@media (max-width: 1080px) { .app .a-dash.member { grid-template-areas: "chart" "busy" "deleted"; } }
+
+.app .a-note { display: inline-flex; align-items: center; gap: 6px; }
+.app .a-restrict { display: grid; gap: 8px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.app .a-restrict > span { display: flex; flex-direction: column; gap: 1px; }
+.app .a-fedgrant { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: grid; gap: 10px; }
+.app .a-fedgrant.on { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.app .a-fedgrant header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.app .a-switchrow svg { vertical-align: -2px; }
+.app .a-audit { list-style: none; margin: 0; padding: 0; }
+.app .a-audit li { display: flex; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--border); }
+.app .a-audit li:first-child { border-top: 0; }
+.app .a-audit li svg { color: var(--fg-3); flex: none; }
+.app .a-modal-body > .a-seg { justify-self: start; margin-bottom: 0; }

@@ -8,6 +8,7 @@ import { Bar } from './Users.jsx';
 import { queryGroups, GROUP_FIELDS } from '../data/groups.js';
 import { TOTALS } from '../data/totals.js';
 import { fmt, compact, ago } from '../data/seed.js';
+import { useViewer } from '../viewer.jsx';
 
 export const TYPE_LABEL = { supergroup: 'supergroup', basic_group: 'basic group', channel: 'channel' };
 
@@ -29,7 +30,8 @@ const QUICK = [
 ];
 
 export default function Groups() {
-	const L = useList(queryGroups, { sort: 'msg_count' });
+	const v = useViewer();
+	const L = useList((s) => queryGroups(s, v.role === 'superadmin' ? null : v.group), { sort: 'msg_count' });
 	const max = Math.max(1, ...L.rows.map((g) => g.msg_count));
 	const cols = [
 		{ key: 'title', label: 'Group', sort: true, cls: 'c-name', render: (g) => <GroupCell g={g} /> },
@@ -43,7 +45,7 @@ export default function Groups() {
 	];
 	return (
 		<Shell crumbs={[['Groups', null]]}>
-			<PageHead title="Groups" sub={`${fmt(TOTALS.groups)} groups and channels the logger has seen`} actions={<Btn ghost icon={Download}>Export</Btn>} />
+			<PageHead title="Groups" sub={v.role === 'member' ? `${L.total} groups granted to you` : `${fmt(v.role === 'superadmin' ? TOTALS.groups : TOTALS.groups - 1)} groups and channels the logger has seen`} actions={<Btn ghost icon={Download}>Export</Btn>} />
 			<FilterBar L={L} fields={GROUP_FIELDS} placeholder="Title, @username or ID" quick={QUICK} />
 			<DataTable
 				L={L} cols={cols} noun="groups"

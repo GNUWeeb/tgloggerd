@@ -156,9 +156,9 @@ function flatten(m) {
 	});
 }
 
-export function queryMessages(scope, state) {
+export function queryMessages(scope, state, keep) {
 	const all = scope === 'group' ? groupMessages() : privateMessages();
-	return queryRows(all, state, (m) => `${m.text} ${m.media?.name || ''}`);
+	return queryRows(keep ? all.filter(keep) : all, state, (m) => `${m.text} ${m.media?.name || ''}`);
 }
 
 export function getMessage(scope, id) {

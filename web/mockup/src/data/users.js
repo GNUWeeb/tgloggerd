@@ -51,6 +51,10 @@ Object.assign(users[3], {
 	phone: '+62 812 5550 1234',
 });
 export const featuredUser = users[3];
+// A few contacts of the logging account, saved under their own labels.
+for (const [i, label] of [[3, 'Dewi (kernel)'], [8, 'Bima kampus'], [21, 'Sari GW']]) {
+	Object.assign(users[i], { is_contact: true, contact_name: label });
+}
 export const TOTAL_USERS = 459935;
 
 const byId = new Map(users.map((u) => [String(u.id), u]));
@@ -58,8 +62,8 @@ export function getUser(id) {
 	return byId.get(String(id));
 }
 
-export function queryUsers(state) {
-	return queryRows(users, state, (u) => `${u.name} ${u.username} ${u.id}`);
+export function queryUsers(state, keep) {
+	return queryRows(keep ? users.filter(keep) : users, state, (u) => `${u.name} ${u.username} ${u.id}`);
 }
 
 export const USER_FIELDS = [

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-	BadgeCheck, Copy, MessageCircle, ExternalLink, Type, AtSign, Quote, Phone,
+	BadgeCheck, Copy, MessageCircle, ExternalLink, UserSearch, Contact, Type, AtSign, Quote, Phone,
 	Image, Languages, Star, CalendarDays, History as HistoryIcon, Hash,
 } from 'lucide-react';
 import { Link } from '../router.jsx';
@@ -11,6 +11,8 @@ import { getUser, getUserHistory, getUsernames, userFlags, getActivity } from '.
 import { getGroupsOfUser } from '../data/groups.js';
 import { fmt, ago } from '../data/seed.js';
 import NotFound from './NotFound.jsx';
+import { Modal } from '../ui/forms.jsx';
+import { useViewer, allowed } from '../viewer.jsx';
 
 const KIND = {
 	name: [Type, 'Name changed'],
@@ -39,8 +41,13 @@ export function CopyId({ id }) {
 
 export default function User({ id, tab }) {
 	const u = getUser(id);
+	const v = useViewer();
 	const [kind, setKind] = useState('all');
-	if (!u) return <NotFound what="user" />;
+	const [lookup, setLookup] = useState(false);
+	// Someone the viewer may not see answers like someone who never existed.
+	if (!u || !v.user(u)) return <NotFound what="user" />;
+	if (!v.fullUser && tab === 'history') return <NotFound what="user" />;
+	if (!v.fullUser) return <MemberUserView u={u} v={v} />;
 	const hist = getUserHistory(u);
 	const groups = getGroupsOfUser(u);
 	const act = getActivity(u.id, u.msg_count);
@@ -57,11 +64,13 @@ export default function User({ id, tab }) {
 					<div className="a-ph-meta">
 						{u.username && <span>@{u.username}</span>}
 						<CopyId id={u.id} />
+						{u.is_contact && <span className="a-contactlabel" title="The name the logging account saved this contact under"><Contact size={13} />saved as {u.contact_name}</span>}
 						<Flags flags={userFlags(u)} />
 					</div>
 				</div>
 				<div className="a-head-actions">
-					<Btn primary to={`/users/${u.id}/chat`} icon={MessageCircle}>Private chat</Btn>
+					{v.canLookupName && u.is_contact && <Btn ghost onClick={() => setLookup(true)} icon={UserSearch}>Look up real name</Btn>}
+					{allowed(v, 'private_messages') && <Btn primary to={`/users/${u.id}/chat`} icon={MessageCircle}>Private chat</Btn>}
 					{u.username && <Btn ghost icon={ExternalLink}>Open in Telegram</Btn>}
 				</div>
 			</div>
@@ -124,6 +133,41 @@ export default function User({ id, tab }) {
 					<div className="a-loadmore"><HistoryIcon size={14} />Older changes load as you scroll</div>
 				</div>
 			)}
+			{lookup && (
+				<Modal title="Look up real name" icon={<UserSearch size={16} />} onClose={() => setLookup(false)}
+					footer={<><span className="a-grow" /><Btn ghost onClick={() => setLookup(false)}>Cancel</Btn><Btn primary onClick={() => setLookup(false)}>Look up</Btn></>}>
+					<p>Telegram shows this person to the logging account as <b>{u.contact_name}</b>, the name it saved them under.</p>
+					<p className="a-muted">To read the name they set themselves, the logging account removes them from its contacts, reads the name, and adds them back exactly as before. They are not notified, but for a moment they are not a contact. Each lookup is audited.</p>
+				</Modal>
+			)}
+		</Shell>
+	);
+}
+
+// A member sees a person only as they appear in the member's groups:
+// name, photo and their messages there. No bio, history or totals.
+function MemberUserView({ u, v }) {
+	const shared = getGroupsOfUser(u).filter((g) => v.group(g));
+	return (
+		<Shell crumbs={[['Users', '/users'], [u.name, null]]}>
+			<div className="a-profilehead">
+				<Avatar e={u} size={64} />
+				<div className="a-ph-main">
+					<h1>{u.name}</h1>
+					<div className="a-ph-meta">{u.username && <span>@{u.username}</span>}</div>
+				</div>
+			</div>
+			<Card title="In your groups">
+				<ul className="a-groups">
+					{shared.map((g) => (
+						<li key={g.id}>
+							<Avatar e={g} size={28} square />
+							<Link to={`/groups/${g.id}`} className="a-grow a-rowlink">{g.title}</Link>
+							<Link to={`/group_messages?f=${encodeURIComponent(JSON.stringify([{ field: 'sender_id', op: '=', value: String(u.id) }, { field: 'chat_id', op: '=', value: String(g.id) }]))}`} className="a-link">Messages</Link>
+						</li>
+					))}
+				</ul>
+			</Card>
 		</Shell>
 	);
 }

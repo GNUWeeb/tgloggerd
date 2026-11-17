@@ -8,6 +8,7 @@ import { getMessage, senderOf } from '../data/messages.js';
 import { bytes, fmt } from '../data/seed.js';
 import { snippet, chatHref } from './Messages.jsx';
 import NotFound from './NotFound.jsx';
+import { useViewer } from '../viewer.jsx';
 
 function chatLink(m) {
 	return m.scope === 'group' ? `/groups/${m.chat.id}` : `/users/${m.chat.id}`;
@@ -15,7 +16,8 @@ function chatLink(m) {
 
 export default function Message({ scope, id }) {
 	const m = getMessage(scope, id);
-	if (!m) return <NotFound what="message" />;
+	const v = useViewer();
+	if (!m || (scope === 'group' && !v.group(m.chat))) return <NotFound what="message" />;
 	const s = senderOf(m);
 	const listTitle = scope === 'group' ? 'Group messages' : 'Private messages';
 	const f = m.media ? { ...m.media, file_type: m.content_type } : null;

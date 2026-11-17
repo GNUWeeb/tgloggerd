@@ -8,6 +8,7 @@ import { TypeIcon } from '../ui/Media.jsx';
 import { queryMessages, MSG_FIELDS, senderOf } from '../data/messages.js';
 import { TOTALS } from '../data/totals.js';
 import { fmt, ago } from '../data/seed.js';
+import { useViewer } from '../viewer.jsx';
 
 export function snippet(m) {
 	if (m.content_type === 'service') return m.text;
@@ -51,7 +52,8 @@ const QUICK = {
 };
 
 export default function Messages({ scope }) {
-	const L = useList((s) => queryMessages(scope, s), { sort: 'date', per: 50 });
+	const v = useViewer();
+	const L = useList((s) => queryMessages(scope, s, scope === 'group' && v.role !== 'superadmin' ? (m) => v.group(m.chat) : null), { sort: 'date', per: 50 });
 	const title = scope === 'group' ? 'Group messages' : 'Private messages';
 	const chatCol = scope === 'group'
 		? { key: 'chat_title', label: 'Group', sort: true, cls: 'a-hide-md', render: (m) => <Link to={`/groups/${m.chat.id}`} className="a-chatcell"><Avatar e={m.chat} size={20} square /><span className="a-ellipsis">{m.chat.title}</span></Link> }
@@ -75,7 +77,7 @@ export default function Messages({ scope }) {
 	];
 	return (
 		<Shell crumbs={[[title, null]]}>
-			<PageHead title={title} sub={`${fmt(scope === 'group' ? TOTALS.group_messages : TOTALS.private_messages)} messages. Full-text search over text and captions.`} />
+			<PageHead title={title} sub={v.role === 'member' ? 'Messages in your groups. Full-text search over text and captions.' : `${fmt(scope === 'group' ? TOTALS.group_messages : TOTALS.private_messages)} messages. Full-text search over text and captions.`} />
 			<FilterBar L={L} fields={MSG_FIELDS[scope]} placeholder="Search message text" quick={QUICK[scope]} />
 			<DataTable
 				L={L} cols={cols} noun="messages"
