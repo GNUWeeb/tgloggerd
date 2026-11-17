@@ -34,11 +34,14 @@ function persona(req: IncomingMessage, url: URL): Persona {
 	return c && PERSONAS.includes(c) ? c : 'superadmin';
 }
 
+// The page's own URL, without the stand-in's switches. Works on a copy:
+// the caller still reads ?ssr= from its URL afterwards.
 function cleanUrl(url: URL): string {
-	url.searchParams.delete('as');
-	url.searchParams.delete('ssr');
-	const q = url.searchParams.toString();
-	return url.pathname + (q ? '?' + q : '');
+	const u = new URL(url);
+	u.searchParams.delete('as');
+	u.searchParams.delete('ssr');
+	const q = u.searchParams.toString();
+	return u.pathname + (q ? '?' + q : '');
 }
 
 function send(res: ServerResponse, status: number, body: unknown, cookies: string[] = []): void {
