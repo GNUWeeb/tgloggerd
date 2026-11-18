@@ -1404,6 +1404,7 @@ export interface components {
             /** Format: int64 */
             size?: number;
             emoji?: string;
+            /** @description A voice note's waveform as Telegram encodes it, decoded: one 5-bit value per bar, usually 100 bars. Absent when the archive does not record it. */
             wave?: number[];
         };
         ChatMessage: {

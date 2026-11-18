@@ -3417,8 +3417,14 @@ components:
           type: string
         wave:
           type: array
+          description: >-
+            A voice note's waveform as Telegram encodes it, decoded:
+            one 5-bit value per bar, usually 100 bars. Absent when
+            the archive does not record it.
           items:
             type: integer
+            minimum: 0
+            maximum: 31
     ChatMessage:
       type: object
       required: [id, message_id, date, scope, sender, content_type, text, media, album, reply_to, forward, edits, edited_at, deleted_at, link_preview]
