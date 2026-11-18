@@ -50,6 +50,8 @@ export function pageLive(page: PageData): PageLive | null {
 				match: (e) => e.kind === 'message.new' && e.chat_id !== undefined && (e.chat_id < 0) === groups && firstPage(page.url),
 			};
 		}
+		case 'bots':
+			return { topics: ['bots'], mode: 'refresh', interval: 1000, match: (e) => e.kind === 'bot.updated' };
 		case 'files':
 			return { topics: ['messages'], mode: 'notice', interval: 2000, match: (e) => e.kind === 'file.stored' && firstPage(page.url) };
 		default:

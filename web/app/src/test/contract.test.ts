@@ -48,7 +48,7 @@ const PAGES: [Persona, string][] = [
 		[a, '/group_messages'], [a, '/group_messages?q=rust&f=' + encodeURIComponent('[{"field":"is_deleted","op":"is","value":"yes"}]')],
 		[a, '/settings'], [a, '/settings/preferences'], [a, '/settings/sessions'],
 		[a, '/platform-fwd'], [a, '/platform-fwd/telegram-discord'], [a, '/platform-fwd/discord-telegram'],
-		[a, '/settings/accounts'], [a, '/settings/federations'], [a, '/join-chat'], [a, '/mcp-admin'], [a, '/mcp-admin/groups'], [a, '/mcp-admin/tokens'],
+		[a, '/platform-fwd/bots'], 		[a, '/settings/accounts'], [a, '/settings/federations'], [a, '/join-chat'], [a, '/mcp-admin'], [a, '/mcp-admin/groups'], [a, '/mcp-admin/tokens'],
 		[a, '/no/such/page'],
 	]),
 	['superadmin', `/files?view=list&file=${orphanId}`], ['admin', `/files?view=list&file=${orphanId}`],
@@ -94,6 +94,19 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		expect(validate(spec, responseSchema(spec, '/api/accounts', 'post', '201'), wire(created))).toEqual([]);
 		const [rs, reset] = adminApi('POST', `accounts/${(created as { id: number }).id}/password-reset`, {}, 'superadmin');
 		ok(rs, reset, '/api/accounts/{id}/password-reset', 'post');
+	});
+
+	it.each(['superadmin', 'member'] as Persona[])('the bot list for pickers, as %s', (p) => {
+		for (const kind of [undefined, 'discord', 'telegram']) {
+			const [status, body] = adminApi('GET', 'bots', kind ? { kind } : {}, p);
+			ok(status, body, '/api/bots');
+		}
+	});
+
+	it('adding a bot', () => {
+		const [status, body] = adminApi('POST', 'bots', { kind: 'telegram', name: 'Contract', token: '7000000099:' + 'k'.repeat(40) }, 'superadmin');
+		expect(status).toBe(201);
+		expect(validate(spec, responseSchema(spec, '/api/bots', 'post', '201'), wire(body))).toEqual([]);
 	});
 
 	it.each(['superadmin', 'member'] as Persona[])('the entity lookup, as %s', (p) => {

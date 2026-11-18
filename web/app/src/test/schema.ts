@@ -3,7 +3,8 @@
 // items, prefixItems, minItems, maxItems, minimum, maximum, allOf,
 // oneOf, $ref), so tests can check data against the API description
 // without a validator package. format is not checked. Unknown keywords
-// fail loudly, so a new one in the description cannot be ignored.
+// fail loudly, so a new one in the description cannot be ignored;
+// extensions (x-...) carry no validation and are skipped.
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 
@@ -22,7 +23,7 @@ const fits = (t: string, v: unknown) => (t === 'number' ? typeof v === 'number' 
 // The errors of `value` against `schema`, as "path: what" lines; empty
 // when it conforms.
 export function validate(spec: Spec, schema: Schema, value: unknown, path = '$'): string[] {
-	for (const k of Object.keys(schema)) if (!KNOWN.has(k)) throw new Error(`${path}: schema keyword ${k} is not supported by src/test/schema.ts`);
+	for (const k of Object.keys(schema)) if (!KNOWN.has(k) && !k.startsWith('x-')) throw new Error(`${path}: schema keyword ${k} is not supported by src/test/schema.ts`);
 	const errs: string[] = [];
 	if (typeof schema.$ref === 'string') {
 		const name = /^#\/components\/schemas\/(.+)$/.exec(schema.$ref)?.[1];

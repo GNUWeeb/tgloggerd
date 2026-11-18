@@ -17,6 +17,7 @@ import { chatRoute } from './chat.tsx';
 import { loginRoute } from './login.tsx';
 import { emailVerifyRoute, passwordForgotRoute, passwordSetRoute } from './password.tsx';
 import { passwordChangeRoute } from './passwordchange.tsx';
+import { botsRoute } from './bots.tsx';
 import { settingsRoute, preferencesRoute, sessionsRoute } from './settings.tsx';
 import { accountsRoute } from './accounts.tsx';
 import { federationsRoute } from './federations.tsx';
@@ -68,6 +69,7 @@ export const routes: Record<string, RouteDef> = {
 	platform_fwd: forwardingIndexRoute,
 	fwd_telegram_discord: t2dRoute,
 	fwd_discord_telegram: d2tRoute,
+	bots: botsRoute,
 	join_chat: joinChatRoute,
 	mcp: mcpIndexRoute,
 	mcp_groups: mcpGroupsRoute,
