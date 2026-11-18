@@ -58,31 +58,15 @@ func isoPtr(t int64) *string {
 	return &s
 }
 
-// fetchable is whether a file whose bytes are not stored may be
-// fetched from Telegram by this request: the daemon API is on, and a
-// request without a session asks only for a file under the store's
-// per-file cap, as MediaController decides.
-func (v view) fetchable(f logdb.FileRef) bool {
-	if v.s.daemon == nil {
-		return false
-	}
-	small := v.s.media.StoreFileCap == 0 || f.Size < v.s.media.StoreFileCap
-	return v.session || small
-}
-
 // file is a file's /files/<token> URL, when its bytes are stored or
-// may be fetched, and both flags.
+// may be fetched from Telegram by this request (Server.fileURL), and
+// both flags.
 func (v view) file(f logdb.FileRef) (url *string, stored, fetchable bool) {
 	if f.ID == 0 || !f.Exists {
 		return nil, false, false
 	}
-	stored = f.OnDisk
-	fetchable = !stored && v.fetchable(f)
-	if stored || fetchable {
-		u := "/files/" + v.s.tokens.Encrypt(f.ID)
-		url = &u
-	}
-	return url, stored, fetchable
+	url, fetchable = v.s.fileURL(v.sc, v.session, f.ID, f.Size, f.OnDisk)
+	return url, f.OnDisk, fetchable
 }
 
 // photo is a picture's URL, or nil.

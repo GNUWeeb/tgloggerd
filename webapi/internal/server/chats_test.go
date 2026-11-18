@@ -430,7 +430,11 @@ func TestChatFetchableSignedOut(t *testing.T) {
 	big := logdb.FileRef{ID: 2, Exists: true, Size: 100}
 	anon := s.viewFor(scope.Anonymous(), false)
 	signed := s.viewFor(scope.Anonymous(), true)
-	if !anon.fetchable(small) || anon.fetchable(big) || !signed.fetchable(big) {
+	fetchable := func(v view, f logdb.FileRef) bool {
+		_, _, ok := v.file(f)
+		return ok
+	}
+	if !fetchable(anon, small) || fetchable(anon, big) || !fetchable(signed, big) {
 		t.Error("the cap does not decide for signed-out requests only")
 	}
 	if u, stored, f := anon.file(big); u != nil || stored || f {
