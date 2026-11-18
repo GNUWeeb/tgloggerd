@@ -111,3 +111,13 @@ func RevokeMCPToken(ctx context.Context, db *sql.DB, id uint64) (bool, error) {
 	n, err := res.RowsAffected()
 	return n > 0, err
 }
+
+// AllMCPTokenIDs is every token, revoked ones too, for the
+// assign-owner command.
+func AllMCPTokenIDs(ctx context.Context, db *sql.DB) ([]int64, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id FROM web_mcp_tokens ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	return scanIDs(rows)
+}

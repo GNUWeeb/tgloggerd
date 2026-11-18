@@ -728,6 +728,37 @@ stream on a loopback port the system picks, and run in parallel.
 The service applies no migrations: the web service owns the web schema
 and the daemon the logger's.
 
+# One-off commands
+
+With arguments the binary runs a command and exits instead of serving,
+with the same configuration from the environment (it needs the two
+pools' settings, and WEB_APP_KEY like the service). Exit status 0 done,
+1 failed or refused, 2 a usage or configuration error.
+
+    webapi assign-owner <username>
+
+gives every resource without an owner (MCP exposed groups, MCP tokens,
+Telegram bots, Telegram to Discord webhooks, Discord to Telegram
+routes; Discord bots once their table exists) to that account, which
+must be an active superadmin (web/docs/accounts.md, Ownership). It is
+idempotent: resources that have an owner are left alone, so a second
+run assigns nothing, and a later run assigns only what was made
+without an owner since (by the Drogon pages, say). Each resource
+assigned gets an owner_set row in web_audit, by no account, with the
+owner as its target. It prints what it assigned by type:
+
+    Owner: superadmin (id 1)
+    mcp_group     2 assigned: -1001000000010 -1001000000003; 1 owned already
+    mcp_token     1 assigned: 2; 1 owned already
+    ...
+    discord_bot   not stored yet
+    Assigned 8 resources.
+
+In the compose deployment, run it in the webapi container once web
+migration 000008 is applied and the account exists:
+
+    docker compose exec webapi webapi/build/webapi assign-owner superadmin
+
 # Tests
 
 Every feature ships with its tests, and the tests run in parallel. One

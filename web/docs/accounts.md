@@ -233,6 +233,30 @@ resource, so more relations (sharing) can be added later:
   and `discord-bots-per-user`'s; until then the pages show the owner
   and every viewer with the ability sees every resource.
 
+### Assigning the existing resources (deployment)
+
+Everything that exists when ownership is introduced becomes owned by
+the first superadmin, the account named `superadmin`. Once, at the
+deployment that brings web migration 000008:
+
+1. Restart the web service, which applies the web migrations, and the
+   webapi service, which builds the new binary.
+2. Make sure the account `superadmin` exists and is an active
+   superadmin (create it on the accounts page, or with the Drogon
+   binary's `--seed-admin`).
+3. Run, from the deployment directory:
+
+       docker compose exec webapi webapi/build/webapi assign-owner superadmin
+
+It prints, per type, how many resources it assigned (with their ids)
+and how many had an owner already, and `Assigned <n> resources.`; it
+exits 0. It refuses, assigning nothing and exiting 1, an account that
+does not exist, is disabled or is not a superadmin. Running it again
+is harmless: it assigns only resources that still have no owner, such
+as ones the Drogon pages created since, so it can be repeated while
+both services run. Every assignment is a `web_audit` row
+(`owner_set`, detail `<type> <id> assign-owner`).
+
 ## The Drogon pages
 
 The Drogon pages know only "admin or not":
