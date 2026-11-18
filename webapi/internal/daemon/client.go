@@ -259,3 +259,55 @@ func (c *Client) LookupRealName(ctx context.Context, userID int64) Reply {
 		"/v1/users/"+strconv.FormatInt(userID, 10)+"/lookup-name",
 		map[string]any{}, 120*time.Second)
 }
+
+// statusTimeout bounds the dashboard's calls: both answer from memory
+// or one SUM on the daemon's side, and a daemon slower than this
+// counts as away rather than holding the page up.
+const statusTimeout = time.Second
+
+// Status is GET /v1/status: the daemon's TDLib client state ("ready",
+// "waiting" or "closing") and when it last changed (Unix seconds).
+type Status struct {
+	TDLib string `json:"tdlib"`
+	Since int64  `json:"since"`
+}
+
+// Status asks for the TDLib client's state. ok is false when the
+// client is off, the daemon does not answer within a second, or its
+// answer is not a status.
+func (c *Client) Status(ctx context.Context) (st Status, ok bool) {
+	r := c.Call(ctx, http.MethodGet, "/v1/status", nil, statusTimeout)
+	if !r.OK() || r.Body == nil || json.Unmarshal(r.Body, &st) != nil || st.TDLib == "" {
+		return Status{}, false
+	}
+	return st, true
+}
+
+// Storage is the part of GET /v1/storage the dashboard shows: the
+// stored files, their bytes, and the cap (TG_STORAGE_MAX_BYTES, 0 for
+// none).
+type Storage struct {
+	Files    int64 `json:"files"`
+	Bytes    int64 `json:"bytes"`
+	MaxBytes int64 `json:"max_bytes"`
+}
+
+// Storage asks for the store's size and cap, failing soft as Status
+// does.
+func (c *Client) Storage(ctx context.Context) (st Storage, ok bool) {
+	var raw struct {
+		Files    *int64 `json:"files"`
+		Bytes    *int64 `json:"bytes"`
+		MaxBytes *int64 `json:"max_bytes"`
+	}
+	r := c.Call(ctx, http.MethodGet, "/v1/storage", nil, statusTimeout)
+	if !r.OK() || r.Body == nil || json.Unmarshal(r.Body, &raw) != nil ||
+		raw.Bytes == nil || raw.MaxBytes == nil {
+		return Storage{}, false
+	}
+	st = Storage{Bytes: *raw.Bytes, MaxBytes: *raw.MaxBytes}
+	if raw.Files != nil {
+		st.Files = *raw.Files
+	}
+	return st, true
+}
