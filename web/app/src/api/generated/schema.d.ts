@@ -256,6 +256,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the search backend offers
+         * @description Whether a search engine answers the full-text fields of the message searches, and which options it offers for them, so a client offers those only when they work (web/docs/search-api.md, "Search engine"). Without an engine, engine is null and entities is empty: search is MySQL's, as before. Only the entities the viewer may search are listed; available says whether the engine answers now or searches fall back to MySQL.
+         */
+        get: operations["searchCapabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/entities": {
         parameters: {
             query?: never;
@@ -1850,6 +1870,48 @@ export interface components {
             /** @enum {string} */
             order: "asc" | "desc";
             debug?: components["schemas"]["SearchDebug"];
+            backend?: components["schemas"]["SearchBackend"];
+            /** @description With highlight=1 and the engine answering: per row, aligned to rows, up to three fragments of its text with the matched words in <mark>...</mark>, HTML-escaped otherwise; empty for a row without a match in its text and for service messages. */
+            highlights?: string[][];
+            /** @description With facets=1 and the engine answering the whole search: the chats with the most hits, busiest first, at most ten, within the request scope. */
+            facets?: components["schemas"]["SearchFacet"][];
+        };
+        /** @description Which backend answered, present only with a search engine configured. */
+        SearchBackend: {
+            /** @enum {string} */
+            used: "engine" | "mysql";
+            /**
+             * @description Why MySQL answered a search with full-text conditions: asked (engine=mysql), unavailable (the engine fails or is down), timeout (it took too long), behind (the index is behind the archive), too_many_hits (a condition matches more rows than can be listed). Absent when the engine answered or there was nothing for it to answer.
+             * @enum {string}
+             */
+            fallback?: "asked" | "unavailable" | "timeout" | "behind" | "too_many_hits";
+            /** @description The options asked for that the answer does not give. */
+            ignored?: ("fuzzy" | "highlight" | "facets")[];
+        };
+        SearchFacet: {
+            /** Format: int64 */
+            chat_id: number;
+            /** @description The group's title or the other side's name, HTML-escaped. */
+            name: string;
+            /** Format: int64 */
+            count: number;
+        };
+        SearchCapabilities: {
+            /** @description The engine's kind (opensearch), null without one. */
+            engine: string | null;
+            /** @description By entity name; empty without an engine. */
+            entities: {
+                [key: string]: components["schemas"]["SearchEngineEntity"];
+            };
+        };
+        SearchEngineEntity: {
+            /** @description The full-text fields the engine answers (text). */
+            fields: string[];
+            /** @description What the engine offers for them: phrase ("a b"), proximity ("a b" @N), prefix (word*), fuzzy (word~ and fuzzy=1), highlight and facets. */
+            options: ("phrase" | "proximity" | "prefix" | "fuzzy" | "highlight" | "facets")[];
+            available: boolean;
+            /** @description Why searches go to MySQL now (unavailable, behind), null while available. */
+            fallback: string | null;
         };
         /** @description The page query, the count, their values and the plan; HTML-escaped. */
         SearchDebug: {
@@ -3509,6 +3571,14 @@ export interface operations {
                 order?: "asc" | "desc";
                 /** @description 1 adds the SQL, its values and its plan, for superadmins and admins; it is ignored for anyone else. */
                 debug?: "1";
+                /** @description 1 matches every plain word of the full-text conditions with a few typos, as word~ does for one word. Search engine only (GET /api/search/capabilities); ignored without one, and listed in backend.ignored when MySQL answers. */
+                fuzzy?: "1";
+                /** @description 1 adds highlights, the matching fragments of each row's text. Search engine only, like fuzzy. */
+                highlight?: "1";
+                /** @description 1 adds facets, the hits per chat, when the engine answers the whole search. Search engine only, like fuzzy. */
+                facets?: "1";
+                /** @description mysql keeps the search on MySQL even with a search engine (backend.fallback asked). */
+                engine?: "mysql";
             };
             header?: never;
             path: {
@@ -3540,6 +3610,30 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Gate"];
             404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    searchCapabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The capabilities. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchCapabilities"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Gate"];
             503: components["responses"]["SessionUnavailable"];
         };
     };

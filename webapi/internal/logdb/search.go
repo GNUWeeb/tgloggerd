@@ -168,6 +168,11 @@ const (
 type Cond struct {
 	C, O, V, N string
 	HasV       bool // whether v was given (IS NULL takes none)
+	// engineIDs, when engine is set, are the rows the search engine
+	// found for this full-text condition: it becomes an id list
+	// (search_engine.go).
+	engine    bool
+	engineIDs []int64
 }
 
 // SearchRequest is one search.
@@ -188,6 +193,14 @@ type SearchRequest struct {
 	// Internal allows the fields only the page loaders use, and adds
 	// the entity's page columns to the query.
 	Internal bool
+	// Engine answers the full-text conditions of the entities it
+	// knows, with Text's options (search_engine.go); nil is MySQL
+	// alone, as before.
+	Engine Engine
+	Text   TextOptions
+	// rank orders the rows by the engine's relevance, best first,
+	// when no sort is asked for.
+	rank []int64
 }
 
 // SearchError is a request the search refuses (HTTP 400).
@@ -254,6 +267,13 @@ type SearchResult struct {
 	Sort       string // the field key sorted by, "" for the default
 	Order      string // "asc" or "desc"
 	Debug      *SearchDebug
+	// Backend says which backend answered, when a search engine is
+	// configured (nil otherwise); Highlights are the engine's
+	// highlighted fragments per row, aligned to Rows, when asked for
+	// and given; Facets the hits per chat (search_engine.go).
+	Backend    *Backend
+	Highlights [][]string
+	Facets     []Facet
 }
 
 // esc is the Drogon web's Render::esc: the API's string cells are
@@ -475,6 +495,10 @@ func (e *Entity) chain(sc scope.Scope, conds []Cond, internal bool, exists *int,
 			val = likeContains(c.V)
 		}
 		switch {
+		case !f.Exists && op == OpMatch && c.engine:
+			// The engine's ids, numbers it parsed, never input.
+			where.WriteString(inIDs(e.idCol, c.engineIDs) + ")")
+			continue
 		case !f.Exists && op == OpMatch:
 			where.WriteString("MATCH(" + f.Expr + ") AGAINST(? IN BOOLEAN MODE))")
 			if *ftExpr == "" {
@@ -567,6 +591,9 @@ func (e *Entity) build(sc scope.Scope, req SearchRequest) (*built, error) {
 	if req.Sort == "" && ftExpr != "" {
 		sortExpr, b.order, b.orderBind = "MATCH("+ftExpr+") AGAINST(? IN BOOLEAN MODE)", "DESC", ftVal
 	}
+	if req.Sort == "" && ftExpr == "" && len(req.rank) > 0 {
+		sortExpr, b.order = rankExpr(e.idCol, req.rank), "DESC"
+	}
 	b.limit = min(max(req.Limit, 1), MaxLimit)
 	b.offset = min(max(req.Offset, 0), MaxOffset)
 
@@ -655,8 +682,18 @@ func isTimeout(err error) bool {
 	return errors.As(err, &me) && me.Number == 3024
 }
 
-// Search runs a search of entity within the request scope.
+// Search runs a search of entity within the request scope, its
+// full-text conditions answered by req.Engine when it can
+// (search_engine.go).
 func Search(ctx context.Context, db *sql.DB, sc scope.Scope, e *Entity, req SearchRequest) (*SearchResult, error) {
+	if req.Engine != nil && engineFields[e] != nil {
+		return searchEngine(ctx, db, sc, e, req)
+	}
+	return searchSQL(ctx, db, sc, e, req)
+}
+
+// searchSQL runs a search in MySQL alone.
+func searchSQL(ctx context.Context, db *sql.DB, sc scope.Scope, e *Entity, req SearchRequest) (*SearchResult, error) {
 	if !e.visible(sc) {
 		return nil, ErrNotFound
 	}

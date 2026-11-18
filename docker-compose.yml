@@ -151,6 +151,47 @@ services:
       tgnet:
         ipv4_address: 10.0.88.7
 
+  # The optional search engine behind the advanced search's full-text
+  # fields (webapi/README "Search engine"): OpenSearch, single node. It is
+  # started only with the "search" profile (COMPOSE_PROFILES=search in .env,
+  # or `docker compose --profile search up -d`), and the webapi service uses
+  # it only when WEBAPI_SEARCH_ENGINE_URL names it; without either, search
+  # stays on MySQL as before. It runs on tgnet only: no port is published and
+  # nginx does not route to it, which is why its security plugin (TLS and
+  # logins) is off.
+  #
+  # Memory: a 2 GB heap, and the rest of the container limit for Lucene's
+  # off-heap buffers and the file system cache. Disk: the index is roughly
+  # the size of the messages' text itself, under data/opensearch, which must
+  # be owned by uid 1000 (the image's user; see the README). mmap is off
+  # (node.store.allow_mmap), so the host's default vm.max_map_count is
+  # enough and no sysctl is needed; single-node discovery skips the
+  # production bootstrap checks.
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0@sha256:fafe3fc3587088674669235575aa166228c48bdb940294a8cdbbc1da75236a40
+    container_name: tgloggerd-opensearch
+    profiles: [search]
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      node.store.allow_mmap: "false"
+      OPENSEARCH_JAVA_OPTS: -Xms2g -Xmx2g
+    mem_limit: 4g
+    volumes:
+      - ./data/opensearch:/usr/share/opensearch/data
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+    networks:
+      tgnet:
+        ipv4_address: 10.0.88.8
+
   # The render service (web/app/server): turns a page's route and data into
   # HTML for the webapi service, over a Unix socket in the render-socket
   # volume, its only shared one (docs/design/web-ssr.md section 8). It runs

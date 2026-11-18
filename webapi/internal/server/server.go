@@ -83,6 +83,9 @@ type Deps struct {
 	// the built-in caps.
 	ForgotLimiter     *auth.RateLimiter
 	ForgotAcctLimiter *auth.RateLimiter
+	// SearchEngine answers the message searches' full-text conditions
+	// (internal/searchengine); nil leaves them on MySQL, as before.
+	SearchEngine SearchEngine
 
 	// pages replaces the page table, state the database's account
 	// state behind a session, clock the time, prefs the accounts'
@@ -149,6 +152,8 @@ type Server struct {
 	mailCfg       MailConfig
 	forgotLimiter *auth.RateLimiter
 	forgotAcct    *auth.RateLimiter
+	// engine is Deps.SearchEngine.
+	engine SearchEngine
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -181,6 +186,7 @@ func New(d Deps) http.Handler {
 	// defaults.
 	s.mail, s.mailCfg = d.Mail, d.MailCfg
 	s.forgotLimiter, s.forgotAcct = d.ForgotLimiter, d.ForgotAcctLimiter
+	s.engine = d.SearchEngine
 	if s.mailCfg.InviteTTL <= 0 {
 		s.mailCfg.InviteTTL = DefaultInviteTTL
 	}
@@ -278,6 +284,7 @@ func (s *Server) routes() []route {
 		{"GET /api/chats/{scope}/{id}/messages", s.getChatMessages},
 		{"GET /api/entities", s.RequireSession(s.getEntities)},
 		{"GET /api/search/{entity}", s.RequireSession(s.searchEntity)},
+		{"GET /api/search/capabilities", s.RequireSession(s.searchCapabilities)},
 		{"GET /api/chats/search", s.RequireSession(s.searchChats)},
 		{"PUT /api/account/preferences", s.RequireSession(s.putPreferences)},
 		{"PATCH /api/account/preferences", s.RequireSession(s.patchPreferences)},

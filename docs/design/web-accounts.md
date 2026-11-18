@@ -176,3 +176,12 @@ restrictions, grants), used by every list, search, chat view, `/v1`
 API, file listing, media request, MCP admin list, forwarding list and
 dashboard count, so that a forgotten check is visible in review.
 Hidden things answer 404, never 403, so their existence does not leak.
+
+The optional search engine behind the message searches
+([decisions/2026-11-18-search-engine.md](decisions/2026-11-18-search-engine.md),
+webapi/README "Search engine") takes the same scope as a filter of
+every query it is sent, never applied to its answer afterwards: a
+member's granted groups as a terms filter, an admin's hidden groups as
+a must_not, private messages only for a scope that sees them. Its hit
+counts, facets and highlights therefore count only what the viewer may
+see, and MySQL applies the scope again to the rows it reads.

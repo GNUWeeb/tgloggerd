@@ -137,12 +137,41 @@ type Config struct {
 	// WEBAPI_SMTP_HOST is unset: no mail is sent (email is optional).
 	// The links in mail point to PublicURL.
 	Mail *mail.Config
+	// SearchEngine is the optional search engine (WEBAPI_SEARCH_ENGINE_*,
+	// webapi/README "Search engine"); its URL is "" when it is off.
+	SearchEngine SearchEngine
 	// InviteLinkTTL, ResetLinkTTL and VerifyLinkTTL are how long the
 	// links sent work (WEBAPI_INVITE_LINK_TTL, _RESET_, _VERIFY_,
 	// seconds).
 	InviteLinkTTL time.Duration
 	ResetLinkTTL  time.Duration
 	VerifyLinkTTL time.Duration
+}
+
+// SearchEngine is the search engine's settings.
+type SearchEngine struct {
+	// URL is WEBAPI_SEARCH_ENGINE_URL, the engine's base URL; "" turns
+	// the engine off and nothing changes.
+	URL string
+	// Index is the messages index's name (WEBAPI_SEARCH_ENGINE_INDEX).
+	Index string
+	// Indexer is WEBAPI_SEARCH_ENGINE_INDEXER != "0": this instance
+	// keeps the index in step. One instance per index may.
+	Indexer bool
+	// Batch is the rows read per query of the backfill and the
+	// reconcile (WEBAPI_SEARCH_ENGINE_BATCH), Pause the wait between
+	// two (WEBAPI_SEARCH_ENGINE_PAUSE, milliseconds), Reconcile the
+	// time between two reconciles (WEBAPI_SEARCH_ENGINE_RECONCILE,
+	// seconds).
+	Batch     int
+	Pause     time.Duration
+	Reconcile time.Duration
+	// Timeout bounds one query of a search
+	// (WEBAPI_SEARCH_ENGINE_TIMEOUT, milliseconds); MaxLag is how long
+	// the index may go without being known in step before searches
+	// use MySQL (WEBAPI_SEARCH_ENGINE_MAX_LAG, seconds).
+	Timeout time.Duration
+	MaxLag  time.Duration
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -369,6 +398,9 @@ func FromEnv() (*Config, error) {
 	if err := mailFromEnv(&c); err != nil {
 		return nil, err
 	}
+	if err := searchEngineFromEnv(&c.SearchEngine); err != nil {
+		return nil, err
+	}
 
 	return &c, nil
 }
@@ -426,5 +458,36 @@ func mailFromEnv(c *Config) error {
 		From:     from,
 		Security: sec,
 	}
+	return nil
+}
+
+// searchEngineFromEnv reads the search engine's settings; without
+// WEBAPI_SEARCH_ENGINE_URL the others are not read.
+func searchEngineFromEnv(se *SearchEngine) error {
+	se.URL = env("WEBAPI_SEARCH_ENGINE_URL", "")
+	if se.URL == "" {
+		return nil
+	}
+	se.Index = env("WEBAPI_SEARCH_ENGINE_INDEX", "tgloggerd-messages")
+	se.Indexer = env("WEBAPI_SEARCH_ENGINE_INDEXER", "1") != "0"
+	var err error
+	if se.Batch, err = positive("WEBAPI_SEARCH_ENGINE_BATCH", "1000"); err != nil {
+		return err
+	}
+	if se.Pause, err = millis("WEBAPI_SEARCH_ENGINE_PAUSE", "200"); err != nil {
+		return err
+	}
+	n, err := positive("WEBAPI_SEARCH_ENGINE_RECONCILE", "600")
+	if err != nil {
+		return err
+	}
+	se.Reconcile = time.Duration(n) * time.Second
+	if se.Timeout, err = millis("WEBAPI_SEARCH_ENGINE_TIMEOUT", "1500"); err != nil {
+		return err
+	}
+	if n, err = positive("WEBAPI_SEARCH_ENGINE_MAX_LAG", "300"); err != nil {
+		return err
+	}
+	se.MaxLag = time.Duration(n) * time.Second
 	return nil
 }

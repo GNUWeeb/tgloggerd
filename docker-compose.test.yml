@@ -47,6 +47,29 @@ services:
       retries: 90
       start_period: 5s
 
+  # The optional search engine (webapi/README "Search engine"), for the
+  # tests of internal/searchengine; started only with the "search"
+  # profile (scripts/test-web.sh --search-engine). Each test uses an
+  # index of its own, so one engine serves a whole parallel run. The
+  # same image and settings as docker-compose.yml, with a smaller heap;
+  # the index lives in the container and is gone with it.
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0@sha256:fafe3fc3587088674669235575aa166228c48bdb940294a8cdbbc1da75236a40
+    profiles: [search]
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      node.store.allow_mmap: "false"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    mem_limit: 1536m
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 2s
+      timeout: 10s
+      retries: 90
+      start_period: 10s
+
 networks:
   default:
     internal: true

@@ -534,6 +534,8 @@ pages show come with the same rule.
 
     GET /api/search/{entity}   the advanced search of the Drogon web's
                                GET /v1/search/{entity}
+    GET /api/search/capabilities  the optional search engine's options
+                               (see Search engine)
 
 The port of the Drogon web's advanced search, with the same
 parameters, field registries and answers (web/docs/search-api.md, which
@@ -570,6 +572,116 @@ opaque cursor. federation=<id> keeps the groups of that federation
 (web/docs/accounts.md, Federations), read from the web's own schema
 and passed to the logger's query as a list: 0 is Default, every group
 in no other federation; an id that is no federation holds none.
+
+# Search engine
+
+An optional second backend for the advanced search's full-text fields:
+OpenSearch, the "opensearch" service of docker-compose.yml. MySQL stays
+the source of truth and the default; without the engine nothing
+changes (docs/design/decisions/2026-11-18-search-engine.md).
+
+## Running the engine
+
+The service has the compose profile "search", so `docker compose up -d`
+leaves it out. To run it, once:
+
+    mkdir -p data/opensearch
+    docker compose --profile search run --rm --no-deps --user 0 \
+        --entrypoint chown opensearch 1000:1000 /usr/share/opensearch/data
+
+(the image runs as uid 1000 whatever TG_UID is, and its files are
+readable by that user only, so the index directory is given to it),
+then add COMPOSE_PROFILES=search to .env, or pass --profile search to
+every compose command that should include it, and start it:
+
+    docker compose --profile search up -d opensearch
+
+  - Network: tgnet only (10.0.88.8:9200). No port is published and
+    nginx does not route to it; with the security plugin off it has no
+    logins, so nothing outside the compose network must reach it.
+  - Memory: a 2 GB Java heap (OPENSEARCH_JAVA_OPTS) in a 4 GB
+    container; the rest is for Lucene's off-heap buffers and the page
+    cache. A bigger archive wants more page cache rather than more
+    heap.
+  - Disk: the index holds the messages' text and a few numbers per
+    message, roughly the size of the text itself, under
+    data/opensearch. Plan it beside the file store's cap.
+  - vm.max_map_count: the engine normally wants 262144, more than many
+    hosts allow by default. The service sets node.store.allow_mmap to
+    false, so it reads its files without memory maps and needs no
+    sysctl; on a host where vm.max_map_count is raised, that line can
+    go for somewhat faster reads. Single-node discovery skips the
+    production bootstrap checks that would refuse to start otherwise.
+  - The healthcheck asks for a yellow or green cluster: a single node
+    holds no replicas, so the service creates its indices without any,
+    and an index that asked for one would leave the cluster yellow.
+
+The tests start their own engine (docker-compose.test.yml, profile
+"search", a 512 MB heap): scripts/test-web.sh --search-engine.
+
+## Indexing
+
+With WEBAPI_SEARCH_ENGINE_URL set, the service keeps the index in step
+with the message tables (internal/searchengine/indexer.go), one
+document per group or private message with text (captions are the
+text of a media message), keyed by scope and row id, so every write is
+idempotent:
+
+  - Events: the daemon's message.new, .edited and .deleted, from the
+    live hub (one more subscriber of the service's one subscription),
+    or from the daemon's stream itself while live updates are off. The
+    events of half a second are read again from MySQL by the tables'
+    unique (chat_id, message_id) keys in one query and written in one
+    bulk request. A row left without text loses its document.
+  - The backfill: the rows above the state's next_id, in primary key
+    order, WEBAPI_SEARCH_ENGINE_BATCH at a time with
+    WEBAPI_SEARCH_ENGINE_PAUSE between, through a pool of one
+    connection, so the pages' pool is never taken. Its place is saved
+    in the engine after every batch, so a restart resumes it. It never
+    filters on created_at, which has no index.
+  - The reconcile, every WEBAPI_SEARCH_ENGINE_RECONCILE seconds, every
+    minute while no stream delivers, and at once after a resync or
+    dropped events: the backfill's pass over new rows, then the rows
+    deleted (deleted_at's index) and edited (the (chat_id, edit_date)
+    indexes, 200 chats per query) since the last reconcile began, less
+    five minutes. It repairs what the stream missed. An edit recorded
+    with an edit date older than that window, which only a stream
+    outage during a history backfill produces, is repaired by
+    rebuilding the index: delete it and its -state index (curl -X
+    DELETE http://opensearch:9200/<name>,<name>-state from a container
+    on tgnet) and the service backfills it again.
+
+Only one instance indexes an index; set WEBAPI_SEARCH_ENGINE_INDEXER=0
+on any other. Renames of users and groups need nothing: a document
+holds ids, never names.
+
+## Searching
+
+    GET /api/search/capabilities   whether the engine answers, and
+                                   its options (searchengine.go)
+
+logdb.Search hands the full-text conditions of group_messages and
+private_messages to the engine (internal/logdb/search_engine.go, the
+queries in internal/searchengine/query.go); web/docs/search-api.md,
+"Search engine", is the contract. The list pages' search text goes
+the same way.
+
+  - The engine answers row ids; MySQL reads the rows, applying every
+    other condition and the scope again, so the answers keep their
+    shape. A search of only text conditions and carried columns,
+    ANDed, sorted by relevance or date, is paged and counted by the
+    engine; any other gets an id list per text condition (at most
+    10000 rows, else MySQL alone) and is counted and paged by MySQL.
+  - The request scope is a filter of every engine query
+    (searchengine.scopeFilter: a member's granted groups as terms, an
+    admin's hidden groups as must_not, private messages only for
+    SeesPrivate), so hits, totals, facets and highlights never count
+    what the viewer may not see.
+  - Fallback: an engine that fails, takes longer than
+    WEBAPI_SEARCH_ENGINE_TIMEOUT, or is behind (the backfill
+    unfinished, or not known in step for WEBAPI_SEARCH_ENGINE_MAX_LAG)
+    leaves the search to MySQL, and the answer's backend says so.
+    After a failure the engine is skipped for 30 seconds.
 
 # The request scope
 
@@ -935,6 +1047,10 @@ start it first:
     scripts/test-web.sh --go-only & scripts/test-web.sh --go-only; wait
     docker compose -f docker-compose.test.yml down
 
+With --search-engine it also starts the test OpenSearch (profile
+"search") and gives the tests its URL in WEBAPI_TEST_SEARCH_ENGINE_URL;
+without it the search engine's tests skip and the rest run as before.
+
 ## A database per test
 
 A test that needs MySQL takes a database of its own from
@@ -1088,6 +1204,25 @@ and its own:
                          seconds a link works: invitations and admin
                          resets (default 259200), forgotten-password
                          resets (3600), address verifications (86400)
+    WEBAPI_SEARCH_ENGINE_URL  the search engine (see Search engine),
+                         e.g. http://opensearch:9200; unset leaves
+                         search on MySQL and the rest of these unread
+    WEBAPI_SEARCH_ENGINE_INDEX  the messages index, default
+                         tgloggerd-messages (and <name>-state)
+    WEBAPI_SEARCH_ENGINE_INDEXER  "0": another instance indexes
+    WEBAPI_SEARCH_ENGINE_BATCH  rows per query of the backfill and the
+                         reconcile, default 1000
+    WEBAPI_SEARCH_ENGINE_PAUSE  milliseconds between two of them,
+                         default 200
+    WEBAPI_SEARCH_ENGINE_RECONCILE  seconds between two reconciles,
+                         default 600 (60 while no event stream
+                         delivers)
+    WEBAPI_SEARCH_ENGINE_TIMEOUT  milliseconds one engine query may
+                         take before the search uses MySQL, default
+                         1500
+    WEBAPI_SEARCH_ENGINE_MAX_LAG  seconds the index may go without
+                         being known in step before searches use
+                         MySQL, default 300
 
 An empty value counts as unset. A malformed number stops the service at
 start. Logs are structured (log/slog, key=value) on stderr, one line per

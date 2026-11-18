@@ -625,6 +625,11 @@ func (l *listSpec) run(ctx context.Context, pr *pageRequest) (*listRun, error) {
 	}
 
 	req := logdb.SearchRequest{Conds: conds, Order: st.Dir, Internal: true, Limit: st.Per}
+	// The search engine answers the search text, when there is one
+	// (searchengine.go); the list's answer keeps its shape.
+	if s.engine != nil {
+		req.Engine = s.engine
+	}
 	if st.Q != "" && failed == nil {
 		req.And = [][]logdb.Cond{l.search(sc, st.Q)}
 	}
