@@ -6,6 +6,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"net/http"
@@ -220,16 +221,24 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	ctx := r.Context()
-	all, err := webdb.ListAccounts(ctx, s.app)
+	out, err := s.managedAccounts(r.Context(), sc, only)
 	if err != nil {
 		s.internalError(w, "accounts", err)
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]any{"accounts": out})
+}
+
+// managedAccounts is the accounts the viewer manages, optionally of
+// one role, as the accounts list and its page show them.
+func (s *Server) managedAccounts(ctx context.Context, sc scope.Scope, only scope.Role) ([]accountJSON, error) {
+	all, err := webdb.ListAccounts(ctx, s.app)
+	if err != nil {
+		return nil, err
+	}
 	supers, err := webdb.ActiveSuperadmins(ctx, s.app)
 	if err != nil {
-		s.internalError(w, "superadmin count", err)
-		return
+		return nil, err
 	}
 	out := []accountJSON{}
 	for _, a := range all {
@@ -239,12 +248,11 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 		audits, err := webdb.AccountAudits(ctx, s.app, a.ID, accountAuditRows)
 		if err != nil {
-			s.internalError(w, "account audit", err)
-			return
+			return nil, err
 		}
 		out = append(out, accountJSONOf(a, supers, audits))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"accounts": out})
+	return out, nil
 }
 
 // getAccount answers GET /api/accounts/{id}.
