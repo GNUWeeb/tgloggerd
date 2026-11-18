@@ -34,7 +34,10 @@ type Chat struct {
 	Count     int64
 	GroupInfo Group
 	UserInfo  User
-	sc        scope.Scope
+	// Topic limits the windows to one forum topic of a group; 0 is
+	// every message.
+	Topic int64
+	sc    scope.Scope
 }
 
 // OpenChat is the chat a request asks for: a group the scope sees, or
@@ -156,13 +159,26 @@ type Message struct {
 	File  FileRef // ID 0 = none
 	// Cover is a video's cover photo (telegram_message_files, role
 	// cover, since migration 000036); ID 0 = none.
-	Cover     FileRef
+	Cover FileRef
+	// Files are the message's other files (telegram_message_files)
+	// for the kinds whose detail shows them: a game's photo, an
+	// invoice's, paid media's items.
+	Files     []MessageFile
 	DeletedAt int64 // 0 = not deleted
 	AlbumID   int64 // 0 = none
-	Reply     *Reply
-	Forward   *Forward
-	Edits     []Edit
-	Preview   *LinkPreview
+	// TopicID is the forum topic of a group message (topic_kind
+	// forum, since migration 000034); 0 = none.
+	TopicID int64
+	Pinned  bool
+	// Views, Forwards and Replies are the latest interaction totals,
+	// nil when never observed; Reactions their reactions JSON
+	// (docs/design/message-types.md section 4.7), nil likewise.
+	Views, Forwards, Replies *int64
+	Reactions                []byte
+	Reply                    *Reply
+	Forward                  *Forward
+	Edits                    []Edit
+	Preview                  *LinkPreview
 }
 
 // Window is a run of a chat's messages, oldest first, with whether
@@ -180,6 +196,8 @@ type chatTables struct {
 	// cols are the columns that differ between the two tables.
 	senderUser, senderChat, outgoing, signature, channelPost string
 	rSenderUser, rSenderChat, rOutgoing                      string
+	// topic is a forum topic's id, NULL elsewhere.
+	topic string
 }
 
 var (
@@ -189,6 +207,7 @@ var (
 		senderUser: "m.sender_user_id", senderChat: "m.sender_chat_id", outgoing: "0",
 		signature: "m.author_signature", channelPost: "m.is_channel_post",
 		rSenderUser: "rm.sender_user_id", rSenderChat: "rm.sender_chat_id", rOutgoing: "0",
+		topic: "IF(m.topic_kind = 'forum', m.topic_id, NULL)",
 	}
 	privateTables = chatTables{
 		msgs: "telegram_private_messages", edits: "telegram_private_message_edits",
@@ -196,6 +215,7 @@ var (
 		senderUser: "m.sender_id", senderChat: "NULL", outgoing: "m.is_outgoing",
 		signature: "NULL", channelPost: "0",
 		rSenderUser: "rm.sender_id", rSenderChat: "NULL", rOutgoing: "rm.is_outgoing",
+		topic: "NULL",
 	}
 )
 
@@ -212,7 +232,8 @@ func (t chatTables) messageSelect() string {
 		", " + t.outgoing + ", " + t.signature + ", " + t.channelPost + ", m.date, m.edit_date, " +
 		"m.content_type, COALESCE(m.service_type, ''), COALESCE(m.tdlib_type, ''), " +
 		"m.content_extra, COALESCE(m.text, ''), COALESCE(m.file_id, 0), " + fileColumnsOf("f") + ", " +
-		"UNIX_TIMESTAMP(m.deleted_at), m.media_album_id, m.reply_to_chat_id, " +
+		"UNIX_TIMESTAMP(m.deleted_at), m.media_album_id, " + t.topic + ", m.is_pinned, " +
+		"m.view_count, m.forward_count, m.reply_count, m.reactions, m.reply_to_chat_id, " +
 		"m.reply_to_msg_id, fw.origin_type, fw.origin_sender_name, " +
 		"fw.origin_sender_user_id, fw.origin_chat_id, fw.origin_message_id, fw.origin_date, " +
 		"rm.id, rm.chat_id, rm.message_id, " +
@@ -234,7 +255,8 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 			sig                     sql.NullString
 			fileID                  uint64
 			f                       nullFile
-			deleted, album          sql.NullInt64
+			deleted, album, topic   sql.NullInt64
+			views, fwds, replies    sql.NullInt64
 			rChat, rMsg             sql.NullInt64
 			oType, oName            sql.NullString
 			oUser, oChat            sql.NullInt64
@@ -248,7 +270,8 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 			&m.IsChannelPost, &m.Date, &m.EditDate, &m.ContentType, &m.ServiceType,
 			&m.TdlibType, &m.Extra, &m.Text, &fileID}
 		dest = append(dest, f.dest()...)
-		dest = append(dest, &deleted, &album, &rChat, &rMsg, &oType, &oName, &oUser, &oChat,
+		dest = append(dest, &deleted, &album, &topic, &m.Pinned, &views, &fwds, &replies,
+			&m.Reactions, &rChat, &rMsg, &oType, &oName, &oUser, &oChat,
 			&oMsg, &oDate, &rmID, &rmChat, &rmMsg, &rmU, &rmC, &rmOut, &rmSnippet, &rmCtype,
 			&rmDeleted)
 		if err := rows.Scan(dest...); err != nil {
@@ -259,7 +282,8 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 		if fileID != 0 {
 			m.File = f.ref(fileID)
 		}
-		m.DeletedAt, m.AlbumID = deleted.Int64, album.Int64
+		m.DeletedAt, m.AlbumID, m.TopicID = deleted.Int64, album.Int64, topic.Int64
+		m.Views, m.Forwards, m.Replies = nullPtr(views), nullPtr(fwds), nullPtr(replies)
 		switch {
 		case rmID.Valid:
 			m.Reply = &Reply{MessageID: rmMsg.Int64, ChatID: rmChat.Int64, Resolved: true,
@@ -283,6 +307,24 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 	return out, rows.Err()
 }
 
+func nullPtr(n sql.NullInt64) *int64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Int64
+	return &v
+}
+
+// topicCond is the condition, and its value, that keeps a group's
+// windows to its forum topic (Chat.Topic): the (chat_id, topic_kind,
+// topic_id) index reads only the topic's rows. "" without a topic.
+func (c Chat) topicCond(alias string) (string, []any) {
+	if c.Topic == 0 || !c.Group {
+		return "", nil
+	}
+	return "AND " + alias + "topic_kind = 'forum' AND " + alias + "topic_id = ? ", []any{c.Topic}
+}
+
 // albumEdge is how many more rows of an album cut by a window's edge
 // are read to complete it: Telegram albums hold at most ten items.
 const albumEdge = 10
@@ -292,7 +334,8 @@ const albumEdge = 10
 // into the same album bubble whichever window it comes in.
 func (c Chat) Window(ctx context.Context, db *sql.DB, a Anchor, limit int) (Window, error) {
 	t := tablesOf(c.Group)
-	sel := t.messageSelect() + "WHERE m.chat_id = ? "
+	tc, targs := c.topicCond("m.")
+	sel := t.messageSelect() + "WHERE m.chat_id = ? " + tc
 	var (
 		ms  []Message
 		err error
@@ -303,7 +346,7 @@ func (c Chat) Window(ctx context.Context, db *sql.DB, a Anchor, limit int) (Wind
 			order = "DESC"
 		}
 		q := sel + cond + " ORDER BY m.message_id " + order + " LIMIT ?"
-		rows, err := db.QueryContext(ctx, q, append(append([]any{c.ID}, args...), n)...)
+		rows, err := db.QueryContext(ctx, q, append(append(append([]any{c.ID}, targs...), args...), n)...)
 		if err != nil {
 			return nil, err
 		}
@@ -388,8 +431,10 @@ func (c Chat) Window(ctx context.Context, db *sql.DB, a Anchor, limit int) (Wind
 
 func (c Chat) exists(ctx context.Context, db *sql.DB, cond string, arg int64) (bool, error) {
 	var one int
+	tc, targs := c.topicCond("")
 	err := db.QueryRowContext(ctx, "SELECT 1 FROM "+tablesOf(c.Group).msgs+
-		" WHERE chat_id = ? AND "+cond+" LIMIT 1", c.ID, arg).Scan(&one)
+		" WHERE chat_id = ? "+tc+"AND "+cond+" LIMIT 1",
+		append(append([]any{c.ID}, targs...), arg)...).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -402,12 +447,47 @@ func (c Chat) exists(ctx context.Context, db *sql.DB, cond string, arg int64) (b
 // sort.
 func (c Chat) DateAnchor(ctx context.Context, db *sql.DB, ts int64) (int64, bool, error) {
 	var id int64
+	tc, targs := c.topicCond("")
 	err := db.QueryRowContext(ctx, "SELECT message_id FROM "+tablesOf(c.Group).msgs+
-		" WHERE chat_id = ? AND date >= ? ORDER BY date LIMIT 1", c.ID, ts).Scan(&id)
+		" WHERE chat_id = ? "+tc+"AND date >= ? ORDER BY date LIMIT 1",
+		append(append([]any{c.ID}, targs...), ts)...).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
 	return id, err == nil, err
+}
+
+// Topic is a forum topic as last seen (telegram_forum_topics).
+type Topic struct {
+	ID     int64
+	Name   string
+	Color  int64
+	Closed bool
+	Hidden bool
+}
+
+// Topics are a group's forum topics, pinned ones first, then the
+// newest; none for a private chat or a group that is not a forum.
+func (c Chat) Topics(ctx context.Context, db *sql.DB) ([]Topic, error) {
+	out := []Topic{}
+	if !c.Group {
+		return out, nil
+	}
+	rows, err := db.QueryContext(ctx, "SELECT topic_id, name, icon_color, is_closed, is_hidden "+
+		"FROM telegram_forum_topics WHERE chat_id = ? "+
+		"ORDER BY is_pinned DESC, creation_date DESC, topic_id DESC", c.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var t Topic
+		if err := rows.Scan(&t.ID, &t.Name, &t.Color, &t.Closed, &t.Hidden); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 // KnownMembers is how many people the archive has seen in a group:
@@ -528,20 +608,39 @@ func completeMessages(ctx context.Context, db *sql.DB, group bool, ms []Message)
 	return rows.Err()
 }
 
-// completeCovers adds the cover photos of the videos among ms.
+// MessageFile is a file of a message beyond its main one
+// (telegram_message_files, docs/design/message-types.md section 4.3).
+type MessageFile struct {
+	Role     string // cover, paid, game, invoice, ...
+	Position int
+	File     FileRef
+}
+
+// filesKinds are the content types whose other files the chat shows,
+// and the roles it reads for each.
+var filesKinds = map[string]string{
+	"video":      "'cover'",
+	"game":       "'game'",
+	"invoice":    "'invoice'",
+	"paid_media": "'paid'",
+}
+
+// completeCovers adds the cover photos of the videos among ms and the
+// files of the other kinds filesKinds names, in one query.
 func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uint64]*Message, ms []Message) error {
-	var videos []Message
+	var with []Message
 	for _, m := range ms {
-		if m.ContentType == "video" {
-			videos = append(videos, m)
+		if filesKinds[m.ContentType] != "" {
+			with = append(with, m)
 		}
 	}
-	if len(videos) == 0 {
+	if len(with) == 0 {
 		return nil
 	}
-	rows, err := db.QueryContext(ctx, "SELECT mf."+t.fk+", mf.file_id, "+fileColumnsOf("f")+
-		" FROM telegram_message_files mf JOIN telegram_files f ON f.id = mf.file_id "+
-		"WHERE mf."+t.fk+" IN ("+idList(videos)+") AND mf.role = 'cover' AND mf.position = 0")
+	rows, err := db.QueryContext(ctx, "SELECT mf."+t.fk+", mf.role, mf.position, mf.file_id, "+
+		fileColumnsOf("f")+" FROM telegram_message_files mf JOIN telegram_files f ON f.id = mf.file_id "+
+		"WHERE mf."+t.fk+" IN ("+idList(with)+") AND mf.role IN ('cover', 'game', 'invoice', 'paid') "+
+		"ORDER BY mf."+t.fk+", mf.role, mf.position")
 	if err != nil {
 		return err
 	}
@@ -549,14 +648,26 @@ func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uin
 	for rows.Next() {
 		var (
 			mid, fileID uint64
+			mf          MessageFile
 			f           nullFile
 		)
-		if err := rows.Scan(append([]any{&mid, &fileID}, f.dest()...)...); err != nil {
+		if err := rows.Scan(append([]any{&mid, &mf.Role, &mf.Position, &fileID}, f.dest()...)...); err != nil {
 			return err
 		}
-		if m := byRow[mid]; m != nil {
-			m.Cover = f.ref(fileID)
+		m := byRow[mid]
+		// Only the roles of the message's own kind: a row's kind may
+		// have changed with an edit, leaving another kind's files.
+		if m == nil || !strings.Contains(filesKinds[m.ContentType], "'"+mf.Role+"'") {
+			continue
 		}
+		mf.File = f.ref(fileID)
+		if mf.Role == "cover" {
+			if mf.Position == 0 {
+				m.Cover = mf.File
+			}
+			continue
+		}
+		m.Files = append(m.Files, mf)
 	}
 	return rows.Err()
 }

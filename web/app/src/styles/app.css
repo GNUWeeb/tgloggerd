@@ -723,3 +723,8 @@
 .app .a-loadpill { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 14px; border-radius: 999px; background: var(--panel); color: var(--fg); border: 1px solid var(--border); box-shadow: 0 4px 14px rgb(0 0 0 / .12); font-weight: 550; font-size: 12.5px; animation: a-fade .15s ease-out; }
 .app .a-loadpill .a-spin { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .app .a-loadpill, .app .a-loadpill .a-spin { animation: none; } }
+
+/* A message's kind and interaction on its own page (chat-kinds.tsx). */
+.app .a-msgkind { margin: 4px 0 10px; max-width: 520px; }
+.app .a-msginteract { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
+.app .a-msgcounts { display: inline-flex; gap: 10px; }

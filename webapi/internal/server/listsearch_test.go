@@ -120,11 +120,11 @@ func TestListRegistryConditions(t *testing.T) {
 
 // TestListEveryFieldAndOperator runs one condition of every field the
 // list offers with each of its operators: each is taken, and its SQL
-// runs.
+// runs. A field that needs a chat gets a chat_id condition beside it.
 func TestListEveryFieldAndOperator(t *testing.T) {
 	t.Parallel()
 	e := newListSearchEnv(t, searchOpts{})
-	want := map[string]int{"users": 32, "groups": 12, "group_messages": 6, "private_messages": 10}
+	want := map[string]int{"users": 32, "groups": 12, "group_messages": 8, "private_messages": 12}
 	for path, nfields := range want {
 		p := e.props("superadmin", path)
 		fields, _ := p["fields"].([]any)
@@ -141,8 +141,13 @@ func TestListEveryFieldAndOperator(t *testing.T) {
 			}
 			for _, op := range f["operators"].([]any) {
 				c := fmt.Sprintf(`[{"field":%q,"op":%q,"value":%q}]`, f["key"], op, v)
+				conds := 1
+				if f["needs_chat"] == true {
+					c = `[{"field":"chat_id","op":"=","value":"1"},` + c[1:]
+					conds = 2
+				}
 				p := e.props("superadmin", path, "f", c)
-				if p["error"] != nil || len(p["conds"].([]any)) != 1 {
+				if p["error"] != nil || len(p["conds"].([]any)) != conds {
 					t.Errorf("%s %s: %v %v", path, c, p["error"], p["conds"])
 				}
 				n++

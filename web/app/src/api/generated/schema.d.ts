@@ -1794,8 +1794,11 @@ export interface components {
         };
         /** @enum {string} */
         MessageScope: "group" | "private";
-        /** @enum {string} */
-        ContentType: "text" | "photo" | "video" | "document" | "audio" | "voice" | "sticker" | "animation" | "service" | "unknown";
+        /**
+         * @description A message's kind, as the logger stores it (daemon migration 000034 appended video_note to unsupported; content_type of docs/design/message-types.md section 4.1). unknown is a TDLib class newer than the daemon's code, or a row logged before the daemon knew the kind. New values may be appended.
+         * @enum {string}
+         */
+        ContentType: "text" | "photo" | "video" | "document" | "audio" | "voice" | "sticker" | "animation" | "service" | "unknown" | "video_note" | "location" | "venue" | "contact" | "dice" | "game" | "poll" | "checklist" | "story" | "paid_media" | "invoice" | "giveaway" | "call" | "rich" | "widget" | "expired" | "unsupported";
         ChatRef: {
             /** Format: int64 */
             id: number;
@@ -1832,6 +1835,8 @@ export interface components {
             operators: ("=" | "!=" | "<" | ">" | "<=" | ">=" | "LIKE" | "NOT LIKE" | "%LIKE%" | "NOT %LIKE%" | "matches" | "IS NULL" | "IS NOT NULL")[];
             /** @description An enum field's values, comma-separated. */
             enum?: string;
+            /** @description Present (true) for a field without an index of its own (tdlib_type, service_type of the message entities): a search may use it only beside a `chat_id =` condition in a chain whose connectors are all AND, else it is refused (bad_search). */
+            needs_chat?: boolean;
         };
         /** @description A displayed column: its render type, and the field key a click on its header sorts by ("" for none). */
         SearchCol: {
@@ -2022,7 +2027,7 @@ export interface components {
             is_channel_post?: boolean;
             /** @description A service message's action (chat_add_members, pin_message, ...; docs/design/message-types.md section 4.2.3), shown when its text is empty, as the Drogon chat view does. */
             service_type?: string;
-            /** @description The exact TDLib class (messageVideoNote, ...), recorded for rows logged since daemon migration 000034. The kinds that migration added to content_type are shown as unknown until the chat view renders them, so this says what they are. */
+            /** @description The exact TDLib class (messageVideoNote, messageStakeDice, ...), recorded for rows logged since daemon migration 000034; it tells apart classes that share a content_type, and names a class newer than the daemon's code (unknown). */
             tdlib_type?: string;
         };
         /** @description What a message's media is beyond its file. Rows logged since daemon migration 000034 carry it in content_extra (docs/design/message-types.md section 4.2.1); older rows have render, ext and a sticker's format from the content type and the file, as the Drogon chat view reads them, and none of the others. Each key is absent when unknown. */
@@ -2058,8 +2063,287 @@ export interface components {
             minithumb?: string;
             /** @description A video's cover photo (telegram_message_files, role cover), its /files/<token> URL, when it is stored or may be fetched. */
             poster?: string;
+            /** @description Present (true) for a video note, which Telegram shows as a round video (content_type video_note). */
+            round?: boolean;
         };
-        MessageFull: components["schemas"]["MessageRow"] & components["schemas"]["MessageExtra"] & {
+        /** @description What ChatMessage and MessageFull show of a message beyond its text and media (docs/design/message-types.md sections 4.2 to 4.7): the kind's structured detail, a service message's action and the people and chats it names, its forum topic, and the latest interaction totals. Rows logged before daemon migration 000034 have none of the detail: detail is null and service has no refs, so they render as before. Every user and chat named is resolved through the request scope, by the same rules as the senders: one the viewer may not see is left out (null, or absent from its list), never named. */
+        MessageKinds: {
+            /** @description The kind's detail, by content_type (its kind); null for text, the media kinds (photo, video, video_note, document, audio, voice, sticker, animation), service, unknown, rows without content_extra, and a poll whose poll was never stored. */
+            detail: components["schemas"]["MessageDetail"] | null;
+            /** @description A service message's action; null for every other kind. */
+            service: components["schemas"]["ServiceInfo"] | null;
+            /**
+             * Format: int64
+             * @description The forum topic of a group message (ChatProps.topics), null outside forums and for rows logged before the daemon recorded topics.
+             */
+            topic_id: number | null;
+            /** @description The message is pinned in its chat, as last observed. */
+            pinned: boolean;
+            /** @description Latest view count; null when never observed. */
+            views: number | null;
+            /** @description Latest forward count; null when never observed. */
+            forwards: number | null;
+            /** @description Latest reply (comment) count; null when never observed. */
+            replies: number | null;
+            /** @description The latest reaction totals, most first as Telegram orders them; empty when there are none or none were observed. */
+            reactions: components["schemas"]["Reaction"][];
+        };
+        /** @description One reaction's total: an emoji, a custom emoji (its id; the web does not have its image), or the paid star reaction. */
+        Reaction: {
+            emoji?: string;
+            custom_emoji_id?: string;
+            paid?: boolean;
+            count: number;
+        };
+        /** @description A service message's action. The message's text is its description for this viewer: rebuilt from the action's stored detail to name the users and chats in refs (e.g. "added Dewi Kusuma and 2 other members"), and otherwise the logger's own description, which names nobody. A user or chat the viewer may not see is never named in either. */
+        ServiceInfo: {
+            /** @description The action (service_type: chat_add_members, pin_message, ...; docs/design/message-types.md section 4.2.3). */
+            type: string;
+            refs: components["schemas"]["ServiceRefs"];
+        };
+        /** @description Who and what the action names, for links: the users (kind user) and chats (kind group) the viewer may see, in the order the action names them; the others are left out. message_id is the message of this chat the action is about (the pinned message, a poll or checklist that changed, a giveaway), for ?at= links; null when none. */
+        ServiceRefs: {
+            users: components["schemas"]["ChatRef"][];
+            chats: components["schemas"]["ChatRef"][];
+            /** Format: int64 */
+            message_id: number | null;
+        };
+        /** @description A message kind's detail, from content_extra (docs/design/message-types.md section 4.2.2), the poll tables and telegram_message_files. Lists that can be long (poll options, checklist tasks, giveaway chats, group call participants) hold at most the first 20, with the full count in the matching *_total; a total counts the people and chats left out as hidden too, which says how many there were but not who. A user or a chat is a ChatRef (kind user or group). */
+        MessageDetail: components["schemas"]["LocationDetail"] | components["schemas"]["VenueDetail"] | components["schemas"]["ContactDetail"] | components["schemas"]["DiceDetail"] | components["schemas"]["GameDetail"] | components["schemas"]["PollDetail"] | components["schemas"]["ChecklistDetail"] | components["schemas"]["StoryDetail"] | components["schemas"]["InvoiceDetail"] | components["schemas"]["GiveawayDetail"] | components["schemas"]["CallDetail"] | components["schemas"]["PaidMediaDetail"] | components["schemas"]["PlaceholderDetail"];
+        /** @description A location, in degrees. A live location shows its latest position, with how many times it moved (its edit versions; the logger keeps at most one a minute), not a track. */
+        LocationDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "location";
+            lat: number;
+            lon: number;
+            /** @description Horizontal accuracy in metres; null when unknown. */
+            accuracy: number | null;
+            live: {
+                /** @description Seconds it is shared for (0x7FFFFFFF is "until stopped"). */
+                period: number;
+                /** @description Direction of travel in degrees, 0 when unknown. */
+                heading: number;
+                /** @description Metres of the proximity alert, 0 when none. */
+                proximity_radius: number;
+                /** @description How many earlier positions the logger kept. */
+                updates: number;
+            } | null;
+        };
+        VenueDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "venue";
+            lat: number;
+            lon: number;
+            title: string;
+            address: string;
+            /** @description The venue database (foursquare, gplaces), or "". */
+            provider: string;
+            venue_id: string;
+            venue_type: string;
+        };
+        /** @description A shared contact. phone and vcard (which holds the number too) follow the rule for users' phones: only viewers that see users in full get them; for others they are null. user is the Telegram user the contact is, when the viewer may see it. */
+        ContactDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "contact";
+            first_name: string;
+            last_name: string;
+            phone: string | null;
+            vcard: string | null;
+            user: components["schemas"]["ChatRef"] | null;
+        };
+        DiceDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "dice";
+            /** @description The dice's emoji; "" for a stake dice. */
+            emoji: string;
+            /** @description The value thrown; 0 while it was still rolling. */
+            value: number;
+            /** @description A dice played for a stake. */
+            stake: boolean;
+        };
+        /** @description A game; its text is the message text. */
+        GameDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "game";
+            title: string;
+            description: string;
+            short_name: string;
+            /** @description The game's photo, or else its animation (telegram_message_files, role game). */
+            photo: components["schemas"]["ChatMedia"] | null;
+        };
+        /** @description A poll or quiz with its latest results (telegram_polls and its options; removed options are left out). The message text is the poll's description. */
+        PollDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "poll";
+            question: string;
+            /** @enum {string} */
+            type: "regular" | "quiz";
+            anonymous: boolean;
+            /** @description More than one option may be chosen. */
+            multiple: boolean;
+            closed: boolean;
+            total_voters: number;
+            /** @description When it closes or closed, if a date was set. */
+            close_date: string | null;
+            /** @description A quiz's explanation, if any. */
+            explanation: string | null;
+            /** @description The first 20 options, in order. */
+            options: {
+                text: string;
+                voters: number;
+                percent: number;
+                /** @description A quiz's correct option. */
+                correct: boolean;
+            }[];
+            options_total: number;
+        };
+        /** @description A checklist; its title is the message text. */
+        ChecklistDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "checklist";
+            /** @description The first 20 tasks, in order. */
+            tasks: {
+                id: number;
+                text: string;
+                done: boolean;
+                /** @description Who marked it done, when the viewer may see them. */
+                done_by: components["schemas"]["ChatRef"] | null;
+                done_at: string | null;
+            }[];
+            tasks_total: number;
+            others_can_add: boolean;
+            others_can_mark: boolean;
+        };
+        /** @description A shared story, kept as a reference only (stories are not archived). */
+        StoryDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "story";
+            /** @description Whose story it is, when the viewer may see them. */
+            poster: components["schemas"]["ChatRef"] | null;
+            story_id: number;
+        };
+        InvoiceDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "invoice";
+            title: string;
+            description: string;
+            /** @description ISO 4217 code, or XTR for Telegram Stars. */
+            currency: string;
+            /**
+             * Format: int64
+             * @description In the currency's smallest unit.
+             */
+            total_amount: number;
+            is_test: boolean;
+            /** @description The product photo (telegram_message_files, role invoice). */
+            photo: components["schemas"]["ChatMedia"] | null;
+        };
+        GiveawayDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "giveaway";
+            prize: {
+                premium_months: number;
+            } | {
+                /** Format: int64 */
+                stars: number;
+            } | null;
+            winner_count: number;
+            winners_selection_date: string | null;
+            only_new_members: boolean;
+            prize_description: string;
+            /** @description The chats taking part (the boosted chat first) that the viewer may see, at most 20. */
+            chats: components["schemas"]["ChatRef"][];
+            chats_total: number;
+        };
+        /** @description A call. outcome: missed, declined, disconnected, hung_up or upgraded (to a group call) for a private call, ended when Telegram gave no reason; for a group call active, missed or ended. */
+        CallDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "call";
+            video: boolean;
+            group: boolean;
+            /** @description Seconds; 0 when it did not take place or is still going. */
+            duration: number;
+            /** @enum {string} */
+            outcome: "missed" | "declined" | "disconnected" | "hung_up" | "upgraded" | "ended" | "active";
+            /** @description A group call's other participants the viewer may see, at most 20; empty for a private call. */
+            participants: components["schemas"]["ChatRef"][];
+            participants_total: number;
+        };
+        /** @description Paid media; its caption is the message text. */
+        PaidMediaDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "paid_media";
+            /** Format: int64 */
+            star_count: number;
+            items: {
+                /**
+                 * @description preview: not paid for by the logging account, so only its size and blurred preview are known.
+                 * @enum {string}
+                 */
+                kind: "photo" | "video" | "preview" | "unsupported";
+                /** @description The item's file (telegram_message_files, role paid), when one is known. */
+                media: components["schemas"]["ChatMedia"] | null;
+            }[];
+        };
+        /** @description A kind the chat shows as a one-line placeholder: a rich message or a widget (not rendered by this archive), expired self-destructing media, or content TDLib itself could not read. */
+        PlaceholderDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "rich" | "widget" | "expired" | "unsupported";
+        };
+        /** @description A forum topic, as last seen (telegram_forum_topics). */
+        ChatTopic: {
+            /**
+             * Format: int64
+             * @description The topic id, as ChatMessage.topic_id and ?topic= take it.
+             */
+            id: number;
+            name: string;
+            /** @description The icon's colour, RGB. */
+            icon_color: number;
+            closed: boolean;
+            /** @description The General topic is hidden from the topic list. */
+            hidden: boolean;
+        };
+        MessageFull: components["schemas"]["MessageRow"] & components["schemas"]["MessageExtra"] & components["schemas"]["MessageKinds"] & {
             text: string;
             reply_to: {
                 scope: components["schemas"]["MessageScope"];
@@ -2103,7 +2387,7 @@ export interface components {
             /** @description When an album item was deleted; absent while it is not. Album items only. */
             deleted_at?: string;
         };
-        ChatMessage: components["schemas"]["MessageExtra"] & components["schemas"]["ChatMessageBase"];
+        ChatMessage: components["schemas"]["MessageExtra"] & components["schemas"]["MessageKinds"] & components["schemas"]["ChatMessageBase"];
         ChatMessageBase: {
             /** Format: int64 */
             id: number;
@@ -2345,7 +2629,7 @@ export interface components {
         MessageProps: {
             message: components["schemas"]["MessageFull"];
         };
-        /** @description The chat page's first window (getChatMessages, limit 60 or the page's ?limit=, clamped to 1..100). The page's query opens it, by the first of these that parses: ?at=<message id> around that message; ?after_ts=<unix time> at the first message sent then or later (the Drogon page's links); ?date= around the first message at or after a day or a time in the viewer's timezone (Viewer.timezone: YYYY-MM-DD, YYYY-MM-DDTHH:MM, YYYY-MM-DD HH:MM, either with :SS, or RFC 3339 with its own offset); ?after=<message id> at the messages after it, and ?after=0 at the oldest messages. Without one, or past the end, the newest messages. `at` names the message opened at: the found one, or for ?after= the window's first. The Drogon page's #msg-<message id> anchors name message_id, so a client maps them to it. */
+        /** @description The chat page's first window (getChatMessages, limit 60 or the page's ?limit=, clamped to 1..100). The page's query opens it, by the first of these that parses: ?at=<message id> around that message; ?after_ts=<unix time> at the first message sent then or later (the Drogon page's links); ?date= around the first message at or after a day or a time in the viewer's timezone (Viewer.timezone: YYYY-MM-DD, YYYY-MM-DDTHH:MM, YYYY-MM-DD HH:MM, either with :SS, or RFC 3339 with its own offset); ?after=<message id> at the messages after it, and ?after=0 at the oldest messages. Without one, or past the end, the newest messages. `at` names the message opened at: the found one, or for ?after= the window's first. The Drogon page's #msg-<message id> anchors name message_id, so a client maps them to it. ?topic=<topic id> limits the window to one forum topic's messages, as the chat window's topic does. */
         ChatProps: {
             chat: {
                 /** @constant */
@@ -2375,6 +2659,13 @@ export interface components {
              * @description The message the page was opened at, if any.
              */
             at: number | null;
+            /** @description A forum group's topics, pinned ones first, then the newest; empty for other chats. */
+            topics: components["schemas"]["ChatTopic"][];
+            /**
+             * Format: int64
+             * @description The topic ?topic= limits the window to, or null.
+             */
+            topic: number | null;
         };
         SettingsProps: {
             account: {
@@ -3488,6 +3779,8 @@ export interface operations {
                 around?: number;
                 /** @description A unix time: the messages from the first one sent then or later, as the Drogon API's after_ts; the newest messages when none is that recent. */
                 after_ts?: number;
+                /** @description Only the messages of this forum topic (ChatTopic.id) of a group; the cursors and has_older and has_newer then count within the topic. A private chat takes no topic (400). */
+                topic?: number;
                 limit?: number;
             };
             header?: never;

@@ -91,8 +91,9 @@ export function Picture({ m, single, onClick = false }: { m: Media; single?: boo
 // video shows its first frame unless media load on click.
 export function VideoBox({ m, single, animation = false, onClick = false }: { m: Media; single?: boolean; animation?: boolean; onClick?: boolean }) {
 	const [open, setOpen] = useState(false);
-	const ratio = ratioOf(m, '16 / 9');
-	const cls = `c-media c-videowrap ${single ? 'single' : ''} ${m.deleted_at ? 'deleted' : ''}`;
+	// A video note is round, as Telegram shows it.
+	const ratio = m.round ? '1 / 1' : ratioOf(m, '16 / 9');
+	const cls = `c-media c-videowrap ${single ? 'single' : ''} ${m.round ? 'round' : ''} ${m.deleted_at ? 'deleted' : ''}`;
 	const info = <span className="c-dur">{animation ? 'GIF' : m.duration ? duration(m.duration) : ''}{m.size ? `${animation || m.duration ? ' . ' : ''}${bytes(m.size)}` : ''}</span>;
 	if (!m.url) return <Missing m={m} ratio={ratio}>{m.duration ? <span className="c-sub">{duration(m.duration)}</span> : null}</Missing>;
 	const lazy = !m.stored || onClick;

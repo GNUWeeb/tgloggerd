@@ -66,6 +66,7 @@ type pMedia struct {
 	Title, Performer    string
 	Minithumb           string
 	Poster              *string
+	Round               bool
 	MessageID           int64   `json:"message_id"`
 	Kind                string  `json:"kind"`
 	DeletedAt           *string `json:"deleted_at"`
@@ -241,17 +242,20 @@ func TestChatMediaDetail(t *testing.T) {
 		t.Errorf("reply to an unlogged message %+v", r)
 	}
 
+	// A service message's text is its description, rebuilt to name the
+	// member added.
 	s := pByRow(t, ms, 3018)
-	if s.ContentType != "service" || s.ServiceType != "chat_add_members" || s.Text != "" ||
+	if s.ContentType != "service" || s.ServiceType != "chat_add_members" ||
+		s.Text != "added Andi Santoso to the group" ||
 		s.Sender == nil || s.Sender.ID != dewi {
 		t.Errorf("service %+v", s)
 	}
 
-	// A kind migration 000034 added shows as unknown, named by
-	// tdlib_type, and renders as Drogon renders it.
+	// A kind migration 000034 added keeps its own content type, and a
+	// video note renders as a round video.
 	vn := pByRow(t, ms, 3019)
-	if vn.ContentType != "unknown" || vn.TdlibType != "messageVideoNote" || vn.Media == nil ||
-		vn.Media.Render != "video" || vn.Media.W != 240 || vn.Media.H != 240 ||
+	if vn.ContentType != "video_note" || vn.TdlibType != "messageVideoNote" || vn.Media == nil ||
+		vn.Media.Render != "video" || !vn.Media.Round || vn.Media.W != 240 || vn.Media.H != 240 ||
 		vn.Media.Duration != 9 || len(vn.Media.Wave) != 8 {
 		t.Errorf("video note %+v %+v", vn, vn.Media)
 	}
@@ -469,7 +473,7 @@ func TestPageMessageParity(t *testing.T) {
 	if m := msg(3018); m.ServiceType != "chat_add_members" {
 		t.Errorf("service %+v", m)
 	}
-	if m := msg(3019); m.ContentType != "unknown" || m.TdlibType != "messageVideoNote" {
+	if m := msg(3019); m.ContentType != "video_note" || m.TdlibType != "messageVideoNote" {
 		t.Errorf("video note %+v", m)
 	}
 }

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MessageMedia, type Media } from './chat-media.tsx';
+import { PLAIN_KINDS } from '../test/kinds.ts';
 import type { ChatMessage } from '../types.ts';
 
 afterEach(cleanup);
@@ -11,7 +12,7 @@ const URL1 = '/files/tok-1';
 const media = (o: Partial<Media> = {}): Media => ({ stored: true, thumb: null, url: URL1, ...o });
 const msg = (content_type: ChatMessage['content_type'], m: Media | null, album: Media[] = []): ChatMessage => ({
 	id: 1, message_id: 1, date: '2026-11-17T10:00:00Z', scope: 'group', sender: null, content_type, text: '',
-	media: m, album, reply_to: null, forward: null, edits: [], edited_at: null, deleted_at: null, link_preview: null,
+	media: m, album, reply_to: null, forward: null, edits: [], edited_at: null, deleted_at: null, link_preview: null, ...PLAIN_KINDS,
 });
 // The lightbox portals into the app root, as in the real page.
 const show = (el: ReactElement) => render(<div className="app">{el}</div>);

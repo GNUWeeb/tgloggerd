@@ -9,6 +9,9 @@ const spec: Spec = {
 			Thing: { allOf: [{ $ref: '#/components/schemas/Base' }, { type: 'object', required: ['kind'], properties: { kind: { enum: ['a', 'b'] }, note: { type: ['string', 'null'] } } }] },
 			Closed: { type: 'object', additionalProperties: false, properties: { x: { const: 1 } } },
 			Pair: { type: 'array', prefixItems: [{ type: 'string' }, { type: 'integer' }], minItems: 2, maxItems: 2 },
+			Cat: { type: 'object', required: ['kind', 'meow'], properties: { kind: { enum: ['cat'] }, meow: { type: 'boolean' } } },
+			Dog: { type: 'object', required: ['kind', 'bark'], properties: { kind: { enum: ['dog', 'puppy'] }, bark: { type: 'integer' } } },
+			Pet: { oneOf: [{ $ref: '#/components/schemas/Cat' }, { $ref: '#/components/schemas/Dog' }], discriminator: { propertyName: 'kind', mapping: { cat: '#/components/schemas/Cat', dog: '#/components/schemas/Dog', puppy: '#/components/schemas/Dog' } } },
 			Either: { oneOf: [{ type: 'object', required: ['a'], properties: { a: { type: 'string' } } }, { type: 'object', required: ['b'], properties: { b: { type: 'string' } } }] },
 		},
 	},
@@ -29,6 +32,13 @@ describe('schema validator', () => {
 		expect(v('Pair', ['x'])).toEqual(['$: 1 items, wants at least 2']);
 		expect(v('Either', { c: 1 })[0]).toMatch(/matches none of oneOf/);
 		expect(v('Either', { a: 'x', b: 'y' })[0]).toMatch(/matches 2 of oneOf/);
+	});
+
+	it('checks a discriminated oneOf against the branch its property names', () => {
+		expect(v('Pet', { kind: 'puppy', bark: 2 })).toEqual([]);
+		expect(v('Pet', { kind: 'fox', bark: 2 })[0]).toBe('$.kind: "fox" is not a discriminator value');
+		// The mapped branch's own complaint, not only "matches none".
+		expect(v('Pet', { kind: 'cat', bark: 2 })).toContain('$: lacks meow');
 	});
 
 	it('refuses a keyword it does not check', () => {

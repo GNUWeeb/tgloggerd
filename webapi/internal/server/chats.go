@@ -6,6 +6,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -247,6 +248,70 @@ type chatMessageJSON struct {
 	DeletedAt   *string          `json:"deleted_at"`
 	LinkPreview *linkPreviewJSON `json:"link_preview"`
 	messageExtraJSON
+	messageKindsJSON
+}
+
+// messageKindsJSON are the fields of MessageKinds, which ChatMessage
+// and MessageFull share: the kind's detail (kinds.go), a service
+// message's action (service.go), the forum topic, and the pinned state
+// and latest interaction totals (docs/design/message-types.md
+// sections 4.5 to 4.7).
+type messageKindsJSON struct {
+	Detail    any            `json:"detail"`
+	Service   *serviceJSON   `json:"service"`
+	TopicID   *int64         `json:"topic_id"`
+	Pinned    bool           `json:"pinned"`
+	Views     *int64         `json:"views"`
+	Forwards  *int64         `json:"forwards"`
+	Replies   *int64         `json:"replies"`
+	Reactions []reactionJSON `json:"reactions"`
+}
+
+// reactionJSON is one reaction's total, as the reactions column
+// stores it: {emoji | custom_emoji_id | paid: true, count}.
+type reactionJSON struct {
+	Emoji         string `json:"emoji,omitempty"`
+	CustomEmojiID string `json:"custom_emoji_id,omitempty"`
+	Paid          bool   `json:"paid,omitempty"`
+	Count         int64  `json:"count"`
+}
+
+// reactions reads the reactions column; nil, malformed or withdrawn
+// all give none.
+func reactions(raw []byte) []reactionJSON {
+	out := []reactionJSON{}
+	if len(raw) == 0 {
+		return out
+	}
+	var rs []reactionJSON
+	if json.Unmarshal(raw, &rs) != nil {
+		return out
+	}
+	for _, r := range rs {
+		if r.Count > 0 && (r.Emoji != "" || r.CustomEmojiID != "" || r.Paid) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (v view) messageKinds(k kinds, m logdb.Message) messageKindsJSON {
+	j := messageKindsJSON{Detail: v.detail(k, m), Service: v.service(k, m), Pinned: m.Pinned,
+		Views: m.Views, Forwards: m.Forwards, Replies: m.Replies, Reactions: reactions(m.Reactions)}
+	if m.TopicID != 0 {
+		id := m.TopicID
+		j.TopicID = &id
+	}
+	return j
+}
+
+// text is a message's text for the viewer: its text or caption, and
+// for a service message its description (view.serviceText).
+func (v view) text(k kinds, m logdb.Message) string {
+	if m.ContentType == "service" {
+		return v.serviceText(k, m, k.service[m.RowID])
+	}
+	return m.Text
 }
 
 // messageExtraJSON are the fields ChatMessage and MessageFull share
@@ -447,13 +512,14 @@ func (v view) edits(m logdb.Message) []editJSON {
 	return out
 }
 
-func (v view) chatMessage(n names, group bool, chatID int64, m logdb.Message) chatMessageJSON {
+func (v view) chatMessage(n names, k kinds, group bool, chatID int64, m logdb.Message) chatMessageJSON {
 	j := chatMessageJSON{
 		ID: m.RowID, MessageID: m.MessageID, Date: iso(m.Date), Scope: scopeName(group),
-		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Text: m.Text,
+		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Text: v.text(k, m),
 		Media: v.media(m.ContentType, m.File, m.Extra), Album: []chatMediaJSON{},
 		ReplyTo: v.reply(n, chatID, m), Forward: v.forwardName(n, m), Edits: v.edits(m),
 		DeletedAt: isoPtr(m.DeletedAt), messageExtraJSON: v.messageExtra(n, m),
+		messageKindsJSON: v.messageKinds(k, m),
 	}
 	v.poster(j.Media, m)
 	if m.EditDate > 0 {
@@ -474,7 +540,7 @@ func (v view) chatMessage(n names, group bool, chatID int64, m logdb.Message) ch
 // message is deleted only when all its items are; each item's media
 // says its own message, kind and deletion, since an album may mix
 // photos and videos (or documents, or audio) and lose items one by one.
-func (v view) chatMessages(n names, group bool, chatID int64, ms []logdb.Message) []chatMessageJSON {
+func (v view) chatMessages(n names, kd kinds, group bool, chatID int64, ms []logdb.Message) []chatMessageJSON {
 	out := []chatMessageJSON{}
 	for i := 0; i < len(ms); {
 		k := i + 1
@@ -483,12 +549,12 @@ func (v view) chatMessages(n names, group bool, chatID int64, ms []logdb.Message
 				k++
 			}
 		}
-		j := v.chatMessage(n, group, chatID, ms[i])
+		j := v.chatMessage(n, kd, group, chatID, ms[i])
 		if k-i > 1 {
 			var lastDeleted int64
 			allDeleted := true
 			for x := i; x < k; x++ {
-				item := v.chatMessage(n, group, chatID, ms[x])
+				item := v.chatMessage(n, kd, group, chatID, ms[x])
 				if md := item.Media; md != nil {
 					md.MessageID, md.Kind, md.DeletedAt = ms[x].MessageID, item.ContentType,
 						item.DeletedAt
@@ -523,9 +589,9 @@ func (v view) chatMessages(n names, group bool, chatID int64, ms []logdb.Message
 	return out
 }
 
-func (v view) window(c logdb.Chat, w logdb.Window) chatWindowJSON {
+func (v view) window(c logdb.Chat, w logdb.Window, k kinds) chatWindowJSON {
 	return chatWindowJSON{
-		Messages: v.chatMessages(names{w.Users, w.Groups}, c.Group, c.ID, w.Messages),
+		Messages: v.chatMessages(names{w.Users, w.Groups}, k, c.Group, c.ID, w.Messages),
 		HasOlder: w.HasOlder, HasNewer: w.HasNewer,
 	}
 }
@@ -572,6 +638,21 @@ func chatAnchor(q map[string][]string) (logdb.Anchor, int, error) {
 		limit = min(max(n, 1), chatMaxLimit)
 	}
 	return a, limit, nil
+}
+
+// chatTopic reads ?topic=, a forum topic of a group: 0 without one.
+func chatTopic(v string, c logdb.Chat) (int64, error) {
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, errors.New("topic is not a topic id")
+	}
+	if !c.Group {
+		return 0, errors.New("a private chat has no topics")
+	}
+	return n, nil
 }
 
 // errServer wraps a database error of chatTimeAnchor.
@@ -659,6 +740,9 @@ func (s *Server) getChatMessages(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	a, limit, err := chatAnchor(q)
 	if err == nil {
+		c.Topic, err = chatTopic(q.Get("topic"), c)
+	}
+	if err == nil {
 		err = s.chatTimeAnchor(r, c, q.Get("after_ts"), &a)
 	}
 	if err != nil {
@@ -674,7 +758,12 @@ func (s *Server) getChatMessages(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "chat window", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.viewFor(sc, sess != nil).window(c, win))
+	k, err := s.loadKinds(r.Context(), sc, c.ID, win.Messages)
+	if err != nil {
+		s.internalError(w, "chat window kinds", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.viewFor(sc, sess != nil).window(c, win, k))
 }
 
 // entitiesMax is how many ids each list of GET /api/entities takes.

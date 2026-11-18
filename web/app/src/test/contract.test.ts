@@ -5,8 +5,10 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { adminApi, federationGroups, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { viewOf, adminApi, federationGroups, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
+import { FORUM_GROUP, KINDS_GROUP, TOPICS, sampleOf } from '../../standin/kinds.ts';
+import { chatStream } from '../../../mockup/src/data/messages.js';
 
 const spec = loadSpec();
 const ref = (name: string): Schema => ({ $ref: `#/components/schemas/${name}` });
@@ -45,6 +47,10 @@ const orphanId = (() => {
 	throw new Error('the stand-in has no file without a visible message');
 })();
 
+// The kind samples (standin/kinds.ts): their chat, a forum topic, and
+// the message page of each sample.
+const sampleIds = (chatStream(KINDS_GROUP) as { id: number; message_id: number; chat: { id: number; kind: string } }[]).filter((m) => sampleOf(m)).map((m) => m.id);
+
 const PAGES: [Persona, string][] = [
 	...(['superadmin', 'admin', 'member'] as Persona[]).flatMap((a): [Persona, string][] => [
 		[a, '/'], [a, '/users'], [a, '/users?q=a&sort=msg_count&dir=asc&page=2'], [a, '/groups'], [a, `/groups/${a === 'member' ? memberGroupId : groupId}`],
@@ -62,6 +68,9 @@ const PAGES: [Persona, string][] = [
 	['superadmin', `/messages/private/${privateMsg}`], ['superadmin', `/groups/${groupId}/chat?at=1`],
 	['public', `/groups/${exposedId}/chat`], ['public', `/groups/${exposedId}`], ['member', `/groups/${exposedHiddenId}`], ['public', '/login'], ['public', '/login?next=%2Fusers'],
 	['public', '/password/forgot'], ['public', '/password/set'], ['public', '/account/email/verify'], ['superadmin', '/password/forgot'],
+	['superadmin', `/groups/${KINDS_GROUP.id}/chat`], ['admin', `/groups/${KINDS_GROUP.id}/chat`], ['member', `/groups/${KINDS_GROUP.id}/chat`],
+	['superadmin', `/groups/${FORUM_GROUP.id}/chat`], ['superadmin', `/groups/${FORUM_GROUP.id}/chat?topic=${TOPICS[1]!.id}`], ['superadmin', `/groups/${FORUM_GROUP.id}/chat?topic=999`],
+	...sampleIds.map((id): [Persona, string] => ['superadmin', `/messages/group/${id}`]), ...sampleIds.map((id): [Persona, string] => ['member', `/messages/group/${id}`]),
 	['noemail', '/users'], ['noemail', '/'],
 	['newpw', '/users'], ['newpw', '/settings'], ['newpw', '/password/forgot'],
 ];
@@ -84,6 +93,16 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 	it('a chat window', () => {
 		const chat = chatFor('group', String(groupId), 'superadmin');
 		for (const anchor of [{}, { before: 1e9 }, { after: 0 }, { at: 1 }, { after_ts: 0 }, { after_ts: 4e9 }]) ok(200, chatWindow(chat, anchor), '/api/chats/{scope}/{id}/messages');
+	});
+
+	it('a chat window of every kind, and of one forum topic', () => {
+		const kinds = chatFor('group', String(KINDS_GROUP.id), 'superadmin');
+		for (const persona of ['superadmin', 'member'] as Persona[]) ok(200, chatWindow(kinds, {}, 60, viewOf(persona, KINDS_GROUP.id)), '/api/chats/{scope}/{id}/messages');
+		const forum = chatFor('group', String(FORUM_GROUP.id), 'superadmin');
+		const w = chatWindow(forum, { topic: TOPICS[1]!.id }) as { messages: { topic_id: number | null }[] };
+		expect(w.messages.length).toBeGreaterThan(0);
+		expect(w.messages.every((m) => m.topic_id === TOPICS[1]!.id)).toBe(true);
+		ok(200, w, '/api/chats/{scope}/{id}/messages');
 	});
 
 	it.each(['superadmin', 'admin', 'member'] as Persona[])('the chat search, as %s', (p) => {
@@ -228,5 +247,12 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 	it.each(['superadmin', 'member'] as Persona[])('the entity lookup, as %s', (p) => {
 		const [status, body] = entities(p, new URLSearchParams(`users=${userId},1,999999999&groups=${groupId},${memberGroupId}`));
 		ok(status, body, '/api/entities');
+	});
+});
+
+describe('the kind samples', () => {
+	it('are each on a message page of their own, for a full viewer and a member', () => {
+		expect(sampleIds.length).toBeGreaterThanOrEqual(23);
+		for (const persona of ['superadmin', 'member'] as Persona[]) for (const id of sampleIds) expect(pageData(`/messages/group/${id}`, persona).status).toBe(200);
 	});
 });

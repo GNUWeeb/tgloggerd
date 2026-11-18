@@ -56,6 +56,20 @@ webapi/openapi.yaml. Where the two differ:
   estimate (`total_exact` false on a browse without conditions) is
   only given to a viewer who sees the whole table.
 - `debug=1` is honoured for superadmins and admins.
+- `content_type` takes the kinds daemon migration 000034 appended
+  (`video_note` to `unsupported`, docs/design/message-types.md section
+  4.1) besides the ten the Drogon registry lists.
+- The message entities have two more fields: `tdlib_type`, the exact
+  TDLib class (`messageStakeDice`, `messageLiveLocation`; NULL for rows
+  logged before migration 000034, which neither `=` nor `!=` matches),
+  and `service_type`, a service message's action (`pin_message`,
+  `chat_add_members`, ...). Neither has an index of its own, so a
+  search may use them only beside a `chat_id =` condition in a chain
+  whose connectors are all AND; it then reads that chat's rows through
+  a chat_id index instead of scanning the table. Otherwise it is
+  refused (`bad_search`: "field 'service_type' requires a 'chat_id ='
+  condition ANDed with the others"). `fields` marks them with
+  `needs_chat: true`.
 
 The React list pages (users, groups, files, group_messages,
 private_messages) read their rows through the same search, from the
@@ -233,8 +247,10 @@ index-backed columns are searchable so a query never scans the table.
 | key | label | type | operators |
 |---|---|---|---|
 | `text` | Text | fulltext | `matches` |
-| `content_type` | Content type | enum | `= !=` (text,photo,video,document,audio,voice,sticker,animation,service,unknown) |
+| `content_type` | Content type | enum | `= !=` (text,photo,video,document,audio,voice,sticker,animation,service,unknown,video_note,location,venue,contact,dice,game,poll,checklist,story,paid_media,invoice,giveaway,call,rich,widget,expired,unsupported) |
 | `chat_id` | User (chat) id | int | `= != < > <= >=` |
+| `tdlib_type` | TDLib type | text | `= !=`, with `chat_id =` only (Go service) |
+| `service_type` | Service type | text | `= !=`, with `chat_id =` only (Go service) |
 | `sender_id` | Sender id | int | `= != < > <= >=` |
 | `message_id` | Message id | int | `= != < > <= >=` |
 | `is_outgoing` | Outgoing | bool | `= !=` |
@@ -256,6 +272,8 @@ searchable set is limited to indexed columns; the rest are display-only.
 | `text` | Text | fulltext | `matches` |
 | `content_type` | Content type | enum | `= !=` (same values as above) |
 | `chat_id` | Group id | int | `= != < > <= >=` |
+| `tdlib_type` | TDLib type | text | `= !=`, with `chat_id =` only (Go service) |
+| `service_type` | Service type | text | `= !=`, with `chat_id =` only (Go service) |
 | `sender_user_id` | Sender user id | int | `= != < > <= >=` |
 | `deleted` | Deleted | bool | `IS NULL IS NOT NULL` |
 | `date` | Sent | int (unix ts) | `= != < > <= >=`, sortable (default) |

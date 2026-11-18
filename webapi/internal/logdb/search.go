@@ -129,6 +129,11 @@ type Field struct {
 	// internal fields are for the page loaders only: the API neither
 	// lists nor accepts them.
 	internal bool
+	// NeedsChat fields have no index of their own on a big table: a
+	// search may use one only beside a chat_id = condition that every
+	// row must meet (chatBound), so it reads one chat's rows through
+	// the chat_id indexes instead of scanning the table.
+	NeedsChat bool
 }
 
 // Col is a displayed column: its key, label, render type and the field
@@ -148,6 +153,7 @@ type FieldInfo struct {
 	Sortable  bool     `json:"sortable"`
 	Operators []string `json:"operators"`
 	Enum      *string  `json:"enum,omitempty"`
+	NeedsChat bool     `json:"needs_chat,omitempty"`
 }
 
 // The limits of web/docs/search-api.md.
@@ -530,6 +536,33 @@ func (e *Entity) chain(sc scope.Scope, conds []Cond, internal bool, exists *int,
 	return where.String(), binds, nil
 }
 
+// chatBound refuses a search that uses a NeedsChat field without a
+// chat_id = condition in a chain whose connectors are all AND: the
+// chains are ANDed together, so such a condition holds for every row.
+func (e *Entity) chatBound(req SearchRequest) error {
+	var needs string
+	bound := false
+	for _, ch := range append([][]Cond{req.Conds}, req.And...) {
+		allAnd, hasChat := true, false
+		for i, c := range ch {
+			if f := e.field(c.C, req.Internal); f != nil && f.NeedsChat && needs == "" {
+				needs = f.Key
+			}
+			if c.C == "chat_id" && c.O == "=" {
+				hasChat = true
+			}
+			if i < len(ch)-1 && c.N != "AND" {
+				allAnd = false
+			}
+		}
+		bound = bound || (allAnd && hasChat)
+	}
+	if needs != "" && !bound {
+		return refuse("field '%s' requires a 'chat_id =' condition ANDed with the others", needs)
+	}
+	return nil
+}
+
 func (e *Entity) build(sc scope.Scope, req SearchRequest) (*built, error) {
 	n := len(req.Conds)
 	for _, ch := range req.And {
@@ -537,6 +570,9 @@ func (e *Entity) build(sc scope.Scope, req SearchRequest) (*built, error) {
 	}
 	if n > MaxConds {
 		return nil, refuse("too many conditions (max %d)", MaxConds)
+	}
+	if err := e.chatBound(req); err != nil {
+		return nil, err
 	}
 
 	var (
@@ -842,7 +878,7 @@ func (e *Entity) fieldInfos(sc scope.Scope) []FieldInfo {
 			continue
 		}
 		fi := FieldInfo{Key: f.Key, Label: f.Label, Type: f.Type.String(),
-			Sortable: f.Sortable, Operators: []string{}}
+			Sortable: f.Sortable, Operators: []string{}, NeedsChat: f.NeedsChat}
 		for _, o := range opTable {
 			if f.Ops&o.op != 0 {
 				fi.Operators = append(fi.Operators, o.tok)

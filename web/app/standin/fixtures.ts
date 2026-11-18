@@ -12,6 +12,7 @@ import { TOTALS } from '../../mockup/src/data/totals.js';
 import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/data/admin.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { REGISTRY, SLOW, compile, fieldsOf, legacyQuery, type ListError } from './search.ts';
+import { ALL, kindsOf, sampleOf, topicOf, topicsOf, type View } from './kinds.ts';
 import { queryRows } from '../../mockup/src/data/seed.js';
 import type { PageData, Viewer } from '../src/page.ts';
 
@@ -106,10 +107,13 @@ const chatRef = (c) => ({ id: c.id, title: c.title || c.name, kind: c.kind, phot
 
 function messageRow(m) {
 	const s = senderOf(m);
+	// A kind sample (kinds.ts) is listed as its kind.
+	const k = sampleOf(m);
+	const ct = k?.content_type ?? m.content_type;
 	return {
 		id: m.id, scope: m.scope, message_id: m.message_id, date: iso(m.date), chat: chatRef(m.chat),
-		sender: m.is_outgoing ? null : userSummary(s, false), content_type: m.content_type,
-		snippet: m.content_type === 'service' ? m.text : m.text || m.media?.name || `[${m.content_type}]`,
+		sender: m.is_outgoing ? null : userSummary(s, false), content_type: ct,
+		snippet: k ? k.text || `[${ct}]` : m.content_type === 'service' ? m.text : m.text || m.media?.name || `[${m.content_type}]`,
 		forwarded: m.forward?.from ?? null, edited: !!m.edits, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
 	};
 }
@@ -169,9 +173,24 @@ function forwardFrom(f, m) {
 // How a service message without text says what happened.
 const SERVICE_TYPES = { 'joined the group': 'chat_join_by_link', 'left the group': 'chat_delete_member', 'pinned a message': 'pin_message', 'changed the group photo': 'chat_change_photo', 'was added by an admin': 'chat_add_members' };
 
-export function chatMessage(m, fetch = false) {
+// What a persona may see of the people and chats a message names
+// (kinds.ts), and whether it may fetch unstored files.
+export function viewOf(persona: Persona, chatId?: number): View {
+	const s = scopeOf(persona);
+	return {
+		fetch: !!s.canFetch, full: !!s.fullUser,
+		user: (id) => { const u = getUser(id); return !!u && s.user(u); },
+		group: (id) => id === chatId || (() => { const g = getGroup(id); return !!g && s.group(g); })(),
+	};
+}
+
+export function chatMessage(m, view: boolean | View = false) {
+	const v: View = typeof view === 'boolean' ? { ...ALL, fetch: view } : view;
+	const fetch = v.fetch;
 	const s = senderOf(m);
-	const ct = typeOf(m);
+	const k = kindsOf({ ...m, content_type: typeOf(m) }, v);
+	const sample = k.sample;
+	const ct = sample?.content_type ?? typeOf(m);
 	// A channel posts as itself; some posts carry their author's name.
 	const channel = m.chat.kind !== 'user' && m.chat.type === 'channel';
 	const sender = m.is_outgoing ? null : channel ? { id: m.chat.id, name: m.chat.title, username: m.chat.username, type: 'regular', photo: null } : userSummary(s, false);
@@ -189,7 +208,7 @@ export function chatMessage(m, fetch = false) {
 			...(m.message_id % 13 === 0 && m.chat.kind !== 'user' ? { chat_id: groups.find((g) => g.id !== m.chat.id)!.id } : {}),
 		};
 	const lp = m.link_preview;
-	return {
+	const out = {
 		id: m.id, message_id: m.message_id, date: iso(m.date), scope: m.scope,
 		sender, content_type: ct, text: bare ? '' : m.text || '',
 		media: chatMedia(m.media, ct, fetch, m.album ? { kind: ct, message_id: m.message_id } : {}), album: (m.album || []).map((a) => albumItem(a, fetch)),
@@ -209,10 +228,25 @@ export function chatMessage(m, fetch = false) {
 		...(m.forward ? { forward_from: forwardFrom(m.forward, m) } : {}),
 		...(channel ? { sender_chat: groupSummary(m.chat), is_channel_post: true, ...(m.message_id % 3 === 0 && s ? { author_signature: s.name } : {}) } : {}),
 		...(bare ? { service_type: SERVICE_TYPES[m.text] ?? 'custom' } : {}),
+		...k.base,
+		// The stand-in's own service messages say their action, naming nobody.
+		...(ct === 'service' && !k.base.service ? { service: { type: SERVICE_TYPES[m.text] ?? 'custom', refs: { users: [], chats: [], message_id: null } } } : {}),
+	};
+	if (!sample) return out;
+	// A sample of a kind (kinds.ts) is that kind alone: its text, its own
+	// media for a video note, nothing replied to, forwarded or edited.
+	const round = sample.media?.round;
+	const { forward_from: _f, sender_chat: _sc, is_channel_post: _cp, author_signature: _as, service_type: _st, ...rest } = out as Record<string, unknown>;
+	return {
+		...rest, content_type: ct, text: k.serviceText ?? sample.text ?? '',
+		media: round ? chatMedia({ fileId: 970000 + (m.message_id % 10000), w: 1, h: 1, size: 420000, duration: 9 }, 'video', fetch, { round: true }) : null,
+		album: [], reply_to: null, forward: null, edits: [], edited_at: null, link_preview: null,
+		...(sample.tdlib_type ? { tdlib_type: sample.tdlib_type } : {}),
+		...(ct === 'service' && !k.serviceText ? { service_type: k.base.service?.type ?? 'custom' } : {}),
 	};
 }
 
-type Anchor = { at?: number; date?: string; before?: number; after?: number; after_ts?: number };
+type Anchor = { at?: number; date?: string; before?: number; after?: number; after_ts?: number; topic?: number };
 
 // A message's position in the sample stream for an anchor, -1 if none.
 // The stand-in reads ?date= as UTC; Go reads it in the viewer's zone.
@@ -229,8 +263,9 @@ function anchorIndex(all, a: Anchor): number {
 // A window of a chat, oldest first: before or after a message id
 // (after=0: the oldest), around a message, a time or a day, else the
 // newest messages. found is the message opened at.
-function windowOf(chat, anchor: Anchor, limit: number, fetch: boolean) {
-	const all = chatStream(chat);
+function windowOf(chat, anchor: Anchor, limit: number, fetch: boolean | View) {
+	// One forum topic's messages, when asked for.
+	const all = anchor.topic === undefined ? chatStream(chat) : chatStream(chat).filter((m) => topicOf(m) === anchor.topic);
 	let from = Math.max(0, all.length - limit), to = all.length;
 	let found: number | null = null;
 	if (anchor.before !== undefined) { to = all.findIndex((m) => m.message_id >= anchor.before); if (to < 0) to = all.length; from = Math.max(0, to - limit); }
@@ -245,23 +280,23 @@ function windowOf(chat, anchor: Anchor, limit: number, fetch: boolean) {
 	return { w: { messages: all.slice(from, to).map((m) => chatMessage(m, fetch)), has_older: from > 0, has_newer: to < all.length }, found };
 }
 
-export function chatWindow(chat, anchor: Anchor, limit = 60, fetch = false) {
+export function chatWindow(chat, anchor: Anchor, limit = 60, fetch: boolean | View = false) {
 	return windowOf(chat, anchor, limit, fetch).w;
 }
 
 // The chat page's first window, by the first anchor of its query that
 // parses (ChatProps): at, after_ts, date, after; past the end, the
 // newest messages.
-function chatPageWindow(chat, q: URLSearchParams, fetch: boolean) {
+function chatPageWindow(chat, q: URLSearchParams, fetch: boolean | View, topic?: number) {
 	const n = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
 	const limit = Math.min(100, Math.max(1, n('limit') ?? 60));
 	const date = q.get('date') && /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?$/.test(q.get('date')!) ? q.get('date')! : undefined;
 	const anchors: Anchor[] = [{ at: n('at') }, { after_ts: n('after_ts') }, { date }, { after: n('after') }].filter((a) => Object.values(a)[0] !== undefined);
 	for (const a of anchors) {
-		const r = windowOf(chat, a, limit, fetch);
+		const r = windowOf(chat, { ...a, topic }, limit, fetch);
 		if (r.found !== null) return r;
 	}
-	return windowOf(chat, {}, limit, fetch);
+	return windowOf(chat, { topic }, limit, fetch);
 }
 
 export const canFetch = (persona: Persona) => !!scopeOf(persona).canFetch;
@@ -490,13 +525,14 @@ export function load(url: string, persona: Persona): Loaded {
 		if (!x || (m[1] === 'group' && !s.group(x.chat))) return notFound;
 		// The message as the chat shows it gives the parts both pages share
 		// (MessageExtra, the media's detail, the edits' types and media).
-		const c = chatMessage(x, s.canFetch);
-		const media = c.media ? { ...c.media, file_id: x.media.fileId, name: x.media.name || '', size: x.media.size || 0 } : null;
-		const extra = Object.fromEntries(['sender_chat', 'forward_from', 'author_signature', 'is_channel_post', 'service_type', 'tdlib_type'].filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
+		const c = chatMessage(x, viewOf(persona, x.chat.kind === 'user' ? undefined : x.chat.id));
+		// A video note sample (kinds.ts) has a file of its own.
+		const media = c.media ? { ...c.media, file_id: x.media?.fileId ?? 970000 + (x.message_id % 10000), name: x.media?.name || '', size: x.media?.size || c.media.size || 0 } : null;
+		const extra = Object.fromEntries(['sender_chat', 'forward_from', 'author_signature', 'is_channel_post', 'service_type', 'tdlib_type', 'detail', 'service', 'topic_id', 'pinned', 'views', 'forwards', 'replies', 'reactions'].filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
 		return {
 			route: 'message', status: 200, props: {
 				message: {
-					...messageRow(x), ...extra, text: c.text, sender: c.sender ?? messageRow(x).sender,
+					...messageRow(x), ...extra, content_type: c.content_type, text: c.text, sender: c.sender ?? messageRow(x).sender,
 					reply_to: x.reply_to ? { scope: x.scope, id: x.reply_to.id, sender_name: senderOf(x.reply_to)?.name ?? '', snippet: x.reply_to.text || `[${x.reply_to.content_type}]` } : null,
 					edits: c.edits, edited_at: x.edited_at ? iso(x.edited_at) : null, media,
 				},
@@ -507,13 +543,17 @@ export function load(url: string, persona: Persona): Loaded {
 		const kind = m[1] === 'groups' ? 'group' : 'private';
 		const c = chatFor(kind, m[2], persona);
 		if (!c) return notFound;
-		const { w, found } = chatPageWindow(c, u.searchParams, scopeOf(persona).canFetch);
+		// A forum's topics; ?topic= keeps the window to one of them.
+		const topics = kind === 'group' ? topicsOf({ id: c.id, kind: 'group' }) : [];
+		const want = Number(u.searchParams.get('topic'));
+		const topic = topics.some((t) => t.id === want) ? want : null;
+		const { w, found } = chatPageWindow(c, u.searchParams, viewOf(persona, kind === 'group' ? c.id : undefined), topic ?? undefined);
 		return {
 			route: kind === 'group' ? 'group_chat' : 'user_chat', status: 200, props: {
 				chat: kind === 'group'
 					? { kind: 'group', group: { ...groupSummary(c), members: c.members, msg_count: c.msg_count } }
 					: { kind: 'user', user: { id: c.id, name: c.name, photo: null }, count: chatStream(c).length },
-				...w, at: found,
+				...w, at: found, topics, topic,
 			},
 		};
 	}

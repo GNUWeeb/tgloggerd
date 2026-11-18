@@ -5,7 +5,8 @@ import { api, ok } from './client.ts';
 
 export type Anchor = { before: number } | { after: number } | { around: number } | { latest: true };
 
-export async function fetchChatWindow(scope: 'group' | 'private', chatId: number, anchor: Anchor, limit = 60, signal?: AbortSignal): Promise<ChatWindow> {
+// topic: one forum topic's messages (a group's ChatTopic.id).
+export async function fetchChatWindow(scope: 'group' | 'private', chatId: number, anchor: Anchor, limit = 60, signal?: AbortSignal, topic?: number | null): Promise<ChatWindow> {
 	return ok(api.GET('/api/chats/{scope}/{id}/messages', {
 		params: {
 			path: { scope, id: chatId },
@@ -14,6 +15,7 @@ export async function fetchChatWindow(scope: 'group' | 'private', chatId: number
 				before: 'before' in anchor ? anchor.before : undefined,
 				after: 'after' in anchor ? anchor.after : undefined,
 				around: 'around' in anchor ? anchor.around : undefined,
+				topic: topic ?? undefined,
 			},
 		},
 		signal,

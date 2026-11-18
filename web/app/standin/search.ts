@@ -7,7 +7,8 @@
 export type Cond = { field: string; op: string; value: string; n?: 'AND' | 'OR' };
 type Row = Record<string, unknown>;
 type FieldType = 'text' | 'int' | 'bool' | 'datetime' | 'enum';
-export interface SField { key: string; label: string; type: FieldType; sortable: boolean; operators: string[]; enum?: string; get?: (r: Row) => unknown }
+// needs_chat: no index of its own, so only beside a chat_id = filter.
+export interface SField { key: string; label: string; type: FieldType; sortable: boolean; operators: string[]; enum?: string; needs_chat?: boolean; get?: (r: Row) => unknown }
 
 const TEXT = ['=', '!=', 'LIKE', 'NOT LIKE', '%LIKE%', 'NOT %LIKE%'];
 const CMP = ['=', '!=', '<', '>', '<=', '>='];
@@ -41,6 +42,8 @@ export const REGISTRY: Record<string, SField[]> = {
 	messages: [
 		{ key: 'text', label: 'Text', type: 'text', sortable: false, operators: ['matches', '%LIKE%', 'NOT %LIKE%', ...NULLS] },
 		{ key: 'message_id', label: 'Message ID', type: 'int', sortable: true, operators: CMP },
+		{ key: 'tdlib_type', label: 'TDLib type', type: 'text', sortable: false, operators: ['=', '!='], needs_chat: true },
+		{ key: 'service_type', label: 'Service type', type: 'text', sortable: false, operators: ['=', '!='], needs_chat: true },
 	],
 };
 
@@ -111,6 +114,11 @@ export function compile(conds: Cond[], own: string[], fields: SField[]): ((r: Ro
 			tests.push((r) => ownMatch(r[c.field], c));
 		} else return { code: 'bad_search', message: `There is no field ${c.field} to filter by.` };
 	}
+	// A field that needs one chat is refused without a chat_id = filter in
+	// an all-AND chain, as Go refuses it.
+	const needs = conds.map((c) => fields.find((x) => x.key === c.field)).find((f) => f?.needs_chat);
+	const bound = conds.some((c) => c.field === 'chat_id' && c.op === '=') && conds.slice(0, -1).every((c) => c.n !== 'OR');
+	if (needs && !bound) return { code: 'bad_search', message: `field '${needs.key}' requires a 'chat_id =' condition ANDed with the others` };
 	// AND binds tighter than OR: split the chain at each OR.
 	const groups: ((r: Row) => boolean)[][] = [[]];
 	tests.forEach((t, i) => {

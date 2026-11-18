@@ -1,11 +1,19 @@
 // Media thumbnails and type icons. Real thumbnails come from the server
 // (`thumb`, a /files/<token> URL); without one, an icon stands in.
-import { FileText, Image, Video, Mic, Music, Sticker, Film, Play, CloudOff, Type as TextIcon, Info } from 'lucide-react';
+import { FileText, Image, Video, Mic, Music, Sticker, Film, Play, CloudOff, Type as TextIcon, Info, CirclePlay, MapPin, Building2, Contact, Dices, Gamepad2, ChartColumn, ListChecks, CircleDashed, Star, Receipt, Gift, Phone, LayoutTemplate, AppWindow, TimerOff, CircleHelp, type LucideIcon } from 'lucide-react';
 import type { S } from '../api/schema.ts';
 
 export type ContentType = S['ContentType'];
 
-const ICON = { text: TextIcon, photo: Image, video: Video, document: FileText, audio: Music, voice: Mic, sticker: Sticker, animation: Film, service: Info, unknown: FileText };
+// Every content type has an icon: a new one fails to compile here.
+const ICON: Record<ContentType, LucideIcon> = {
+	text: TextIcon, photo: Image, video: Video, document: FileText, audio: Music, voice: Mic, sticker: Sticker, animation: Film, service: Info, unknown: FileText,
+	video_note: CirclePlay, location: MapPin, venue: Building2, contact: Contact, dice: Dices, game: Gamepad2, poll: ChartColumn, checklist: ListChecks,
+	story: CircleDashed, paid_media: Star, invoice: Receipt, giveaway: Gift, call: Phone, rich: LayoutTemplate, widget: AppWindow, expired: TimerOff, unsupported: CircleHelp,
+};
+
+// Every content type, in the archive's order.
+export const CONTENT_TYPES = Object.keys(ICON) as ContentType[];
 
 export function TypeIcon({ type, size = 14 }: { type: ContentType; size?: number }) {
 	const I = ICON[type] ?? FileText;

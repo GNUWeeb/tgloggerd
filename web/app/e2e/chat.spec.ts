@@ -112,3 +112,33 @@ test('an opened edit history sits clear of the edited mark and the time', async 
 	const box = await bubble.locator('.c-edits').boundingBox();
 	expect(box!.y - (meta!.y + meta!.height)).toBeGreaterThanOrEqual(8);
 });
+
+test('a chat shows each message kind, rendered by the server and in the browser', async ({ page }) => {
+	// Assembly Lounge holds the stand-in's sample of each kind.
+	const res = await page.request.get('/groups/-1001775585202/chat');
+	const html = await res.text();
+	for (const s of ['Which editor do you use?', 'Release checklist', 'Video chat . live now', 'A widget, which this archive does not show']) expect(html).toContain(s);
+	await page.goto('/groups/-1001775585202/chat');
+	await expect(page.getByText('Which editor do you use?')).toBeVisible();
+	await expect(page.locator('.c-videowrap.round')).toHaveCount(1);
+	await expect(page.locator('.k-reaction').first()).toBeVisible();
+	await expect(page.getByRole('link', { name: 'pinned a message' })).toBeVisible();
+});
+
+test('a forum chat shows one topic at a time', async ({ page }) => {
+	await page.goto('/groups/-1001126016141/chat');
+	const strip = page.getByRole('navigation', { name: 'Forum topics' });
+	await expect(strip.getByRole('link', { name: 'All topics' })).toHaveAttribute('aria-current', 'page');
+	expect(await page.locator('.k-topictag').count()).toBeGreaterThan(0);
+	await strip.getByRole('link', { name: 'Help and questions' }).click();
+	await expect(page).toHaveURL(/\?topic=12$/);
+	await expect(strip.getByRole('link', { name: 'Help and questions' })).toHaveAttribute('aria-current', 'page');
+	await expect(page.locator('.k-topictag')).toHaveCount(0);
+	// The window's own API keeps to the topic.
+	const w = await (await page.request.get('/api/chats/group/-1001126016141/messages?topic=12&limit=10')).json();
+	expect(w.messages.every((m: { topic_id: number }) => m.topic_id === 12)).toBe(true);
+	// A private chat has no topics.
+	const pm = (await (await page.request.get('/api/page/private_messages')).json()).props.rows[0].chat.id;
+	expect((await page.request.get(`/api/chats/private/${pm}/messages`)).status()).toBe(200);
+	expect((await page.request.get(`/api/chats/private/${pm}/messages?topic=12`)).status()).toBe(400);
+});

@@ -1,4 +1,4 @@
-import { CornerUpLeft, Forward, Link2, Megaphone, MessageCircle, Pencil, Trash2 } from 'lucide-react';
+import { CornerUpLeft, Forward, Link2, Megaphone, MessageCircle, Pencil, Pin, Trash2 } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
 import { Avatar, Btn, Card, KV, Pill } from '../ui/primitives.tsx';
@@ -6,6 +6,7 @@ import { Thumb, TypeIcon, duration } from '../ui/media.tsx';
 import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
+import { Counts, KindDetail, Reactions, TEXT_INSIDE } from './chat-kinds.tsx';
 import type { PageData } from '../page.ts';
 import type { MessageFull } from '../types.ts';
 import type { RouteDef } from './index.tsx';
@@ -21,6 +22,9 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 	const chatHref = m.chat.kind === 'group' ? `/groups/${m.chat.id}` : `/users/${m.chat.id}`;
 	const list = m.scope === 'group' ? ['Group messages', '/group_messages'] as const : ['Private messages', '/private_messages'] as const;
 	const big = m.media && (m.content_type === 'photo' || m.content_type === 'video');
+	// A service message's action, and the message it is about (a pin).
+	const svcType = m.service?.type ?? m.service_type;
+	const svcAbout = m.service?.refs.message_id ?? null;
 	// Posted as a chat (a channel, an anonymous admin): link that chat.
 	const asChat = m.sender_chat;
 	const senderLink = asChat ? <Link to={`/groups/${asChat.id}`} className="a-rowlink"><b>{asChat.title}</b></Link>
@@ -46,6 +50,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 				{m.is_channel_post && <Pill tone="info"><Megaphone size={11} />channel post</Pill>}
 				{m.forwarded && <Pill tone="info"><Forward size={11} />forwarded</Pill>}
 				{m.edited && <Pill><Pencil size={11} />edited</Pill>}
+				{m.pinned && <Pill tone="accent"><Pin size={11} />pinned</Pill>}
 				{m.deleted_at && <Pill tone="danger"><Trash2 size={11} />deleted</Pill>}
 			</div>
 			{m.deleted_at && <div className="a-banner warn"><Trash2 size={15} /><span>Deleted on Telegram at {dateTime(m.deleted_at, v)}. The archive keeps the last version it saw.</span></div>}
@@ -72,7 +77,15 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 									: <div className="a-filerow"><Thumb type={m.content_type} thumb={m.media.thumb} stored={m.media.stored} size={44} /><div><b>{m.media.name || m.content_type}</b><div className="a-muted sm">{bytes(m.media.size)}{m.media.duration ? ' . ' + duration(m.media.duration) : ''}</div></div></div>}
 							</div>
 						)}
-						{m.text ? <pre className="a-msgtext">{m.text}</pre> : !m.media && <p className="a-muted">{m.service_type ? m.service_type.replace(/_/g, ' ') : '(no text)'}</p>}
+						{m.detail && <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} v={v} /></div>}
+						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <pre className="a-msgtext">{m.text}</pre> : !m.media && !m.detail && <p className="a-muted">{svcType ? svcType.replace(/_/g, ' ') : '(no text)'}</p>}
+						{svcAbout !== null && <p className="a-muted sm"><Link to={`${chatPath(m).split('?')[0]}?at=${svcAbout}`} className="a-link">The message this is about</Link></p>}
+						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies) && (
+							<div className="a-msginteract">
+								<Reactions list={m.reactions} />
+								<span className="a-muted sm a-msgcounts"><Counts k={{ ...m, pinned: false }} /></span>
+							</div>
+						)}
 						{m.author_signature && <p className="a-muted sm a-signline">- {m.author_signature}</p>}
 					</Card>
 					{f && (
@@ -115,7 +128,11 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						m.media ? [null, 'File', <Link to={`/files?view=list&file=${m.media.file_id}`} className="a-rowlink">file #{fmt(m.media.file_id)}</Link>] : null,
 						m.forwarded ? [null, 'Forwarded from', fromLink] : null,
 						m.author_signature ? [null, 'Signature', m.author_signature] : null,
-						m.service_type ? [null, 'Service action', m.service_type, true] : null,
+						svcType ? [null, 'Service action', svcType, true] : null,
+						m.topic_id !== null && m.scope === 'group' ? [null, 'Forum topic', <Link to={`/groups/${m.chat.id}/chat?topic=${m.topic_id}`} className="a-rowlink">topic {m.topic_id}</Link>] : null,
+						m.views !== null ? [null, 'Views', fmt(m.views)] : null,
+						m.forwards !== null ? [null, 'Forwards', fmt(m.forwards)] : null,
+						m.replies !== null ? [null, 'Replies', fmt(m.replies)] : null,
 						m.tdlib_type ? [null, 'TDLib type', m.tdlib_type, true] : null,
 					]} />
 				</Card>

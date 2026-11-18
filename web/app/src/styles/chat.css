@@ -201,3 +201,58 @@
 }
 .app .c-unseen { position: absolute; top: -6px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--accent, #5b5bd6); color: #fff; font: 600 11px/20px Roboto, system-ui, sans-serif; text-align: center; }
 .app .c-reveal { border: 0; cursor: pointer; font: inherit; color: var(--fg-2); }
+
+/* Message kinds (chat-kinds.tsx): a card per detail, inside the bubble. */
+.app .k-card { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 4px; min-width: min(240px, 100%); }
+.app .k-head { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.app .k-head svg { color: var(--c-accent); flex: none; }
+.app .k-coords { color: var(--c-link); font-size: 13px; }
+.app .k-cover { width: 100%; max-height: 180px; object-fit: cover; border-radius: 8px; }
+.app .k-contact { flex-direction: row; align-items: center; gap: 10px; }
+.app .k-ref { display: inline-flex; align-items: center; gap: 4px; color: var(--c-link); margin-right: 8px; }
+.app .k-refs { display: inline-flex; flex-wrap: wrap; align-items: center; row-gap: 2px; }
+.app .k-line { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.app .k-line > svg { color: var(--c-meta); flex: none; }
+.app .k-dice { display: flex; align-items: center; gap: 10px; }
+.app .k-dice-face { font-size: 40px; line-height: 1; color: var(--c-accent); }
+.app .k-dice-value { font-size: 22px; font-weight: 700; }
+.app .k-question { font-weight: 600; }
+.app .k-options { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.app .k-opt { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+.app .k-opt > span:first-child { display: inline-flex; align-items: center; gap: 4px; }
+.app .k-right { color: var(--ok); }
+.app .k-bar { display: block; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--c-accent) 18%, transparent); overflow: hidden; }
+.app .k-bar > span { display: block; height: 100%; background: var(--c-accent); }
+.app .k-options li.correct .k-bar > span { background: var(--ok); }
+.app .k-explain { font-size: 13px; border-left: 3px solid var(--ok); padding-left: 8px; }
+.app .k-checklist ul { list-style: none; margin: 2px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.app .k-checklist li { display: flex; align-items: flex-start; gap: 6px; }
+.app .k-checklist li > svg { flex: none; margin-top: 2px; color: var(--c-meta); }
+.app .k-checklist li.done > svg { color: var(--ok); }
+.app .k-checklist li.done .k-task { text-decoration: line-through; color: var(--fg-2); }
+.app .k-amount { font-weight: 700; font-size: 15px; }
+.app .k-call { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 4px; }
+.app .k-callicon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--c-accent); color: #fff; flex: none; }
+.app .k-call.missed .k-callicon, .app .k-call.declined .k-callicon, .app .k-call.disconnected .k-callicon { background: var(--danger); }
+.app .k-call.active .k-callicon { background: var(--ok); }
+.app .k-call .k-line { flex-basis: 100%; }
+.app .k-paid { display: flex; gap: 4px; flex-wrap: wrap; }
+.app .k-paiditem { width: 56px; height: 56px; border-radius: 8px; display: grid; place-items: center; background: color-mix(in srgb, var(--c-accent) 14%, transparent); color: var(--c-accent); overflow: hidden; }
+.app .k-paiditem img { width: 100%; height: 100%; object-fit: cover; filter: blur(6px); }
+.app .k-placeholder { display: flex; align-items: center; gap: 6px; }
+.app .k-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
+.app .k-reaction { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 12px; font-size: 13px; background: color-mix(in srgb, var(--c-accent) 14%, transparent); }
+.app .k-reaction svg { color: #e9a700; }
+.app .k-count { display: inline-flex; align-items: center; gap: 2px; }
+.app .c-videowrap.round { width: 220px; max-width: 70vw; border-radius: 50%; overflow: hidden; background: #24303c; }
+.app .c-videowrap.round .c-dur { left: 50%; right: auto; bottom: 12px; top: auto; transform: translateX(-50%); }
+.app .c-videowrap.round img, .app .c-videowrap.round video { object-fit: cover; width: 100%; height: 100%; }
+.app .c-bubble.mediaonly:has(.c-videowrap.round) { background: none; box-shadow: none; padding: 0; }
+.app .c-bubble.mediaonly:has(.c-videowrap.round) .c-sender { display: none; }
+.app .k-topics { display: flex; gap: 6px; padding: 6px 12px; overflow-x: auto; background: var(--c-head); border-bottom: 1px solid var(--border); flex: none; scrollbar-width: thin; }
+.app .k-topics a { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; height: 28px; padding: 0 12px; border-radius: 14px; color: var(--fg-2); font-weight: 550; font-size: 13px; text-decoration: none; }
+.app .k-topics a:hover { background: var(--hover); }
+.app .k-topics a.on { background: color-mix(in srgb, var(--c-accent) 16%, transparent); color: var(--fg); }
+.app .k-topicdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.app .k-topictag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-2); text-decoration: none; margin-bottom: 2px; }
+.app .k-topictag:hover { text-decoration: underline; }

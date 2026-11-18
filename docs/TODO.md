@@ -109,7 +109,6 @@ Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
 - [`msg-interaction`](todo/msg-interaction.md): Choose the interval at which interaction totals are written, from a day of the live update rate.
-- [`web-message-types`](todo/web-message-types.md): Show the new content kinds, topics, polls and message files in the web and search API.
 
 ## Web backend in Go
 

@@ -3,7 +3,7 @@ import Shell from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
 import { Avatar, PageHead } from '../ui/primitives.tsx';
 import { DataTable, emptyText, FilterBar, useListNav, type Col } from '../ui/list.tsx';
-import { TypeIcon } from '../ui/media.tsx';
+import { TypeIcon, CONTENT_TYPES } from '../ui/media.tsx';
 import { ago, dateTime, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { Cond, FieldDef, ListProps, MessageRow } from '../types.ts';
@@ -12,7 +12,7 @@ import type { S } from '../api/schema.ts';
 
 export type MessagesProps = S['MessagesProps'];
 
-const TYPES = ['text', 'photo', 'video', 'document', 'audio', 'voice', 'sticker', 'animation', 'service'];
+const TYPES: string[] = CONTENT_TYPES;
 const FIELDS: Record<'group' | 'private', FieldDef[]> = {
 	group: [
 		{ key: 'text', label: 'Text', type: 'text' },
