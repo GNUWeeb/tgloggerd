@@ -20,6 +20,47 @@ its own field registry (an unknown entity returns **404**). Requires a logged-in
 session (the shared `AuthFilter`); an unauthenticated request is redirected (302)
 to `/login`, exactly like the other `/v1` routes.
 
+## In the Go service
+
+The Go web service (webapi/) serves the same search at
+
+```
+GET /api/search/{entity}
+```
+
+with the same parameters, the same registries and the same answer,
+cell for cell (webapi/internal/logdb/search.go ports this DAO; the
+tests in webapi/internal/server/search_test.go check its answers
+against the ones this code gives). It lives under `/api/`, which nginx
+sends to the Go service, while the Drogon pages keep calling their own
+`/v1/search` until they move. Its contract is `searchEntity` in
+webapi/openapi.yaml. Where the two differ:
+
+- Without a session it answers **401** `{"error":"unauthenticated"}`
+  rather than redirecting to `/login`.
+- Errors are the Go API's `{"error": <code>, "message": <sentence>}`:
+  `bad_search` with this page's messages for a refused search,
+  `search_timeout` for one that ran out of time (both 400), and
+  `not_found` (404) for an unknown or hidden entity. A database error
+  that is not a timeout is a 500, not the timeout message.
+- Everything is read through the request scope (docs/design/
+  web-accounts.md section 9). `private_messages` does not exist (404)
+  for a viewer who may not see private chats. The rows of the others
+  are limited in the SQL itself, ANDed with the conditions, so rows
+  and totals count only what the viewer may see: a member sees the
+  users of its visible groups (senders and admins there) by id, name,
+  username, type and photo only, and `fields` and `cols` list only
+  those; it sees the files sent in the messages it may see, and the
+  messages of its visible groups. A sender chat the viewer may not see
+  is shown as `{kind: "none", name: "(hidden)"}`. The table's row
+  estimate (`total_exact` false on a browse without conditions) is
+  only given to a viewer who sees the whole table.
+- `debug=1` is honoured for superadmins and admins.
+
+The React list pages (users, groups, files, group_messages,
+private_messages) read their rows through the same search, from the
+page data (`GET /api/page/<path>`); webapi/README describes them.
+
 ## Query parameters
 
 | param    | type   | default | notes |
@@ -322,8 +363,8 @@ shows the message as a notice.
 | `EXISTS` (history) conditions per query | 4 |
 | value length | 512 chars |
 | `search` JSON size | 8 KB |
-| `limit` | 100 (default 50) |
-| `offset` | 50000 |
+| `limit` | 1000 (default 10) |
+| `offset` | 500000 |
 | statement timeout | 3 s (`MAX_EXECUTION_TIME`) |
 
 A non-sargable predicate (text `LIKE`, flag equality) scans the full users

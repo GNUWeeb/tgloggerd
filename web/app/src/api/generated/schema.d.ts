@@ -157,7 +157,7 @@ export interface paths {
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public chats of exposed groups (group_chat).
          *
-         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message (and not_found); every other route answers {"reload": true}. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
+         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, and of the list pages users, groups, files, group_messages and private_messages (and not_found); every other route answers {"reload": true}. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope; filters it does not take are dropped and not echoed in conds, and archive_total is there only for a viewer who sees the whole archive of that list. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
         put?: never;
@@ -221,9 +221,33 @@ export interface paths {
         };
         /**
          * Search chats for a picker
-         * @description Groups and private chats the viewer may see whose title or username matches q; an empty q lists the busiest first. Without kind both kinds are searched. A member, or an admin restricted from private messages, gets groups only (web-accounts.md sections 4 and 5). Paged by an opaque cursor.
+         * @description Groups and private chats the viewer may see whose title, name or username matches q (a leading @ is ignored, and a number also matches the chat's id exactly); an empty q lists every one. Busiest first: groups by their message count, private chats by the number of their messages. Without kind both kinds are searched. A member, or an admin restricted from private messages, gets groups only (web-accounts.md sections 4 and 5), and only the groups the request scope shows. federation limits the answer to that federation's groups (0 is Default, which holds every group until federations exist; any other id holds none yet). Paged by an opaque cursor, at most 100000 rows deep.
          */
         get: operations["searchChats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/search/{entity}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Advanced search over one entity
+         * @description The advanced search of web/docs/search-api.md: a flat chain of conditions over the entity's field registry, sorted and paged, with the rows as arrays aligned to `cols`. The same parameters and the same answer as the Drogon web's GET /v1/search/{entity}, which it ports; it is under /api/ like the rest of this service, while the Drogon pages keep calling their own until they move here.
+         *
+         *     Everything is read through the request scope. Private messages do not exist (404) for a viewer who may not see private chats. The other entities' rows are limited in the query itself, so rows, totals and estimates count only what the viewer may see: a member sees the users of its visible groups by id, name, username, type and photo only (`fields` and `cols` shrink to those), and the files and messages of its visible groups. A total is the storage engine's estimate of a whole table (total_exact false) only for a viewer who sees that whole table.
+         *
+         *     String cells are HTML-escaped, as Drogon sends them; photo cells are /files/<token> URLs, or "" for none.
+         */
+        get: operations["searchEntity"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1311,11 +1335,70 @@ export interface components {
             items: components["schemas"]["PickItem"][];
             next_cursor: string | null;
         };
+        /** @description A searchable field of the registry. */
+        SearchField: {
+            key: string;
+            label: string;
+            /** @enum {string} */
+            type: "text" | "int" | "bool" | "datetime" | "enum";
+            sortable: boolean;
+            operators: ("=" | "!=" | "<" | ">" | "<=" | ">=" | "LIKE" | "NOT LIKE" | "%LIKE%" | "NOT %LIKE%" | "matches" | "IS NULL" | "IS NOT NULL")[];
+            /** @description An enum field's values, comma-separated. */
+            enum?: string;
+        };
+        /** @description A displayed column: its render type, and the field key a click on its header sorts by ("" for none). */
+        SearchCol: {
+            key: string;
+            label: string;
+            /** @enum {string} */
+            type: "photo" | "filethumb" | "id" | "name" | "username" | "bool" | "int" | "datetime" | "text" | "longtext" | "party" | "fileid" | "hash";
+            sort: string;
+        };
+        /** @description A message row's linked avatar and name; strings HTML-escaped. */
+        SearchParty: {
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            kind: "user" | "group" | "self" | "none";
+            name: string;
+            /** @description A /files/<token> URL, or "". */
+            photo: string;
+            username: string;
+        };
+        SearchAnswer: {
+            fields: components["schemas"]["SearchField"][];
+            cols: components["schemas"]["SearchCol"][];
+            /** @description One array per row, aligned to cols: id cells are numbers, bool cells booleans, party cells SearchParty objects, every other cell a string, already HTML-escaped. */
+            rows: (string | number | boolean | components["schemas"]["SearchParty"])[][];
+            /** Format: int64 */
+            total: number;
+            /** @description false when total is an estimate: the table's row estimate for a viewer who sees the whole table and gave no condition, or, when counting ran out of time, what the page proves (offset plus its rows, plus one when it is full). */
+            total_exact: boolean;
+            limit: number;
+            offset: number;
+            /** @description The deepest offset a request can reach. */
+            max_offset: number;
+            /** @description The field key sorted by; "" for the default or relevance. */
+            sort: string;
+            /** @enum {string} */
+            order: "asc" | "desc";
+            debug?: components["schemas"]["SearchDebug"];
+        };
+        /** @description The page query, the count, their values and the plan; HTML-escaped. */
+        SearchDebug: {
+            sql: string;
+            count_sql: string;
+            bind: string[];
+            explain: {
+                columns: string[];
+                rows: string[][];
+            };
+        };
         FileRow: {
             /** Format: int64 */
             id: number;
             /** @enum {string} */
-            file_type: "photo" | "video" | "document" | "audio" | "voice" | "sticker" | "animation";
+            file_type: "photo" | "video" | "document" | "audio" | "voice" | "sticker" | "animation" | "unknown";
             name: string;
             ext: string;
             /** Format: int64 */
@@ -2551,17 +2634,75 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description A page of matches. */
+            /** @description A page of matches; next_cursor is null on the last. */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ChatSearchPage"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description A malformed kind, limit, federation or cursor, or a q over 512 bytes (error bad_request); or a search that ran out of time (error search_timeout). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Gate"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    searchEntity: {
+        parameters: {
+            query?: {
+                /** @description A JSON array of conditions {c, o, v, n} (field key, operator, value, connector AND or OR to the next one), at most 8 KB; empty is every row. */
+                search?: string;
+                /** @description Read as C's atoi and clamped to 1 to 1000. */
+                limit?: number;
+                /** @description Read as C's atoi and clamped to 0 to 500000. */
+                offset?: number;
+                /** @description A sortable field key; anything else is the default order. Without one, a search with a fulltext condition is ordered by relevance. */
+                sort?: string;
+                order?: "asc" | "desc";
+                /** @description 1 adds the SQL, its values and its plan, for superadmins and admins; it is ignored for anyone else. */
+                debug?: "1";
+            };
+            header?: never;
+            path: {
+                entity: "users" | "groups" | "files" | "private_messages" | "group_messages";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of rows. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchAnswer"];
+                };
+            };
+            /** @description A search the registry refuses (error bad_search: an unknown field, an operator the field does not take, a malformed value or JSON, too many conditions), or one that ran out of time (error search_timeout); message is Drogon's sentence. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Gate"];
+            404: components["responses"]["NotFound"];
             503: components["responses"]["SessionUnavailable"];
         };
     };

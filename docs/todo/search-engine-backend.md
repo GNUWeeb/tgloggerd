@@ -15,8 +15,9 @@ stays optional and the dashboard keeps working without it.
 ## Scope
 
 - A second backend for the full-text fields of the advanced search's
-  field registry (`go-port-search`); column and exists fields stay on
-  MySQL. Without the engine configured, nothing changes.
+  field registry (webapi/internal/logdb/search_entities.go); column
+  and exists fields stay on MySQL. Without the engine configured,
+  nothing changes.
 - A capabilities answer in the search API telling the frontend which
   options the backend offers (phrase, proximity, fuzzy, highlighting,
   facets); the React application shows them only when offered, and
@@ -49,7 +50,6 @@ stays optional and the dashboard keeps working without it.
 
 ## Depends on
 
-- `go-port-search`
 - `web-member-access`
 
 ## Done when

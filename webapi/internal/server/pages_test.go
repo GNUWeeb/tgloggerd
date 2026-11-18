@@ -161,7 +161,7 @@ func TestPagePathDecoding(t *testing.T) {
 	}{
 		{"/api/page/login", 200, "login"},
 		{"/api/page/login%2F", 200, "login"},
-		{"/api/page/users", 200, ""},
+		{"/api/page/join-chat", 200, ""},
 		{"/api/page/settings%2Fpreferences", 200, ""}, // %2F decoded
 		{"/api/page/settings/sessions", 200, ""},      // plain slashes too
 		{"/api/page/platform-fwd%2Ftelegram-discord", 200, ""},
@@ -455,7 +455,7 @@ func TestPageDocumentsRegistered(t *testing.T) {
 	t.Parallel()
 	e := newPagesEnv(t, pagesOpts{})
 	ck := e.session(1, "admin", "admin")
-	for _, p := range []string{"/users", "/groups", "/settings", "/password/forgot"} {
+	for _, p := range []string{"/settings", "/mcp-admin", "/join-chat", "/password/forgot"} {
 		if g := e.get(p, ck); g.status != 404 || strings.Contains(g.body, "__tgd") {
 			t.Errorf("%s served here: %d", p, g.status)
 		}

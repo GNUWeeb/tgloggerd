@@ -132,7 +132,6 @@ The web backend moves from Drogon to Go:
 - [`ssr-render-service`](todo/ssr-render-service.md): Deploy the render service and its build on the running stack.
 - [`web-live-events`](todo/web-live-events.md): Route the live updates stream through nginx and check it on the running site.
 - [`go-port-media`](todo/go-port-media.md): Switch /files/<token> over to the Go service after checking it against the Drogon web.
-- [`go-port-search`](todo/go-port-search.md): Port the advanced search API to the Go service, enforcing the request scope.
 - [`go-port-admin`](todo/go-port-admin.md): Port forwarding, Join chat, contact lookup and MCP administration to the Go service.
 
 ## Web interface

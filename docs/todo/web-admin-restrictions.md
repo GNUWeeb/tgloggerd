@@ -25,10 +25,16 @@ A superadmin needs to keep some data from some admins
 
 - One scope object used by every DAO query, as the MCP code gates
   every query on one constant.
+- The advanced search, the chat search and the list pages already
+  read through the scope (webapi/internal/logdb/search_entities.go):
+  hidden groups need only GroupFilter and SeesGroup to know them, and
+  hidden private messages only SeesPrivate, which already makes the
+  private_messages entity and page 404 and drops private chats from
+  the chat search.
 
 ## Depends on
 
-- `go-port-search`
+Nothing.
 
 ## Done when
 
