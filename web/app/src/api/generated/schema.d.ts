@@ -157,7 +157,7 @@ export interface paths {
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public chats of exposed groups (group_chat).
          *
-         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope; filters it does not take are dropped and not echoed in conds, and archive_total is there only for a viewer who sees the whole archive of that list. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
+         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope. The users, groups, group_messages and private_messages lists take every field of their search registry (ListState.fields) with the search's operators and connectors, besides their own filter keys, and sort by the registry's sortable fields too; a filter or search text they refuse, or a search that runs out of time, answers the whole list with ListState.error, as the Drogon lists did. The files list drops a filter it does not take, not echoed in conds. per defaults to the viewer's rows_per_page and goes up to 1000. archive_total is there only for a viewer who sees the whole archive of that list. A Drogon list URL (search, offset, limit, order, without f, page, per and dir) is read as the same list, and the answer's url is the translated one, to put in the address bar. The user and group pages and their history pages take before, the history cursor (history_next). The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
         put?: never;
@@ -1953,11 +1953,18 @@ export interface components {
             has_older: boolean;
             has_newer: boolean;
         };
+        /** @description A filter of a list. field is one of the list's own filter keys (with the ops contains, =, !=, >, <, >=, <=, empty, is) or, on the users, groups and message lists, a field of ListState.fields with one of its operators (the advanced search's, as in web/docs/search-api.md). The filters form one chain, each joined to the next by its n; AND binds tighter than OR, as in SQL. */
         Cond: {
             field: string;
             /** @enum {string} */
-            op: "=" | "!=" | ">" | "<" | "contains" | "empty" | "is";
+            op: "=" | "!=" | ">" | "<" | ">=" | "<=" | "contains" | "empty" | "is" | "LIKE" | "NOT LIKE" | "%LIKE%" | "NOT %LIKE%" | "matches" | "IS NULL" | "IS NOT NULL";
+            /** @description Ignored (send "") for IS NULL and IS NOT NULL. */
             value: string;
+            /**
+             * @description The connector to the next filter; absent is AND (and the answer's conds leave it out then). Not taken by the files list, whose filters are all ANDed.
+             * @enum {string}
+             */
+            n?: "AND" | "OR";
         };
         ListState: {
             /** Format: int64 */
@@ -1975,6 +1982,17 @@ export interface components {
              * @description Everything in the archive; full-access viewers only.
              */
             archive_total?: number;
+            /** @description False when total is an estimate (a count that ran out of time, or the table's row estimate, as group_messages without conditions): show it as "about". Always sent by the service. */
+            total_exact?: boolean;
+            error?: components["schemas"]["ListError"];
+            /** @description The users, groups and message lists: the search fields the viewer may filter by, with their operators and whether they sort (a member's users only by id, name, username, type and photo). Absent on the files list. */
+            fields?: components["schemas"]["SearchField"][];
+        };
+        /** @description Why the list shows its rows without the search asked for: bad_search, a filter, connector, value or search text the list refuses (message in the search's words, naming the field), or search_timeout, the search ran out of its time limit. q and conds are then empty, as applied; sort and page size are kept (a sort that alone runs out of time falls back to the default). When even the plain list runs out of time, rows is empty. */
+        ListError: {
+            /** @enum {string} */
+            code: "bad_search" | "search_timeout";
+            message: string;
         };
         /** @description The forced password change after a password set for the account, typed by its creator or a temporary one (decisions/2026-11-18-email-optional.md); the page posts to POST /api/account/password, then loads `next`. */
         PasswordChangeProps: {

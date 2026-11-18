@@ -851,3 +851,24 @@ type party struct {
 	Photo    any    `json:"photo"`
 	Username string `json:"username"`
 }
+
+// FieldInfos are the fields the API lists for the scope: what a list
+// page offers in its condition builder.
+func (e *Entity) FieldInfos(sc scope.Scope) []FieldInfo { return e.fieldInfos(sc) }
+
+// Sortable is whether the scope may sort the entity by the field key
+// through the API (not the page loaders' own fields).
+func (e *Entity) Sortable(sc scope.Scope, key string) bool {
+	f := e.field(key, false)
+	return f != nil && f.Sortable && e.fieldVisible(sc, f)
+}
+
+// IsOperator is whether op is one of the search's operators.
+func IsOperator(op string) bool {
+	_, _, ok := opLookup(op)
+	return ok
+}
+
+// TakesValue is whether the operator compares with a value (all but
+// IS NULL and IS NOT NULL).
+func TakesValue(op string) bool { return op != "IS NULL" && op != "IS NOT NULL" }

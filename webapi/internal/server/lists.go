@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,11 +30,21 @@ import (
 // shapes of the React pages (UsersProps, GroupsProps, FilesProps,
 // MessagesProps in webapi/openapi.yaml).
 
-// listCond is a filter of a list page (Cond).
+// listCond is a filter of a list page (Cond). N is the connector to
+// the next filter, AND (the default) or OR, as the search's n.
 type listCond struct {
 	Field string `json:"field"`
 	Op    string `json:"op"`
 	Value string `json:"value"`
+	N     string `json:"n,omitempty"`
+}
+
+// listError is why a list shows its unfiltered rows (ListError): the
+// filters or the search text were refused, or the search ran out of
+// time.
+type listError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // listState is the list state the rows were read with (ListState).
@@ -48,10 +60,21 @@ type listState struct {
 	// ArchiveTotal is everything in the archive, for viewers who see
 	// all of it only.
 	ArchiveTotal *int64 `json:"archive_total,omitempty"`
+	// TotalExact is false when Total is an estimate (a count that ran
+	// out of time, or a table's row estimate).
+	TotalExact bool `json:"total_exact"`
+	// Error, when set, says why the rows are the whole list instead
+	// of the search asked for.
+	Error *listError `json:"error,omitempty"`
+	// Fields are the search fields the viewer may filter by, with
+	// their operators, for the lists that take every field of the
+	// search (listSpec.registry).
+	Fields []logdb.FieldInfo `json:"fields,omitempty"`
 }
 
-// maxListPer is the most rows a list page shows.
-const maxListPer = 100
+// maxListPer is the most rows a list page shows, the search's own
+// limit (Drogon's lists took any page size up to it).
+const maxListPer = logdb.MaxLimit
 
 // relevanceSort is the sort a message list reports when its search
 // text orders it by relevance.
@@ -73,6 +96,11 @@ type listSpec struct {
 	// relevance: the search text is a fulltext match, which orders
 	// the rows by relevance unless a sort is asked for.
 	relevance bool
+	// registry: besides the page's own filters and sorts, the list
+	// takes every field of the entity's search registry with the
+	// search's operators, and its sortable fields, as the Drogon list
+	// pages did; the scope narrows them as it does for the API.
+	registry bool
 }
 
 var dateRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -89,7 +117,7 @@ func isInt(v string) bool {
 func numberFilter(key string) pageFilter {
 	return func(_ scope.Scope, op, v string) ([]logdb.Cond, bool) {
 		switch op {
-		case "=", "!=", ">", "<":
+		case "=", "!=", ">", "<", ">=", "<=":
 			if isInt(v) {
 				return []logdb.Cond{cond(key, op, v)}, true
 			}
@@ -176,10 +204,15 @@ func nullFilter(key string) pageFilter {
 	}
 }
 
+// orderingOp is a comparison a day can take.
+func orderingOp(op string) bool {
+	return op == ">" || op == "<" || op == ">=" || op == "<="
+}
+
 // dateFilter compares a DATETIME column with a day, YYYY-MM-DD.
 func dateFilter(key string) pageFilter {
 	return func(_ scope.Scope, op, v string) ([]logdb.Cond, bool) {
-		if (op == ">" || op == "<") && dateRE.MatchString(v) {
+		if orderingOp(op) && dateRE.MatchString(v) {
 			if _, err := time.Parse(time.DateOnly, v); err == nil {
 				return []logdb.Cond{cond(key, op, v)}, true
 			}
@@ -192,7 +225,7 @@ func dateFilter(key string) pageFilter {
 // (UTC), YYYY-MM-DD, as dateFilter does a DATETIME one.
 func unixDateFilter(key string) pageFilter {
 	return func(_ scope.Scope, op, v string) ([]logdb.Cond, bool) {
-		if (op == ">" || op == "<") && dateRE.MatchString(v) {
+		if orderingOp(op) && dateRE.MatchString(v) {
 			if t, err := time.Parse(time.DateOnly, v); err == nil {
 				return []logdb.Cond{cond(key, op, strconv.FormatInt(t.Unix(), 10))}, true
 			}
@@ -243,7 +276,8 @@ func nameKey(sc scope.Scope) string {
 }
 
 var usersList = &listSpec{
-	entity: logdb.Users,
+	registry: true,
+	entity:   logdb.Users,
 	defSort: func(sc scope.Scope) string {
 		if logdb.Users.Full(sc) {
 			return "msg_count"
@@ -284,9 +318,10 @@ var usersList = &listSpec{
 }
 
 var groupsList = &listSpec{
-	entity:  logdb.Groups,
-	defSort: func(scope.Scope) string { return "msg_count" },
-	defPer:  25,
+	registry: true,
+	entity:   logdb.Groups,
+	defSort:  func(scope.Scope) string { return "msg_count" },
+	defPer:   25,
 	sorts: map[string]string{"title": "title", "id": "id", "type": "type",
 		"msg_count": "msg_count", "admin_count": "admin_count", "created_at": "created_at"},
 	filters: map[string]pageFilter{
@@ -344,6 +379,7 @@ func messageSearch(_ scope.Scope, q string) []logdb.Cond {
 }
 
 var groupMessagesList = &listSpec{
+	registry:  true,
 	entity:    logdb.GroupMessages,
 	defSort:   func(scope.Scope) string { return "date" },
 	defPer:    50,
@@ -363,6 +399,7 @@ var groupMessagesList = &listSpec{
 }
 
 var privateMessagesList = &listSpec{
+	registry:  true,
 	entity:    logdb.PrivateMessages,
 	defSort:   func(scope.Scope) string { return "date" },
 	defPer:    50,
@@ -393,13 +430,150 @@ type listRun struct {
 	res   *logdb.SearchResult
 }
 
+// refusal is a search the list refuses, in the search's words.
+func refusal(format string, a ...any) error {
+	return &logdb.SearchError{Msg: fmt.Sprintf(format, a...)}
+}
+
+// condsOf turns the page's filters into search conditions: a filter
+// the page knows by its own key and operator (listSpec.filters), else,
+// for a registry list, a field of the search registry with one of the
+// search's operators, which the search checks. Anything else is
+// refused, as the Drogon lists refuse it; a list without the registry
+// drops it instead. kept are the filters applied.
+func (l *listSpec) condsOf(sc scope.Scope, raw []listCond) (out []logdb.Cond, kept []listCond, err error) {
+	out, kept = make([]logdb.Cond, 0, len(raw)), []listCond{}
+	for _, c := range raw {
+		n := c.N
+		if n == "" {
+			n = "AND"
+		}
+		if !l.registry {
+			n = "AND"
+		}
+		if n != "AND" && n != "OR" {
+			return nil, nil, refusal("invalid connector: '%s'", c.N)
+		}
+		if len(c.Value) > logdb.MaxValueLen {
+			if !l.registry {
+				continue
+			}
+			return nil, nil, refusal("value too long (max %d)", logdb.MaxValueLen)
+		}
+		var lc logdb.Cond
+		ok := false
+		if pf := l.filters[c.Field]; pf != nil && l.allowed(sc, c.Field) {
+			var cs []logdb.Cond
+			// Every page filter is one condition, so the
+			// connectors keep their meaning.
+			if cs, ok = pf(sc, c.Op, c.Value); ok && len(cs) == 1 {
+				lc = cs[0]
+			} else {
+				ok = false
+			}
+		}
+		if !ok && l.registry && logdb.IsOperator(c.Op) {
+			lc = logdb.Cond{C: c.Field, O: c.Op, V: c.Value, HasV: logdb.TakesValue(c.Op)}
+			ok = true
+		}
+		if !ok && !l.registry {
+			continue
+		}
+		if !ok {
+			return nil, nil, refusal("operator '%s' not allowed for field '%s'", c.Op, c.Field)
+		}
+		if !l.registry && len(out) >= logdb.MaxConds/2 {
+			continue
+		}
+		lc.N = n
+		out = append(out, lc)
+		if n == "AND" {
+			c.N = ""
+		}
+		kept = append(kept, c)
+	}
+	return out, kept, nil
+}
+
+// legacyQuery turns the query of a Drogon list URL (search, offset,
+// limit, sort, order: web/static/search.js) into this list's (f, page,
+// per, sort, dir), so bookmarks and links keep working; nil when the
+// query is not one, or mixes in this list's own parameters.
+func legacyQuery(q url.Values) (url.Values, error) {
+	if !q.Has("search") && !q.Has("offset") && !q.Has("limit") && !q.Has("order") {
+		return nil, nil
+	}
+	for _, k := range []string{"f", "page", "per", "dir"} {
+		if q.Has(k) {
+			return nil, nil
+		}
+	}
+	out := url.Values{}
+	if v := q.Get("q"); v != "" {
+		out.Set("q", v)
+	}
+	conds, err := logdb.ParseConditions(q.Get("search"))
+	if err != nil {
+		return nil, err
+	}
+	if len(conds) > 0 {
+		lc := make([]listCond, 0, len(conds))
+		for i, c := range conds {
+			n := c.N
+			if i == len(conds)-1 || n == "AND" {
+				// The last connector means nothing; AND is the
+				// default.
+				n = ""
+			}
+			lc = append(lc, listCond{Field: c.C, Op: c.O, Value: c.V, N: n})
+		}
+		b, _ := json.Marshal(lc)
+		out.Set("f", string(b))
+	}
+	per := 0
+	if q.Has("limit") {
+		per = min(max(atoi(q.Get("limit")), 1), maxListPer)
+		out.Set("per", strconv.Itoa(per))
+	}
+	if off := min(max(atoi(q.Get("offset")), 0), logdb.MaxOffset); off > 0 {
+		if per == 0 {
+			// Drogon's lists showed 50 rows a page by default.
+			per = 50
+			out.Set("per", "50")
+		}
+		if page := off/per + 1; page > 1 {
+			out.Set("page", strconv.Itoa(page))
+		}
+	}
+	if v := q.Get("sort"); v != "" {
+		out.Set("sort", v)
+	}
+	if strings.EqualFold(q.Get("order"), "asc") {
+		out.Set("dir", "asc")
+	} else if q.Has("order") {
+		out.Set("dir", "desc")
+	}
+	return out, nil
+}
+
 // run reads the list state from the query, searches, and fills the
-// state in. Filters that do not parse are dropped (they are not
-// echoed back either); a search the engine refuses falls back to the
-// whole list, as the Drogon pages do.
+// state in. A filter or search text the list refuses, or a search that
+// runs out of time, shows the whole list instead, with the reason in
+// the state's error, as the Drogon pages do.
 func (l *listSpec) run(ctx context.Context, pr *pageRequest) (*listRun, error) {
 	s, sc, q := pr.s, pr.scope, pr.query
-	st := listState{Q: strings.TrimSpace(q.Get("q")), Conds: []listCond{}, Page: 1, Per: l.defPer}
+	var failed error
+	if lq, err := legacyQuery(q); err != nil {
+		failed = err
+	} else if lq != nil {
+		// The page's URL becomes the translated one.
+		q, pr.query, pr.rewritten = lq, lq, true
+	}
+	defPer := l.defPer
+	if pr.rowsPerPage > 0 {
+		defPer = pr.rowsPerPage
+	}
+	st := listState{Q: strings.TrimSpace(q.Get("q")), Conds: []listCond{}, Page: 1, Per: defPer}
 	if n, err := strconv.Atoi(q.Get("per")); err == nil && n > 0 {
 		st.Per = min(n, maxListPer)
 	}
@@ -408,28 +582,38 @@ func (l *listSpec) run(ctx context.Context, pr *pageRequest) (*listRun, error) {
 		st.Page = min(n, logdb.MaxOffset/st.Per+1)
 	}
 	if len(st.Q) > logdb.MaxValueLen {
-		st.Q = ""
+		if st.Q = ""; l.registry {
+			failed = refusal("value too long (max %d)", logdb.MaxValueLen)
+		}
 	}
 
 	var conds []logdb.Cond
-	var raw []listCond
-	if f := q.Get("f"); f != "" && len(f) <= logdb.MaxSearchBytes {
-		_ = json.Unmarshal([]byte(f), &raw)
-	}
-	for _, c := range raw {
-		pf := l.filters[c.Field]
-		if pf == nil || !l.allowed(sc, c.Field) || len(c.Value) > logdb.MaxValueLen {
-			continue
-		}
-		if cs, ok := pf(sc, c.Op, c.Value); ok && len(conds)+len(cs) <= logdb.MaxConds/2 {
-			conds = append(conds, cs...)
-			st.Conds = append(st.Conds, c)
+	if f := q.Get("f"); f != "" && failed == nil {
+		var raw []listCond
+		if len(f) > logdb.MaxSearchBytes {
+			if l.registry {
+				failed = refusal("search parameter too large")
+			}
+		} else if err := json.Unmarshal([]byte(f), &raw); err != nil {
+			if l.registry {
+				failed = refusal("f must be a JSON array of conditions")
+			}
+		} else {
+			conds, st.Conds, failed = l.condsOf(sc, raw)
+			if st.Conds == nil {
+				st.Conds = []listCond{}
+			}
 		}
 	}
 
 	st.Sort, st.Dir = q.Get("sort"), q.Get("dir")
-	if _, ok := l.sorts[st.Sort]; !ok || !l.allowed(sc, st.Sort) {
-		st.Sort = ""
+	sortKey, known := l.sorts[st.Sort]
+	switch {
+	case known && l.allowed(sc, st.Sort):
+	case st.Sort != "" && l.registry && l.entity.Sortable(sc, st.Sort):
+		sortKey = st.Sort
+	default:
+		st.Sort, sortKey = "", ""
 	}
 	if st.Dir != "asc" {
 		st.Dir = "desc"
@@ -437,46 +621,80 @@ func (l *listSpec) run(ctx context.Context, pr *pageRequest) (*listRun, error) {
 	explicit := st.Sort != ""
 	if !explicit {
 		st.Sort = l.defSort(sc)
+		sortKey = l.sorts[st.Sort]
 	}
 
 	req := logdb.SearchRequest{Conds: conds, Order: st.Dir, Internal: true, Limit: st.Per}
-	if st.Q != "" {
+	if st.Q != "" && failed == nil {
 		req.And = [][]logdb.Cond{l.search(sc, st.Q)}
 	}
 	// A search text over messages orders by relevance unless a sort
 	// was asked for.
-	if explicit || st.Q == "" || !l.relevance {
-		req.Sort = l.sorts[st.Sort]
+	if explicit || len(req.And) == 0 || !l.relevance {
+		req.Sort = sortKey
 	} else {
 		st.Sort = relevanceSort
 	}
+	if l.registry {
+		st.Fields = l.entity.FieldInfos(sc)
+	}
+	// fallBack drops the search and shows the whole list, with err as
+	// the reason; a plain list whose asked-for sort ran out of time
+	// falls back to the default sort. False when nothing is left to
+	// drop.
+	fallBack := func(err error) bool {
+		switch {
+		case len(req.Conds) > 0 || len(req.And) > 0:
+			req.Conds, req.And, st.Conds, st.Q = nil, nil, []listCond{}, ""
+			if st.Sort == relevanceSort {
+				st.Sort = l.defSort(sc)
+				req.Sort = l.sorts[st.Sort]
+			}
+		case explicit && errors.Is(err, logdb.ErrSearchTimeout):
+			explicit = false
+			st.Sort = l.defSort(sc)
+			req.Sort = l.sorts[st.Sort]
+		default:
+			return false
+		}
+		st.Error = listErrorOf(err)
+		return true
+	}
+	if failed != nil {
+		st.Q, st.Error = "", listErrorOf(failed)
+	}
 
-	for attempt := 0; ; attempt++ {
+	clamped := false
+	for {
 		req.Offset = (st.Page - 1) * st.Per
-		res, err := logdb.Search(ctx, s.ro, sc, l.entity, req)
+		res, err := s.search(ctx, s.ro, sc, l.entity, req)
 		var se *logdb.SearchError
 		if errors.As(err, &se) && (len(req.Conds) > 0 || len(req.And) > 0) {
-			req.Conds, req.And, st.Conds, st.Q = nil, nil, []listCond{}, ""
+			fallBack(err)
 			continue
 		}
 		if errors.Is(err, logdb.ErrNotFound) {
 			return nil, errPageNotFound
 		}
 		if errors.Is(err, logdb.ErrSearchTimeout) {
-			// The page shows what it can: no rows, the search
-			// itself left for the viewer to narrow.
-			st.Pages = 1
+			if fallBack(err) {
+				continue
+			}
+			// Even the plain list ran out of time: no rows, and the
+			// reason.
+			st.Pages, st.Total, st.TotalExact = 1, 0, false
+			st.Error = listErrorOf(err)
 			return &listRun{state: st, res: &logdb.SearchResult{Entity: l.entity}}, nil
 		}
 		if err != nil {
 			return nil, err
 		}
-		st.Total = res.Total
+		st.Total, st.TotalExact = res.Total, res.TotalExact
 		st.Pages = max(1, int((res.Total+int64(st.Per)-1)/int64(st.Per)))
 		maxPage := logdb.MaxOffset/st.Per + 1
 		st.Pages = min(st.Pages, maxPage)
-		if st.Page > st.Pages && attempt == 0 && res.TotalExact {
-			st.Page = st.Pages
+		if st.Page > st.Pages && !clamped && res.TotalExact {
+			st.Page, clamped = st.Pages, true
 			continue
 		}
 		run := &listRun{state: st, res: res}
@@ -487,6 +705,15 @@ func (l *listSpec) run(ctx context.Context, pr *pageRequest) (*listRun, error) {
 		}
 		return run, nil
 	}
+}
+
+// listErrorOf is the state's error for a refused search or one that
+// ran out of time.
+func listErrorOf(err error) *listError {
+	if errors.Is(err, logdb.ErrSearchTimeout) {
+		return &listError{Code: "search_timeout", Message: err.Error()}
+	}
+	return &listError{Code: "bad_search", Message: err.Error()}
 }
 
 // dbTime is a DATETIME as the pages take it, RFC 3339 in UTC (the

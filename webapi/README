@@ -366,10 +366,22 @@ paths that are no page and for things the scope hides, 404 either way.
     from the query string as the React list writes it (q, f with the
     filters as JSON, sort, dir, page, per) and run it through the
     advanced search (see Search), so the request scope limits their
-    rows and totals the same way. A filter the page does not take is
-    dropped and not echoed back; archive_total is only for a viewer
-    who sees that whole list. The message lists order a search text
-    by relevance unless a sort is asked for (sort "relevance").
+    rows and totals the same way. The users, groups and message lists
+    take, besides their own filter keys, every field of the entity's
+    search registry with the search's operators (fields in the list
+    state lists them for the viewer), the connector n (AND, OR) per
+    filter, and the registry's sorts, as the Drogon lists did. A
+    filter or search text they refuse, or a search that runs out of
+    time, shows the whole list with the reason in error (bad_search,
+    search_timeout), keeping sort and page size; total_exact is false
+    for an estimate. The files list drops a filter it does not take.
+    per defaults to the viewer's rows_per_page, up to 1000.
+    archive_total is only for a viewer who sees that whole list. The
+    message lists order a search text by relevance unless a sort is
+    asked for (sort "relevance").
+  - A Drogon list URL (search, offset, limit, sort, order) is read as
+    the same list in this form (f, page, per, sort, dir), and the
+    page data's url is the translated URL.
   - The user and group pages carry the newest 100 entries of their
     change timeline (internal/logdb/history.go: every history table
     of the person or group merged, every username event included) and

@@ -104,16 +104,19 @@ func TestListUsers(t *testing.T) {
 		wantList(t, strings.Join(c.query, " "), p, c.total, c.ids)
 	}
 
-	// Filters the page does not know, or values that do not parse,
-	// are dropped and not echoed back; a malformed f is none.
+	// A filter the list does not take, or a value that does not
+	// parse, shows the whole list with the reason, as Drogon's lists
+	// do; an unknown sort or direction is the default.
 	p = e.props("superadmin", "users", "f", `[{"field":"nope","op":"=","value":"1"},`+
-		`{"field":"id","op":"=","value":"x"},{"field":"type","op":"=","value":"bot"}]`)
-	if js(p["conds"]) != `[{"field":"type","op":"=","value":"bot"}]` || num(p["total"]) != 1 {
-		t.Errorf("dropped filters: %v %v", p["conds"], p["total"])
+		`{"field":"type","op":"=","value":"bot"}]`)
+	if js(p["conds"]) != `[]` || num(p["total"]) != 9 ||
+		js(p["error"]) != `{"code":"bad_search","message":"unknown field: 'nope'"}` {
+		t.Errorf("refused filters: %v %v %v", p["conds"], p["total"], p["error"])
 	}
 	p = e.props("superadmin", "users", "f", "not json", "sort", "bio", "dir", "sideways")
-	if num(p["total"]) != 9 || p["sort"] != "msg_count" || p["dir"] != "desc" {
-		t.Errorf("malformed: %v %v %v", p["total"], p["sort"], p["dir"])
+	if num(p["total"]) != 9 || p["sort"] != "msg_count" || p["dir"] != "desc" ||
+		js(p["error"]) != `{"code":"bad_search","message":"f must be a JSON array of conditions"}` {
+		t.Errorf("malformed: %v %v %v %v", p["total"], p["sort"], p["dir"], p["error"])
 	}
 
 	// An admin sees what a superadmin sees; a member sees nobody until
@@ -173,7 +176,8 @@ func TestListFiles(t *testing.T) {
 
 	p := e.props("superadmin", "files", "file", "880005")
 	wantList(t, "files", p, 8, "880006,880004,880001,880002,880005,880003,880007,880008")
-	if num(p["per"]) != 50 || num(p["archive_total"]) != 8 || p["can_fetch"] != true ||
+	// The page size is the viewer's rows_per_page, the site's 25 here.
+	if num(p["per"]) != 25 || num(p["archive_total"]) != 8 || p["can_fetch"] != true ||
 		num(p["stored_bytes"]) != 183406+3145728+24576+40960+51200 {
 		t.Errorf("state: %v %v %v %v", p["per"], p["archive_total"], p["can_fetch"], p["stored_bytes"])
 	}

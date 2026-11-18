@@ -680,10 +680,22 @@ paths:
         document), whether or not the group exists. A list page reads
         its list state from its query string (q, f the filters as a
         JSON array of Cond, sort, dir, page, per) through the advanced
-        search (searchEntity) and the request scope; filters it does
-        not take are dropped and not echoed in conds, and archive_total
-        is there only for a viewer who sees the whole archive of that
-        list. The page's document
+        search (searchEntity) and the request scope. The users, groups,
+        group_messages and private_messages lists take every field of
+        their search registry (ListState.fields) with the search's
+        operators and connectors, besides their own filter keys, and
+        sort by the registry's sortable fields too; a filter or search
+        text they refuse, or a search that runs out of time, answers
+        the whole list with ListState.error, as the Drogon lists did.
+        The files list drops a filter it does not take, not echoed in
+        conds. per defaults to the viewer's rows_per_page and goes up
+        to 1000. archive_total is there only for a viewer who sees the
+        whole archive of that list. A Drogon list URL (search, offset,
+        limit, order, without f, page, per and dir) is read as the
+        same list, and the answer's url is the translated one, to put
+        in the address bar. The user and group pages and their history
+        pages take before, the history cursor (history_next). The
+        page's document
         (its HTML, web-ssr.md section 5) is served at the page's own
         path for each route whose data the service loads, and there a
         signed-out visitor asking for a page that needs a session is
@@ -5093,15 +5105,30 @@ components:
     # Lists: the rows of a list page and its state from the query string.
     Cond:
       type: object
+      description: >-
+        A filter of a list. field is one of the list's own filter keys
+        (with the ops contains, =, !=, >, <, >=, <=, empty, is) or, on
+        the users, groups and message lists, a field of ListState.fields
+        with one of its operators (the advanced search's, as in
+        web/docs/search-api.md). The filters form one chain, each joined
+        to the next by its n; AND binds tighter than OR, as in SQL.
       required: [field, op, value]
       properties:
         field:
           type: string
         op:
           type: string
-          enum: ['=', '!=', '>', '<', contains, empty, is]
+          enum: ['=', '!=', '>', '<', '>=', '<=', contains, empty, is, LIKE, NOT LIKE, '%LIKE%', 'NOT %LIKE%', matches, IS NULL, IS NOT NULL]
         value:
           type: string
+          description: Ignored (send "") for IS NULL and IS NOT NULL.
+        n:
+          type: string
+          enum: [AND, OR]
+          description: >-
+            The connector to the next filter; absent is AND (and the
+            answer's conds leave it out then). Not taken by the files
+            list, whose filters are all ANDed.
     ListState:
       type: object
       required: [total, page, pages, per, sort, dir, q, conds]
@@ -5130,6 +5157,40 @@ components:
           type: integer
           format: int64
           description: Everything in the archive; full-access viewers only.
+        total_exact:
+          type: boolean
+          description: >-
+            False when total is an estimate (a count that ran out of
+            time, or the table's row estimate, as group_messages without
+            conditions): show it as "about". Always sent by the service.
+        error:
+          $ref: '#/components/schemas/ListError'
+        fields:
+          type: array
+          description: >-
+            The users, groups and message lists: the search fields the
+            viewer may filter by, with their operators and whether they
+            sort (a member's users only by id, name, username, type and
+            photo). Absent on the files list.
+          items:
+            $ref: '#/components/schemas/SearchField'
+    ListError:
+      type: object
+      description: >-
+        Why the list shows its rows without the search asked for:
+        bad_search, a filter, connector, value or search text the list
+        refuses (message in the search's words, naming the field), or
+        search_timeout, the search ran out of its time limit. q and
+        conds are then empty, as applied; sort and page size are kept
+        (a sort that alone runs out of time falls back to the default).
+        When even the plain list runs out of time, rows is empty.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [bad_search, search_timeout]
+        message:
+          type: string
 
     # Page props, one per route (web/app/src/routes/).
     PasswordChangeProps:

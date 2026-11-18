@@ -90,7 +90,14 @@ type Deps struct {
 	pins  func(ctx context.Context, uid uint64, sc scope.Scope) ([]logdb.PinnedGroup, error)
 	// discord replaces the client that sends webhook test messages.
 	discord *http.Client
+	// search replaces the list pages' search (logdb.Search), for
+	// tests of a search that runs out of time.
+	search searchFunc
 }
+
+// searchFunc is logdb.Search's signature.
+type searchFunc func(ctx context.Context, db *sql.DB, sc scope.Scope, e *logdb.Entity,
+	req logdb.SearchRequest) (*logdb.SearchResult, error)
 
 // Server carries what the handlers share.
 type Server struct {
@@ -121,6 +128,7 @@ type Server struct {
 	viewerPins  func(ctx context.Context, uid uint64, sc scope.Scope) ([]logdb.PinnedGroup, error)
 	pages       []pageRoute
 	clock       func() time.Time
+	search      searchFunc
 	// discord sends the webhook test messages.
 	discord *http.Client
 	// mcp answers /mcp; mcpSlots holds one token per tool call that
@@ -191,6 +199,10 @@ func New(d Deps) http.Handler {
 	}
 	if d.clock != nil {
 		s.clock = d.clock
+	}
+	s.search = logdb.Search
+	if d.search != nil {
+		s.search = d.search
 	}
 	s.viewerPrefs = func(ctx context.Context, uid uint64) (settings.Prefs, error) {
 		return settings.Load(ctx, s.app, uid)
