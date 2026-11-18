@@ -72,7 +72,9 @@ describe('member access', () => {
 		expect(mine).not.toContain(2);
 		expect(section('Rust and systems')).toBeUndefined();
 		const note = within(dialog()).getByRole('note', { name: '' });
-		expect(note.textContent).toMatch(/Also filed in Rust and systems \(1 group\), which you do not administer/);
+		expect(note.textContent).toMatch(/Also filed in Rust and systems, which you do not administer/);
+		// Its groups there are not the admin's to see: no count of them.
+		expect(note.textContent).not.toMatch(/group/);
 		const body = await save(calls, r.id);
 		// Naming a federation it does not administer would be refused.
 		expect(body.grants.every((g) => mine.includes(g.fed))).toBe(true);
@@ -93,4 +95,5 @@ describe('member access', () => {
 		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
 		expect((await within(dialog()).findByRole('alert')).textContent).toBe('Group -1009001 is not in GNU/Weeb network.');
 	});
+
 });
