@@ -49,16 +49,13 @@ func isRepetitive(w string) bool {
 }
 
 // collapseElongation shortens a run of three or more identical
-// characters to two ("hmmmm" -> "hmm", "yesss" -> "yess"; "coffee"
-// survives), which is what the Drogon code does, although its comment
-// and the tool's description say a run becomes one character. By
+// characters to one ("hmmmm" -> "hm", "yesss" -> "yes"; "coffee", with
+// runs of two, survives), as the tool's description says. The Drogon
+// code kept two characters; this service answers as documented. By
 // codepoint, not by byte, as one character may repeat a byte three
 // times.
 func collapseElongation(w string) string {
-	var b strings.Builder
-	b.Grow(len(w))
-	var prev1, prev2 string
-	have1, have2 := false, false
+	var cps []string
 	for i := 0; i < len(w); {
 		c := w[i]
 		n := 1
@@ -74,14 +71,24 @@ func collapseElongation(w string) string {
 		if i+n > len(w) {
 			n = 1
 		}
-		cp := w[i : i+n]
+		cps = append(cps, w[i:i+n])
 		i += n
-		if have1 && have2 && cp == prev1 && cp == prev2 {
-			continue
+	}
+	var b strings.Builder
+	b.Grow(len(w))
+	for i := 0; i < len(cps); {
+		j := i + 1
+		for j < len(cps) && cps[j] == cps[i] {
+			j++
 		}
-		b.WriteString(cp)
-		prev2, have2 = prev1, have1
-		prev1, have1 = cp, true
+		if j-i >= 3 {
+			b.WriteString(cps[i])
+		} else {
+			for k := i; k < j; k++ {
+				b.WriteString(cps[k])
+			}
+		}
+		i = j
 	}
 	return b.String()
 }

@@ -95,7 +95,7 @@ var noiseWords = map[string]struct{}{
 	"bruh": {}, "coz": {}, "crap": {}, "cuz": {}, "damn": {},
 	"dang": {}, "dude": {}, "dunno": {}, "fck": {}, "fuck": {},
 	"fucking": {}, "gimme": {}, "gonna": {}, "gotta": {},
-	"guys": {}, "hello": {}, "hey": {}, "hmm": {}, "huh": {},
+	"guys": {}, "hello": {}, "hey": {}, "hm": {}, "hmm": {}, "huh": {},
 	"kay": {}, "kinda": {}, "lemme": {}, "like": {},
 	"literally": {}, "mate": {}, "meh": {}, "nah": {}, "nop": {},
 	"nope": {}, "okay": {}, "okie": {}, "ooh": {}, "oops": {},
@@ -141,3 +141,8 @@ func isNoiseWord(w string) bool {
 	_, ok := noiseWords[w]
 	return ok
 }
+
+// goNoiseExtra are the noise words this service adds to the Drogon
+// list: forms that only appear since elongation collapses a run to one
+// character ("hmmmm" -> "hm", which Drogon collapsed to "hmm").
+var goNoiseExtra = []string{"hm"}

@@ -143,6 +143,26 @@ func loadMCPCases(t *testing.T) ([]mcpCase, map[string]mcpAnswer) {
 	return cases, answers
 }
 
+// mcpOverride is the answer this service gives on purpose where Drogon
+// answered otherwise, with why.
+type mcpOverride struct {
+	Why  string `json:"why"`
+	Body string `json:"body"`
+}
+
+func loadMCPOverrides(t *testing.T) map[string]mcpOverride {
+	t.Helper()
+	var o map[string]mcpOverride
+	b, err := os.ReadFile("testdata/mcp/overrides.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &o); err != nil {
+		t.Fatalf("overrides.json: %v", err)
+	}
+	return o
+}
+
 func rpcErrorCode(body string) any {
 	var r struct {
 		Error struct {
@@ -156,6 +176,16 @@ func rpcErrorCode(body string) any {
 func TestMCPDrogonAnswers(t *testing.T) {
 	t.Parallel()
 	cases, answers := loadMCPCases(t)
+	overrides := loadMCPOverrides(t)
+	record := map[string]string{}
+	defer func() {
+		if out := os.Getenv("WEBAPI_MCP_RECORD"); out != "" && len(record) > 0 {
+			b, _ := json.MarshalIndent(record, "", "  ")
+			if err := os.WriteFile(out, append(b, '\n'), 0o644); err != nil {
+				t.Error(err)
+			}
+		}
+	}()
 	e := newMCPEnv(t, MCPConfig{Threads: 2})
 	for _, c := range cases {
 		want, ok := answers[c.Name]
@@ -179,6 +209,17 @@ func TestMCPDrogonAnswers(t *testing.T) {
 			if ct := rec.Header().Get("Content-Type"); ct != want.ContentType {
 				t.Errorf("%s: Content-Type %q, Drogon %q", c.Name, ct, want.ContentType)
 			}
+		}
+		// A case this service answers differently on purpose has its
+		// own expected answer in overrides.json.
+		if o, ok := overrides[c.Name]; ok {
+			if o.Body == want.Body {
+				t.Errorf("%s: override equals the Drogon answer; drop it", c.Name)
+			}
+			want.Body = o.Body
+		}
+		if got != want.Body && c.Compare != "status" {
+			record[c.Name] = got
 		}
 		switch c.Compare {
 		case "status":

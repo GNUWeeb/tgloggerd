@@ -182,11 +182,11 @@ func TestCompile(t *testing.T) {
 
 func TestWords(t *testing.T) {
 	t.Parallel()
-	// A run of three or more keeps two, as the Drogon code does
-	// (its comment says one).
+	// A run of three or more becomes one, as the tool's description
+	// says (the Drogon code kept two).
 	for in, want := range map[string]string{
-		"yesss": "yess", "coffee": "coffee", "hmmmm": "hmm", "sooooo": "soo",
-		"\U00020820\U00020820": "\U00020820\U00020820", "ééé": "éé", "ab": "ab",
+		"yesss": "yes", "coffee": "coffee", "hmmmm": "hm", "sooooo": "so", "hmm": "hmm",
+		"\U00020820\U00020820": "\U00020820\U00020820", "ééé": "é", "ab": "ab",
 	} {
 		if got := collapseElongation(in); got != want {
 			t.Errorf("collapse(%q) = %q, want %q", in, got, want)
@@ -209,7 +209,7 @@ func TestWords(t *testing.T) {
 		got = append(got, w+"="+string(rune('0'+n)))
 	}
 	sort.Strings(got)
-	if strings.Join(got, " ") != "dev=1 kernel=2 mail=1 see=1 someone=1 yess=1 Ünïcode=1" || total != 8 {
+	if strings.Join(got, " ") != "dev=1 kernel=2 mail=1 see=1 someone=1 yes=1 Ünïcode=1" || total != 8 {
 		t.Errorf("counted %v (%d)", got, total)
 	}
 }
@@ -241,9 +241,16 @@ func TestWordListsMatchDrogon(t *testing.T) {
 			t.Errorf("stopword %q missing", w)
 		}
 	}
+	// The Go list is Drogon's plus goNoiseExtra: words that only now
+	// result from collapsing a run to one character ("hmmm" -> "hm").
 	nw := read("NoiseWords.hpp", "kNoise = {")
-	if len(nw) != 384 || len(noiseWords) != len(nw) {
-		t.Errorf("noise words: %d here, %d in Drogon", len(noiseWords), len(nw))
+	if len(nw) != 384 || len(noiseWords) != len(nw)+len(goNoiseExtra) {
+		t.Errorf("noise words: %d here, %d in Drogon plus %d", len(noiseWords), len(nw), len(goNoiseExtra))
+	}
+	for _, w := range goNoiseExtra {
+		if !isNoiseWord(w) {
+			t.Errorf("extra noise word %q missing", w)
+		}
 	}
 	for w := range nw {
 		if !isNoiseWord(w) {
