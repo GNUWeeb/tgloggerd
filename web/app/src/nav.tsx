@@ -4,7 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type AnchorHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import type { PageData, Viewer } from './page.ts';
 import { fetchPage } from './api/page.ts';
-import { onEmailRequired } from './api/client.ts';
+import { onGate } from './api/client.ts';
 
 interface Nav {
 	page: PageData;
@@ -73,8 +73,8 @@ export function NavProvider({ initial, children }: { initial: PageData; children
 	}, []);
 
 	useEffect(() => {
-		onEmailRequired(() => void refresh());
-		return () => onEmailRequired(null);
+		onGate(() => void refresh());
+		return () => onGate(null);
 	}, [refresh]);
 
 	return <Ctx.Provider value={{ page, viewer: page.viewer, loading, navigate, refresh }}>{children}</Ctx.Provider>;

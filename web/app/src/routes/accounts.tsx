@@ -2,7 +2,7 @@
 // sign in, each account's role, an admin's federations and restrictions,
 // a member's grants per federation and abilities, and its audit trail.
 import { useState } from 'react';
-import { Ban, Crown, History, Info, KeyRound, LogOut, Mail, MailCheck, MailWarning, Network, Pencil, Plus, Send, ShieldCheck, TriangleAlert, User as UserIcon } from 'lucide-react';
+import { Ban, Check, Copy, Crown, History, Info, KeyRound, LogOut, MailCheck, MailWarning, Network, Pencil, Plus, ShieldCheck, TriangleAlert, User as UserIcon } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
@@ -56,9 +56,35 @@ function EmailLine({ a }: { a: AccountRow }) {
 		<span className="a-emailline">
 			{a.email_verified ? <MailCheck size={14} className="a-ok" /> : <MailWarning size={14} className="a-warnicon" />}
 			<span className="a-break">{a.email}</span>
-			<span className="a-muted sm">{a.email_verified ? 'verified' : a.invited ? 'invitation sent, password not set yet' : 'not verified'}</span>
+			<span className="a-muted sm">{a.email_verified ? 'verified' : a.invited ? 'has not chosen its own password yet' : 'not verified'}</span>
 		</span>
 	);
+}
+
+// A temporary password, shown once. It lives only in this component's
+// state while the dialog is open; nothing stores or logs it.
+function TemporaryPassword({ username, password }: { username: string; password: string }) {
+	const [copied, setCopied] = useState(false);
+	const copy = () => void navigator.clipboard?.writeText(password).then(() => setCopied(true), () => setCopied(false));
+	return (
+		<div className="a-form">
+			<p>The temporary password for <b>{username}</b>:</p>
+			<div className="a-code">
+				<pre aria-label="Temporary password">{password}</pre>
+				<Btn ghost icon={copied ? Check : Copy} onClick={copy}>{copied ? 'Copied' : 'Copy'}</Btn>
+			</div>
+			<div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>Shown only now: it is not stored and cannot be shown again. Give it to {username} through a channel you trust; they must choose their own password at the first sign-in. If it is lost, reset the password again.</span></div>
+		</div>
+	);
+}
+
+// What the access editor cannot change yet, in one sentence; nothing
+// when everything can be.
+function NotYet({ editable: e }: { editable: AccountsProps['editable'] }) {
+	const off = [!e.federations && 'federations', !e.group_grants && 'group grants', !e.restrictions && 'restrictions', !e.abilities && 'abilities'].filter((x): x is string => !!x);
+	if (!off.length) return null;
+	const list = off.length === 1 ? off[0]! : `${off.slice(0, -1).join(', ')} and ${off.at(-1)}`;
+	return <div className="a-banner" role="note"><Info size={15} /><span>{list[0]!.toUpperCase() + list.slice(1)} {off.length === 1 ? 'is' : 'are'} not available yet.</span></div>;
 }
 
 type Draft = AccountRow & { isNew?: boolean };
@@ -71,9 +97,15 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 	const [editEmail, setEditEmail] = useState(false);
 	const [err, setErr] = useState('');
 	const [note, setNote] = useState('');
+	// A temporary password just issued, held only while this dialog is
+	// open: never stored, never shown again.
+	const [temp, setTemp] = useState<{ username: string; password: string; reset: boolean } | null>(null);
 	const set = (patch: Partial<Draft>) => setA({ ...a, ...patch });
 	const roles = isSuper ? ROLES : ROLES.filter((r) => r[0] === 'member');
 	const grantOf = (fid: number) => a.grants.find((g) => g.fed === fid);
+	// What the server lets this page change yet (AccountsProps.editable).
+	const E = props.editable;
+	const feds = E.federations ? props.federations : props.federations.filter((f) => f.default);
 	const call = async (fn: () => Promise<unknown>, after: 'close' | string) => {
 		setErr('');
 		try {
@@ -81,36 +113,62 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 			if (after === 'close') { onSaved(); onClose(); } else { setNote(after); onSaved(); }
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }
 	};
-	const save = () => call(() => (isNew
-		? ok(api.POST('/api/accounts', { body: { username: a.username, name: a.name, email: a.email ?? '', role: a.role, ...(a.role === 'member' && a.grants.length ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })) } : {}) } }))
-		: ok(api.PATCH('/api/accounts/{id}', { params: { path: { id: a.id } }, body: {
+	const create = async () => {
+		setErr('');
+		try {
+			const r = await ok(api.POST('/api/accounts', { body: { username: a.username, name: a.name, email: a.email ?? '', role: a.role, ...(a.role === 'member' && a.grants.length ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })) } : {}) } }));
+			setTemp({ username: a.username, password: r.temporary_password, reset: false });
+			onSaved();
+		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }
+	};
+	const reset = async () => {
+		if (!confirm(`Reset ${a.username}'s password? Every session of the account ends, and it must choose a new password at its next sign-in.`)) return;
+		setErr(''); setNote('');
+		try {
+			const r = await ok(api.POST('/api/accounts/{id}/password-reset', { params: { path: { id: a.id } } }));
+			setTemp({ username: a.username, password: r.temporary_password, reset: true });
+			onSaved();
+		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }
+	};
+	const save = () => (isNew ? create() : call(() => ok(api.PATCH('/api/accounts/{id}', { params: { path: { id: a.id } }, body: {
 			name: a.name, role: a.role,
 			...(a.email !== init.email ? { email: a.email ?? '' } : {}),
-			...(a.role === 'admin' ? { admin_of: a.admin_of, ...(a.restrict ? { restrict: { ...a.restrict, hide_groups: a.restrict.hide_groups.map((g) => g.id) } } : {}) } : {}),
-			...(a.role === 'member' ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })), abilities: a.abilities } : {}),
-		} }))), 'close');
+			...(a.role === 'admin' && E.federations ? { admin_of: a.admin_of } : {}),
+			...(a.role === 'admin' && E.restrictions && a.restrict ? { restrict: { ...a.restrict, hide_groups: a.restrict.hide_groups.map((g) => g.id) } } : {}),
+			...(a.role === 'member' ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: E.group_grants ? g.groups.map((x) => x.id) : [] })) } : {}),
+			...(a.role === 'member' && E.abilities ? { abilities: a.abilities } : {}),
+		} })), 'close'));
 	const restrict = a.restrict ?? { hide_private: false, hide_groups: [], join_chat: false };
 	// A member's groups per federation: on the Access tab, and when
 	// creating a member (an admin must grant at least one federation).
 	const grantsBlock = (
 		<>
-			<h3 className="a-sec">Groups, per federation</h3>
-			<p className="a-muted sm">A member sees only the groups granted here, and people only as they appear in those groups. Members never see private messages.</p>
-			{props.federations.map((f) => {
+			<h3 className="a-sec">{E.group_grants ? 'Groups, per federation' : 'Federations'}</h3>
+			{E.group_grants && <p className="a-muted sm">A member sees only the groups granted here, and people only as they appear in those groups. Members never see private messages.</p>}
+			{feds.map((f) => {
 				const g = grantOf(f.id);
 				return (
 					<section key={f.id} className={`a-fedgrant ${g ? 'on' : ''}`}>
 						<header>
 							<Switch checked={!!g} onChange={() => set({ grants: g ? a.grants.filter((x) => x.fed !== f.id) : [...a.grants, { fed: f.id, groups: [] }] })} label={<><Network size={14} /> {f.name}</>} />
-							{g && <span className="a-muted sm">{g.groups.length} of {f.group_count} groups</span>}
+							{g && E.group_grants && <span className="a-muted sm">{g.groups.length} of {f.group_count} groups</span>}
 						</header>
-						{g && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={{ kind: 'group', federation: f.id }} placeholder={`Add a group of ${f.name}...`} />}
+						{g && E.group_grants && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={{ kind: 'group', federation: f.id }} placeholder={`Add a group of ${f.name}...`} />}
 					</section>
 				);
 			})}
 		</>
 	);
 	const grantRequired = isNew && !isSuper && a.role === 'member' && a.grants.length === 0;
+	const notYet = <NotYet editable={E} />;
+	if (temp) {
+		return (
+			<Modal title={temp.reset ? `New password for ${temp.username}` : `${temp.username} is created`} icon={<KeyRound size={16} />} onClose={onClose}
+				footer={<><span className="a-grow" /><Btn primary onClick={onClose}>Done</Btn></>}>
+				<TemporaryPassword username={temp.username} password={temp.password} />
+			</Modal>
+		);
+	}
 	return (
 		<Modal wide title={isNew ? 'New account' : init.name} icon={!isNew ? <Avatar id={init.id} name={init.name} size={24} /> : undefined} onClose={onClose}
 			footer={<>
@@ -119,7 +177,7 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 				<span className="a-grow" />
 				<Btn ghost onClick={onClose}>Cancel</Btn>
 				{grantRequired && <span className="a-muted sm a-note"><Info size={13} />Grant at least one federation.</span>}
-				<Btn primary disabled={grantRequired} onClick={() => void save()}>{isNew ? 'Create and email link' : 'Save changes'}</Btn>
+				<Btn primary disabled={grantRequired} onClick={() => void save()}>{isNew ? 'Create account' : 'Save changes'}</Btn>
 			</>}>
 			{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			{note && <div className="a-banner" role="status"><MailCheck size={15} /><span>{note}</span></div>}
@@ -134,7 +192,7 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 						</Field>
 						<Field label="Display name"><input value={a.name} onChange={(e) => set({ name: e.target.value })} /></Field>
 						{isNew || a.invited ? (
-							<Field label="Email address" hint={isNew ? 'Must not be used by another account.' : 'Not signed in yet, so the address can still be corrected; saving sends a new set-password link and the old link stops working.'}>
+							<Field label="Email address" hint={isNew ? 'Must not be used by another account.' : 'Not signed in with its own password yet, so the address can still be corrected.'}>
 								<input type="email" value={a.email ?? ''} onChange={(e) => set({ email: e.target.value })} autoComplete="off" />
 							</Field>
 						) : editEmail ? (
@@ -148,10 +206,9 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 								<span className="a-field-hint">Accounts change their own address in Settings; the old address is told.</span>
 							</div>
 						)}
-						{isNew ? <div className="a-banner"><Mail size={15} /><span>The account gets an email with a one-time link to choose its own password. No password is ever shown here or sent by email.</span></div> : (
+						{isNew ? <div className="a-banner"><KeyRound size={15} /><span>The account gets a temporary password, shown to you once when it is created. Its owner must choose their own at the first sign-in.</span></div> : (
 							<div className="a-btnrow">
-								{a.invited ? <Btn ghost icon={Send} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/resend-invite', { params: { path: { id: a.id } } })), 'A new set-password link is on its way.')}>Resend set-password link</Btn>
-									: <Btn ghost icon={KeyRound} disabled={!a.email_verified} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/password-reset', { params: { path: { id: a.id } } })), 'A password reset link is on its way.')}>Send password reset link</Btn>}
+								<Btn ghost icon={KeyRound} onClick={() => void reset()}>Reset to a temporary password</Btn>
 								<Btn ghost icon={LogOut} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/sign-out-everywhere', { params: { path: { id: a.id } } })), 'Every session of this account has been signed out.')}>Sign out everywhere</Btn>
 							</div>
 						)}
@@ -178,7 +235,8 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 
 			{!isNew && tab === 'access' && a.role === 'admin' && (
 				<div className="a-acctgrid">
-					<section className="a-form">
+					{!(E.federations && E.restrictions) && notYet}
+					{E.federations && <section className="a-form">
 						<h3 className="a-sec">Administers</h3>
 						<p className="a-muted sm">Federations limit what this admin manages, not what it sees.</p>
 						<div className="a-checkgrid">{props.all_federations.map((f) => {
@@ -190,8 +248,8 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 								</label>
 							);
 						})}</div>
-					</section>
-					<section className="a-form">
+					</section>}
+					{E.restrictions && <section className="a-form">
 						<h3 className="a-sec">Restrictions</h3>
 						<ul className="a-perms">
 							<li><label><input type="checkbox" checked={restrict.hide_private} onChange={() => set({ restrict: { ...restrict, hide_private: !restrict.hide_private } })} /><span><b>Hide private messages</b><span className="a-muted sm">No private-message menu, pages or API; their URLs answer 404.</span></span></label></li>
@@ -199,19 +257,22 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 								<MultiPicker value={restrict.hide_groups} onChange={(gs) => set({ restrict: { ...restrict, hide_groups: gs } })} search={{ kind: 'group' }} placeholder="Add a group to hide..." /></div></li>
 							<li><label><input type="checkbox" checked={restrict.join_chat} onChange={() => set({ restrict: { ...restrict, join_chat: !restrict.join_chat } })} /><span><b>Allow Join chat</b><span className="a-muted sm">Make the logging account join groups, and add them to its federations.</span></span></label></li>
 						</ul>
-					</section>
+					</section>}
 				</div>
 			)}
 
-			{isNew && a.role === 'member' && <div className="a-form">{grantsBlock}</div>}
+			{isNew && a.role === 'member' && <div className="a-form">{!(E.federations && E.group_grants) && notYet}{grantsBlock}</div>}
 
 			{!isNew && tab === 'access' && a.role === 'member' && (
 				<div className="a-form">
+					{!(E.federations && E.group_grants && E.abilities) && notYet}
 					{grantsBlock}
-					<h3 className="a-sec">Abilities</h3>
-					<ul className="a-perms">{ABILITIES.map(([k, t, d]) => (
-						<li key={k}><label><input type="checkbox" checked={a.abilities.includes(k)} onChange={() => set({ abilities: a.abilities.includes(k) ? a.abilities.filter((x) => x !== k) : [...a.abilities, k] })} /><span><b>{t}</b><span className="a-muted sm">{d}</span></span></label></li>
-					))}</ul>
+					{E.abilities && <>
+						<h3 className="a-sec">Abilities</h3>
+						<ul className="a-perms">{ABILITIES.map(([k, t, d]) => (
+							<li key={k}><label><input type="checkbox" checked={a.abilities.includes(k)} onChange={() => set({ abilities: a.abilities.includes(k) ? a.abilities.filter((x) => x !== k) : [...a.abilities, k] })} /><span><b>{t}</b><span className="a-muted sm">{d}</span></span></label></li>
+						))}</ul>
+					</>}
 				</div>
 			)}
 
@@ -236,7 +297,7 @@ function Accounts({ page }: { page: PageData<AccountsProps> }) {
 	const feds = (a: AccountRow) => (a.role === 'admin' ? a.admin_of : a.grants.map((g) => g.fed));
 	const blank: Draft = { isNew: true, id: 0, username: '', name: '', email: '', email_verified: false, invited: false, role: 'member', active: true, last_signin: null, last_superadmin: false, admin_of: [], restrict: null, grants: [], abilities: [], audit: [] };
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
-	const last = (a: AccountRow) => (a.invited ? <Pill tone="info"><Mail size={11} />invited</Pill> : !a.email ? <Pill tone="danger"><MailWarning size={11} />no email</Pill> : a.last_signin ? ago(a.last_signin, v) : <span className="a-muted">never</span>);
+	const last = (a: AccountRow) => (a.invited ? <Pill tone="info"><KeyRound size={11} />invited</Pill> : !a.email ? <Pill tone="danger"><MailWarning size={11} />no email</Pill> : a.last_signin ? ago(a.last_signin, v) : <span className="a-muted">never</span>);
 	return (
 		<Shell crumbs={[['Accounts', null]]}>
 			<PageHead title="Accounts" sub={isSuper ? 'Who can sign in, their role, and what each one may see and manage.' : 'Members of the federations you administer.'}

@@ -25,13 +25,17 @@ export const BUILD_FILE = 'build.json';
 // A build id goes into a JSON body and a log line; keep it plain.
 const ID = /^[A-Za-z0-9._-]{1,64}$/;
 
+// Tests live beside the sources but are never bundled; a change to one
+// must not change the build id.
+const NOT_BUNDLED = /(^|\/)test\/|\.test\.tsx?$/;
+
 // The input files under root, as sorted paths with '/' separators.
 export function inputFiles(root: string): string[] {
 	const out: string[] = [];
 	const walk = (rel: string) => {
 		if (statSync(join(root, rel)).isDirectory()) {
 			for (const name of readdirSync(join(root, rel)).sort()) walk(`${rel}/${name}`);
-		} else out.push(rel);
+		} else if (!NOT_BUNDLED.test(rel)) out.push(rel);
 	};
 	for (const rel of INPUTS) walk(rel);
 	return out.sort();

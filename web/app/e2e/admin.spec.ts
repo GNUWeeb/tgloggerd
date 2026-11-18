@@ -10,9 +10,13 @@ test('an admin creates a member, granted a federation', async ({ page, as }) => 
 	await fields.nth(0).fill('e2emember');
 	await fields.nth(1).fill('E2E member');
 	await d.locator('input[type=email]').fill('e2e@example.org');
-	await expect(d.getByRole('button', { name: 'Create and email link' })).toBeDisabled();
+	await expect(d.getByRole('button', { name: 'Create account' })).toBeDisabled();
 	await d.locator('.a-fedgrant input.a-switch').first().check();
-	await d.getByRole('button', { name: 'Create and email link' }).click();
+	await d.getByRole('button', { name: 'Create account' }).click();
+	// The temporary password, shown once.
+	await expect(page.getByLabel('Temporary password')).toHaveText(/^[A-Za-z0-9_-]{12,}$/);
+	await page.getByRole('button', { name: 'Done' }).click();
+	await expect(page.getByLabel('Temporary password')).toHaveCount(0);
 	await expect(page.locator('tr:has-text("e2e@example.org")')).toContainText('invited');
 });
 

@@ -45,3 +45,22 @@ test('an account without an address adds one, and moves on once the link is foll
 	await page.evaluate(() => dispatchEvent(new Event('focus')));
 	await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
 });
+
+test('signing in with a temporary password asks for an own one first, then the next gate, on the page asked for', async ({ page, as }) => {
+	await as('public');
+	await page.goto('/groups');
+	await page.fill('input[name=username]', 'mod_kernel');
+	await page.fill('input[name=password]', 'standin');
+	await page.click('button:has-text("Sign in")');
+	await expect(page.getByRole('heading', { name: 'Choose your own password' })).toBeVisible();
+	await expect(page).toHaveURL(/\/groups$/);
+	await page.fill('input[name=current_password]', 'standin');
+	await page.fill('input[name=new_password]', 'my own passphrase');
+	await page.fill('input[name=confirm_password]', 'my own passphrase');
+	await page.click('button:has-text("Set my password")');
+	// mod_kernel's address is not verified yet: that gate comes next.
+	await expect(page.getByRole('heading', { name: 'Add your email address' })).toBeVisible();
+	await expect(page).toHaveURL(/\/groups$/);
+	await page.reload();
+	await expect(page.getByRole('heading', { name: 'Add your email address' })).toBeVisible();
+});

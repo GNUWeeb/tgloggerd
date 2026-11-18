@@ -34,6 +34,11 @@ describe('buildId', () => {
 		const before = buildId(d, {});
 		writeFileSync(join(d, 'README'), 'edited\n');
 		expect(buildId(d, {})).toBe(before);
+		// Tests are not bundled.
+		mkdirSync(join(d, 'src', 'test'), { recursive: true });
+		writeFileSync(join(d, 'src', 'test', 'page.tsx'), 'helper\n');
+		writeFileSync(join(d, 'src', 'routes', 'login.test.tsx'), 'test\n');
+		expect(buildId(d, {})).toBe(before);
 		writeFileSync(join(d, 'src', 'routes', 'login.tsx'), 'login 2\n');
 		const src = buildId(d, {});
 		expect(src).not.toBe(before);

@@ -32,11 +32,40 @@ if (cluster.isPrimary && WORKERS > 1) {
 	cluster.on('listening', () => {
 		if (!chmodded) { chmodSync(SOCKET, 0o660); chmodded = true; log({ msg: 'listening', socket: SOCKET, workers: WORKERS }); }
 	});
-	cluster.on('exit', (w, code) => {
-		log({ msg: 'worker exited, restarting', worker: w.process.pid, code });
+	// A worker that dies is replaced; workers that keep dying (an entry
+	// that is there but fails to load, a bad build) would be replaced in
+	// a busy loop, so after CRASHES deaths within CRASH_WINDOW_MS the
+	// primary gives up and exits 1, and the container's restart policy
+	// retries with its back-off.
+	const CRASHES = Math.max(3, 2 * WORKERS);
+	const CRASH_WINDOW_MS = 10_000;
+	const deaths: number[] = [];
+	let stopping = false;
+	cluster.on('exit', (w, code, signal) => {
+		if (stopping) return;
+		const now = Date.now();
+		deaths.push(now);
+		while (deaths.length && now - deaths[0]! > CRASH_WINDOW_MS) deaths.shift();
+		if (deaths.length >= CRASHES) {
+			log({ msg: 'workers keep exiting; giving up', deaths: deaths.length, window_ms: CRASH_WINDOW_MS, code, signal });
+			stopping = true;
+			for (const x of Object.values(cluster.workers || {})) x?.kill();
+			process.exit(1);
+		}
+		log({ msg: 'worker exited, restarting', worker: w.process.pid, code, signal });
 		cluster.fork();
 	});
-	const stop = () => { for (const w of Object.values(cluster.workers || {})) w?.kill(); process.exit(0); };
+	// Stop: no more replacements; each worker finishes the renders it has
+	// (it closes its server on SIGTERM), then the primary exits.
+	const stop = () => {
+		if (stopping) return;
+		stopping = true;
+		const left = new Set(Object.values(cluster.workers || {}).filter((w) => w !== undefined));
+		if (!left.size) process.exit(0);
+		cluster.on('exit', (w) => { left.delete(w); if (!left.size) process.exit(0); });
+		for (const w of left) w.process.kill('SIGTERM');
+		setTimeout(() => process.exit(0), 10_000).unref();
+	};
 	process.on('SIGTERM', stop);
 	process.on('SIGINT', stop);
 } else {
