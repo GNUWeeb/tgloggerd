@@ -57,10 +57,11 @@ std::vector<Route> DB::loadRoutes(void)
 		"SELECT r.id, r.discord_channel_id, r.telegram_chat_id, "
 		"       r.telegram_bot_id, b.token, b.bot_user_id, b.username, "
 		"       r.fwd_sticker, r.fwd_text, r.fwd_photo, r.fwd_video, "
-		"       r.fwd_document "
+		"       r.fwd_document, r.discord_bot_id "
 		"FROM discord_telegram_routes r "
 		"JOIN telegram_bots b ON b.id = r.telegram_bot_id "
-		"WHERE r.enabled = 1 AND b.enabled = 1";
+		"JOIN discord_bots d ON d.id = r.discord_bot_id "
+		"WHERE r.enabled = 1 AND b.enabled = 1 AND d.enabled = 1";
 
 	/* Column order of the fwd_* flags above, from column 7 on. */
 	static const unsigned bits[] = { FWD_STICKER, FWD_TEXT, FWD_PHOTO,
@@ -80,9 +81,78 @@ std::vector<Route> DB::loadRoutes(void)
 			if (row_u64(r, 7 + i))
 				rt.types |= bits[i];
 		}
+		rt.discord_bot_id = row_u64(r, 12);
 		out.push_back(std::move(rt));
 	}
 	return out;
+}
+
+uint64_t DB::countRoutesWithoutDiscordBot(void)
+{
+	auto rows = db_->query("SELECT COUNT(*) FROM discord_telegram_routes "
+			       "WHERE enabled = 1 AND discord_bot_id IS NULL");
+	return rows.empty() ? 0 : row_u64(rows[0], 0);
+}
+
+std::vector<DiscordBotRow> DB::loadDiscordBots(void)
+{
+	std::vector<DiscordBotRow> out;
+	for (const auto &r : db_->query("SELECT id, token FROM discord_bots "
+					"WHERE enabled = 1 ORDER BY id")) {
+		DiscordBotRow b;
+		b.id = row_u64(r, 0);
+		b.token = row_str(r, 1);
+		out.push_back(std::move(b));
+	}
+	return out;
+}
+
+std::vector<TelegramBotRow> DB::loadTelegramBots(void)
+{
+	std::vector<TelegramBotRow> out;
+	for (const auto &r : db_->query("SELECT id, token, bot_user_id, username "
+					"FROM telegram_bots WHERE enabled = 1 "
+					"ORDER BY id")) {
+		TelegramBotRow b;
+		b.id = row_u64(r, 0);
+		b.token = row_str(r, 1);
+		b.bot_user_id = row_i64(r, 2);
+		b.username = row_str(r, 3);
+		out.push_back(std::move(b));
+	}
+	return out;
+}
+
+/* The UPDATE of a bot report, for the table named (a constant of ours). */
+static void report_bot(mysql::Database &db, const char *table,
+		       const BotReport &r)
+{
+	std::string sql = std::string("UPDATE ") + table +
+			  " SET status = ?, status_detail = ?, "
+			  "status_at = NOW(), enabled = IF(?, 0, enabled)";
+	std::vector<mysql::Param> p = {
+		std::string(bot_status_name(r.status)),
+		r.detail.empty() ? mysql::Param{} : mysql::Param{r.detail},
+		(int64_t)(r.disable ? 1 : 0)};
+	if (r.has_identity) {
+		sql += ", bot_user_id = ?, username = ?";
+		p.push_back(u64(r.user_id));
+		p.push_back(r.username);
+	}
+	sql += " WHERE id = ? AND token = ? AND enabled = 1";
+	p.push_back(u64(r.id));
+	p.push_back(r.token);
+	db.execute(sql, p);
+}
+
+void DB::reportDiscordBot(const BotReport &r)
+{
+	report_bot(*db_, "discord_bots", r);
+}
+
+void DB::reportTelegramBot(const BotReport &r)
+{
+	report_bot(*db_, "telegram_bots", r);
 }
 
 void DB::setBotUserId(uint64_t bot_row_id, int64_t user_id,

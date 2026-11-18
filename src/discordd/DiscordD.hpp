@@ -14,8 +14,10 @@
 namespace discordd {
 
 struct Config {
-	/* Discord side. */
-	std::string	discord_bot_token;
+	/*
+	 * The Discord bots, and the Telegram bots, are rows of the database
+	 * (discord_bots, telegram_bots), not settings.
+	 */
 
 	/* Telegram side: TDLib needs these even for a bot session. */
 	int32_t		api_id = 0;
@@ -24,7 +26,7 @@ struct Config {
 
 	mysql::Config	db;
 
-	/* How often the route table is re-read, in seconds. */
+	/* How often the bots and routes are re-read, in seconds. */
 	int		route_refresh_secs = 30;
 
 	int		log_level = 2;	/* 0=error 1=warn 2=info 3=debug */
@@ -33,9 +35,11 @@ struct Config {
 /*
  * The Discord -> Telegram bridge.
  *
- * Receives messages through gwdiscord, logs every one that belongs to a
- * configured route, and forwards it to that route's Telegram chat through
- * that route's bot. Edits and deletes follow the message.
+ * Runs one gwdiscord gateway per enabled Discord bot, logs every message
+ * that belongs to a route read by that bot, and forwards it to the route's
+ * Telegram chat through the route's Telegram bot. Edits and deletes follow
+ * the message. Each bot's state, as discordd sees it, is written back to
+ * its row.
  */
 class DiscordD {
 public:
@@ -45,7 +49,11 @@ public:
 	DiscordD(const DiscordD &) = delete;
 	DiscordD &operator=(const DiscordD &) = delete;
 
-	/* Blocks until stop() or a fatal Discord condition. 0 on clean exit. */
+	/*
+	 * Blocks until stop(). 0 on a clean exit, 1 when the database is
+	 * unavailable at start. A bot Discord refuses is disabled, not a
+	 * reason to exit.
+	 */
 	int run(void);
 
 	/* Safe from any thread, including a signal handler. */

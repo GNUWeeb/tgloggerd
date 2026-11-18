@@ -6,8 +6,8 @@
  * discordd -- the Discord daemon.
  *
  * Logs Discord messages into the tgloggerd database and forwards the ones on a
- * configured route to a Telegram chat. Configuration comes entirely from the
- * environment; see .env.example.
+ * configured route to a Telegram chat. Its settings come from the environment
+ * (see .env.example); the bots and routes it runs are rows of the database.
  */
 #include "DiscordD.hpp"
 
@@ -53,8 +53,16 @@ int main(void)
 	discordd::Config cfg;
 	std::string api_id;
 
-	if (!env_required("DISCORD_BOT_TOKEN", cfg.discord_bot_token))
-		return 1;
+	/*
+	 * The Discord bots are rows of discord_bots now. A token still in the
+	 * environment is not read: say so, so it is imported and removed
+	 * rather than left behind believed to be in use.
+	 */
+	if (getenv("DISCORD_BOT_TOKEN") && *getenv("DISCORD_BOT_TOKEN"))
+		fprintf(stderr, "[discordd/warn] DISCORD_BOT_TOKEN is no longer "
+				"read: the Discord bots are in the database. "
+				"Import it (webapi import-discord-bot) and "
+				"remove it from the environment.\n");
 	/*
 	 * TDLib needs an api_id/api_hash pair even for a bot session, so
 	 * discordd reuses the daemon's rather than asking for a second one.
