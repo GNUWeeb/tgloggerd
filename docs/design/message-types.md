@@ -632,13 +632,23 @@ the card: a message with previews turned off has no card (decision
 
 ### 4.9 Repairing old rows
 
-Rows stored as `unknown` before the change, and service rows without
-`content_extra`, are re-read with `getMessage` through the existing
-rate-limited relink re-fetch path and stored again with the new
-extraction. A row whose message TDLib cannot return any more keeps
-what it has, with `tdlib_type` left NULL. Media rows are not re-read
-for the detail of section 4.2 (decision
+Rows stored before classification as `unknown`, and service rows
+without their detail, are re-read with `getMessage` and stored again
+through the normal path, which classifies them. The pass is opt-in: it
+runs at startup when `TG_REPAIR_MESSAGES_ON_START` is set, and `dry`
+only logs how many rows it would re-read, per table and kind. It shares
+the relink re-fetch's pace (10 `getMessage` a second for both).
+
+A row qualifies while it is live, has no `tdlib_type`, and is
+`unknown` or `service`. A re-read row gets its `tdlib_type`, so a pass
+cut short by a restart resumes where it was without any saved state.
+A row whose message TDLib cannot return any more keeps what it has and
+is tried again on every start while the flag is on. Media rows are not
+re-read for the detail of section 4.2 (decision
 [2026-11-18-msg-repair-scope](decisions/2026-11-18-msg-repair-scope.md)).
+The local re-map of rows holding only TDLib's JSON, once planned here,
+is dropped (decision
+[2026-11-18-msg-repair-opt-in](decisions/2026-11-18-msg-repair-opt-in.md)).
 
 ### 4.10 Forwarding to Discord
 

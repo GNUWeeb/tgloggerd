@@ -20,6 +20,7 @@
 
 #include <utility>
 #include <vector>
+#include <tuple>
 #include <string>
 #include <cstdint>
 #include <mutex>
@@ -224,6 +225,19 @@ public:
 	 * Deleted messages are left out: the server no longer has them.
 	 */
 	std::vector<std::pair<int64_t, int64_t>> listMediaMessagesWithoutFile(void);
+
+	/*
+	 * The live messages stored before content classification whose kind
+	 * or detail is missing: content_type 'unknown', or a service message,
+	 * with no tdlib_type. Re-reading one through the normal path gives it
+	 * a tdlib_type, so a repaired row is never listed again.
+	 */
+	std::vector<std::pair<int64_t, int64_t>> listMessagesToRepair(void);
+
+	/* How many rows listMessagesToRepair would return, per table and
+	 * content_type, for the dry run: ("group", "unknown") -> n, ... */
+	std::vector<std::tuple<std::string, std::string, uint64_t>>
+	countMessagesToRepair(void);
 
 	/* Discord-forwarder lookups (see DiscordForwarder). */
 	std::optional<SenderUser> getSenderUser(int64_t user_id);

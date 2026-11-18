@@ -326,6 +326,45 @@ int TgLoggerd::start(void)
 		}
 	}
 	/*
+	 * Opt-in, one-off repair of rows stored before content
+	 * classification: messages kept as 'unknown', and service messages
+	 * without their detail, are re-fetched and stored again
+	 * (docs/design/message-types.md section 4.9). "dry" only counts them.
+	 * Repaired rows get a tdlib_type and are not listed again, so a pass
+	 * that a restart cuts short resumes where it was; the rows TDLib can
+	 * no longer return are tried again on every start while this is on,
+	 * which is why it is off by default.
+	 */
+	const std::string repair = env("TG_REPAIR_MESSAGES_ON_START", "0");
+	if (repair == "dry") {
+		try {
+			uint64_t total = 0;
+			for (const auto &c : db_->countMessagesToRepair()) {
+				pr_info(l_, "repair (dry run): %llu %s message(s)"
+					" stored as %s",
+					(unsigned long long)std::get<2>(c),
+					std::get<0>(c).c_str(),
+					std::get<1>(c).c_str());
+				total += std::get<2>(c);
+			}
+			pr_info(l_, "repair (dry run): %llu message(s) would be"
+				" re-fetched", (unsigned long long)total);
+		} catch (const std::exception &e) {
+			pr_error(l_, "repair: could not count messages: %s",
+				 e.what());
+		}
+	} else if (repair != "0") {
+		try {
+			auto msgs = db_->listMessagesToRepair();
+			pr_info(l_, "repair: %zu old message(s) lack their kind"
+				" or detail; re-fetching them", msgs.size());
+			tdlib_->repairMessages(std::move(msgs));
+		} catch (const std::exception &e) {
+			pr_error(l_, "repair: could not list messages: %s",
+				 e.what());
+		}
+	}
+	/*
 	 * Handlers run on the event loop, where the models are already built
 	 * from td_api objects. They only enqueue the persistence work: DB
 	 * upserts go to serial_ (order preserved); media hashing goes to

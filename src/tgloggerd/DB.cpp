@@ -72,6 +72,49 @@ std::vector<std::pair<int64_t, int64_t>> DB::listMediaMessagesWithoutFile(void)
 	return out;
 }
 
+/* The repair selection (listMessagesToRepair) of one message table. */
+static std::string repair_where(void)
+{
+	return " WHERE deleted_at IS NULL AND tdlib_type IS NULL"
+	       " AND content_type IN ('unknown','service')";
+}
+
+std::vector<std::pair<int64_t, int64_t>> DB::listMessagesToRepair(void)
+{
+	auto rows = db_.query(
+		"SELECT chat_id, message_id FROM telegram_group_messages" +
+		repair_where() +
+		" UNION ALL SELECT chat_id, message_id"
+		" FROM telegram_private_messages" + repair_where());
+
+	std::vector<std::pair<int64_t, int64_t>> out;
+	out.reserve(rows.size());
+	for (const auto &r : rows) {
+		if (!r[0].has_value() || !r[1].has_value())
+			continue;
+		out.emplace_back(std::stoll(*r[0]), std::stoll(*r[1]));
+	}
+	return out;
+}
+
+std::vector<std::tuple<std::string, std::string, uint64_t>>
+DB::countMessagesToRepair(void)
+{
+	auto rows = db_.query(
+		"SELECT 'group', content_type, COUNT(*)"
+		" FROM telegram_group_messages" + repair_where() +
+		" GROUP BY content_type"
+		" UNION ALL SELECT 'private', content_type, COUNT(*)"
+		" FROM telegram_private_messages" + repair_where() +
+		" GROUP BY content_type");
+
+	std::vector<std::tuple<std::string, std::string, uint64_t>> out;
+	for (const auto &r : rows)
+		if (r[0].has_value() && r[1].has_value() && r[2].has_value())
+			out.emplace_back(*r[0], *r[1], std::stoull(*r[2]));
+	return out;
+}
+
 std::vector<int64_t> DB::loadForwardingBotUserIds(void)
 {
 	/*

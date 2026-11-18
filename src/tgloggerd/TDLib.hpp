@@ -589,6 +589,13 @@ public:
 	void relinkMessageMedia(std::vector<std::pair<int64_t, int64_t>> msgs);
 
 	/*
+	 * Queue (chat_id, server message id) pairs to be re-fetched and stored
+	 * again, paced with relinkMessageMedia under one budget; see
+	 * DB::listMessagesToRepair.
+	 */
+	void repairMessages(std::vector<std::pair<int64_t, int64_t>> msgs);
+
+	/*
 	 * When enabled, issue a one-time optimizeStorage once the client
 	 * reaches the ready state, reclaiming files TDLib cached in a previous
 	 * run. Must be called before loop().

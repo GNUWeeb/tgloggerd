@@ -108,7 +108,6 @@ The file store as a capped cache in front of Telegram:
 Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
-- [`msg-repair-old-rows`](todo/msg-repair-old-rows.md): Re-read rows stored as unknown, and service rows without detail, with the new extraction.
 - [`msg-interaction`](todo/msg-interaction.md): Store each message's latest views, forwards, reply count and reaction totals.
 - [`web-message-types`](todo/web-message-types.md): Show the new content kinds, topics, polls and message files in the web and search API.
 
