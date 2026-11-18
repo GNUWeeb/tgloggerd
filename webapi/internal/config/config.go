@@ -113,6 +113,22 @@ type Config struct {
 	// Defaults are the site's settings for accounts that did not choose
 	// their own (WEBAPI_DEFAULT_TIMEZONE, _DATE_FORMAT, _LANG, _THEME).
 	Defaults settings.Defaults
+
+	// PublicURL is the site's public base URL, for absolute
+	// /files/<token> links in MCP answers (WEB_PUBLIC_URL, falling back
+	// to the daemon's TG_DISCORD_PUBLIC_URL, which builds the same
+	// links), trailing slashes and blanks dropped; "" when neither is
+	// set.
+	PublicURL string
+	// MCPThreads is how many MCP tool calls run at once (MCP_THREADS,
+	// default 2, 1 to 16).
+	MCPThreads int
+	// MCPAllowedOrigins is MCP_ALLOWED_ORIGINS: browser origins allowed
+	// to call /mcp, comma-separated, or "*"; empty allows any.
+	MCPAllowedOrigins string
+	// MCPLogRequests is MCP_LOG_REQUESTS == "1": log the shape of the
+	// requests to /mcp.
+	MCPLogRequests bool
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -320,6 +336,15 @@ func FromEnv() (*Config, error) {
 	if err := c.Defaults.Check(); err != nil {
 		return nil, fmt.Errorf("WEBAPI_DEFAULT_*: %w", err)
 	}
+
+	// The MCP endpoint's settings are the Drogon web's.
+	c.PublicURL = strings.TrimRight(env("WEB_PUBLIC_URL", env("TG_DISCORD_PUBLIC_URL", "")), "/ ")
+	if c.MCPThreads, err = integer("MCP_THREADS", "2"); err != nil {
+		return nil, err
+	}
+	c.MCPThreads = min(max(c.MCPThreads, 1), 16)
+	c.MCPAllowedOrigins = env("MCP_ALLOWED_ORIGINS", "")
+	c.MCPLogRequests = env("MCP_LOG_REQUESTS", "0") == "1"
 
 	return &c, nil
 }

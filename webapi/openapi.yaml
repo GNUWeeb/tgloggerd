@@ -86,7 +86,7 @@ tags:
   - name: join-chat
     description: Joining Telegram groups and channels with the logging account.
   - name: mcp
-    description: Administration of the MCP endpoint's exposed groups and tokens.
+    description: The MCP endpoint, and the administration of its exposed groups and tokens.
   - name: live
     description: Live updates as Server-Sent Events.
   - name: search
@@ -2504,6 +2504,149 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /mcp:
+    post:
+      operationId: postMcp
+      tags: [mcp]
+      summary: One MCP message (JSON-RPC 2.0)
+      description: >-
+        The Model Context Protocol endpoint, read-only, for language
+        model clients (web/docs/mcp.md). The body is one JSON-RPC 2.0
+        message: a request of initialize, ping, tools/list or
+        tools/call, or a notification. The transport is Streamable
+        HTTP in its minimal form: every answer is one application/json
+        body, there is no SSE stream and no session (no
+        Mcp-Session-Id). Protocol 2025-06-18; 2025-03-26 is accepted.
+
+
+        The tools read only the groups an administrator put on the
+        exposure list (telegram_public_groups); the user tools describe
+        accounts and are not limited to it. A tool's failure the caller
+        can fix (a bad filter, an unknown id) is a result with isError
+        true; a malformed call is a JSON-RPC error. Both are answered
+        with 200, and so is a body that is empty or not JSON (error
+        -32700).
+
+
+        Authenticated by an MCP bearer token (tgmcp_ and 64 hex digits,
+        made in the MCP administration), in the Authorization header or,
+        for clients that can only be given a URL, in the key query
+        parameter; the header wins. No session cookie and no CSRF
+        token. A refusal is a JSON-RPC error with a null id and no
+        WWW-Authenticate header, on purpose (web/docs/mcp.md).
+      security:
+        - mcpToken: []
+        - mcpKey: []
+      parameters:
+        - name: key
+          in: query
+          required: false
+          description: The token, for clients that cannot set a header.
+          schema:
+            type: string
+        - name: MCP-Protocol-Version
+          in: header
+          required: false
+          description: >-
+            The negotiated protocol version. Only its shape is checked
+            (YYYY-MM-DD); initialize negotiates the version itself.
+          schema:
+            type: string
+        - name: Origin
+          in: header
+          required: false
+          description: >-
+            Checked only when MCP_ALLOWED_ORIGINS is set; any origin is
+            accepted otherwise.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpMessage'
+      responses:
+        '200':
+          description: >-
+            The JSON-RPC answer: a result, or an error (also for a body
+            that is empty, not JSON, a batch or not a JSON-RPC request).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpAnswer'
+        '202':
+          description: A notification (or a response) was accepted; no body.
+        '400':
+          description: MCP-Protocol-Version is not a YYYY-MM-DD date.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpAnswer'
+        '401':
+          description: >-
+            No token, a malformed one, or one that is unknown, revoked or
+            belongs to a disabled account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpAnswer'
+        '403':
+          description: Origin is not in MCP_ALLOWED_ORIGINS.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpAnswer'
+        '413':
+          description: The body is larger than 1 MiB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpAnswer'
+        '500':
+          description: The tokens could not be checked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpAnswer'
+    get:
+      operationId: getMcp
+      tags: [mcp]
+      summary: Declined; no server-to-client stream is offered
+      description: >-
+        Answers 405 with Allow POST, which the protocol provides for a
+        server that never initiates messages. Needs no token.
+      security: []
+      responses:
+        '405':
+          description: No SSE stream.
+          headers:
+            Allow:
+              description: POST
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      operationId: deleteMcp
+      tags: [mcp]
+      summary: Declined; the endpoint keeps no sessions
+      security: []
+      responses:
+        '405':
+          description: No session to end.
+          headers:
+            Allow:
+              description: POST
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                type: string
+
 components:
 
   securitySchemes:
@@ -2543,6 +2686,21 @@ components:
         web-accounts.md section 7. How they are issued and what they
         look like is not designed yet; until then the cookie session
         is the only authentication.
+    mcpToken:
+      type: http
+      scheme: bearer
+      description: >-
+        An MCP bearer token, tgmcp_ and 64 lowercase hex digits, made in
+        the MCP administration and stored only as its SHA-256. Accepted
+        by /mcp only.
+    mcpKey:
+      type: apiKey
+      in: query
+      name: key
+      description: >-
+        The same token in the query string, for MCP clients that accept
+        only a URL. Weaker than the header: a query string reaches proxy
+        logs and browser history (web/docs/mcp.md).
 
   headers:
     NoStore:
@@ -4990,3 +5148,48 @@ components:
                 type: [string, 'null']
               revoked:
                 type: [string, 'null']
+    # The MCP endpoint (web/docs/mcp.md).
+    McpMessage:
+      type: object
+      description: >-
+        A JSON-RPC 2.0 request (with an id) or notification (without).
+        The methods answered are initialize, ping, tools/list and
+        tools/call ({name, arguments}); tools/list describes each
+        tool's arguments.
+      required: [jsonrpc, method]
+      properties:
+        jsonrpc:
+          type: string
+          enum: ['2.0']
+        id:
+          type: [string, number, 'null']
+        method:
+          type: string
+        params:
+          type: object
+          additionalProperties: true
+    McpAnswer:
+      type: object
+      description: >-
+        A JSON-RPC 2.0 answer: result, or error. A tools/call result is
+        {content: [{type: text, text}], structuredContent, isError}; the
+        text is the structured content serialised, or the error message
+        when isError is true.
+      required: [jsonrpc, id]
+      properties:
+        jsonrpc:
+          type: string
+          enum: ['2.0']
+        id:
+          type: [string, number, 'null']
+        result:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: integer
+            message:
+              type: string
