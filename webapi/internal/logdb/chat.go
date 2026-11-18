@@ -100,6 +100,7 @@ type Reply struct {
 	Outgoing    bool
 	Snippet     string
 	ContentType string
+	Deleted     bool // the target is marked deleted
 }
 
 // Forward is a forwarded message's origin.
@@ -108,6 +109,8 @@ type Forward struct {
 	SenderName string
 	UserID     int64
 	ChatID     int64
+	MessageID  int64 // the original message's id in ChatID, 0 = unknown
+	Date       int64 // when the original was sent (unix), 0 = unknown
 }
 
 // Edit is a version of a message before an edit.
@@ -115,6 +118,10 @@ type Edit struct {
 	At          int64 // when the version began (unix)
 	Text        string
 	ContentType string
+	File        FileRef // ID 0 = none
+	// Extra is the version's content_extra (docs/design/message-types.md
+	// section 4.2), nil when it has none.
+	Extra []byte
 }
 
 // LinkPreview is a message's link preview card.
@@ -135,17 +142,27 @@ type Message struct {
 	SenderChat      int64 // 0 = none
 	Outgoing        bool
 	AuthorSignature string
+	IsChannelPost   bool
 	Date            int64
 	EditDate        int64 // 0 = never edited
 	ContentType     string
-	Text            string
-	File            FileRef // ID 0 = none
-	DeletedAt       int64   // 0 = not deleted
-	AlbumID         int64   // 0 = none
-	Reply           *Reply
-	Forward         *Forward
-	Edits           []Edit
-	Preview         *LinkPreview
+	ServiceType     string // a service message's action, or ""
+	TdlibType       string // the exact TDLib class, or "" when not recorded
+	// Extra is content_extra (docs/design/message-types.md section
+	// 4.2): written for rows logged since migration 000034, nil for
+	// older ones.
+	Extra []byte
+	Text  string
+	File  FileRef // ID 0 = none
+	// Cover is a video's cover photo (telegram_message_files, role
+	// cover, since migration 000036); ID 0 = none.
+	Cover     FileRef
+	DeletedAt int64 // 0 = not deleted
+	AlbumID   int64 // 0 = none
+	Reply     *Reply
+	Forward   *Forward
+	Edits     []Edit
+	Preview   *LinkPreview
 }
 
 // Window is a run of a chat's messages, oldest first, with whether
@@ -161,8 +178,8 @@ type Window struct {
 type chatTables struct {
 	msgs, edits, fwd, fk string
 	// cols are the columns that differ between the two tables.
-	senderUser, senderChat, outgoing, signature string
-	rSenderUser, rSenderChat, rOutgoing         string
+	senderUser, senderChat, outgoing, signature, channelPost string
+	rSenderUser, rSenderChat, rOutgoing                      string
 }
 
 var (
@@ -170,14 +187,14 @@ var (
 		msgs: "telegram_group_messages", edits: "telegram_group_message_edits",
 		fwd: "telegram_group_message_fwd_info", fk: "group_message_id",
 		senderUser: "m.sender_user_id", senderChat: "m.sender_chat_id", outgoing: "0",
-		signature:   "m.author_signature",
+		signature: "m.author_signature", channelPost: "m.is_channel_post",
 		rSenderUser: "rm.sender_user_id", rSenderChat: "rm.sender_chat_id", rOutgoing: "0",
 	}
 	privateTables = chatTables{
 		msgs: "telegram_private_messages", edits: "telegram_private_message_edits",
 		fwd: "telegram_private_message_fwd_info", fk: "private_message_id",
 		senderUser: "m.sender_id", senderChat: "NULL", outgoing: "m.is_outgoing",
-		signature:   "NULL",
+		signature: "NULL", channelPost: "0",
 		rSenderUser: "rm.sender_id", rSenderChat: "NULL", rOutgoing: "rm.is_outgoing",
 	}
 )
@@ -192,13 +209,15 @@ func tablesOf(group bool) chatTables {
 // messageSelect is the rich row of a message, without its WHERE.
 func (t chatTables) messageSelect() string {
 	return "SELECT m.id, m.chat_id, m.message_id, " + t.senderUser + ", " + t.senderChat +
-		", " + t.outgoing + ", " + t.signature + ", m.date, m.edit_date, m.content_type, " +
-		"COALESCE(m.text, ''), COALESCE(m.file_id, 0), " + fileColumnsOf("f") + ", " +
+		", " + t.outgoing + ", " + t.signature + ", " + t.channelPost + ", m.date, m.edit_date, " +
+		"m.content_type, COALESCE(m.service_type, ''), COALESCE(m.tdlib_type, ''), " +
+		"m.content_extra, COALESCE(m.text, ''), COALESCE(m.file_id, 0), " + fileColumnsOf("f") + ", " +
 		"UNIX_TIMESTAMP(m.deleted_at), m.media_album_id, m.reply_to_chat_id, " +
 		"m.reply_to_msg_id, fw.origin_type, fw.origin_sender_name, " +
-		"fw.origin_sender_user_id, fw.origin_chat_id, rm.id, rm.chat_id, rm.message_id, " +
+		"fw.origin_sender_user_id, fw.origin_chat_id, fw.origin_message_id, fw.origin_date, " +
+		"rm.id, rm.chat_id, rm.message_id, " +
 		t.rSenderUser + ", " + t.rSenderChat + ", " + t.rOutgoing + ", " +
-		"LEFT(COALESCE(rm.text, ''), 120), rm.content_type " +
+		"LEFT(COALESCE(rm.text, ''), 120), rm.content_type, rm.deleted_at IS NOT NULL " +
 		"FROM " + t.msgs + " m " +
 		"LEFT JOIN telegram_files f ON f.id = m.file_id " +
 		"LEFT JOIN " + t.fwd + " fw ON fw." + t.fk + " = m.id " +
@@ -219,16 +238,19 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 			rChat, rMsg             sql.NullInt64
 			oType, oName            sql.NullString
 			oUser, oChat            sql.NullInt64
+			oMsg, oDate             sql.NullInt64
 			rmID                    sql.NullInt64
 			rmChat, rmMsg, rmU, rmC sql.NullInt64
-			rmOut                   sql.NullBool
+			rmOut, rmDeleted        sql.NullBool
 			rmSnippet, rmCtype      sql.NullString
 		)
 		dest := []any{&m.RowID, &m.ChatID, &m.MessageID, &sUser, &sChat, &m.Outgoing, &sig,
-			&m.Date, &m.EditDate, &m.ContentType, &m.Text, &fileID}
+			&m.IsChannelPost, &m.Date, &m.EditDate, &m.ContentType, &m.ServiceType,
+			&m.TdlibType, &m.Extra, &m.Text, &fileID}
 		dest = append(dest, f.dest()...)
 		dest = append(dest, &deleted, &album, &rChat, &rMsg, &oType, &oName, &oUser, &oChat,
-			&rmID, &rmChat, &rmMsg, &rmU, &rmC, &rmOut, &rmSnippet, &rmCtype)
+			&oMsg, &oDate, &rmID, &rmChat, &rmMsg, &rmU, &rmC, &rmOut, &rmSnippet, &rmCtype,
+			&rmDeleted)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
@@ -242,7 +264,8 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 		case rmID.Valid:
 			m.Reply = &Reply{MessageID: rmMsg.Int64, ChatID: rmChat.Int64, Resolved: true,
 				RowID: uint64(rmID.Int64), SenderUser: rmU.Int64, SenderChat: rmC.Int64,
-				Outgoing: rmOut.Bool, Snippet: rmSnippet.String, ContentType: rmCtype.String}
+				Outgoing: rmOut.Bool, Snippet: rmSnippet.String, ContentType: rmCtype.String,
+				Deleted: rmDeleted.Bool}
 		case rMsg.Valid:
 			chat := m.ChatID
 			if rChat.Valid {
@@ -252,7 +275,8 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 		}
 		if oType.Valid {
 			m.Forward = &Forward{Type: oType.String, SenderName: oName.String,
-				UserID: oUser.Int64, ChatID: oChat.Int64}
+				UserID: oUser.Int64, ChatID: oChat.Int64, MessageID: oMsg.Int64,
+				Date: oDate.Int64}
 		}
 		out = append(out, m)
 	}
@@ -419,19 +443,26 @@ func completeMessages(ctx context.Context, db *sql.DB, group bool, ms []Message)
 	}
 	if len(edited) > 0 {
 		rows, err := db.QueryContext(ctx, "SELECT e."+t.fk+", e.edit_date, "+
-			"COALESCE(e.text, ''), e.content_type FROM "+t.edits+" e WHERE e."+t.fk+
-			" IN ("+idList(edited)+") ORDER BY e.id")
+			"COALESCE(e.text, ''), e.content_type, COALESCE(e.file_id, 0), "+fileColumnsOf("f")+
+			", e.content_extra FROM "+t.edits+" e LEFT JOIN telegram_files f ON f.id = e.file_id "+
+			"WHERE e."+t.fk+" IN ("+idList(edited)+") ORDER BY e.id")
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
 			var (
-				mid uint64
-				e   Edit
+				mid    uint64
+				e      Edit
+				fileID uint64
+				f      nullFile
 			)
-			if err := rows.Scan(&mid, &e.At, &e.Text, &e.ContentType); err != nil {
+			dest := append([]any{&mid, &e.At, &e.Text, &e.ContentType, &fileID}, f.dest()...)
+			if err := rows.Scan(append(dest, &e.Extra)...); err != nil {
 				rows.Close()
 				return err
+			}
+			if fileID != 0 {
+				e.File = f.ref(fileID)
 			}
 			if m := byRow[mid]; m != nil {
 				// The first version began when the message was sent.
@@ -445,6 +476,9 @@ func completeMessages(ctx context.Context, db *sql.DB, group bool, ms []Message)
 		if err := rows.Err(); err != nil {
 			return err
 		}
+	}
+	if err := completeCovers(ctx, db, t, byRow, ms); err != nil {
+		return err
 	}
 	rows, err := db.QueryContext(ctx, "SELECT p."+t.fk+", p.url, p.site_name, p.title, "+
 		"LEFT(COALESCE(p.description, ''), 1000), COALESCE(p.photo_file_id, 0), "+
@@ -476,6 +510,39 @@ func completeMessages(ctx context.Context, db *sql.DB, group bool, ms []Message)
 	return rows.Err()
 }
 
+// completeCovers adds the cover photos of the videos among ms.
+func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uint64]*Message, ms []Message) error {
+	var videos []Message
+	for _, m := range ms {
+		if m.ContentType == "video" {
+			videos = append(videos, m)
+		}
+	}
+	if len(videos) == 0 {
+		return nil
+	}
+	rows, err := db.QueryContext(ctx, "SELECT mf."+t.fk+", mf.file_id, "+fileColumnsOf("f")+
+		" FROM telegram_message_files mf JOIN telegram_files f ON f.id = mf.file_id "+
+		"WHERE mf."+t.fk+" IN ("+idList(videos)+") AND mf.role = 'cover' AND mf.position = 0")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			mid, fileID uint64
+			f           nullFile
+		)
+		if err := rows.Scan(append([]any{&mid, &fileID}, f.dest()...)...); err != nil {
+			return err
+		}
+		if m := byRow[mid]; m != nil {
+			m.Cover = f.ref(fileID)
+		}
+	}
+	return rows.Err()
+}
+
 // names loads the users and groups the window's messages name: senders,
 // reply targets' senders, forward origins.
 func (c Chat) names(ctx context.Context, db *sql.DB, w *Window) error {
@@ -487,7 +554,7 @@ func (c Chat) names(ctx context.Context, db *sql.DB, w *Window) error {
 			users = append(users, r.SenderUser)
 			groups = append(groups, r.SenderChat)
 		}
-		if f := m.Forward; f != nil && f.SenderName == "" {
+		if f := m.Forward; f != nil {
 			users = append(users, f.UserID)
 			groups = append(groups, f.ChatID)
 		}
