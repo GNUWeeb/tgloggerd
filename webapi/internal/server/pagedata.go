@@ -343,7 +343,8 @@ type groupFullJSON struct {
 	Usernames   []usernameJSON `json:"usernames"`
 	PhotoFileID *uint64        `json:"photo_file_id"`
 	Description string         `json:"description"`
-	// Members is not recorded by the logger; 0 until it is.
+	// Members is how many people the archive has seen in the group
+	// (logdb.Chat.KnownMembers), as on the chat page.
 	Members    int64  `json:"members"`
 	MsgCount   uint64 `json:"msg_count"`
 	AdminCount int64  `json:"admin_count"`
@@ -380,14 +381,18 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, notFoundOr(err)
 	}
+	members, err := logdb.Chat{Group: true, ID: pr.pathID()}.KnownMembers(ctx, pr.s.ro)
+	if err != nil {
+		return nil, err
+	}
 	v := pr.view()
 	gs := v.group(p.Group.Group)
 	gs.MsgCount = nil
 	g := p.Group
 	out := groupProps{
 		Group: groupFullJSON{groupSummaryJSON: gs, Usernames: usernamesJSON(g.Usernames),
-			Description: g.Description,
-			MsgCount:    g.MsgCount, AdminCount: g.AdminCount, CreatedAt: iso(g.CreatedAt),
+			Description: g.Description, Members: members,
+			MsgCount: g.MsgCount, AdminCount: g.AdminCount, CreatedAt: iso(g.CreatedAt),
 			UpdatedAt: iso(g.UpdatedAt)},
 		Admins: []groupAdminJSON{}, History: []historyJSON{}, TopPosters: []posterJSON{},
 		Activity: p.Activity,

@@ -4312,7 +4312,11 @@ components:
               type: string
             members:
               type: integer
-              description: The member count; not recorded by the logger yet, so 0.
+              description: >-
+                How many people the archive has seen in the group: the
+                distinct users who sent a message there and its
+                administrators, as in the chat page's header. The logger
+                does not record Telegram's own member count.
             msg_count:
               type: integer
             admin_count:

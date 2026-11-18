@@ -345,6 +345,10 @@ func TestPageChatQuery(t *testing.T) {
 	if p.Chat.Group == nil || p.Chat.Group.Members != 5 || p.Chat.Group.MsgCount != 19 {
 		t.Errorf("header %+v", p.Chat.Group)
 	}
+	// The group page counts the same members as the chat header.
+	if g := page[tGroupProps](e, fmt.Sprintf("/groups/%d", mediaLab), "admin", 200, "group").Group; g.Members != 5 {
+		t.Errorf("group page members %d, want 5", g.Members)
+	}
 
 	// Message 5 was sent at 14:05 UTC, 21:05 in Asia/Jakarta, the site's
 	// default timezone; gw_admin reads times in UTC.

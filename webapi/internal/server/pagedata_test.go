@@ -180,6 +180,7 @@ type tGroupProps struct {
 		Title       string
 		Username    string
 		Description string
+		Members     int64
 		MsgCount    int64 `json:"msg_count"`
 		AdminCount  int64 `json:"admin_count"`
 		Photo       *string
