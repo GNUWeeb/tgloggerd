@@ -1,7 +1,8 @@
 // A small JSON Schema validator for the keywords webapi/openapi.yaml
 // uses (type, enum, const, properties, required, additionalProperties,
 // items, prefixItems, minItems, maxItems, minimum, maximum, allOf,
-// oneOf, $ref), so tests can check data against the API description
+// oneOf with its discriminator, $ref), so tests can check data against
+// the API description
 // without a validator package. format is not checked. Unknown keywords
 // fail loudly, so a new one in the description cannot be ignored;
 // extensions (x-...) carry no validation and are skipped.
@@ -11,7 +12,7 @@ import { load } from 'js-yaml';
 export type Schema = Record<string, unknown>;
 export interface Spec { paths: Record<string, Record<string, unknown>>; components: { schemas: Record<string, Schema> } }
 
-const KNOWN = new Set(['type', 'enum', 'const', 'properties', 'required', 'additionalProperties', 'items', 'prefixItems', 'minItems', 'maxItems', 'minimum', 'maximum', 'allOf', 'oneOf', '$ref', 'format', 'description', 'default', 'example', 'examples', 'title', 'deprecated', 'readOnly', 'writeOnly']);
+const KNOWN = new Set(['type', 'enum', 'const', 'properties', 'required', 'additionalProperties', 'items', 'prefixItems', 'minItems', 'maxItems', 'minimum', 'maximum', 'allOf', 'oneOf', 'discriminator', '$ref', 'format', 'description', 'default', 'example', 'examples', 'title', 'deprecated', 'readOnly', 'writeOnly']);
 
 export function loadSpec(path = new URL('../../../../webapi/openapi.yaml', import.meta.url)): Spec {
 	return load(readFileSync(path, 'utf8')) as Spec;
@@ -61,6 +62,16 @@ export function validate(spec: Spec, schema: Schema, value: unknown, path = '$')
 		if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) errs.push(`${path}: ${value.length} items, wants at most ${schema.maxItems}`);
 	}
 	for (const s of (schema.allOf ?? []) as Schema[]) errs.push(...validate(spec, s, value, path));
+	// A discriminator names the branch: its property must be one the
+	// mapping knows, and the value must be that branch (oneOf still
+	// checks that it is only that one).
+	const disc = schema.discriminator as { propertyName: string; mapping?: Record<string, string> } | undefined;
+	if (disc && value !== null && typeof value === 'object' && !Array.isArray(value)) {
+		const key = (value as Record<string, unknown>)[disc.propertyName];
+		const to = typeof key === 'string' ? disc.mapping?.[key] : undefined;
+		if (!to) errs.push(`${path}.${disc.propertyName}: ${JSON.stringify(key)} is not a discriminator value`);
+		else errs.push(...validate(spec, { $ref: to }, value, path));
+	}
 	if (schema.oneOf) {
 		const results = (schema.oneOf as Schema[]).map((s) => validate(spec, s, value, path));
 		const ok = results.filter((r) => !r.length).length;
