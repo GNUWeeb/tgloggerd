@@ -7,9 +7,8 @@ Status: decided 2026-11-18; the Go side is built (webapi/README
 the render protocol between the Go service and the render service.
 Decisions:
 [decisions/2026-11-18-web-ssr.md](decisions/2026-11-18-web-ssr.md).
-Backend items: `go-web-pages` (Go side, tested with a stand-in
-renderer) and `ssr-render-service` (deployment); the React side is the
-React application in `web/app/`.
+The Go side and the render service are built and in service since
+2026-11-18; the React side is the React application in `web/app/`.
 
 ## 1. Requirements
 
@@ -249,13 +248,13 @@ markup:
 - Code: `web/app/server/` (a `node:http` server on the socket, no
   framework) plus the React application's server entry. The route
   registry is shared with the client build.
-- Deployment (`ssr-render-service`): Node pinned, its own compose
+- Deployment: Node pinned, its own compose
   service `render`, the socket directory as its only shared volume, no
   network (`network_mode: none`), read-only file system, non-root user,
   no secrets in its environment, restarted on failure. Logs per render:
   request id, route, status, bytes, ms.
 - A stand-in renderer for Go tests answers the protocol with fixed
-  markup (`go-web-pages`).
+  markup.
 
 ## 9. Alternatives considered
 

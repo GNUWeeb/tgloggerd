@@ -1,9 +1,9 @@
 # Live updates
 
-Status: designed 2026-11-18. The daemon's stream (`daemon-event-stream`)
+Status: built and in service since 2026-11-18. The daemon's stream
 and the Go service's GET /api/events (webapi/README, "Live updates")
-are built; routing it through nginx is left in `web-live-events` in
-[../TODO.md](../TODO.md).
+are routed through nginx (webapi/README, "Routing /api/events through
+nginx").
 
 ## 1. Goal
 

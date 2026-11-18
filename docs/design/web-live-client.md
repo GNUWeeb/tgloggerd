@@ -1,8 +1,7 @@
 # Live updates in the React application
 
-Status: built in `web/app/` and tested against the development
-stand-in; the Go service's event stream and entity lookup are still to
-come (items web-live-events and daemon-event-stream). The browser side
+Status: built in `web/app/` and in service since 2026-11-18, against
+the Go service's event stream and entity lookup. The browser side
 of [web-live.md](web-live.md): how the React application in `web/app/`
 subscribes to `GET /api/events`, what each event refreshes, how
 refreshes are throttled, and what happens without the stream.

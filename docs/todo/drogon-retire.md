@@ -8,6 +8,10 @@ Two web services are a transition, not a destination.
 
 ## Scope
 
+- Move what Drogon still does to the Go service: `location = /mcp`
+  (after checking the two MCP servers answer alike,
+  scripts/mcp_compare.py) and applying the web migrations at its
+  container start.
 - Confirm the React application covers every page and nginx routes
   nothing to Drogon; then remove `web/` C++ sources, the Drogon and
   MariaDB connector submodules if nothing else uses them, the `web`
@@ -16,7 +20,7 @@ Two web services are a transition, not a destination.
 
 ## Depends on
 
-- `go-port-media`
+Nothing.
 
 ## Done when
 
