@@ -472,6 +472,14 @@ public:
 	/* Record whether a forum topic is pinned in the forum's topic list. */
 	void setForumTopicPinned(int64_t chat_id, int32_t topic_id, bool pinned);
 
+	/*
+	 * Store the latest interaction totals of a message (coalesced
+	 * updateMessageInteractionInfo and updateMessageReactions); members
+	 * left out keep what is stored. Returns whether the row exists.
+	 */
+	bool setMessageInteraction(int64_t chat_id, int64_t message_id,
+				   bool is_group, const models::Interaction &ia);
+
 	/* updateMessageIsPinned: a message pinned or unpinned in its chat. */
 	void setMessagePinned(int64_t chat_id, int64_t message_id, bool is_group,
 			      bool pinned);

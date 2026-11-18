@@ -49,6 +49,9 @@ struct PrivateMessage {
 
 	/* Pinned in the chat, as last seen. */
 	bool				is_pinned = false;
+
+	/* Interaction totals carried by this copy; nullopt if none. */
+	std::optional<Interaction>	interaction;
 };
 
 } /* namespace models */

@@ -44,9 +44,10 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		" chat_id, message_id, sender_id, is_outgoing, date,"
 		" edit_date, content_type, text, entities, service_type,"
 		" tdlib_type, content_extra,"
-		" is_forwarded, media_album_id, meta, is_pinned"
+		" is_forwarded, media_album_id, meta, is_pinned,"
+		" view_count, forward_count, reply_count, reactions"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_id = new.sender_id,"
 		" is_outgoing = new.is_outgoing,"
@@ -57,6 +58,11 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		 * message unpinned. Not content, so no edit_date guard. */
 		" meta = new.meta,"
 		" is_pinned = new.is_pinned,"
+		/* A copy that reports no totals keeps the stored ones. */
+		" view_count = COALESCE(new.view_count, telegram_private_messages.view_count),"
+		" forward_count = COALESCE(new.forward_count, telegram_private_messages.forward_count),"
+		" reply_count = COALESCE(new.reply_count, telegram_private_messages.reply_count),"
+		" reactions = COALESCE(new.reactions, telegram_private_messages.reactions),"
 		/*
 		 * The content columns are only taken from a copy that is at
 		 * least as recent as the stored one. Two getMessage replies for
@@ -137,6 +143,20 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		if (msg.meta.has_value())
 			meta_param = *msg.meta;
 
+		mysql::Param views_param = std::monostate{}, forwards_param = std::monostate{},
+			     replies_param = std::monostate{}, reactions_param = std::monostate{};
+		if (msg.interaction.has_value()) {
+			const auto &ia = *msg.interaction;
+			if (ia.view_count)
+				views_param = *ia.view_count;
+			if (ia.forward_count)
+				forwards_param = *ia.forward_count;
+			if (ia.reply_count)
+				replies_param = *ia.reply_count;
+			if (ia.reactions)
+				reactions_param = *ia.reactions;
+		}
+
 		std::string new_ct = models::to_string(msg.content.content_type);
 
 		if (old_rows.empty()) {
@@ -168,6 +188,10 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 				album_param,
 				meta_param,
 				b(msg.is_pinned),
+				views_param,
+				forwards_param,
+				replies_param,
+				reactions_param,
 			});
 
 			/*
@@ -299,6 +323,10 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			album_param,
 			meta_param,
 			b(msg.is_pinned),
+			views_param,
+			forwards_param,
+			replies_param,
+			reactions_param,
 		});
 
 		/*
