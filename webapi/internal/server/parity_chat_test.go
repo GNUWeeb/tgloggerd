@@ -242,8 +242,11 @@ func TestChatMediaDetail(t *testing.T) {
 		t.Errorf("reply to an unlogged message %+v", r)
 	}
 
+	// A service message's text is its description, rebuilt to name the
+	// member added.
 	s := pByRow(t, ms, 3018)
-	if s.ContentType != "service" || s.ServiceType != "chat_add_members" || s.Text != "" ||
+	if s.ContentType != "service" || s.ServiceType != "chat_add_members" ||
+		s.Text != "added Andi Santoso to the group" ||
 		s.Sender == nil || s.Sender.ID != dewi {
 		t.Errorf("service %+v", s)
 	}

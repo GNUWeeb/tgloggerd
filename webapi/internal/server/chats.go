@@ -251,13 +251,24 @@ type chatMessageJSON struct {
 }
 
 // messageKindsJSON are the fields of MessageKinds, which ChatMessage
-// and MessageFull share: the kind's detail (kinds.go).
+// and MessageFull share: the kind's detail (kinds.go) and a service
+// message's action (service.go).
 type messageKindsJSON struct {
-	Detail any `json:"detail"`
+	Detail  any          `json:"detail"`
+	Service *serviceJSON `json:"service"`
 }
 
 func (v view) messageKinds(k kinds, m logdb.Message) messageKindsJSON {
-	return messageKindsJSON{Detail: v.detail(k, m)}
+	return messageKindsJSON{Detail: v.detail(k, m), Service: v.service(k, m)}
+}
+
+// text is a message's text for the viewer: its text or caption, and
+// for a service message its description (view.serviceText).
+func (v view) text(k kinds, m logdb.Message) string {
+	if m.ContentType == "service" {
+		return v.serviceText(k, m, k.service[m.RowID])
+	}
+	return m.Text
 }
 
 // messageExtraJSON are the fields ChatMessage and MessageFull share
@@ -461,7 +472,7 @@ func (v view) edits(m logdb.Message) []editJSON {
 func (v view) chatMessage(n names, k kinds, group bool, chatID int64, m logdb.Message) chatMessageJSON {
 	j := chatMessageJSON{
 		ID: m.RowID, MessageID: m.MessageID, Date: iso(m.Date), Scope: scopeName(group),
-		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Text: m.Text,
+		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Text: v.text(k, m),
 		Media: v.media(m.ContentType, m.File, m.Extra), Album: []chatMediaJSON{},
 		ReplyTo: v.reply(n, chatID, m), Forward: v.forwardName(n, m), Edits: v.edits(m),
 		DeletedAt: isoPtr(m.DeletedAt), messageExtraJSON: v.messageExtra(n, m),

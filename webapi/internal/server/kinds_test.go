@@ -334,3 +334,94 @@ func TestKindsDescribed(t *testing.T) {
 		t.Errorf("answered but not described: %s", strings.Join(slices.Compact(undescribed), ", "))
 	}
 }
+
+// serviceOf is a service message's text, refs' user and chat ids and
+// message id.
+func serviceOf(t *testing.T, ms map[int]map[string]any, row int) (text string, users, chats []int64, msg any) {
+	t.Helper()
+	m := ms[row]
+	s, ok := m["service"].(map[string]any)
+	if !ok {
+		t.Fatalf("row %d: service %v", row, m["service"])
+	}
+	refs := s["refs"].(map[string]any)
+	return fmt.Sprint(m["text"]), refIDs(refs["users"]), refIDs(refs["chats"]), refs["message_id"]
+}
+
+// A service message's text names only whom the viewer may see, and its
+// refs list only them: a superadmin sees everyone named, an admin
+// every user but not the group hidden from it, a member only the
+// people of Kinds Lab. A row logged before migration 000034 keeps its
+// stored text, which names nobody.
+func TestServiceRefs(t *testing.T) {
+	t.Parallel()
+	e := kindsEnv(t)
+	type want struct {
+		text         string
+		users, chats []int64
+	}
+	cases := map[string]map[int]want{
+		"superadmin": {
+			4018: {"added Andi Santoso and Bima Pratama to the group", []int64{andi, bima}, []int64{}},
+			4019: {"announced the winners of the giveaway in C/C++ Study Group: Bima Pratama and Dewi Kusuma",
+				[]int64{bima, dewi}, []int64{cppGroup}},
+			4022: {"removed Bima Pratama from the group", []int64{bima}, []int64{}},
+		},
+		"admin": {
+			4018: {"added Andi Santoso and Bima Pratama to the group", []int64{andi, bima}, []int64{}},
+			4019: {"announced the giveaway winners: Bima Pratama and Dewi Kusuma", []int64{bima, dewi}, []int64{}},
+			4022: {"removed Bima Pratama from the group", []int64{bima}, []int64{}},
+		},
+		"member": {
+			4018: {"added Andi Santoso and 1 other member to the group", []int64{andi}, []int64{}},
+			4019: {"announced the giveaway winners: Dewi Kusuma and 1 other winner", []int64{dewi}, []int64{}},
+			4022: {"removed a member from the group", []int64{}, []int64{}},
+		},
+	}
+	for role, rows := range cases {
+		ms := kindsWindow(t, e, role, "")
+		for row, w := range rows {
+			text, users, chats, msg := serviceOf(t, ms, row)
+			if text != w.text || fmt.Sprint(users) != fmt.Sprint(w.users) ||
+				fmt.Sprint(chats) != fmt.Sprint(w.chats) {
+				t.Errorf("%s row %d: %q %v %v, want %q %v %v", role, row, text, users, chats,
+					w.text, w.users, w.chats)
+			}
+			if row == 4019 && num(msg) != 700012 {
+				t.Errorf("%s row %d: message_id %v", role, row, msg)
+			}
+		}
+		// The pinned message, for a link to it.
+		if _, _, _, msg := serviceOf(t, ms, 4020); num(msg) != 700003 {
+			t.Errorf("%s pin: message_id %v", role, msg)
+		}
+		// Logged before migration 000034: as stored, no refs.
+		text, users, chats, msg := serviceOf(t, ms, 4021)
+		if text != "added a member to the group" || len(users) != 0 || len(chats) != 0 || msg != nil {
+			t.Errorf("%s old row: %q %v %v %v", role, text, users, chats, msg)
+		}
+		if ms[4021]["service"].(map[string]any)["type"] != "chat_add_members" {
+			t.Errorf("%s old row type %v", role, ms[4021]["service"])
+		}
+		// Other kinds have no service.
+		if s, ok := ms[4001]["service"]; !ok || s != nil {
+			t.Errorf("%s location service %v", role, s)
+		}
+	}
+	// The member's window names neither Bima nor the hidden group.
+	mem := kindsWindow(t, e, "member", "")
+	for _, row := range []int{4018, 4019, 4022} {
+		if s := js(mem[row]); strings.Contains(s, "Bima") || strings.Contains(s, "C/C++") {
+			t.Errorf("member row %d names a hidden one: %s", row, s)
+		}
+	}
+	// The message page rebuilds the text the same way.
+	for role, want := range map[string]string{"superadmin": "removed Bima Pratama from the group",
+		"member": "removed a member from the group"} {
+		b := e.want(200, role, "GET", "/api/page/messages/group/4022", nil)
+		msg := b["props"].(map[string]any)["message"].(map[string]any)
+		if msg["text"] != want || msg["snippet"] != want {
+			t.Errorf("%s message page: %v / %v", role, msg["text"], msg["snippet"])
+		}
+	}
+}

@@ -189,20 +189,34 @@ func (x *kindExtra) parties(ctype string) (users, chats []int64) {
 // kinds is what a page of messages' detail reads besides the rows,
 // loaded once per page (Server.loadKinds).
 type kinds struct {
-	chat   int64 // the chat being read
-	extra  map[uint64]*kindExtra
-	polls  map[int64]*logdb.Poll
-	users  map[int64]logdb.User  // the visible ones
-	groups map[int64]logdb.Group // the visible ones, and the chat itself
+	chat    int64 // the chat being read
+	extra   map[uint64]*kindExtra
+	service map[uint64]*serviceExtra
+	polls   map[int64]*logdb.Poll
+	users   map[int64]logdb.User  // the visible ones
+	groups  map[int64]logdb.Group // the visible ones, and the chat itself
 }
 
 // loadKinds parses the content_extra of the messages that have a
 // detail and loads, in one batch for all of them, the polls they show
 // and the users and groups they name, as sc may see them.
 func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms []logdb.Message) (kinds, error) {
-	k := kinds{chat: chat, extra: map[uint64]*kindExtra{}}
+	k := kinds{chat: chat, extra: map[uint64]*kindExtra{}, service: map[uint64]*serviceExtra{}}
 	var users, chats, polls []int64
 	for _, m := range ms {
+		if m.ContentType == "service" {
+			if x := parseServiceExtra(m.Extra); x != nil {
+				k.service[m.RowID] = x
+				for _, id := range x.parties() {
+					if id > 0 {
+						users = append(users, id)
+					} else {
+						chats = append(chats, id)
+					}
+				}
+			}
+			continue
+		}
 		if !detailKinds[m.ContentType] {
 			continue
 		}

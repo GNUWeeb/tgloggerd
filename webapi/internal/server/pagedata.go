@@ -754,6 +754,8 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	v := pr.view()
 	n := names{d.Users, d.Groups}
 	m := d.Message
+	// A service message's text is its description for this viewer.
+	m.Text = v.text(k, m)
 	j := messageFullJSON{
 		ID: m.RowID, Scope: scopeName(group), MessageID: m.MessageID, Date: iso(m.Date),
 		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Snippet: snippet(m),
