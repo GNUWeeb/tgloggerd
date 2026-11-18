@@ -23,6 +23,7 @@ import (
 	"tgloggerd/webapi/internal/i18n"
 	"tgloggerd/webapi/internal/mail"
 	"tgloggerd/webapi/internal/mail/mailtest"
+	"tgloggerd/webapi/internal/testdb"
 )
 
 // These tests send their mail to a mailtest server of their own, on a
@@ -806,5 +807,32 @@ func TestMailTexts(t *testing.T) {
 	if !strings.Contains(h, "<p>A &lt;b&gt;</p>") ||
 		!strings.Contains(h, `<a href="https://x/#token=a&amp;b">https://x/#token=a&amp;b</a>`) {
 		t.Errorf("html %s", h)
+	}
+}
+
+// The accounts page says whether mail is configured, so it offers
+// set-password links only when they can be sent.
+func TestAccountsPageMailFlag(t *testing.T) {
+	t.Parallel()
+	for _, mail := range []bool{false, true} {
+		db := freshAppDB(t)
+		hash, _ := auth.HashPassword("pw-12345678")
+		addUser(t, db, "root", hash, "superadmin", true)
+		// The page counts groups, so it needs the logger's schema.
+		lg := testdb.New(t, testdb.Logger, "sample")
+		h, _ := newMailHandler(t, db, func(d *Deps) {
+			d.RO = lg.DB
+			if !mail {
+				d.Mail = nil
+			}
+		})
+		s := newSession(t, h, "root", "pw-12345678")
+		a := s.call("GET", "/api/page/settings/accounts", nil)
+		if a.status != 200 || a.body["route"] != "accounts" {
+			t.Fatalf("mail %v: page %d %v", mail, a.status, a.body)
+		}
+		if got := a.body["props"].(map[string]any)["mail"]; got != mail {
+			t.Errorf("mail %v: props.mail = %v", mail, got)
+		}
 	}
 }

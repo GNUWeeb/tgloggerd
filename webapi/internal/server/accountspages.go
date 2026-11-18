@@ -20,6 +20,9 @@ type accountsProps struct {
 	Federations    []fedCountedJSON     `json:"federations"`
 	AllFederations []fedJSON            `json:"all_federations"`
 	Editable       accountsEditableJSON `json:"editable"`
+	// Mail is whether mail is configured, so the page offers
+	// set-password links only when they can be sent.
+	Mail bool `json:"mail"`
 }
 
 func loadAccounts(ctx context.Context, pr *pageRequest) (any, error) {
@@ -36,7 +39,7 @@ func loadAccounts(ctx context.Context, pr *pageRequest) (any, error) {
 		return nil, err
 	}
 	return accountsProps{Accounts: accounts, Federations: managed, AllFederations: all,
-		Editable: accountsEditable()}, nil
+		Editable: accountsEditable(), Mail: s.mailOn()}, nil
 }
 
 func loadFederations(ctx context.Context, pr *pageRequest) (any, error) {

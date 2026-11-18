@@ -1946,6 +1946,8 @@ export interface components {
             abilities?: components["schemas"]["Ability"][];
         };
         AccountsProps: {
+            /** @description Whether mail is configured. Without it, set-password links cannot be sent: creating with invite, and resending an invitation, answer 409 mail_off, so the page should not offer them. The service always sends it. */
+            mail?: boolean;
             /** @description Which parts of an account the server can change today; the page offers only those. federations (admin_of, and the federations of grants) is true. The others turn true when the item that builds them lands: group_grants (groups inside a grant) with web-member-access, restrictions with web-admin-restrictions, abilities with web-member-access. Until then PATCH accepts those fields only unchanged and answers 400 not_supported to any change. */
             editable: {
                 federations: boolean;

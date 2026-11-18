@@ -5108,6 +5108,13 @@ components:
       type: object
       required: [accounts, federations, all_federations, editable]
       properties:
+        mail:
+          type: boolean
+          description: >-
+            Whether mail is configured. Without it, set-password links
+            cannot be sent: creating with invite, and resending an
+            invitation, answer 409 mail_off, so the page should not
+            offer them. The service always sends it.
         editable:
           type: object
           description: >-
