@@ -320,5 +320,6 @@ how `/files/<token>` behaves.
 | `TG_FETCH_IDLE_SECS` | 900 | default |
 | `WEB_TGLOGGERD_API` (web) | empty (fetching off) | `http://10.0.88.5:8091` |
 
-Every variable is documented in `.env.example`. The daemon's database
-pool grows by one connection per new thread that uses it.
+Every variable is documented in `env/settings.env.example`
+(env/README). The daemon's database pool grows by one connection per
+new thread that uses it.

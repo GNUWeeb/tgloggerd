@@ -1,12 +1,17 @@
 # tgloggerd -- the Telegram logger daemon, its MySQL store, and the web UI.
 #
-# All credentials and tunables live in .env (copy .env.example to .env and edit
-# it). The daemon and the web app share one toolchain image, built from
-# ./Dockerfile, and compile the bind-mounted source on start via run.sh -- so
-# editing the source never rebuilds the image.
+# Settings and secrets live in env/ (env/README): env/settings.env holds every
+# setting that is not a secret and goes to every service; each secret has a
+# file of its own, and a service gets only the secret files it needs (the
+# env_file lists below, which scripts/split-env.py --check verifies). .env
+# holds only this file's own settings (TG_UID, TG_GID). The daemon and the web
+# app share one toolchain image, built from ./Dockerfile, and compile the
+# bind-mounted source on start via run.sh -- so editing the source never
+# rebuilds the image.
 #
 # Quick start (see README):
-#   1. cp .env.example .env            # then edit it
+#   1. cp .env.example .env            # then edit it and the env/ files:
+#      for f in env/*.env.example; do cp "$f" "${f%.example}"; done
 #   2. docker compose up -d mysql      # start the database
 #   3. docker compose run --rm tgloggerd   # first-time interactive login
 #   4. docker compose up -d            # build + start everything
@@ -27,7 +32,12 @@ services:
     image: mysql:9.7.0
     container_name: tgloggerd-mysql
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - env/settings.env
+      - env/mysql-root.env
+      - env/mysql-init.env
+      - env/web-db-ro.env
+      - env/web-db-app.env
     # The buffer pool keeps the logger's tables and indexes in memory; at
     # its 128 MB default nearly every page read went to disk. 8G holds the
     # whole archive with room to grow; the container limit leaves the server
@@ -38,7 +48,7 @@ services:
     volumes:
       - ./data/mysql:/var/lib/mysql
       # On first initialization this creates the web-only database and the
-      # restricted web_ro / web_app users from the .env credentials. It runs
+      # restricted web_ro / web_app users from the env/ credentials. It runs
       # only while the data directory is empty; later starts keep whatever the
       # accounts were first initialized with.
       - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
@@ -52,7 +62,12 @@ services:
     restart: unless-stopped
     depends_on: [mysql]
     command: [daemon]
-    env_file: .env
+    env_file:
+      - env/settings.env
+      - env/mysql-root.env
+      - env/logger-db.env
+      - env/app-key.env
+      - env/telegram-api.env
     # The repository is both the build context and the runtime tree: source,
     # the persisted build/ output, the TDLib session under data/users, and the
     # files downloaded under data/storage.
@@ -72,7 +87,11 @@ services:
     restart: unless-stopped
     depends_on: [mysql]
     command: [web]
-    env_file: .env
+    env_file:
+      - env/settings.env
+      - env/web-db-ro.env
+      - env/web-db-app.env
+      - env/app-key.env
     volumes:
       - .:/workspace
     # No host port publishing: reach the web UI on its private address
@@ -96,7 +115,10 @@ services:
     restart: unless-stopped
     depends_on: [mysql]
     command: [discord]
-    env_file: .env
+    env_file:
+      - env/settings.env
+      - env/logger-db.env
+      - env/telegram-api.env
     volumes:
       - .:/workspace
     networks:
@@ -112,7 +134,12 @@ services:
     restart: unless-stopped
     depends_on: [mysql]
     command: [webapi]
-    env_file: .env
+    env_file:
+      - env/settings.env
+      - env/web-db-ro.env
+      - env/web-db-app.env
+      - env/app-key.env
+      - env/smtp.env
     volumes:
       - .:/workspace
       # The render service's socket (RENDER_SOCKET); pages fall back to

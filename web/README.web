@@ -65,31 +65,31 @@ needs, so both build in one image. `run.sh` initializes this submodule
 # Database and accounts
 
 The web schema (tgloggerd_web) and its two restricted users (web_ro,
-web_app) are created automatically on MySQL's first start, from the .env
+web_app) are created automatically on MySQL's first start, from the env/
 credentials, by docker/mysql/init/10-web-users.sh. There is no manual SQL
 step. The web migrations, which create the web-only tables, are applied by
 the container on every start (web_app owns tgloggerd_web, so it can run
 them; at run time it performs only DML).
 
-Change the WEB_DB_RO_PASSWORD / WEB_DB_APP_PASSWORD values in .env before
-the first `docker compose up -d mysql`; they are baked in when the data
-directory is initialized and are not re-applied on later starts.
+Change the WEB_DB_RO_PASSWORD / WEB_DB_APP_PASSWORD values (env/web-db-ro.env,
+env/web-db-app.env) before the first `docker compose up -d mysql`; they are
+baked in when the data directory is initialized and are not re-applied on
+later starts.
 
-web_ro also gets write access to the few logger tables the admin pages
-manage (telegram_discord_webhooks, discord_telegram_routes, telegram_bots,
-and INSERT/DELETE only on telegram_public_groups). Those grants cannot be
-given at initialization: the tables do not exist until the daemon's
-migrations create them, and MySQL refuses a table-level GRANT on a missing
-table. So the daemon container applies docker/mysql/web-grants.sql after
-its migrations on every start, as MySQL root with MYSQL_ROOT_PASSWORD from
-.env over TCP (the image's default root@'%'). GRANT only adds privileges,
-so later starts change nothing; migrate records the step in the
-web_grants_version table of the web database. If it fails (a root password
-in .env that no longer matches, root limited to localhost by
-MYSQL_ROOT_HOST), the daemon still starts and logs a warning, and those
-pages fail with "command denied" until the grants are applied. A new
-logger table the web writes to gets its GRANT in web-grants.sql, in the
-same change as the migration that creates it.
+web_ro also gets write access to the few logger tables the admin pages manage
+(telegram_discord_webhooks, discord_telegram_routes, telegram_bots, and
+INSERT/DELETE only on telegram_public_groups). Those grants cannot be given at
+initialization: the tables do not exist until the daemon's migrations create
+them, and MySQL refuses a table-level GRANT on a missing table. So the daemon
+container applies docker/mysql/web-grants.sql after its migrations on every
+start, as MySQL root with MYSQL_ROOT_PASSWORD from env/mysql-root.env over TCP
+(the image's default root@'%'). GRANT only adds privileges, so later starts
+change nothing; migrate records the step in the web_grants_version table of
+the web database. If it fails (a root password in env/mysql-root.env that no
+longer matches, root limited to localhost by MYSQL_ROOT_HOST), the daemon
+still starts and logs a warning, and those pages fail with "command denied"
+until the grants are applied. A new logger table the web writes to gets its
+GRANT in web-grants.sql, in the same change as the migration that creates it.
 
 # First administrator
 
@@ -105,7 +105,9 @@ service's accounts API (web/docs/accounts.md).
 
 # Environment variables
 
-All configuration is in .env (see .env.example). The web variables:
+All configuration is in env/ (env/README; the settings in
+env/settings.env.example, the passwords and WEB_APP_KEY in their own
+files). The web variables:
 
     WEB_LISTEN_ADDR        Bind address (0.0.0.0 in the container).
     WEB_LISTEN_PORT        Bind port (default 8080).
@@ -137,14 +139,15 @@ All configuration is in .env (see .env.example). The web variables:
                            web/docs/media.md. The bearer key is derived from
                            WEB_APP_KEY, so the daemon must share it. A bad
                            value turns it off, never stops the web.
-    TG_DATA_DIR            The daemon's data directory, read from the shared
-                           .env: big files fetched from Telegram are served
-                           from <TG_DATA_DIR>/tdlib, and only from there.
-    TG_MAX_STORE_FILE_SIZE The daemon's per-file store cap, read from the
-                           shared .env: a request without a session may only
-                           fetch files under it.
-    TG_FETCH_TIMEOUT_SECS  The daemon's fetch time limit, read from the
-                           shared .env; the web waits 10 seconds longer.
+    TG_DATA_DIR            The daemon's data directory, from the shared
+                           env/settings.env: big files fetched from Telegram
+                           are served from <TG_DATA_DIR>/tdlib, and only
+                           from there.
+    TG_MAX_STORE_FILE_SIZE The daemon's per-file store cap, from the shared
+                           env/settings.env: a request without a session may
+                           only fetch files under it.
+    TG_FETCH_TIMEOUT_SECS  The daemon's fetch time limit, from the shared
+                           env/settings.env; the web waits 10 seconds longer.
 
 The container serves /files/<token> from the daemon's file store (the shared
 data/storage/files tree), so WEB_STORAGE_DIR must equal TG_STORAGE_DIR, and

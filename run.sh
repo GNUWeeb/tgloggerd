@@ -5,7 +5,7 @@
 # It initializes the vendored git submodules the requested component needs,
 # builds it (incrementally, into a bind-mounted build/ directory), applies the
 # database migrations, and then execs the binary. All configuration comes from
-# the environment -- see .env.example.
+# the environment -- see env/README.
 #
 # Usage: run.sh <daemon|web|discord|webapi>
 #
@@ -215,13 +215,12 @@ apply_web_grants() {
 	fi
 }
 
-# docker-compose.yml loads the whole .env into every service, so each one
-# starts with every secret of the deployment. Each mode below unsets the ones
-# its component does not use, before building it, so neither the build nor
-# the process run.sh execs holds them. The mysql service's own passwords
-# (MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD) go everywhere, MYSQL_ROOT_PASSWORD
-# only after the daemon's grants step has used it. This covers the processes
-# run.sh starts; `docker exec` into a container still gets the whole .env.
+# docker-compose.yml gives each service only the env/ files it needs
+# (env/README). Each mode below still unsets the secrets its component does
+# not use, before building it, so a variable that reaches the wrong service
+# (an env file given to too many, a variable set by hand) is not held by the
+# build or by the process run.sh execs either. The daemon drops
+# MYSQL_ROOT_PASSWORD as soon as its grants step has used it.
 case "$MODE" in
 daemon)
 	: "${TG_DB_HOST:?TG_DB_HOST is not set}" "${TG_DB_PORT:?TG_DB_PORT is not set}"
