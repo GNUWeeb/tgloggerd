@@ -154,3 +154,14 @@ describe('dashboard counts, live', () => {
 		expect(kpi('Group messages').textContent).toBe(fmt(total('group_messages') + 1));
 	});
 });
+
+describe('dashboard status', () => {
+	it('says no message is logged yet on an empty archive', () => {
+		fakeApi('superadmin');
+		const page = fixture<DashboardProps>('/');
+		renderPage('/', 'superadmin', { props: { ...page.props, status: { ...page.props.status!, last_message_at: '' } } });
+		const row = screen.getByText('Last message logged').parentElement!;
+		expect(row.textContent).toContain('none yet');
+		expect(row.textContent).not.toMatch(/NaN/);
+	});
+});

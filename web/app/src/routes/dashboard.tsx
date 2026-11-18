@@ -119,7 +119,7 @@ function Dashboard({ page }: { page: PageData<DashboardProps> }) {
 					<Card title="Logger status" className="a-status">
 						<ul className="a-statuslist">
 							<li><Activity size={15} /><span className="a-grow">Telegram session</span><span className={p.status.session === 'connected' ? 'a-ok' : 'a-warn'}>{p.status.session}</span></li>
-							<li><MessagesSquare size={15} /><span className="a-grow">Last message logged</span><span>{ago(p.status.last_message_at, v)}</span></li>
+							<li><MessagesSquare size={15} /><span className="a-grow">Last message logged</span><span>{p.status.last_message_at ? ago(p.status.last_message_at, v) : 'none yet'}</span></li>
 							<li><ArrowLeftRight size={15} /><span className="a-grow">Forwarding routes</span><span>{p.status.forwarding_active} active</span></li>
 							<li><HardDrive size={15} /><span className="a-grow">Media store</span><span>{p.status.store_used} of {p.status.store_total}</span></li>
 						</ul>
