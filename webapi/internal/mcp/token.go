@@ -7,8 +7,10 @@ package mcp
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"strings"
 )
@@ -44,6 +46,18 @@ func LooksLikeToken(s string) bool {
 
 // TokenDigest is the stored form: the raw SHA-256 of the token.
 func TokenDigest(tok string) [32]byte { return sha256.Sum256([]byte(tok)) }
+
+// NewToken mints a token, as web/src/mcp/Token.cpp does: the prefix
+// and tokenRandomBytes random bytes in lowercase hex. It returns the
+// token, to be shown once, and the digest it is stored as.
+func NewToken() (string, [32]byte, error) {
+	b := make([]byte, tokenRandomBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", [32]byte{}, err
+	}
+	tok := TokenPrefix + hex.EncodeToString(b)
+	return tok, TokenDigest(tok), nil
+}
 
 // FromAuthorizationHeader returns the credential of a "Bearer <token>"
 // header, the scheme matched case-insensitively and blanks around the

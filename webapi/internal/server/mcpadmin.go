@@ -7,15 +7,13 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/mcp"
 	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/webdb"
 )
@@ -33,19 +31,12 @@ const (
 	mcpTokenNameMax = 64
 )
 
-// mcpTokenPrefix starts every MCP token, as web/src/mcp/Token.cpp
-// mints them: the prefix and 32 random bytes in lowercase hex.
-const mcpTokenPrefix = "tgmcp_"
-
-// mintMCPToken is a new token and the SHA-256 it is stored as.
+// mintMCPToken is a new token and the SHA-256 it is stored as, made
+// by the MCP endpoint's own rules (mcp.NewToken), so every token the
+// pages mint is one the endpoint accepts.
 func mintMCPToken() (string, []byte, error) {
-	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", nil, err
-	}
-	tok := mcpTokenPrefix + hex.EncodeToString(b[:])
-	sum := sha256.Sum256([]byte(tok))
-	return tok, sum[:], nil
+	tok, sum, err := mcp.NewToken()
+	return tok, sum[:], err
 }
 
 // exposeMcpGroup answers POST /api/mcp/groups.
