@@ -453,6 +453,326 @@ tdlib_extra_json(const td_api::MessageContent &c)
 	return std::string("{\"tdlib\":") + body + "}";
 }
 
+
+/* Standard base64 of raw bytes (TDLib's `bytes` fields). */
+std::string base64(const std::string &in)
+{
+	static const char tbl[] =
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	std::string out;
+	out.reserve((in.size() + 2) / 3 * 4);
+	size_t i = 0;
+	for (; i + 2 < in.size(); i += 3) {
+		uint32_t v = ((uint8_t)in[i] << 16) | ((uint8_t)in[i + 1] << 8) |
+			     (uint8_t)in[i + 2];
+		out += tbl[(v >> 18) & 63];
+		out += tbl[(v >> 12) & 63];
+		out += tbl[(v >> 6) & 63];
+		out += tbl[v & 63];
+	}
+	if (i < in.size()) {
+		uint32_t v = (uint8_t)in[i] << 16;
+		if (i + 1 < in.size())
+			v |= (uint8_t)in[i + 1] << 8;
+		out += tbl[(v >> 18) & 63];
+		out += tbl[(v >> 12) & 63];
+		out += i + 1 < in.size() ? tbl[(v >> 6) & 63] : '=';
+		out += '=';
+	}
+	return out;
+}
+
+/*
+ * Curated media keys (docs/design/message-types.md section 4.2.1): a key is
+ * set only when it applies, so a flag only when true, a number only when
+ * non-zero and a string only when non-empty.
+ */
+void put_flag(nlohmann::json &j, const char *key, bool v)
+{
+	if (v)
+		j[key] = true;
+}
+
+void put_num(nlohmann::json &j, const char *key, int64_t v)
+{
+	if (v != 0)
+		j[key] = v;
+}
+
+void put_str(nlohmann::json &j, const char *key, const std::string &v)
+{
+	if (!v.empty())
+		j[key] = v;
+}
+
+/* A 64-bit id as a string, as TDLib's JSON writes it. */
+void put_id(nlohmann::json &j, const char *key, int64_t v)
+{
+	if (v != 0)
+		j[key] = std::to_string(v);
+}
+
+void put_minithumbnail(nlohmann::json &j, const td_api::minithumbnail *m)
+{
+	if (!m || m->data_.empty())
+		return;
+	j["minithumbnail"] = {
+		{ "width", m->width_ },
+		{ "height", m->height_ },
+		{ "data", base64(m->data_) },
+	};
+}
+
+void put_transcript(nlohmann::json &j, const td_api::SpeechRecognitionResult *r)
+{
+	if (r && r->get_id() == td_api::speechRecognitionResultText::ID)
+		put_str(j, "transcript",
+			static_cast<const td_api::speechRecognitionResultText &>(
+				*r).text_);
+}
+
+void put_video(nlohmann::json &j, const td_api::video *v)
+{
+	if (!v)
+		return;
+	put_num(j, "width", v->width_);
+	put_num(j, "height", v->height_);
+	put_num(j, "duration", v->duration_);
+	put_str(j, "mime", v->mime_type_);
+	put_flag(j, "has_stickers", v->has_stickers_);
+	put_flag(j, "streaming", v->supports_streaming_);
+	put_minithumbnail(j, v->minithumbnail_.get());
+}
+
+/* The largest size of a photo, which is the one stored. */
+const td_api::photoSize *largest_size(const td_api::photo *p)
+{
+	const td_api::photoSize *best = nullptr;
+	if (!p)
+		return nullptr;
+	for (const auto &sz : p->sizes_)
+		if (sz && (!best || (int64_t)sz->width_ * sz->height_ >
+				    (int64_t)best->width_ * best->height_))
+			best = sz.get();
+	return best;
+}
+
+void put_photo(nlohmann::json &j, const td_api::photo *p)
+{
+	if (!p)
+		return;
+	if (auto *sz = largest_size(p)) {
+		put_num(j, "width", sz->width_);
+		put_num(j, "height", sz->height_);
+	}
+	put_flag(j, "has_stickers", p->has_stickers_);
+	put_minithumbnail(j, p->minithumbnail_.get());
+}
+
+const char *sticker_format_name(const td_api::StickerFormat *f)
+{
+	if (!f)
+		return "";
+	switch (f->get_id()) {
+	case td_api::stickerFormatWebp::ID: return "webp";
+	case td_api::stickerFormatTgs::ID:  return "tgs";
+	case td_api::stickerFormatWebm::ID: return "webm";
+	default:                            return "";
+	}
+}
+
+/* The curated content_extra of a media class, or nullopt when @c is not a
+ * media class (@is_media false) or carries nothing to keep. */
+std::optional<std::string>
+media_extra_json(const td_api::MessageContent &c, bool &is_media)
+{
+	nlohmann::json j = nlohmann::json::object();
+	is_media = true;
+
+	switch (c.get_id()) {
+	case td_api::messagePhoto::ID: {
+		auto &m = static_cast<const td_api::messagePhoto &>(c);
+		put_photo(j, m.photo_.get());
+		put_flag(j, "spoiler", m.has_spoiler_);
+		put_flag(j, "caption_above", m.show_caption_above_media_);
+		put_flag(j, "secret", m.is_secret_);
+		if (m.video_) {
+			nlohmann::json live = nlohmann::json::object();
+			put_num(live, "width", m.video_->width_);
+			put_num(live, "height", m.video_->height_);
+			put_num(live, "duration", m.video_->duration_);
+			put_str(live, "mime", m.video_->mime_type_);
+			j["live_photo"] = live;
+		}
+		break;
+	}
+	case td_api::messageVideo::ID: {
+		auto &m = static_cast<const td_api::messageVideo &>(c);
+		put_video(j, m.video_.get());
+		put_flag(j, "spoiler", m.has_spoiler_);
+		put_flag(j, "caption_above", m.show_caption_above_media_);
+		put_flag(j, "secret", m.is_secret_);
+		put_num(j, "start_timestamp", m.start_timestamp_);
+		put_flag(j, "cover", m.cover_ != nullptr);
+		nlohmann::json q = nlohmann::json::array();
+		for (const auto &a : m.alternative_videos_) {
+			if (!a)
+				continue;
+			nlohmann::json e = nlohmann::json::object();
+			put_num(e, "width", a->width_);
+			put_num(e, "height", a->height_);
+			put_str(e, "codec", a->codec_);
+			q.push_back(e);
+		}
+		if (!q.empty())
+			j["qualities"] = q;
+		break;
+	}
+	case td_api::messageAnimation::ID: {
+		auto &m = static_cast<const td_api::messageAnimation &>(c);
+		if (auto *a = m.animation_.get()) {
+			put_num(j, "width", a->width_);
+			put_num(j, "height", a->height_);
+			put_num(j, "duration", a->duration_);
+			put_str(j, "mime", a->mime_type_);
+			put_flag(j, "has_stickers", a->has_stickers_);
+			put_minithumbnail(j, a->minithumbnail_.get());
+		}
+		put_flag(j, "spoiler", m.has_spoiler_);
+		put_flag(j, "caption_above", m.show_caption_above_media_);
+		put_flag(j, "secret", m.is_secret_);
+		break;
+	}
+	case td_api::messageAudio::ID: {
+		auto &m = static_cast<const td_api::messageAudio &>(c);
+		if (auto *a = m.audio_.get()) {
+			put_num(j, "duration", a->duration_);
+			put_str(j, "mime", a->mime_type_);
+			put_str(j, "title", a->title_);
+			put_str(j, "performer", a->performer_);
+			put_minithumbnail(j,
+				a->album_cover_minithumbnail_.get());
+			put_flag(j, "album_cover",
+				 a->album_cover_thumbnail_ != nullptr);
+		}
+		break;
+	}
+	case td_api::messageDocument::ID: {
+		auto &m = static_cast<const td_api::messageDocument &>(c);
+		if (auto *d = m.document_.get()) {
+			put_str(j, "mime", d->mime_type_);
+			put_minithumbnail(j, d->minithumbnail_.get());
+		}
+		break;
+	}
+	case td_api::messageVoiceNote::ID: {
+		auto &m = static_cast<const td_api::messageVoiceNote &>(c);
+		if (auto *v = m.voice_note_.get()) {
+			put_num(j, "duration", v->duration_);
+			put_str(j, "mime", v->mime_type_);
+			if (!v->waveform_.empty())
+				j["waveform"] = base64(v->waveform_);
+			put_transcript(j, v->speech_recognition_result_.get());
+		}
+		break;
+	}
+	case td_api::messageVideoNote::ID: {
+		auto &m = static_cast<const td_api::messageVideoNote &>(c);
+		if (auto *v = m.video_note_.get()) {
+			put_num(j, "duration", v->duration_);
+			put_num(j, "length", v->length_);
+			put_minithumbnail(j, v->minithumbnail_.get());
+			if (!v->waveform_.empty())
+				j["waveform"] = base64(v->waveform_);
+			put_transcript(j, v->speech_recognition_result_.get());
+		}
+		put_flag(j, "secret", m.is_secret_);
+		break;
+	}
+	case td_api::messageSticker::ID: {
+		auto &m = static_cast<const td_api::messageSticker &>(c);
+		if (auto *st = m.sticker_.get()) {
+			put_str(j, "emoji", st->emoji_);
+			put_id(j, "sticker_id", st->id_);
+			put_id(j, "set_id", st->set_id_);
+			put_str(j, "format", sticker_format_name(st->format_.get()));
+			put_num(j, "width", st->width_);
+			put_num(j, "height", st->height_);
+			if (st->full_type_) {
+				switch (st->full_type_->get_id()) {
+				case td_api::stickerFullTypeRegular::ID:
+					j["sticker_type"] = "regular";
+					break;
+				case td_api::stickerFullTypeMask::ID:
+					j["sticker_type"] = "mask";
+					break;
+				case td_api::stickerFullTypeCustomEmoji::ID:
+					j["sticker_type"] = "custom_emoji";
+					put_id(j, "custom_emoji_id",
+					       static_cast<const td_api::stickerFullTypeCustomEmoji &>(
+						       *st->full_type_).custom_emoji_id_);
+					break;
+				default:
+					break;
+				}
+			}
+		}
+		put_flag(j, "premium", m.is_premium_);
+		break;
+	}
+	case td_api::messagePaidMedia::ID: {
+		auto &m = static_cast<const td_api::messagePaidMedia &>(c);
+		put_num(j, "star_count", m.star_count_);
+		put_flag(j, "caption_above", m.show_caption_above_media_);
+		nlohmann::json items = nlohmann::json::array();
+		for (const auto &pm : m.media_) {
+			if (!pm)
+				continue;
+			nlohmann::json e = nlohmann::json::object();
+			switch (pm->get_id()) {
+			case td_api::paidMediaPhoto::ID: {
+				auto &x = static_cast<const td_api::paidMediaPhoto &>(*pm);
+				e["kind"] = "photo";
+				put_photo(e, x.photo_.get());
+				break;
+			}
+			case td_api::paidMediaVideo::ID: {
+				auto &x = static_cast<const td_api::paidMediaVideo &>(*pm);
+				e["kind"] = "video";
+				put_video(e, x.video_.get());
+				put_num(e, "start_timestamp", x.start_timestamp_);
+				put_flag(e, "cover", x.cover_ != nullptr);
+				break;
+			}
+			case td_api::paidMediaPreview::ID: {
+				auto &x = static_cast<const td_api::paidMediaPreview &>(*pm);
+				e["kind"] = "preview";
+				put_num(e, "width", x.width_);
+				put_num(e, "height", x.height_);
+				put_num(e, "duration", x.duration_);
+				put_minithumbnail(e, x.minithumbnail_.get());
+				break;
+			}
+			default:
+				e["kind"] = "unsupported";
+				break;
+			}
+			items.push_back(e);
+		}
+		if (!items.empty())
+			j["items"] = items;
+		break;
+	}
+	default:
+		is_media = false;
+		return std::nullopt;
+	}
+
+	if (j.empty())
+		return std::nullopt;
+	return j.dump();
+}
+
 } /* namespace */
 
 const char *message_content_class_name(std::int32_t id)
@@ -546,12 +866,17 @@ void extract_message_content(const td_api::MessageContent &content,
 
 	/*
 	 * messageText is stored in full by the text, entities and link
-	 * preview; every other class keeps what it carries as TDLib's JSON
+	 * preview, and the media classes by their curated keys (section
+	 * 4.2.1); every other class keeps what it carries as TDLib's JSON
 	 * until a curated mapping replaces it (message-types.md section
 	 * 4.2). Encrypted passport data is never stored.
 	 */
-	if (id != td_api::messageText::ID &&
-	    id != td_api::messagePassportDataReceived::ID)
+	bool is_media = false;
+	std::optional<std::string> media = media_extra_json(content, is_media);
+	if (is_media)
+		out.content_extra = std::move(media);
+	else if (id != td_api::messageText::ID &&
+		 id != td_api::messagePassportDataReceived::ID)
 		out.content_extra = tdlib_extra_json(content);
 }
 

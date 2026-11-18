@@ -335,6 +335,42 @@ and a row with no curated keys yet matches any.
 See decision
 [2026-11-18-msg-content-extra](decisions/2026-11-18-msg-content-extra.md).
 
+### 4.2.1 Media keys
+
+The curated `content_extra` of the media classes replaces their TDLib
+JSON. Keys appear only when they apply: a flag only when true, a number
+only when non-zero, a string only when non-empty. Ids that are 64-bit in
+TDLib are JSON strings, as in TDLib's own JSON, so that JavaScript
+readers do not lose precision. Files are not referenced here (section
+4.3); file names stay in `telegram_files.orig_file_name`.
+
+Shared keys:
+
+| Key | Meaning |
+|---|---|
+| `width`, `height` | pixels; for a photo, its largest size |
+| `duration` | seconds |
+| `mime` | MIME type as sent |
+| `spoiler` | true: hidden behind a spoiler |
+| `caption_above` | true: caption shown above the media |
+| `secret` | true: self-destructing once opened |
+| `has_stickers` | true: stickers were added to the media |
+| `minithumbnail` | `{"width", "height", "data"}`: TDLib's tiny inline JPEG, base64; shows a blurred preview even when the file is not stored |
+
+Per class:
+
+| Class | Keys |
+|---|---|
+| messagePhoto | width, height, minithumbnail, spoiler, caption_above, secret, has_stickers; `live_photo`: `{width, height, duration, mime}` when the photo carries a video |
+| messageVideo | width, height, duration, mime, minithumbnail, spoiler, caption_above, secret, has_stickers, `streaming` (supports streaming), `start_timestamp`, `cover` (true when a cover photo was set), `qualities`: `[{width, height, codec}]` of the alternative videos |
+| messageAnimation | width, height, duration, mime, minithumbnail, spoiler, caption_above, secret, has_stickers |
+| messageAudio | duration, mime, `title`, `performer`, minithumbnail (album cover), `album_cover` (true when one exists) |
+| messageDocument | mime, minithumbnail |
+| messageVoiceNote | duration, mime, `waveform` (base64, TDLib's 5-bit samples), `transcript` (Telegram's speech recognition, when done) |
+| messageVideoNote | duration, `length` (diameter in pixels), minithumbnail, waveform, transcript, secret |
+| messageSticker | `emoji`, `sticker_id`, `set_id`, `format` (`webp`, `tgs`, `webm`), `sticker_type` (`regular`, `mask`, `custom_emoji`), `custom_emoji_id`, width, height, `premium` (sent as a premium sticker) |
+| messagePaidMedia | `star_count`, caption_above, `items`: `[{kind, width, height, duration, minithumbnail}]` with kind `photo`, `video`, `preview` (not paid for: only its size and blur are known) or `unsupported` |
+
 ### 4.3 Several files per message (`telegram_message_files`)
 
 A message can carry more than one file: paid media (several photos or

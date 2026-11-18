@@ -26,8 +26,7 @@ message-types.md section 4.9. Deleted messages are not re-read.
 
 ## Depends on
 
-`msg-media-detail`, `msg-structured-content`, `msg-service-detail`,
-`msg-polls`
+`msg-structured-content`, `msg-service-detail`, `msg-polls`
 
 ## Done when
 
