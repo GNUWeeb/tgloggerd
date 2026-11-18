@@ -1,6 +1,7 @@
 // The Telegram-like chat view (group or private chat), inside the shell,
 // or on its own as the public page of a group exposed through MCP.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
+import { track } from '../ui/busy.ts';
 import { ArrowLeft, CalendarDays, ChevronDown, ChevronsUp, ExternalLink, CloudOff, Download, Forward, Globe, Info, Pencil, Play, Radio, Search, Trash2, X } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { PublicFrame } from '../ui/PublicFrame.tsx';
@@ -238,7 +239,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		if (!el || !first || !older || busy.current) return;
 		busy.current = true;
 		try {
-			const w = await fetchChatWindow(scope, chatId, { before: first.message_id });
+			const w = await track(fetchChatWindow(scope, chatId, { before: first.message_id }));
 			// Once the older messages are rendered, keep the reader where
 			// they were (see the layout effect below).
 			afterRender.current = { prepend: el.scrollHeight };

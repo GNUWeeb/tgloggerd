@@ -46,4 +46,18 @@ describe('loading pill', () => {
 		await wait(DELAY_MS);
 		expect(pill()).toBeNull();
 	});
+	it('shows while an area waits for its data: a group\'s photos', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		const id = fixture<GroupsProps>('/groups').props.rows[0]!.id;
+		const h = held(() => ({ items: [], current_id: null }));
+		fakeApi('superadmin', { 'GET /api/groups/:id/photos': () => h.p });
+		const page = fixture(`/groups/${id}`);
+		const g = (page.props as { group: { photo: string | null } }).group;
+		renderPage(`/groups/${id}`, 'superadmin', { props: { ...(page.props as object), group: { ...g, photo: g.photo ?? '/f/1.jpg' } } });
+		fireEvent.click(screen.getByRole('button', { name: /Show the photos of/ }));
+		await wait(DELAY_MS + 10);
+		expect(pill()).toBeTruthy();
+		await h.release();
+		expect(pill()).toBeNull();
+	});
 });

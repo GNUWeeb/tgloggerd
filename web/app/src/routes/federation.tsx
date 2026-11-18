@@ -4,6 +4,7 @@
 // the ones it administers; either may rename it and edit its
 // description where the page data allows (can_edit).
 import { useEffect, useRef, useState } from 'react';
+import { track } from '../ui/busy.ts';
 import { LoaderCircle, Network, Pencil, Search, Trash2, TriangleAlert, Users, UserCog } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
@@ -100,7 +101,7 @@ function Groups({ id, first }: { id: number; first: FederationDetailProps['group
 		const n = ++seq.current;
 		const t = setTimeout(() => {
 			setBusy(true);
-			federationGroups(id, { q: q.trim() }, ac.signal)
+			track(federationGroups(id, { q: q.trim() }, ac.signal))
 				.then((p) => { if (n === seq.current) { setShown(p); setErr(''); } }, (x: Error) => { if (x.name !== 'AbortError') setErr(errText(x)); })
 				.finally(() => { if (n === seq.current) setBusy(false); });
 		}, 200);
@@ -110,7 +111,7 @@ function Groups({ id, first }: { id: number; first: FederationDetailProps['group
 		if (!shown.next_cursor) return;
 		setBusy(true); setErr('');
 		try {
-			const p = await federationGroups(id, { q: q.trim() || undefined, cursor: shown.next_cursor });
+			const p = await track(federationGroups(id, { q: q.trim() || undefined, cursor: shown.next_cursor }));
 			setShown((cur) => ({ ...p, items: [...cur.items, ...p.items] }));
 		} catch (x) { setErr(errText(x)); }
 		setBusy(false);
