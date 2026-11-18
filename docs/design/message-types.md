@@ -503,26 +503,43 @@ file leaves the old row in place. See decision
 
 ### 4.4 Polls
 
-A poll changes after it is sent (votes, closing), and TDLib announces
-it with `updatePoll` keyed by the poll id, not the message. Two tables:
+A poll changes after it is sent (votes, added options, closing), and
+TDLib announces it with `updatePoll` keyed by the poll id, not the
+message. Two tables (migration 000037):
 
     telegram_polls
       id (TDLib poll id), question, question_entities JSON,
-      description, description_entities JSON, type ENUM('regular',
-      'quiz'), is_anonymous, allows_multiple_answers,
-      allows_revoting, correct_option_id, explanation, explanation_
-      entities, open_period, close_date, is_closed,
-      total_voter_count, created_at, updated_at
+      type ENUM('regular','quiz'), is_anonymous,
+      allows_multiple_answers, allows_revoting, members_only,
+      country_codes JSON, correct_option_ids JSON (quiz: 0-based
+      positions), explanation, explanation_entities JSON,
+      media JSON, explanation_media JSON, open_period, close_date,
+      is_closed, total_voter_count, recent_voters JSON
     telegram_poll_options
-      poll_id, position, option_id, text, entities JSON,
-      voter_count, author_user_id NULL, addition_date
+      poll_id, option_id (TDLib's, a string), position, text,
+      entities JSON, media JSON, voter_count, vote_percentage,
+      author_user_id or author_chat_id, addition_date, deleted_at
 
-The message row's `content_extra` is `{"poll_id":..}`. `updatePoll`
-updates the latest results in place; the results are not versioned
-(the edit history stays about what the message said). Votes of
-individual users are not available to a user account for anonymous
-polls and come only to bots otherwise, so they are not stored. See
-decision [2026-11-18-msg-polls](decisions/2026-11-18-msg-polls.md).
+The message row's `content_extra` is `{"poll_id": "<id>", "has_media":
+true}`, and its `text` is the poll's description. Each ingested poll
+message and every `updatePoll` store the poll as it stands; the results
+are not versioned (the edit history stays about what the message said).
+An option that disappears from the poll is kept with `deleted_at` set.
+`updatePoll` does not carry the poll's own media, so a stored one is
+kept.
+
+Media (`media` columns) use the curated shape of section 4.2.1 plus a
+`kind` (`photo`, `video`, `animation`, `audio`, `document`, `sticker`,
+`location`, `venue`, `link`). Their files are in
+`telegram_message_files` with role `poll`: the poll's own media at
+position 0, a quiz explanation's at 1, and option i's at 2 + i.
+
+Left out, as they describe only this account: its own vote, whether it
+may vote or see the voters, and the order its client shows the options
+in. Votes of individual users are not available to a user account for
+anonymous polls and come only to bots otherwise, so they are not
+stored. See decision
+[2026-11-18-msg-polls](decisions/2026-11-18-msg-polls.md).
 
 ### 4.5 Forum topics
 

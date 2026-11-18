@@ -15,6 +15,7 @@
 
 #include <tgloggerd/models/User.hpp>
 #include <tgloggerd/models/File.hpp>
+#include <tgloggerd/models/Poll.hpp>
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
 #include <tgloggerd/models/GroupMessage.hpp>
@@ -278,6 +279,13 @@ public:
 	 */
 	void setLinkPreviewHandler(
 		std::function<void(const models::LinkPreview &, bool is_group)> cb);
+
+	/*
+	 * Set the callback invoked with a poll as it stands now: for the poll
+	 * of each ingested message (after the message handler) and for every
+	 * updatePoll, which TDLib sends as votes arrive or the poll closes.
+	 */
+	void setPollHandler(std::function<void(const models::Poll &)> cb);
 
 	/*
 	 * Set the callback invoked once for every live, newly-received message

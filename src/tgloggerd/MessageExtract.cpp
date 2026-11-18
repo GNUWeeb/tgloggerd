@@ -1165,6 +1165,15 @@ structured_extra_json(const td_api::MessageContent &c, bool &handled)
 		}
 		break;
 	}
+	case td_api::messagePoll::ID: {
+		/* The poll itself, which changes with every vote, is in
+		 * telegram_polls; the message keeps which one it shows. */
+		auto &m = static_cast<const td_api::messagePoll &>(c);
+		if (m.poll_)
+			put_id(j, "poll_id", m.poll_->id_);
+		put_flag(j, "has_media", m.media_ != nullptr);
+		break;
+	}
 	case td_api::messageGiveaway::ID: {
 		auto &m = static_cast<const td_api::messageGiveaway &>(c);
 		if (auto *p = m.parameters_.get()) {
@@ -1877,6 +1886,154 @@ std::optional<std::string> service_extra_json(const td_api::MessageContent &c)
 	return j.dump();
 }
 
+/*
+ * A poll's, an explanation's or an option's media as a curated object: its
+ * kind and what a reader needs of it. Its file, if it has one, is in
+ * telegram_message_files (role "poll").
+ */
+nlohmann::json poll_media_json(const td_api::PollMedia *pm)
+{
+	if (!pm)
+		return nullptr;
+	nlohmann::json j = nlohmann::json::object();
+	switch (pm->get_id()) {
+	case td_api::pollMediaPhoto::ID: {
+		auto &m = static_cast<const td_api::pollMediaPhoto &>(*pm);
+		j["kind"] = "photo";
+		put_photo(j, m.photo_.get());
+		put_flag(j, "live_photo", m.video_ != nullptr);
+		break;
+	}
+	case td_api::pollMediaVideo::ID: {
+		auto &m = static_cast<const td_api::pollMediaVideo &>(*pm);
+		j["kind"] = "video";
+		put_video(j, m.video_.get());
+		put_num(j, "start_timestamp", m.start_timestamp_);
+		put_flag(j, "cover", m.cover_ != nullptr);
+		break;
+	}
+	case td_api::pollMediaAnimation::ID: {
+		auto &m = static_cast<const td_api::pollMediaAnimation &>(*pm);
+		j["kind"] = "animation";
+		if (auto *a = m.animation_.get()) {
+			put_num(j, "width", a->width_);
+			put_num(j, "height", a->height_);
+			put_num(j, "duration", a->duration_);
+			put_str(j, "mime", a->mime_type_);
+		}
+		break;
+	}
+	case td_api::pollMediaAudio::ID: {
+		auto &m = static_cast<const td_api::pollMediaAudio &>(*pm);
+		j["kind"] = "audio";
+		if (auto *a = m.audio_.get()) {
+			put_num(j, "duration", a->duration_);
+			put_str(j, "title", a->title_);
+			put_str(j, "performer", a->performer_);
+			put_str(j, "mime", a->mime_type_);
+		}
+		break;
+	}
+	case td_api::pollMediaDocument::ID: {
+		auto &m = static_cast<const td_api::pollMediaDocument &>(*pm);
+		j["kind"] = "document";
+		if (m.document_)
+			put_str(j, "mime", m.document_->mime_type_);
+		break;
+	}
+	case td_api::pollMediaSticker::ID: {
+		auto &m = static_cast<const td_api::pollMediaSticker &>(*pm);
+		j["kind"] = "sticker";
+		if (m.sticker_) {
+			put_str(j, "emoji", m.sticker_->emoji_);
+			put_id(j, "set_id", m.sticker_->set_id_);
+		}
+		break;
+	}
+	case td_api::pollMediaLocation::ID:
+		j["kind"] = "location";
+		put_location(j, static_cast<const td_api::pollMediaLocation &>(*pm)
+				   .location_.get());
+		break;
+	case td_api::pollMediaVenue::ID: {
+		auto &m = static_cast<const td_api::pollMediaVenue &>(*pm);
+		j["kind"] = "venue";
+		if (auto *v = m.venue_.get()) {
+			put_location(j, v->location_.get());
+			put_str(j, "title", v->title_);
+			put_str(j, "address", v->address_);
+		}
+		break;
+	}
+	case td_api::pollMediaLink::ID: {
+		auto &m = static_cast<const td_api::pollMediaLink &>(*pm);
+		j["kind"] = "link";
+		put_str(j, "url", m.url_);
+		if (m.link_preview_)
+			put_str(j, "title", m.link_preview_->title_);
+		break;
+	}
+	default:
+		j["kind"] = "unsupported";
+		break;
+	}
+	return j;
+}
+
+/* The file of a poll media, or nullptr for a location, venue or link. */
+const td_api::file *poll_media_file(const td_api::PollMedia *pm,
+				    const char **category,
+				    std::string *file_name)
+{
+	if (!pm)
+		return nullptr;
+	switch (pm->get_id()) {
+	case td_api::pollMediaPhoto::ID:
+		*category = "photo";
+		return photo_best_size(
+			static_cast<const td_api::pollMediaPhoto &>(*pm).photo_.get());
+	case td_api::pollMediaVideo::ID: {
+		auto &m = static_cast<const td_api::pollMediaVideo &>(*pm);
+		*category = "video";
+		if (!m.video_)
+			return nullptr;
+		*file_name = m.video_->file_name_;
+		return m.video_->video_.get();
+	}
+	case td_api::pollMediaAnimation::ID: {
+		auto &m = static_cast<const td_api::pollMediaAnimation &>(*pm);
+		*category = "animation";
+		if (!m.animation_)
+			return nullptr;
+		*file_name = m.animation_->file_name_;
+		return m.animation_->animation_.get();
+	}
+	case td_api::pollMediaAudio::ID: {
+		auto &m = static_cast<const td_api::pollMediaAudio &>(*pm);
+		*category = "audio";
+		if (!m.audio_)
+			return nullptr;
+		*file_name = m.audio_->file_name_;
+		return m.audio_->audio_.get();
+	}
+	case td_api::pollMediaDocument::ID: {
+		auto &m = static_cast<const td_api::pollMediaDocument &>(*pm);
+		*category = "document";
+		if (!m.document_)
+			return nullptr;
+		*file_name = m.document_->file_name_;
+		return m.document_->document_.get();
+	}
+	case td_api::pollMediaSticker::ID: {
+		auto &m = static_cast<const td_api::pollMediaSticker &>(*pm);
+		*category = "sticker";
+		return m.sticker_ ? m.sticker_->sticker_.get() : nullptr;
+	}
+	default:
+		return nullptr;
+	}
+}
+
 /* The photo or video file of one paid media item, or nullptr for a preview
  * (not paid for: only its size is known) or an unsupported item. */
 const td_api::file *paid_media_file(const td_api::PaidMedia *pm,
@@ -2127,6 +2284,33 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 		add(f, category, name, "paid", 0);
 		break;
 	}
+	case td_api::messagePoll::ID: {
+		/*
+		 * Role "poll": the poll's own media at position 0, a quiz
+		 * explanation's at 1, and option i's at 2 + i.
+		 */
+		auto &c = static_cast<const td_api::messagePoll &>(content);
+		auto add_media = [&add](const td_api::PollMedia *pm, int pos) {
+			const char *category = "unknown";
+			std::string name;
+			const td_api::file *f = poll_media_file(pm, &category,
+								&name);
+			add(f, category, name, "poll", pos);
+		};
+		add_media(c.media_.get(), 0);
+		if (!c.poll_)
+			break;
+		if (c.poll_->type_ &&
+		    c.poll_->type_->get_id() == td_api::pollTypeQuiz::ID)
+			add_media(static_cast<const td_api::pollTypeQuiz &>(
+					  *c.poll_->type_).explanation_media_.get(),
+				  1);
+		for (size_t i = 0; i < c.poll_->options_.size(); i++)
+			if (c.poll_->options_[i])
+				add_media(c.poll_->options_[i]->media_.get(),
+					  2 + (int)i);
+		break;
+	}
 	case td_api::messageChatChangePhoto::ID:
 		add(chat_photo_best_size(
 			    static_cast<const td_api::messageChatChangePhoto &>(
@@ -2142,6 +2326,89 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 	default:
 		break;
 	}
+	return out;
+}
+
+models::Poll extract_poll(const td_api::poll &p)
+{
+	models::Poll out;
+	out.id = p.id_;
+	if (p.question_) {
+		out.question = p.question_->text_;
+		out.question_entities = format_entities_json(*p.question_);
+	}
+	out.is_anonymous = p.is_anonymous_;
+	out.allows_multiple_answers = p.allows_multiple_answers_;
+	out.allows_revoting = p.allows_revoting_;
+	out.members_only = p.members_only_;
+	if (!p.country_codes_.empty())
+		out.country_codes = nlohmann::json(p.country_codes_).dump();
+	out.open_period = p.open_period_;
+	out.close_date = p.close_date_;
+	out.is_closed = p.is_closed_;
+	out.total_voter_count = p.total_voter_count_;
+
+	nlohmann::json voters = nlohmann::json::array();
+	for (const auto &s : p.recent_voter_ids_) {
+		nlohmann::json v = sender_json(s.get());
+		if (!v.is_null())
+			voters.push_back(v);
+	}
+	if (!voters.empty())
+		out.recent_voters = voters.dump();
+
+	if (p.type_ && p.type_->get_id() == td_api::pollTypeQuiz::ID) {
+		auto &q = static_cast<const td_api::pollTypeQuiz &>(*p.type_);
+		out.is_quiz = true;
+		out.correct_option_ids = nlohmann::json(q.correct_option_ids_).dump();
+		if (q.explanation_ && !q.explanation_->text_.empty()) {
+			out.explanation = q.explanation_->text_;
+			out.explanation_entities =
+				format_entities_json(*q.explanation_);
+		}
+		nlohmann::json em = poll_media_json(q.explanation_media_.get());
+		if (!em.is_null())
+			out.explanation_media = em.dump();
+	}
+
+	for (size_t i = 0; i < p.options_.size(); i++) {
+		const auto &o = p.options_[i];
+		if (!o)
+			continue;
+		models::PollOption po;
+		po.option_id = o->id_;
+		po.position = (int)i;
+		if (o->text_) {
+			po.text = o->text_->text_;
+			po.entities = format_entities_json(*o->text_);
+		}
+		nlohmann::json m = poll_media_json(o->media_.get());
+		if (!m.is_null())
+			po.media = m.dump();
+		po.voter_count = o->voter_count_;
+		po.vote_percentage = o->vote_percentage_;
+		if (o->author_) {
+			if (o->author_->get_id() == td_api::messageSenderUser::ID)
+				po.author_user_id = static_cast<const td_api::messageSenderUser &>(
+					*o->author_).user_id_;
+			else if (o->author_->get_id() == td_api::messageSenderChat::ID)
+				po.author_chat_id = static_cast<const td_api::messageSenderChat &>(
+					*o->author_).chat_id_;
+		}
+		po.addition_date = o->addition_date_;
+		out.options.push_back(std::move(po));
+	}
+	return out;
+}
+
+models::Poll extract_poll(const td_api::messagePoll &m)
+{
+	models::Poll out;
+	if (m.poll_)
+		out = extract_poll(*m.poll_);
+	nlohmann::json media = poll_media_json(m.media_.get());
+	if (!media.is_null())
+		out.media = media.dump();
 	return out;
 }
 

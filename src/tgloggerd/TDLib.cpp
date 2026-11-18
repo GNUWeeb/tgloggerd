@@ -786,6 +786,7 @@ struct TDLib::Impl {
 	std::function<void(const models::PrivateMessage &)> private_msg_handler_;
 	std::function<void(const models::GroupMessage &)> group_msg_handler_;
 	std::function<void(const models::LinkPreview &, bool)> link_preview_handler_;
+	std::function<void(const models::Poll &)>	poll_handler_;
 	/* A message's content as delivered inline by updateMessageContent. */
 	std::function<void(int64_t, int64_t, const models::MessageContent &,
 			   bool)> content_version_handler_;
@@ -1027,6 +1028,7 @@ struct TDLib::Impl {
 				      bool is_group);
 	void maybe_download_message_file(const td_api::message &message,
 					 bool is_group);
+	void maybe_store_poll(const td_api::message &message);
 	void ingest_message_file(PendingMsgFile ref, const td_api::file &file);
 	void emit_message_file(const PendingMsgFile &ref, const td_api::file &f);
 	bool record_without_download(int64_t chat_id, const td_api::file &f);
@@ -1439,6 +1441,15 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				refetch_edited_message(u.chat_id_, u.message_id_,
 						       true);
 			},
+			[this](td_api::updatePoll &u) {
+				/*
+				 * Votes, a closed poll, an added option. Keyed by
+				 * the poll, not by a message, which is why polls
+				 * are rows of their own.
+				 */
+				if (poll_handler_ && u.poll_)
+					poll_handler_(extract_poll(*u.poll_));
+			},
 			[this](td_api::updateDeleteMessages &u) {
 				handle_delete_messages(
 					u.chat_id_,
@@ -1762,6 +1773,7 @@ void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,
 
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, false);
+	maybe_store_poll(message);
 	/* ...and record its link preview, whose row keys off that same row. */
 	if (message.content_)
 		maybe_store_link_preview(message.chat_id_, message.id_,
@@ -1784,6 +1796,7 @@ void TDLib::Impl::handle_message_for_group_chat(td_api::message &message,
 
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, true);
+	maybe_store_poll(message);
 	/* ...and record its link preview, whose row keys off that same row. */
 	if (message.content_)
 		maybe_store_link_preview(message.chat_id_, message.id_,
@@ -2304,6 +2317,17 @@ void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
 	}
 	ref.dl_query = start_ingest_download(img->id_);
 	pending_message_file_.emplace(img->id_, std::move(ref));
+}
+
+/* Store the poll a message shows, as the message has it now. */
+void TDLib::Impl::maybe_store_poll(const td_api::message &message)
+{
+	if (!poll_handler_ || !message.content_ ||
+	    message.content_->get_id() != td_api::messagePoll::ID)
+		return;
+	auto &m = static_cast<const td_api::messagePoll &>(*message.content_);
+	if (m.poll_)
+		poll_handler_(extract_poll(m));
 }
 
 void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
@@ -3619,6 +3643,11 @@ void TDLib::setPrivateMessageHandler(
 	std::function<void(const models::PrivateMessage &)> cb)
 {
 	impl_->private_msg_handler_ = std::move(cb);
+}
+
+void TDLib::setPollHandler(std::function<void(const models::Poll &)> cb)
+{
+	impl_->poll_handler_ = std::move(cb);
 }
 
 void TDLib::setLinkPreviewHandler(

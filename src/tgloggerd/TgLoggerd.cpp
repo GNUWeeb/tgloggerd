@@ -484,6 +484,23 @@ int TgLoggerd::start(void)
 				}
 			});
 		});
+	tdlib_->setPollHandler([this](const models::Poll &p) {
+		/* Serialised with the message writes, like everything that
+		 * belongs to a message. */
+		serial_->post([this, p] {
+			try {
+				db_->upsertPoll(p);
+				pr_debug(l_, "Stored poll | poll_id=%lld"
+					 " options=%zu voters=%d%s",
+					 (long long)p.id, p.options.size(),
+					 p.total_voter_count,
+					 p.is_closed ? " closed" : "");
+			} catch (const std::exception &e) {
+				pr_error(l_, "Failed to store poll %lld: %s",
+					 (long long)p.id, e.what());
+			}
+		});
+	});
 	tdlib_->setLinkPreviewHandler(
 		[this](const models::LinkPreview &lp, bool is_group) {
 			/* Serialised with the message writes so the preview
