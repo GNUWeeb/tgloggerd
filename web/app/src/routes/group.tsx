@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { MessageCircle, Type, AtSign, Quote, Image, ShieldCheck, Hash, CalendarDays, Users as UsersIcon, Globe, Crown, EyeOff, History as HistoryIcon, Pin, PinOff } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { MessageCircle, Type, AtSign, Quote, Image, ShieldCheck, Hash, CalendarDays, Users as UsersIcon, Globe, Crown, EyeOff, Gem, Pin, PinOff } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
 import { ApiError, api, ok } from '../api/client.ts';
+import { OlderChanges, UsernamePill, useHistoryPages, usernameTitle } from '../ui/history.tsx';
 import { Avatar, Btn, Card, Empty, KV, Pill, Stat, Tabs } from '../ui/primitives.tsx';
 import { Bar, Sparkline, UserCell } from '../ui/bits.tsx';
 import { MonthTimeline, Timeline, type TlItem } from '../ui/timeline.tsx';
@@ -51,12 +52,12 @@ function histItem(e: GroupHistoryEntry): TlItem {
 	const [icon, title] = KIND[e.kind];
 	let body;
 	if (e.kind === 'photo') body = e.removed || !e.photo ? <span className="a-muted">Photo removed</span> : <img className="a-tl-photo" src={e.photo} alt="" width={72} height={72} />;
-	else if (e.kind === 'username') body = <span className={e.action === 'removed' ? 'strike' : ''}>@{e.detail}</span>;
+	else if (e.kind === 'username') body = <span className={e.action === 'removed' ? 'strike' : ''}>{e.collectible && <Gem size={12} aria-label="collectible" />}@{e.detail}{e.username_kind === 'disabled' ? ' (off)' : ''}</span>;
 	else if (e.kind === 'admin' && e.user) body = <><Link to={`/users/${e.user.id}`} className="a-rowlink">{e.user.name}</Link> <span className="a-muted">{e.action}</span></>;
 	else body = e.detail || <span className="a-muted">(cleared)</span>;
 	return {
 		icon, at: e.at, body, tone: e.kind === 'admin' ? 'accent' : e.kind === 'photo' ? 'info' : '',
-		title: e.kind === 'username' ? `Username ${e.action}` : e.kind === 'admin' ? `Admin ${e.action}` : title,
+		title: e.kind === 'username' ? usernameTitle(e) : e.kind === 'admin' ? `Admin ${e.action}${e.status === 'creator' ? ' (owner)' : ''}` : title,
 	};
 }
 
@@ -96,8 +97,11 @@ function Admins({ admins, v }: { admins: GroupAdmin[]; v: PageData['viewer'] }) 
 }
 
 function Group({ page }: { page: PageData<GroupProps> }) {
-	const { group: g, admins, history, top_posters, activity } = page.props;
+	const { group: g, admins, history: first, history_next, top_posters, activity } = page.props;
 	const v = page.viewer;
+	const load = useCallback((before: string) => ok(api.GET('/api/groups/{id}/history', { params: { path: { id: g.id }, query: { before } } })), [g.id]);
+	const h = useHistoryPages(first, history_next, load);
+	const history = h.entries;
 	const tab = page.route === 'group_admins' ? 'admins' : page.route === 'group_history' ? 'history' : 'group';
 	const [kind, setKind] = useState<'all' | GroupHistoryEntry['kind']>('all');
 	const shown = kind === 'all' ? history : history.filter((e) => e.kind === kind);
@@ -124,7 +128,7 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 			<Tabs items={[
 				['Overview', base, tab === 'group'],
 				['Admins', `${base}/admins`, tab === 'admins', g.admin_count],
-				['History', `${base}/history`, tab === 'history', history.length],
+				['History', `${base}/history`, tab === 'history', h.hasMore ? `${history.length}+` : history.length],
 				['Messages', msgsHref, false, compact(g.msg_count)],
 			]} />
 			{tab === 'group' && (
@@ -139,9 +143,12 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 						<div className="a-stack">
 							<Card title="Details">
 								<KV rows={[
-									[Type, 'Title', g.title], [AtSign, 'Username', g.username ? '@' + g.username : ''], [Quote, 'Description', g.description],
+									[Type, 'Title', g.title],
+									[AtSign, g.usernames && g.usernames.length > 1 ? 'Usernames' : 'Username', g.usernames?.length ? g.usernames.map((n) => <UsernamePill key={n.username} n={n} />) : g.username ? '@' + g.username : ''],
+									[Quote, 'Description', g.description],
 									[UsersIcon, 'Type', TYPE_LABEL[g.type]],
 									[ShieldCheck, 'Admins', <Link to={`${base}/admins`} className="a-rowlink">{g.admin_count} admins</Link>],
+									g.photo_file_id ? [Image, 'Photo', <Link to={`/files?file=${g.photo_file_id}`} className="a-rowlink">file {g.photo_file_id}</Link>] : null,
 									[Hash, 'Group ID', g.id, true], [CalendarDays, 'First seen', dateTime(g.created_at, v)], [CalendarDays, 'Updated', dateTime(g.updated_at, v)],
 								]} />
 							</Card>
@@ -171,8 +178,8 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 						))}
 					</div>
 					<MonthTimeline items={shown.map(histItem)} v={v} />
-					{!shown.length && <Empty>No changes of this kind recorded.</Empty>}
-					<div className="a-loadmore"><HistoryIcon size={14} />Older changes load as you scroll</div>
+					{!shown.length && <Empty>No changes of this kind recorded{h.hasMore ? ' in these pages' : ''}.</Empty>}
+					<OlderChanges h={h} />
 				</div>
 			)}
 		</Shell>
