@@ -78,6 +78,8 @@ type SessionState struct {
 	// AdminOf is the federations the account is an admin of
 	// (web_federation_admins), nil for none.
 	AdminOf []uint64
+	// HidePrivate: a superadmin hid private chats from this admin.
+	HidePrivate bool
 }
 
 // LoadSessionState is an account's SessionState with the record of
@@ -93,12 +95,12 @@ func LoadSessionState(ctx context.Context, db *sql.DB, id uint64, key [32]byte) 
 		"SELECT u.session_epoch, u.role, u.is_active, u.must_change_password, "+
 			"COALESCE(s.id, 0), s.revoked_at IS NOT NULL, "+
 			"COALESCE(s.last_used_at < NOW() - INTERVAL ? SECOND, 0), "+
-			adminOfColumn+
+			"u.hide_private, "+adminOfColumn+
 			"FROM web_users u LEFT JOIN web_sessions s "+
 			"ON s.token_hash = ? AND s.web_user_id = u.id WHERE u.id = ?",
 		int(TouchInterval.Seconds()), key[:], id).
 		Scan(&st.Epoch, &st.Role, &st.Active, &st.MustChangePassword,
-			&st.SessionRow, &st.SessionEnded, &st.SessionStale, &adminOf)
+			&st.SessionRow, &st.SessionEnded, &st.SessionStale, &st.HidePrivate, &adminOf)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SessionState{}, ErrNoUser
 	}

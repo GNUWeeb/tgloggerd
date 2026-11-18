@@ -92,6 +92,10 @@ type Viewer struct {
 	// roles, as a superadmin administers every federation without
 	// being listed.
 	AdminOf []uint64
+	// HidePrivate is an admin's restriction: private chats and their
+	// messages are hidden from it (web-admin-restrictions). For clears
+	// it for the other roles.
+	HidePrivate bool
 }
 
 // Account is an account the request acts on, as far as the rules of
@@ -145,6 +149,9 @@ func For(v Viewer) Scope {
 		v.AdminOf = slices.Compact(slices.Sorted(slices.Values(v.AdminOf)))
 	} else {
 		v.AdminOf = nil
+	}
+	if v.Role != Admin {
+		v.HidePrivate = false
 	}
 	return Scope{kind: viewer, v: v}
 }
@@ -238,7 +245,7 @@ func (s Scope) SeesUser(userID int64) bool {
 // visible: never to members (web-accounts.md section 5), and to admins
 // unless a superadmin hides them (web-admin-restrictions).
 func (s Scope) SeesPrivate() bool {
-	return s.kind == everything || s.is(Superadmin, Admin)
+	return s.kind == everything || s.is(Superadmin) || (s.is(Admin) && !s.v.HidePrivate)
 }
 
 // SeesAllUsers is whether users are visible in full (bio, name

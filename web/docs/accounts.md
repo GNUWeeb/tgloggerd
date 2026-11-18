@@ -14,10 +14,18 @@ pages treat them while they still serve.
 | admin | every group, private chat and user | all but Join chat and "Look up real name" | the members of its federations |
 | member | no group, private chat or user yet | nothing beyond seeing | nobody |
 
-- An admin's restrictions (hidden groups, hidden private messages,
-  the `join_chat` permission) come with `web-admin-restrictions`;
-  until then an admin sees everything and may not join chats (the
-  permission is off by default).
+- A superadmin can hide private chats from an admin
+  (`restrict.hide_private` on PATCH /api/accounts/{id}, the
+  "Restrictions" section of the account's Access tab). From the
+  admin's next request on, the private-messages menu entry is gone,
+  every private page, chat window, message and search answers 404,
+  and private chats drop out of the chat search, the user pages and
+  the dashboard; the scope reads it from the account with the role.
+  It is cleared when the account stops being an admin, and each change
+  is audited (account_update, "hide_private on" or "off").
+- The other restrictions (hidden groups, the `join_chat` permission)
+  come with `web-admin-restrictions`; until then an admin sees every
+  group and may not join chats (the permission is off by default).
 - A member sees only the groups granted to it, and users only as they
   appear there. Grants come with `web-member-access`; until then a
   member sees no group, and every group, user, private chat and file

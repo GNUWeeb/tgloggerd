@@ -1920,10 +1920,16 @@ paths:
         grant of a federation the member is in already passes as it
         is, so the accounts page can send the member's whole list; one
         that files it in a federation the viewer does not administer
-        answers 403. Until admin restrictions and member group grants
-        and abilities exist, they are accepted only as what they are
-        today (restrictions all off, no groups in grants, no
-        abilities) and anything else answers 400 not_supported.
+        answers 403. restrict.hide_private hides private chats and
+        their messages from an admin at once (every private page, chat,
+        search and count answers 404 or leaves them out); it is for an
+        account that is, or this change makes, an admin (400
+        bad_request otherwise), and it is cleared when an admin becomes
+        another role. Until the other admin restrictions and member
+        group grants and abilities exist, they are accepted only as
+        what they are today (no hidden groups, join_chat off, no groups
+        in grants, no abilities) and anything else answers 400
+        not_supported.
 
 
         The address is an account's own to change (changeEmail); an
@@ -6001,14 +6007,19 @@ components:
             inside a grant) with web-member-access, restrictions with
             web-admin-restrictions, abilities with web-member-access.
             Until then PATCH accepts those fields only unchanged and
-            answers 400 not_supported to any change.
-          required: [federations, group_grants, restrictions, abilities]
+            answers 400 not_supported to any change. restrict_private
+            is true: of an admin's restrictions, hide_private alone can
+            be set already, so while restrictions is false the page
+            offers that one only.
+          required: [federations, group_grants, restrictions, restrict_private, abilities]
           properties:
             federations:
               type: boolean
             group_grants:
               type: boolean
             restrictions:
+              type: boolean
+            restrict_private:
               type: boolean
             abilities:
               type: boolean

@@ -84,10 +84,10 @@ type accountJSON struct {
 
 // accountJSONOf is a row as the API shows it: an admin with the
 // federations it administers, a member with every federation it is
-// filed in (also those the viewer does not administer). Admin
-// restrictions, the groups of member grants and abilities are not
-// stored yet: an admin shows the restrictions it has (none), a member
-// no groups in its federations.
+// filed in (also those the viewer does not administer). Of the admin
+// restrictions only hide_private is stored yet; the groups of member
+// grants and abilities are not: a member shows no groups in its
+// federations.
 func accountJSONOf(a webdb.Account, supers int, audits []webdb.AccountAudit) accountJSON {
 	j := accountJSON{
 		ID:            a.ID,
@@ -114,7 +114,7 @@ func accountJSONOf(a webdb.Account, supers int, audits []webdb.AccountAudit) acc
 	}
 	switch scope.Role(a.Role) {
 	case scope.Admin:
-		j.Restrict = &restrictJSON{HideGroups: []any{}}
+		j.Restrict = &restrictJSON{HidePrivate: a.HidePrivate, HideGroups: []any{}}
 		j.AdminOf = append(j.AdminOf, a.AdminOf...)
 	case scope.Member:
 		for _, f := range a.Federations {
@@ -684,10 +684,19 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		}
 		c.AdminOf = &webdb.FederationChange{Set: feds, WithinAll: true}
 	}
-	if in.Restrict != nil && (in.Restrict.HidePrivate || in.Restrict.JoinChat ||
-		len(in.Restrict.HideGroups) != 0) {
-		badRequest(w, "not_supported", "Admin restrictions cannot be set yet.")
-		return
+	if in.Restrict != nil {
+		// Only hiding private chats is built so far
+		// (docs/todo/web-admin-restrictions.md).
+		if in.Restrict.JoinChat || len(in.Restrict.HideGroups) != 0 {
+			badRequest(w, "not_supported", "Hiding groups and granting Join chat cannot be set yet.")
+			return
+		}
+		if in.Restrict.HidePrivate && newRole != scope.Admin {
+			badRequest(w, "bad_request", "Only an admin can be restricted.")
+			return
+		}
+		hide := in.Restrict.HidePrivate
+		c.HidePrivate = &hide
 	}
 	if len(in.Grants) != 0 && newRole != scope.Member {
 		badRequest(w, "bad_request", "Only members get grants.")

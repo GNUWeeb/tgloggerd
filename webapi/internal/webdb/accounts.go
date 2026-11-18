@@ -39,6 +39,9 @@ type Account struct {
 	// those a member is filed in; ascending, nil for none.
 	AdminOf     []uint64
 	Federations []uint64
+	// HidePrivate is an admin's restriction: private chats are hidden
+	// from it (false for the other roles).
+	HidePrivate bool
 }
 
 // AccountAudit is one audited change of an account.
@@ -65,7 +68,7 @@ const accountColumns = "SELECT u.id, u.username, u.display_name, " +
 	"u.must_change_password, COALESCE(u.created_by, 0), " +
 	"UNIX_TIMESTAMP(u.created_at), " +
 	"(SELECT UNIX_TIMESTAMP(MAX(a.created_at)) FROM web_audit a " +
-	"WHERE a.web_user_id = u.id AND a.action = 'login_ok'), " +
+	"WHERE a.web_user_id = u.id AND a.action = 'login_ok'), u.hide_private, " +
 	adminOfColumn + ", " + memberOfColumn +
 	"FROM web_users u "
 
@@ -82,7 +85,7 @@ func scanAccount(row scanner) (Account, error) {
 	)
 	err := row.Scan(&a.ID, &a.Username, &a.DisplayName, &a.Email, &a.EmailVerified, &a.Role,
 		&a.Active, &a.HasPassword, &a.MustChangePassword, &a.CreatedBy,
-		&created, &signin, &adminOf, &memberOf)
+		&created, &signin, &a.HidePrivate, &adminOf, &memberOf)
 	if err != nil {
 		return Account{}, err
 	}
@@ -258,6 +261,9 @@ type AccountChange struct {
 	// admin made anything else stops administering.
 	AdminOf     *FederationChange
 	Federations *FederationChange
+	// HidePrivate sets an admin's restriction on private chats. It is
+	// cleared whenever the account ends as another role.
+	HidePrivate *bool
 }
 
 // UpdateAccount applies a change and audits it with the actor, in one
@@ -294,12 +300,12 @@ func UpdateAccount(ctx context.Context, db *sql.DB, actor, id uint64, c AccountC
 	}
 
 	var cur struct {
-		name, email, role string
-		active            bool
+		name, email, role   string
+		active, hidePrivate bool
 	}
 	err = tx.QueryRowContext(ctx, "SELECT display_name, COALESCE(email, ''), role, "+
-		"is_active FROM web_users WHERE id = ? FOR UPDATE", id).
-		Scan(&cur.name, &cur.email, &cur.role, &cur.active)
+		"is_active, hide_private FROM web_users WHERE id = ? FOR UPDATE", id).
+		Scan(&cur.name, &cur.email, &cur.role, &cur.active, &cur.hidePrivate)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, ErrNoUser
 	}
@@ -337,6 +343,23 @@ func UpdateAccount(ctx context.Context, db *sql.DB, actor, id uint64, c AccountC
 	if c.Active != nil && *c.Active != cur.active {
 		sets, args = append(sets, "is_active = ?"), append(args, *c.Active)
 		bump = bump || !*c.Active
+	}
+	// Only an admin can be restricted: the restriction goes with a
+	// role change away from admin.
+	hide := cur.hidePrivate
+	if c.HidePrivate != nil {
+		hide = *c.HidePrivate
+	}
+	endRole := cur.role
+	if c.Role != nil {
+		endRole = *c.Role
+	}
+	if endRole != "admin" {
+		hide = false
+	}
+	if hide != cur.hidePrivate {
+		sets, args = append(sets, "hide_private = ?"), append(args, hide)
+		detail = append(detail, map[bool]string{true: "hide_private on", false: "hide_private off"}[hide])
 	}
 	if c.PasswordHash != nil {
 		sets, args = append(sets, "password_hash = ?", "must_change_password = 1"),
