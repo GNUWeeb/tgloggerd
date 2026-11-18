@@ -113,13 +113,15 @@ describe('settings', () => {
 	it('signs out one other session, or all others', async () => {
 		const p = fixture<SessionsProps>('/settings/sessions').props;
 		const other = p.sessions.find((s) => !s.current)!;
-		const calls = fakeApi('superadmin', { 'DELETE /api/account/sessions/:id': () => undefined, 'POST /api/account/sessions/sign-out-others': () => undefined });
+		const calls = fakeApi('superadmin', { 'DELETE /api/account/sessions/:id': () => undefined, 'POST /api/account/sessions/sign-out-others': () => ({ csrf: 'reissued' }) });
 		renderPage('/settings/sessions');
 		const row = screen.getByText(other.device).closest('li')!;
 		fireEvent.click(within(row).getByRole('button', { name: 'Sign out' }));
 		fireEvent.click(screen.getByRole('button', { name: /Sign out all others/ }));
 		await waitFor(() => expect(callsTo(calls, 'DELETE', `/api/account/sessions/${other.id}`)).toHaveLength(1));
 		await waitFor(() => expect(callsTo(calls, 'POST', '/api/account/sessions/sign-out-others')).toHaveLength(1));
+		// This session's cookie is reissued: later changes carry the new token.
+		await waitFor(() => expect(document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')!.content).toBe('reissued'));
 	});
 });
 

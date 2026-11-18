@@ -214,7 +214,11 @@ function SessionsPage({ page }: { page: PageData<SessionsProps> }) {
 	const others = page.props.sessions.some((s) => !s.current);
 	return (
 		<Frame on="sessions" title="Sessions" sub="Where your account is signed in."
-			actions={others ? <Btn ghost danger icon={LogOut} onClick={() => void act(() => ok(api.POST('/api/account/sessions/sign-out-others')))}>Sign out all others</Btn> : undefined}>
+			actions={others ? <Btn ghost danger icon={LogOut} onClick={() => void act(async () => {
+				// This session's cookie is reissued; the old token stops working.
+				const r = await ok(api.POST('/api/account/sessions/sign-out-others'));
+				setSessionCsrf(r.csrf);
+			})}>Sign out all others</Btn> : undefined}>
 			{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			<div className="a-card a-tablecard a-narrow">
 				<ul className="a-sessions">{page.props.sessions.map((s) => (

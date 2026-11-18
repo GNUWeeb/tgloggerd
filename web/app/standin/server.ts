@@ -248,7 +248,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		}
 		if ((am = p.match(/^saved-searches\/(\d+)$/)) && req.method === 'DELETE') { st.saved = st.saved.filter((x: { id: number }) => String(x.id) !== am![1]); res.writeHead(204); res.end(); return; }
 		if ((am = p.match(/^sessions\/(\w+)$/)) && req.method === 'DELETE') { st.sessions = st.sessions.filter((x: { id: string; current: boolean }) => x.current || x.id !== am![1]); res.writeHead(204); res.end(); return; }
-		if (p === 'sessions/sign-out-others' && req.method === 'POST') { st.sessions = st.sessions.filter((x: { current: boolean }) => x.current); res.writeHead(204); res.end(); return; }
+		if (p === 'sessions/sign-out-others' && req.method === 'POST') {
+			st.sessions = st.sessions.filter((x: { current: boolean }) => x.current);
+			// This session's cookie is reissued, as the Go service does.
+			const csrf = `standin-csrf-${csrfTokens.size}`;
+			csrfTokens.add(csrf);
+			send(res, 200, { csrf }); return;
+		}
 		send(res, 404, { error: 'not_found' }); return;
 	}
 	if (url.pathname === '/api/events' && req.method === 'GET') { await openStream(req, res, url, who); return; }
