@@ -201,6 +201,34 @@ account are `editable` yet, come from the federation helpers
 (`webapi/internal/server/federationprops.go`), the same ones the
 federations operations use.
 
+A federation's details page (`/settings/federations/{id}`, route
+`federation`, FederationDetailProps; the same data at
+`GET /api/federations/{id}`) is opened from its card on the
+federations page. A superadmin sees every federation, an admin those
+it administers; to anyone else, and for any other federation, it does
+not exist (404). It carries:
+
+- the federation: id, name, description, whether it is Default, when
+  and by which superadmin it was made (null for Default, and the
+  creator null when that account is gone), and `group_count`, how many
+  of its groups the viewer sees;
+- its admins and members (`{id, username, name}`, by username);
+- the first page of its groups, as `GET /api/federations/{id}/groups`
+  answers it;
+- `can_edit` (name, description, groups, admins, delete): a superadmin
+  everything but Default's name, groups and deletion; an admin of the
+  federation its name (not Default's) and description only.
+
+`GET /api/federations/{id}/groups?q=&cursor=&limit=` pages the
+federation's groups the request scope shows, busiest first (message
+count, then id, both descending), 50 by default and 1 to 200:
+`{items, next_cursor, total}`, each item a group summary with its
+message count. `q` keeps the groups whose title or active username
+contains it, without regard to case (a leading `@` is dropped), and
+`total` counts every match. A cursor the service did not give answers
+400 `bad_request`. Groups a superadmin hid from an admin are never
+listed and never counted, here and in `group_count`.
+
 ## First passwords and resets
 
 Email is optional, for each account and for the service

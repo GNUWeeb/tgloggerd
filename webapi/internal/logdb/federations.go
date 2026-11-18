@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"strconv"
+	"strings"
 
 	"tgloggerd/webapi/internal/scope"
 )
@@ -78,4 +79,64 @@ func PreviewGroups(ctx context.Context, db *sql.DB, sc scope.Scope, g GroupSet, 
 		gs = []Group{}
 	}
 	return gs, err
+}
+
+// FedGroupKey is where a page of a federation's groups ends: its last
+// group's message count and id, in the order busiest first, then by
+// id descending.
+type FedGroupKey struct {
+	MsgCount uint64
+	ID       int64
+}
+
+// FedGroupQuery is a page of a federation's groups: those of Set the
+// scope sees whose title or active username contains Q (without
+// regard to case; a leading @ is dropped), after the key After (nil
+// for the first page), at most Limit of them.
+type FedGroupQuery struct {
+	Set   GroupSet
+	Q     string
+	After *FedGroupKey
+	Limit int
+}
+
+// fedGroupCond is the condition of q's groups, without the page's key,
+// over the groups g.
+func fedGroupCond(sc scope.Scope, q FedGroupQuery) (string, []any) {
+	in, args := q.Set.Cond("g.id")
+	cond, cargs := sc.GroupFilter("g.id")
+	where := in + " AND " + cond
+	args = append(args, cargs...)
+	if t := strings.TrimPrefix(strings.TrimSpace(q.Q), "@"); t != "" {
+		where += " AND (g.title LIKE ? OR EXISTS (SELECT 1 FROM telegram_group_usernames x " +
+			"WHERE x.group_id = g.id AND x.kind = 'active' AND x.username LIKE ?))"
+		args = append(args, likeContains(t), likeContains(t))
+	}
+	return where, args
+}
+
+// FederationGroupPage is a page of a federation's groups and how many
+// groups match the query in all (every page's). It returns one group
+// more than Limit when more follow.
+func FederationGroupPage(ctx context.Context, db *sql.DB, sc scope.Scope, q FedGroupQuery) ([]Group, int, error) {
+	where, args := fedGroupCond(sc, q)
+	var total int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM telegram_groups g WHERE "+where,
+		args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	if q.After != nil {
+		where += " AND (g.msg_count < ? OR (g.msg_count = ? AND g.id < ?))"
+		args = append(args, q.After.MsgCount, q.After.MsgCount, q.After.ID)
+	}
+	rows, err := db.QueryContext(ctx, groupQuery+"WHERE "+where+
+		" ORDER BY g.msg_count DESC, g.id DESC LIMIT "+strconv.Itoa(q.Limit+1), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	gs, err := scanGroups(rows)
+	if gs == nil {
+		gs = []Group{}
+	}
+	return gs, total, err
 }

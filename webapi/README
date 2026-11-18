@@ -167,7 +167,12 @@ cannot be disabled or demoted. The federations editor (POST
 /api/federations, PATCH and DELETE /api/federations/{id}) is the
 superadmins', except that an admin renames and describes the
 federations it administers (Scope.DescribesFederation), and is
-described there too.
+described there too, as is a federation's details page
+(/settings/federations/{id}, route federation, and GET
+/api/federations/{id} with its groups page by page at GET
+/api/federations/{id}/groups; internal/server/federationdetail.go):
+a superadmin's every federation, an admin's those it administers,
+with the groups the request scope shows.
 
 The login throttle is in the process's memory, as in Drogon, so each
 service counts failures on its own. The address logged and throttled

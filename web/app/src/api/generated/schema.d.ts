@@ -147,7 +147,7 @@ export interface paths {
          * A page's data
          * @description The data of the page at /<path>, the same object the server embeds in the page's HTML on a first load (web-ssr.md sections 5 and 7), for navigation in the browser. `path` is the page's path without its leading slash (empty for the dashboard at /); its slashes may be sent as they are or encoded as %2F. The page's query string (search, filters, sort, page) is passed on as the query string of this request.
          *
-         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; bots /platform-fwd/bots; join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
+         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; federation /settings/federations/{id}; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; bots /platform-fwd/bots; join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
          *
          *     /messages/{group|private}, the Drogon message lists that its message pages link to, answers {"reload": true}: its document redirects (302) to /group_messages or /private_messages, filtered by its ?chat_id= and with ?per= its ?limit=.
          *
@@ -157,7 +157,7 @@ export interface paths {
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public chats of exposed groups (group_chat).
          *
-         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope. The users, groups, group_messages and private_messages lists take every field of their search registry (ListState.fields) with the search's operators and connectors, besides their own filter keys, and sort by the registry's sortable fields too; a filter or search text they refuse, or a search that runs out of time, answers the whole list with ListState.error, as the Drogon lists did. The files list drops a filter it does not take, not echoed in conds. per defaults to the viewer's rows_per_page and goes up to 1000. archive_total is there only for a viewer who sees the whole archive of that list. A Drogon list URL (search, offset, limit, order, without f, page, per and dir) is read as the same list, and the answer's url is the translated one, to put in the address bar. The user and group pages and their history pages take before, the history cursor (history_next). The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
+         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope. The users, groups, group_messages and private_messages lists take every field of their search registry (ListState.fields) with the search's operators and connectors, besides their own filter keys, and sort by the registry's sortable fields too; a filter or search text they refuse, or a search that runs out of time, answers the whole list with ListState.error, as the Drogon lists did. The files list drops a filter it does not take, not echoed in conds. per defaults to the viewer's rows_per_page and goes up to 1000. archive_total is there only for a viewer who sees the whole archive of that list. A Drogon list URL (search, offset, limit, order, without f, page, per and dir) is read as the same list, and the answer's url is the translated one, to put in the address bar. The user and group pages and their history pages take before, the history cursor (history_next). The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
         put?: never;
@@ -705,7 +705,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * A federation's details
+         * @description The federation page's props (route federation, /settings/federations/{id}): the federation with its description, creator and how many of its groups the viewer sees, its admins and members, the first page of its groups (as getFederationGroups answers it without q and cursor) and what the viewer may change of it. A superadmin sees every federation, an admin the ones it administers; anyone else gets 404, as for a federation that does not exist. Groups hidden from an admin are neither listed nor counted.
+         */
+        get: operations["getFederation"];
         put?: never;
         post?: never;
         /**
@@ -720,6 +724,26 @@ export interface paths {
          * @description A superadmin changes any federation. An admin of the federation (one it administers) may send name and description only; group_ids or admin_ids from it answer 403 forbidden. Anyone else gets 404, as does a federation that does not exist or that the admin does not administer. The fields given replace the federation's name, description, groups and admins; the others stay. A group taken out of its last federation is back in Default. The Default federation (id 0) is derived, the groups in no other federation, so it takes description and admin_ids only (and its own name back unchanged); a new name for it answers 400 bad_request, whoever sends it. Audited as federation_update, with what changed (for the description, only that it was set or cleared) and the account that changed it.
          */
         patch: operations["updateFederation"];
+        trace?: never;
+    };
+    "/api/federations/{id}/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A federation's groups, page by page
+         * @description The federation's groups that the viewer's scope shows, busiest first (by message count, then by id, both descending); for Default, the groups in no other federation. q keeps the groups whose title or active username contains it, without regard to case (a leading @ is ignored); total counts every group that matches, on every page. Groups hidden from an admin are never listed nor counted. Who sees a federation is as for getFederation (404 otherwise). Paged by an opaque cursor.
+         */
+        get: operations["getFederationGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/forwarding/telegram-discord": {
@@ -1279,7 +1303,7 @@ export interface components {
             props?: Record<string, never>;
         };
         /** @description The page data; `route` says which props it carries. */
-        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageBots"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PagePasswordChange"];
+        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageFederation"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageBots"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PagePasswordChange"];
         PageLinkPage: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
             route: "password_forgot" | "password_set" | "email_verify";
@@ -1364,6 +1388,11 @@ export interface components {
             /** @enum {unknown} */
             route: "federations";
             props: components["schemas"]["FederationsProps"];
+        };
+        PageFederation: components["schemas"]["PageBase"] & {
+            /** @enum {unknown} */
+            route: "federation";
+            props: components["schemas"]["FederationDetailProps"];
         };
         PageForwarding: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
@@ -2366,6 +2395,46 @@ export interface components {
             editable: boolean;
             /** @description The active admins a superadmin may make admins of a federation; empty for an admin. */
             admin_options: components["schemas"]["FedPerson"][];
+        };
+        FederationDetail: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            /** @description Free text about the federation; empty for none. */
+            description: string;
+            default: boolean;
+            /**
+             * Format: date-time
+             * @description When it was made; null for Default.
+             */
+            created: string | null;
+            /** @description The superadmin that made it; null for Default and when that account is gone. */
+            created_by: components["schemas"]["FedPerson"] | null;
+            /** @description How many of its groups the viewer sees. */
+            group_count: number;
+        };
+        /** @description What the viewer may change of the federation: a superadmin everything but Default's name, groups and deletion; an admin of it the name (not Default's) and the description only. */
+        FederationCanEdit: {
+            name: boolean;
+            description: boolean;
+            groups: boolean;
+            admins: boolean;
+            delete: boolean;
+        };
+        FederationGroupsPage: {
+            items: components["schemas"]["GroupCounted"][];
+            next_cursor: string | null;
+            /** @description How many groups match, on every page. */
+            total: number;
+        };
+        FederationDetailProps: {
+            federation: components["schemas"]["FederationDetail"];
+            /** @description Its admins, by username (superadmins are not listed). */
+            admins: components["schemas"]["FedPerson"][];
+            /** @description The members filed in it, by username. */
+            members: components["schemas"]["FedPerson"][];
+            groups: components["schemas"]["FederationGroupsPage"];
+            can_edit: components["schemas"]["FederationCanEdit"];
         };
         FederationWrite: {
             name?: string;
@@ -4245,6 +4314,33 @@ export interface operations {
             503: components["responses"]["SessionUnavailable"];
         };
     };
+    getFederation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The federation. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FederationDetailProps"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Gate"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
     deleteFederation: {
         parameters: {
             query?: never;
@@ -4332,6 +4428,47 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getFederationGroups: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+                /** @description The next_cursor of the previous page. */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of groups; next_cursor is null on the last. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FederationGroupsPage"];
+                };
+            };
+            /** @description A malformed limit or cursor, or a q over 512 bytes (error bad_request). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Gate"];
+            404: components["responses"]["NotFound"];
             503: components["responses"]["SessionUnavailable"];
         };
     };
