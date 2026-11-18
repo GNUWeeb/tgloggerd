@@ -398,6 +398,70 @@ Each one updates the live row, but a location keeps at most one version
 a minute in the edits table, so a shared position is kept as a track
 with one point a minute rather than one a second.
 
+### 4.2.3 Service messages
+
+A service message keeps its English description in `text` and its
+action's own fields in `content_extra`, by the same rules as section
+4.2.1. Message ids are server ids; user and chat ids are numbers;
+64-bit ids are strings; a sender is `{user_id}` or `{chat_id}`; a price
+is `{stars}` or `{gram_cents}`; a union type is named by its variant in
+snake case (`"origin": "resale"`). A toggle keeps its value even when
+false.
+
+| service_type | Keys |
+|---|---|
+| chat_create | `title`, `user_ids` (basic groups) |
+| chat_change_title | `title` |
+| chat_change_photo, suggest_profile_photo | `photo`: `{photo_id, width, height, animated, minithumbnail}` |
+| chat_add_members | `user_ids` |
+| chat_delete_member | `user_id` |
+| chat_join_from_community, chat_added_to_community | `community_id` |
+| chat_upgrade_to | `supergroup_id` |
+| chat_upgrade_from | `title`, `basic_group_id` |
+| chat_owner_left, chat_owner_changed | `new_owner_user_id` |
+| chat_has_protected_content_toggled | `old_value`, `new_value`, `request_message_id` |
+| chat_has_protected_content_disable_requested | `expired` |
+| pin_message | `message_id` |
+| chat_set_background | `background`: `{id, name, dark, type, dark_theme_dimming}`, `old_background_message_id`, `only_for_self` |
+| chat_set_theme | `theme_name`, or `theme_kind` for a gift theme |
+| chat_set_message_auto_delete_time | `seconds`, `from_user_id` |
+| chat_boost | `boost_count` |
+| forum_topic_created | `name`, `name_implicit`, `icon_color`, `icon_custom_emoji_id` |
+| forum_topic_edited | `name`, `icon_edited`, `icon_custom_emoji_id` |
+| forum_topic_is_closed_toggled, forum_topic_is_hidden_toggled | `closed`, `hidden` |
+| suggest_birthdate | `day`, `month`, `year` |
+| game_score | `game_message_id`, `game_id`, `score` |
+| managed_bot_created | `bot_user_id`, `manager_bot_user_id` |
+| video_chat_scheduled, video_chat_started, video_chat_ended, invite_video_chat_participants | `group_call_id`, `start_date`, `duration`, `user_ids` |
+| poll_option_added, poll_option_deleted | `poll_message_id`, `option_id`, `option` (`{text, entities}`) |
+| checklist_tasks_done | `checklist_message_id`, `done_task_ids`, `not_done_task_ids` |
+| checklist_tasks_added | `checklist_message_id`, `tasks` |
+| payment_successful | `invoice_chat_id`, `invoice_message_id`, `currency`, `total_amount`, `subscription_until_date`, `recurring`, `first_recurring`, `invoice_name` |
+| payment_successful_bot | currency, total_amount, subscription_until_date, recurring, first_recurring, `telegram_payment_charge_id`, `provider_payment_charge_id` |
+| payment_refunded | `owner`, currency, total_amount, the two charge ids |
+| gifted_premium, premium_gift_code | `gifter_user_id`, `receiver_user_id` or `creator`, `text`, `currency`, `amount`, `cryptocurrency`, `cryptocurrency_amount`, `month_count`, `day_count`, `from_giveaway`, `unclaimed`, `has_code` |
+| gifted_stars, gifted_grams, giveaway_prize_stars | gifter and receiver, amounts, `star_count` or `gram_amount`, `transaction_id`, giveaway chat and message |
+| giveaway_created, giveaway_completed, giveaway_winners | `star_count`; `giveaway_message_id`, `winner_count`, `unclaimed_prize_count`; the winners, prize and selection date |
+| gift, upgraded_gift, refunded_upgraded_gift | `gift` (`{id, star_count, emoji, ...}` or, upgraded, `{id, title, name, number, owner}`), `sender`, `receiver`, `origin`, `received_gift_id`, `text`, its flags and dates |
+| upgraded_gift_purchase_offer(_rejected) | `gift`, `state`, `price`, `expiration_date` or `offer_message_id`, `expired` |
+| paid_messages_refunded | `message_count`, `star_count` |
+| paid_message_price_changed, direct_message_price_changed | `paid_message_star_count`, `enabled` |
+| suggested_post_* | `suggested_post_message_id`, `price`, `send_date`, `comment`, `star_count`, `nanostar_count`, `gram_amount`, `reason` |
+| ton_wallet_transfer | `sender_user_id`, `transaction_id`, `peer_address`, `amount`, `comment` |
+| ton_connect_request | `session_id`, `state`, `dapp_name`, `topic` |
+| users_shared, chat_shared | `users` (`{user_id, first_name, last_name, username}`), `chat` (`{chat_id, title, username}`), `button_id` |
+| bot_write_access_allowed | `reason`, `domain_name` |
+| web_app_data_sent, web_app_data_received | `button_text`, `data` |
+| passport_data_sent, passport_data_received | `types` |
+| proximity_alert_triggered | `traveler`, `watcher`, `distance` |
+
+Kept out on purpose: a Premium gift code (anyone who can read the
+archive could redeem it; `has_code` records that there was one), an
+encrypted TON comment (`comment_encrypted` instead), a bot payment's
+payload and order info, encrypted passport data (only the element types
+are kept), and flags that only say what this account may do. The
+classes not listed carry nothing beyond their description.
+
 ### 4.3 Several files per message (`telegram_message_files`)
 
 A message can carry more than one file: paid media (several photos or

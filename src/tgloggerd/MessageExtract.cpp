@@ -246,15 +246,23 @@ describe_service_message(const td_api::MessageContent &content,
 		service_type = "forum_topic_created";
 		return "created topic \"" + c.name_ + "\"";
 	}
-	case td_api::messageForumTopicEdited::ID:
+	case td_api::messageForumTopicEdited::ID: {
+		auto &c = static_cast<const td_api::messageForumTopicEdited &>(content);
 		service_type = "forum_topic_edited";
+		if (!c.name_.empty())
+			return "renamed a topic to \"" + c.name_ + "\"";
+		if (c.edit_icon_custom_emoji_id_)
+			return "changed a topic's icon";
 		return "edited a topic";
+	}
 	case td_api::messageForumTopicIsClosedToggled::ID:
 		service_type = "forum_topic_is_closed_toggled";
-		return "changed a topic's closed state";
+		return static_cast<const td_api::messageForumTopicIsClosedToggled &>(
+			content).is_closed_ ? "closed the topic" : "reopened the topic";
 	case td_api::messageForumTopicIsHiddenToggled::ID:
 		service_type = "forum_topic_is_hidden_toggled";
-		return "changed a topic's hidden state";
+		return static_cast<const td_api::messageForumTopicIsHiddenToggled &>(
+			content).is_hidden_ ? "hid the topic" : "unhid the topic";
 	case td_api::messageVideoChatStarted::ID:
 		service_type = "video_chat_started";
 		return "started a video chat";
@@ -267,9 +275,14 @@ describe_service_message(const td_api::MessageContent &content,
 	case td_api::messageInviteVideoChatParticipants::ID:
 		service_type = "invite_video_chat_participants";
 		return "invited participants to the video chat";
-	case td_api::messageChatBoost::ID:
+	case td_api::messageChatBoost::ID: {
+		auto &c = static_cast<const td_api::messageChatBoost &>(content);
 		service_type = "chat_boost";
+		if (c.boost_count_ > 1)
+			return "boosted the group " +
+				std::to_string(c.boost_count_) + " times";
 		return "boosted the group";
+	}
 	case td_api::messageScreenshotTaken::ID:
 		service_type = "screenshot_taken";
 		return "took a screenshot";
@@ -289,6 +302,189 @@ describe_service_message(const td_api::MessageContent &content,
 		auto &c = static_cast<const td_api::messageCustomServiceAction &>(content);
 		service_type = "custom_service_action";
 		return c.text_;
+	}
+	case td_api::messageChatJoinFromCommunity::ID:
+		service_type = "chat_join_from_community";
+		return "joined the group from a community";
+	case td_api::messageChatAddedToCommunity::ID:
+		service_type = "chat_added_to_community";
+		return "added the group to a community";
+	case td_api::messageChatRemovedFromCommunity::ID:
+		service_type = "chat_removed_from_community";
+		return "removed the group from its community";
+	case td_api::messageChatOwnerLeft::ID:
+		service_type = "chat_owner_left";
+		return "left the group and handed over ownership";
+	case td_api::messageChatOwnerChanged::ID:
+		service_type = "chat_owner_changed";
+		return "transferred ownership of the group";
+	case td_api::messageChatHasProtectedContentToggled::ID:
+		service_type = "chat_has_protected_content_toggled";
+		return static_cast<const td_api::messageChatHasProtectedContentToggled &>(
+			content).new_has_protected_content_
+			? "turned on content protection"
+			: "turned off content protection";
+	case td_api::messageChatHasProtectedContentDisableRequested::ID:
+		service_type = "chat_has_protected_content_disable_requested";
+		return "asked to turn off content protection";
+	case td_api::messageSuggestProfilePhoto::ID:
+		service_type = "suggest_profile_photo";
+		return "suggested a profile photo";
+	case td_api::messageSuggestBirthdate::ID:
+		service_type = "suggest_birthdate";
+		return "suggested a birthdate";
+	case td_api::messageGameScore::ID:
+		service_type = "game_score";
+		return "scored " + std::to_string(
+			static_cast<const td_api::messageGameScore &>(content).score_) +
+			" in a game";
+	case td_api::messageManagedBotCreated::ID:
+		service_type = "managed_bot_created";
+		return "created a bot";
+	case td_api::messagePaymentRefunded::ID:
+		service_type = "payment_refunded";
+		return "refunded a payment";
+	case td_api::messagePremiumGiftCode::ID:
+		service_type = "premium_gift_code";
+		return "sent a Telegram Premium gift code";
+	case td_api::messageGiveawayCreated::ID:
+		service_type = "giveaway_created";
+		return "created a giveaway";
+	case td_api::messageGiveawayCompleted::ID:
+		service_type = "giveaway_completed";
+		return "the giveaway was completed";
+	case td_api::messageGiveawayWinners::ID:
+		service_type = "giveaway_winners";
+		return "announced the giveaway winners";
+	case td_api::messageGiftedStars::ID:
+		service_type = "gifted_stars";
+		return "gifted Telegram Stars";
+	case td_api::messageGiftedGrams::ID:
+		service_type = "gifted_grams";
+		return "sent a gift of grams";
+	case td_api::messageGiveawayPrizeStars::ID:
+		service_type = "giveaway_prize_stars";
+		return "won Telegram Stars in a giveaway";
+	case td_api::messageTonWalletTransfer::ID:
+		service_type = "ton_wallet_transfer";
+		return "made a TON wallet transfer";
+	case td_api::messageTonConnectRequest::ID:
+		service_type = "ton_connect_request";
+		return "received a TON Connect request";
+	case td_api::messageGift::ID:
+		service_type = "gift";
+		return "sent a gift";
+	case td_api::messageUpgradedGift::ID: {
+		auto &c = static_cast<const td_api::messageUpgradedGift &>(content);
+		service_type = "upgraded_gift";
+		if (c.origin_ &&
+		    c.origin_->get_id() == td_api::upgradedGiftOriginUpgrade::ID)
+			return "upgraded a gift";
+		return "sent an upgraded gift";
+	}
+	case td_api::messageRefundedUpgradedGift::ID:
+		service_type = "refunded_upgraded_gift";
+		return "the gift was refunded";
+	case td_api::messageUpgradedGiftPurchaseOffer::ID:
+		service_type = "upgraded_gift_purchase_offer";
+		return "offered to buy a gift";
+	case td_api::messageUpgradedGiftPurchaseOfferRejected::ID:
+		service_type = "upgraded_gift_purchase_offer_rejected";
+		return static_cast<const td_api::messageUpgradedGiftPurchaseOfferRejected &>(
+			content).was_expired_
+			? "the offer to buy a gift expired"
+			: "rejected an offer to buy a gift";
+	case td_api::messagePaidMessagesRefunded::ID:
+		service_type = "paid_messages_refunded";
+		return "refunded paid messages";
+	case td_api::messagePaidMessagePriceChanged::ID: {
+		auto n = static_cast<const td_api::messagePaidMessagePriceChanged &>(
+			content).paid_message_star_count_;
+		service_type = "paid_message_price_changed";
+		if (n > 0)
+			return "set the price of a message to " +
+				std::to_string(n) + " Telegram Stars";
+		return "made messages free to send";
+	}
+	case td_api::messageDirectMessagePriceChanged::ID: {
+		auto &c = static_cast<const td_api::messageDirectMessagePriceChanged &>(
+			content);
+		service_type = "direct_message_price_changed";
+		if (!c.is_enabled_)
+			return "turned off direct messages";
+		if (c.paid_message_star_count_ > 0)
+			return "set the price of a direct message to " +
+				std::to_string(c.paid_message_star_count_) +
+				" Telegram Stars";
+		return "turned on direct messages";
+	}
+	case td_api::messageUnpaidMessagesAllowedByLink::ID:
+		service_type = "unpaid_messages_allowed_by_link";
+		return "may now send messages without paying, through a link";
+	case td_api::messageChecklistTasksDone::ID: {
+		auto &c = static_cast<const td_api::messageChecklistTasksDone &>(
+			content);
+		service_type = "checklist_tasks_done";
+		if (c.marked_as_done_task_ids_.empty())
+			return "marked checklist tasks as not done";
+		return "marked checklist tasks as done";
+	}
+	case td_api::messageChecklistTasksAdded::ID:
+		service_type = "checklist_tasks_added";
+		return "added tasks to a checklist";
+	case td_api::messagePollOptionAdded::ID:
+		service_type = "poll_option_added";
+		return "added an option to a poll";
+	case td_api::messagePollOptionDeleted::ID:
+		service_type = "poll_option_deleted";
+		return "removed an option from a poll";
+	case td_api::messageSuggestedPostApprovalFailed::ID:
+		service_type = "suggested_post_approval_failed";
+		return "the suggested post could not be approved";
+	case td_api::messageSuggestedPostApproved::ID:
+		service_type = "suggested_post_approved";
+		return "approved a suggested post";
+	case td_api::messageSuggestedPostDeclined::ID:
+		service_type = "suggested_post_declined";
+		return "declined a suggested post";
+	case td_api::messageSuggestedPostPaid::ID:
+		service_type = "suggested_post_paid";
+		return "the suggested post was paid for";
+	case td_api::messageSuggestedPostRefunded::ID:
+		service_type = "suggested_post_refunded";
+		return "the suggested post was refunded";
+	case td_api::messageUsersShared::ID: {
+		auto n = static_cast<const td_api::messageUsersShared &>(
+			content).users_.size();
+		service_type = "users_shared";
+		if (n > 1)
+			return "shared " + std::to_string(n) +
+				" users with the bot";
+		return "shared a user with the bot";
+	}
+	case td_api::messageChatShared::ID:
+		service_type = "chat_shared";
+		return "shared a chat with the bot";
+	case td_api::messageBotWriteAccessAllowed::ID:
+		service_type = "bot_write_access_allowed";
+		return "allowed the bot to send messages";
+	case td_api::messageWebAppDataSent::ID:
+		service_type = "web_app_data_sent";
+		return "sent data to the bot";
+	case td_api::messageWebAppDataReceived::ID:
+		service_type = "web_app_data_received";
+		return "sent data from a web app";
+	case td_api::messagePassportDataSent::ID:
+		service_type = "passport_data_sent";
+		return "shared Telegram Passport data";
+	case td_api::messagePassportDataReceived::ID:
+		service_type = "passport_data_received";
+		return "received Telegram Passport data";
+	case td_api::messageProximityAlertTriggered::ID: {
+		auto d = static_cast<const td_api::messageProximityAlertTriggered &>(
+			content).distance_;
+		service_type = "proximity_alert_triggered";
+		return "came within " + std::to_string(d) + " metres";
 	}
 	default:
 		return std::nullopt;
@@ -1033,6 +1229,654 @@ structured_extra_json(const td_api::MessageContent &c, bool &handled)
 	return j.dump();
 }
 
+
+/*
+ * "upgradedGiftOriginResale" with @prefix "upgradedGiftOrigin" ->
+ * "resale": the variant of a TDLib union type, snake case, from the class
+ * name TDLib's own to_string() starts with.
+ */
+std::string tl_variant(const td_api::Object *o, const char *prefix)
+{
+	if (!o)
+		return std::string();
+	std::string name = td_api::to_string(*o);
+	name = name.substr(0, name.find_first_of(" \n{"));
+	std::string p = prefix;
+	if (name.rfind(p, 0) == 0)
+		name = name.substr(p.size());
+	std::string out;
+	for (char ch : name) {
+		if (ch >= 'A' && ch <= 'Z') {
+			if (!out.empty())
+				out += '_';
+			out += (char)(ch - 'A' + 'a');
+		} else {
+			out += ch;
+		}
+	}
+	return out;
+}
+
+/* A price in Telegram Stars or in grams: {"stars": n} or {"gram_cents": n}. */
+nlohmann::json price_json(const td_api::Object *p)
+{
+	if (!p)
+		return nullptr;
+	switch (p->get_id()) {
+	case td_api::giftResalePriceStar::ID:
+		return { { "stars", static_cast<const td_api::giftResalePriceStar &>(*p).star_count_ } };
+	case td_api::giftResalePriceGram::ID:
+		return { { "gram_cents", static_cast<const td_api::giftResalePriceGram &>(*p).gram_cent_count_ } };
+	case td_api::suggestedPostPriceStar::ID:
+		return { { "stars", static_cast<const td_api::suggestedPostPriceStar &>(*p).star_count_ } };
+	case td_api::suggestedPostPriceGram::ID:
+		return { { "gram_cents", static_cast<const td_api::suggestedPostPriceGram &>(*p).gram_cent_count_ } };
+	default:
+		return nullptr;
+	}
+}
+
+void put_json(nlohmann::json &j, const char *key, nlohmann::json v)
+{
+	if (!v.is_null() && !(v.is_array() && v.empty()))
+		j[key] = std::move(v);
+}
+
+void put_msg_id(nlohmann::json &j, const char *key, int64_t td_id)
+{
+	put_num(j, key, server_msg_id(td_id));
+}
+
+nlohmann::json chat_photo_json(const td_api::chatPhoto *p)
+{
+	if (!p)
+		return nullptr;
+	nlohmann::json j = nlohmann::json::object();
+	put_id(j, "photo_id", p->id_);
+	const td_api::photoSize *best = nullptr;
+	for (const auto &sz : p->sizes_)
+		if (sz && (!best || sz->width_ > best->width_))
+			best = sz.get();
+	if (best) {
+		put_num(j, "width", best->width_);
+		put_num(j, "height", best->height_);
+	}
+	put_flag(j, "animated", p->animation_ != nullptr);
+	put_minithumbnail(j, p->minithumbnail_.get());
+	return j;
+}
+
+nlohmann::json gift_json(const td_api::gift *g)
+{
+	if (!g)
+		return nullptr;
+	nlohmann::json j = nlohmann::json::object();
+	put_id(j, "id", g->id_);
+	put_num(j, "star_count", g->star_count_);
+	put_num(j, "upgrade_star_count", g->upgrade_star_count_);
+	put_num(j, "publisher_chat_id", g->publisher_chat_id_);
+	put_flag(j, "for_birthday", g->is_for_birthday_);
+	put_flag(j, "premium", g->is_premium_);
+	if (g->sticker_)
+		put_str(j, "emoji", g->sticker_->emoji_);
+	return j;
+}
+
+nlohmann::json upgraded_gift_json(const td_api::upgradedGift *g)
+{
+	if (!g)
+		return nullptr;
+	nlohmann::json j = nlohmann::json::object();
+	put_id(j, "id", g->id_);
+	put_id(j, "regular_gift_id", g->regular_gift_id_);
+	put_str(j, "title", g->title_);
+	put_str(j, "name", g->name_);
+	put_num(j, "number", g->number_);
+	put_num(j, "publisher_chat_id", g->publisher_chat_id_);
+	put_json(j, "owner", sender_json(g->owner_id_.get()));
+	return j;
+}
+
+/*
+ * The curated content_extra of a service message (message-types.md section
+ * 4.2.3): the action's own fields. Message ids are server ids. Left out on
+ * purpose: a Premium gift code (whoever reads the archive could redeem it),
+ * an encrypted TON comment, a payment's bot-side payload and order info,
+ * encrypted passport data, and flags that only describe what this account
+ * may do (can_*).
+ */
+std::optional<std::string> service_extra_json(const td_api::MessageContent &c)
+{
+	nlohmann::json j = nlohmann::json::object();
+
+	switch (c.get_id()) {
+	case td_api::messageBasicGroupChatCreate::ID: {
+		auto &m = static_cast<const td_api::messageBasicGroupChatCreate &>(c);
+		put_str(j, "title", m.title_);
+		put_json(j, "user_ids", m.member_user_ids_);
+		break;
+	}
+	case td_api::messageSupergroupChatCreate::ID:
+		put_str(j, "title", static_cast<const td_api::messageSupergroupChatCreate &>(c).title_);
+		break;
+	case td_api::messageChatChangeTitle::ID:
+		put_str(j, "title", static_cast<const td_api::messageChatChangeTitle &>(c).title_);
+		break;
+	case td_api::messageChatChangePhoto::ID:
+		put_json(j, "photo", chat_photo_json(
+			static_cast<const td_api::messageChatChangePhoto &>(c).photo_.get()));
+		break;
+	case td_api::messageChatAddMembers::ID:
+		put_json(j, "user_ids", static_cast<const td_api::messageChatAddMembers &>(c).member_user_ids_);
+		break;
+	case td_api::messageChatJoinFromCommunity::ID:
+		put_num(j, "community_id", static_cast<const td_api::messageChatJoinFromCommunity &>(c).community_id_);
+		break;
+	case td_api::messageChatDeleteMember::ID:
+		put_num(j, "user_id", static_cast<const td_api::messageChatDeleteMember &>(c).user_id_);
+		break;
+	case td_api::messageChatAddedToCommunity::ID:
+		put_num(j, "community_id", static_cast<const td_api::messageChatAddedToCommunity &>(c).community_id_);
+		break;
+	case td_api::messageChatUpgradeTo::ID:
+		put_num(j, "supergroup_id", static_cast<const td_api::messageChatUpgradeTo &>(c).supergroup_id_);
+		break;
+	case td_api::messageChatUpgradeFrom::ID: {
+		auto &m = static_cast<const td_api::messageChatUpgradeFrom &>(c);
+		put_str(j, "title", m.title_);
+		put_num(j, "basic_group_id", m.basic_group_id_);
+		break;
+	}
+	case td_api::messageChatOwnerLeft::ID:
+		put_num(j, "new_owner_user_id", static_cast<const td_api::messageChatOwnerLeft &>(c).new_owner_user_id_);
+		break;
+	case td_api::messageChatOwnerChanged::ID:
+		put_num(j, "new_owner_user_id", static_cast<const td_api::messageChatOwnerChanged &>(c).new_owner_user_id_);
+		break;
+	case td_api::messageChatHasProtectedContentToggled::ID: {
+		auto &m = static_cast<const td_api::messageChatHasProtectedContentToggled &>(c);
+		j["old_value"] = m.old_has_protected_content_;
+		j["new_value"] = m.new_has_protected_content_;
+		put_msg_id(j, "request_message_id", m.request_message_id_);
+		break;
+	}
+	case td_api::messageChatHasProtectedContentDisableRequested::ID:
+		put_flag(j, "expired", static_cast<const td_api::messageChatHasProtectedContentDisableRequested &>(c).is_expired_);
+		break;
+	case td_api::messagePinMessage::ID:
+		put_msg_id(j, "message_id", static_cast<const td_api::messagePinMessage &>(c).message_id_);
+		break;
+	case td_api::messageChatSetBackground::ID: {
+		auto &m = static_cast<const td_api::messageChatSetBackground &>(c);
+		put_msg_id(j, "old_background_message_id", m.old_background_message_id_);
+		put_flag(j, "only_for_self", m.only_for_self_);
+		if (m.background_ && m.background_->background_) {
+			auto &b = *m.background_->background_;
+			nlohmann::json bg = nlohmann::json::object();
+			put_id(bg, "id", b.id_);
+			put_str(bg, "name", b.name_);
+			put_flag(bg, "dark", b.is_dark_);
+			put_str(bg, "type", tl_variant(b.type_.get(), "backgroundType"));
+			put_num(bg, "dark_theme_dimming", m.background_->dark_theme_dimming_);
+			j["background"] = bg;
+		}
+		break;
+	}
+	case td_api::messageChatSetTheme::ID: {
+		auto &m = static_cast<const td_api::messageChatSetTheme &>(c);
+		if (m.theme_ && m.theme_->get_id() == td_api::chatThemeEmoji::ID)
+			put_str(j, "theme_name", static_cast<const td_api::chatThemeEmoji &>(*m.theme_).name_);
+		else if (m.theme_)
+			put_str(j, "theme_kind", tl_variant(m.theme_.get(), "chatTheme"));
+		break;
+	}
+	case td_api::messageChatSetMessageAutoDeleteTime::ID: {
+		auto &m = static_cast<const td_api::messageChatSetMessageAutoDeleteTime &>(c);
+		j["seconds"] = m.message_auto_delete_time_;
+		put_num(j, "from_user_id", m.from_user_id_);
+		break;
+	}
+	case td_api::messageChatBoost::ID:
+		put_num(j, "boost_count", static_cast<const td_api::messageChatBoost &>(c).boost_count_);
+		break;
+	case td_api::messageForumTopicCreated::ID: {
+		auto &m = static_cast<const td_api::messageForumTopicCreated &>(c);
+		put_str(j, "name", m.name_);
+		put_flag(j, "name_implicit", m.is_name_implicit_);
+		if (m.icon_) {
+			put_num(j, "icon_color", m.icon_->color_);
+			put_id(j, "icon_custom_emoji_id", m.icon_->custom_emoji_id_);
+		}
+		break;
+	}
+	case td_api::messageForumTopicEdited::ID: {
+		auto &m = static_cast<const td_api::messageForumTopicEdited &>(c);
+		put_str(j, "name", m.name_);
+		if (m.edit_icon_custom_emoji_id_) {
+			j["icon_edited"] = true;
+			put_id(j, "icon_custom_emoji_id", m.icon_custom_emoji_id_);
+		}
+		break;
+	}
+	case td_api::messageForumTopicIsClosedToggled::ID:
+		j["closed"] = static_cast<const td_api::messageForumTopicIsClosedToggled &>(c).is_closed_;
+		break;
+	case td_api::messageForumTopicIsHiddenToggled::ID:
+		j["hidden"] = static_cast<const td_api::messageForumTopicIsHiddenToggled &>(c).is_hidden_;
+		break;
+	case td_api::messageSuggestProfilePhoto::ID:
+		put_json(j, "photo", chat_photo_json(
+			static_cast<const td_api::messageSuggestProfilePhoto &>(c).photo_.get()));
+		break;
+	case td_api::messageSuggestBirthdate::ID:
+		if (auto *b = static_cast<const td_api::messageSuggestBirthdate &>(c).birthdate_.get()) {
+			put_num(j, "day", b->day_);
+			put_num(j, "month", b->month_);
+			put_num(j, "year", b->year_);
+		}
+		break;
+	case td_api::messageGameScore::ID: {
+		auto &m = static_cast<const td_api::messageGameScore &>(c);
+		put_msg_id(j, "game_message_id", m.game_message_id_);
+		put_id(j, "game_id", m.game_id_);
+		j["score"] = m.score_;
+		break;
+	}
+	case td_api::messageManagedBotCreated::ID: {
+		auto &m = static_cast<const td_api::messageManagedBotCreated &>(c);
+		put_num(j, "bot_user_id", m.bot_user_id_);
+		put_num(j, "manager_bot_user_id", m.manager_bot_user_id_);
+		break;
+	}
+	case td_api::messageVideoChatScheduled::ID: {
+		auto &m = static_cast<const td_api::messageVideoChatScheduled &>(c);
+		put_num(j, "group_call_id", m.group_call_id_);
+		put_num(j, "start_date", m.start_date_);
+		break;
+	}
+	case td_api::messageVideoChatStarted::ID:
+		put_num(j, "group_call_id", static_cast<const td_api::messageVideoChatStarted &>(c).group_call_id_);
+		break;
+	case td_api::messageVideoChatEnded::ID:
+		put_num(j, "duration", static_cast<const td_api::messageVideoChatEnded &>(c).duration_);
+		break;
+	case td_api::messageInviteVideoChatParticipants::ID: {
+		auto &m = static_cast<const td_api::messageInviteVideoChatParticipants &>(c);
+		put_num(j, "group_call_id", m.group_call_id_);
+		put_json(j, "user_ids", m.user_ids_);
+		break;
+	}
+	case td_api::messagePollOptionAdded::ID: {
+		auto &m = static_cast<const td_api::messagePollOptionAdded &>(c);
+		put_msg_id(j, "poll_message_id", m.poll_message_id_);
+		put_str(j, "option_id", m.option_id_);
+		put_formatted(j, "option", m.text_.get());
+		break;
+	}
+	case td_api::messagePollOptionDeleted::ID: {
+		auto &m = static_cast<const td_api::messagePollOptionDeleted &>(c);
+		put_msg_id(j, "poll_message_id", m.poll_message_id_);
+		put_str(j, "option_id", m.option_id_);
+		put_formatted(j, "option", m.text_.get());
+		break;
+	}
+	case td_api::messageChecklistTasksDone::ID: {
+		auto &m = static_cast<const td_api::messageChecklistTasksDone &>(c);
+		put_msg_id(j, "checklist_message_id", m.checklist_message_id_);
+		put_json(j, "done_task_ids", m.marked_as_done_task_ids_);
+		put_json(j, "not_done_task_ids", m.marked_as_not_done_task_ids_);
+		break;
+	}
+	case td_api::messageChecklistTasksAdded::ID: {
+		auto &m = static_cast<const td_api::messageChecklistTasksAdded &>(c);
+		put_msg_id(j, "checklist_message_id", m.checklist_message_id_);
+		nlohmann::json tasks = nlohmann::json::array();
+		for (const auto &t : m.tasks_) {
+			if (!t)
+				continue;
+			nlohmann::json e = { { "id", t->id_ } };
+			if (t->text_) {
+				e["text"] = t->text_->text_;
+				if (auto en = format_entities_json(*t->text_))
+					e["entities"] = nlohmann::json::parse(*en);
+			}
+			tasks.push_back(e);
+		}
+		put_json(j, "tasks", tasks);
+		break;
+	}
+	case td_api::messagePaymentSuccessful::ID: {
+		auto &m = static_cast<const td_api::messagePaymentSuccessful &>(c);
+		put_num(j, "invoice_chat_id", m.invoice_chat_id_);
+		put_msg_id(j, "invoice_message_id", m.invoice_message_id_);
+		put_str(j, "currency", m.currency_);
+		put_num(j, "total_amount", m.total_amount_);
+		put_num(j, "subscription_until_date", m.subscription_until_date_);
+		put_flag(j, "recurring", m.is_recurring_);
+		put_flag(j, "first_recurring", m.is_first_recurring_);
+		put_str(j, "invoice_name", m.invoice_name_);
+		break;
+	}
+	case td_api::messagePaymentSuccessfulBot::ID: {
+		auto &m = static_cast<const td_api::messagePaymentSuccessfulBot &>(c);
+		put_str(j, "currency", m.currency_);
+		put_num(j, "total_amount", m.total_amount_);
+		put_num(j, "subscription_until_date", m.subscription_until_date_);
+		put_flag(j, "recurring", m.is_recurring_);
+		put_flag(j, "first_recurring", m.is_first_recurring_);
+		put_str(j, "telegram_payment_charge_id", m.telegram_payment_charge_id_);
+		put_str(j, "provider_payment_charge_id", m.provider_payment_charge_id_);
+		break;
+	}
+	case td_api::messagePaymentRefunded::ID: {
+		auto &m = static_cast<const td_api::messagePaymentRefunded &>(c);
+		put_json(j, "owner", sender_json(m.owner_id_.get()));
+		put_str(j, "currency", m.currency_);
+		put_num(j, "total_amount", m.total_amount_);
+		put_str(j, "telegram_payment_charge_id", m.telegram_payment_charge_id_);
+		put_str(j, "provider_payment_charge_id", m.provider_payment_charge_id_);
+		break;
+	}
+	case td_api::messageGiftedPremium::ID: {
+		auto &m = static_cast<const td_api::messageGiftedPremium &>(c);
+		put_num(j, "gifter_user_id", m.gifter_user_id_);
+		put_num(j, "receiver_user_id", m.receiver_user_id_);
+		put_formatted(j, "text", m.text_.get());
+		put_str(j, "currency", m.currency_);
+		put_num(j, "amount", m.amount_);
+		put_str(j, "cryptocurrency", m.cryptocurrency_);
+		put_id(j, "cryptocurrency_amount", m.cryptocurrency_amount_);
+		put_num(j, "month_count", m.month_count_);
+		put_num(j, "day_count", m.day_count_);
+		break;
+	}
+	case td_api::messagePremiumGiftCode::ID: {
+		auto &m = static_cast<const td_api::messagePremiumGiftCode &>(c);
+		put_json(j, "creator", sender_json(m.creator_id_.get()));
+		put_formatted(j, "text", m.text_.get());
+		put_flag(j, "from_giveaway", m.is_from_giveaway_);
+		put_flag(j, "unclaimed", m.is_unclaimed_);
+		put_str(j, "currency", m.currency_);
+		put_num(j, "amount", m.amount_);
+		put_str(j, "cryptocurrency", m.cryptocurrency_);
+		put_id(j, "cryptocurrency_amount", m.cryptocurrency_amount_);
+		put_num(j, "month_count", m.month_count_);
+		put_num(j, "day_count", m.day_count_);
+		put_flag(j, "has_code", !m.code_.empty());
+		break;
+	}
+	case td_api::messageGiveawayCreated::ID:
+		put_num(j, "star_count", static_cast<const td_api::messageGiveawayCreated &>(c).star_count_);
+		break;
+	case td_api::messageGiveawayCompleted::ID: {
+		auto &m = static_cast<const td_api::messageGiveawayCompleted &>(c);
+		put_msg_id(j, "giveaway_message_id", m.giveaway_message_id_);
+		put_num(j, "winner_count", m.winner_count_);
+		put_flag(j, "star_giveaway", m.is_star_giveaway_);
+		put_num(j, "unclaimed_prize_count", m.unclaimed_prize_count_);
+		break;
+	}
+	case td_api::messageGiveawayWinners::ID: {
+		auto &m = static_cast<const td_api::messageGiveawayWinners &>(c);
+		put_num(j, "boosted_chat_id", m.boosted_chat_id_);
+		put_msg_id(j, "giveaway_message_id", m.giveaway_message_id_);
+		put_num(j, "additional_chat_count", m.additional_chat_count_);
+		put_num(j, "winners_selection_date", m.actual_winners_selection_date_);
+		put_flag(j, "only_new_members", m.only_new_members_);
+		put_flag(j, "refunded", m.was_refunded_);
+		if (m.prize_) {
+			if (m.prize_->get_id() == td_api::giveawayPrizePremium::ID)
+				j["prize"] = { { "premium_months", static_cast<const td_api::giveawayPrizePremium &>(*m.prize_).month_count_ } };
+			else if (m.prize_->get_id() == td_api::giveawayPrizeStars::ID)
+				j["prize"] = { { "stars", static_cast<const td_api::giveawayPrizeStars &>(*m.prize_).star_count_ } };
+		}
+		put_str(j, "prize_description", m.prize_description_);
+		put_num(j, "winner_count", m.winner_count_);
+		put_json(j, "winner_user_ids", m.winner_user_ids_);
+		put_num(j, "unclaimed_prize_count", m.unclaimed_prize_count_);
+		break;
+	}
+	case td_api::messageGiftedStars::ID: {
+		auto &m = static_cast<const td_api::messageGiftedStars &>(c);
+		put_num(j, "gifter_user_id", m.gifter_user_id_);
+		put_num(j, "receiver_user_id", m.receiver_user_id_);
+		put_str(j, "currency", m.currency_);
+		put_num(j, "amount", m.amount_);
+		put_str(j, "cryptocurrency", m.cryptocurrency_);
+		put_id(j, "cryptocurrency_amount", m.cryptocurrency_amount_);
+		put_num(j, "star_count", m.star_count_);
+		put_str(j, "transaction_id", m.transaction_id_);
+		break;
+	}
+	case td_api::messageGiftedGrams::ID: {
+		auto &m = static_cast<const td_api::messageGiftedGrams &>(c);
+		put_num(j, "gifter_user_id", m.gifter_user_id_);
+		put_num(j, "receiver_user_id", m.receiver_user_id_);
+		put_num(j, "gram_amount", m.gram_amount_);
+		put_str(j, "transaction_id", m.transaction_id_);
+		break;
+	}
+	case td_api::messageGiveawayPrizeStars::ID: {
+		auto &m = static_cast<const td_api::messageGiveawayPrizeStars &>(c);
+		put_num(j, "star_count", m.star_count_);
+		put_str(j, "transaction_id", m.transaction_id_);
+		put_num(j, "boosted_chat_id", m.boosted_chat_id_);
+		put_msg_id(j, "giveaway_message_id", m.giveaway_message_id_);
+		put_flag(j, "unclaimed", m.is_unclaimed_);
+		break;
+	}
+	case td_api::messageTonWalletTransfer::ID: {
+		auto &m = static_cast<const td_api::messageTonWalletTransfer &>(c);
+		put_num(j, "sender_user_id", m.sender_user_id_);
+		put_str(j, "transaction_id", m.transaction_id_);
+		put_str(j, "peer_address", m.peer_address_);
+		put_id(j, "amount", m.amount_);
+		if (m.is_comment_encrypted_)
+			put_flag(j, "comment_encrypted", true);
+		else
+			put_str(j, "comment", m.comment_);
+		break;
+	}
+	case td_api::messageTonConnectRequest::ID: {
+		auto &m = static_cast<const td_api::messageTonConnectRequest &>(c);
+		put_id(j, "session_id", m.session_id_);
+		put_str(j, "state", tl_variant(m.state_.get(), "tonConnectRequestState"));
+		put_str(j, "dapp_name", m.dapp_name_);
+		put_str(j, "topic", m.topic_);
+		break;
+	}
+	case td_api::messageGift::ID: {
+		auto &m = static_cast<const td_api::messageGift &>(c);
+		put_json(j, "gift", gift_json(m.gift_.get()));
+		put_json(j, "sender", sender_json(m.sender_id_.get()));
+		put_json(j, "receiver", sender_json(m.receiver_id_.get()));
+		put_str(j, "received_gift_id", m.received_gift_id_);
+		put_formatted(j, "text", m.text_.get());
+		put_num(j, "unique_gift_number", m.unique_gift_number_);
+		put_num(j, "sell_star_count", m.sell_star_count_);
+		put_num(j, "prepaid_upgrade_star_count", m.prepaid_upgrade_star_count_);
+		put_flag(j, "upgrade_separate", m.is_upgrade_separate_);
+		put_flag(j, "from_auction", m.is_from_auction_);
+		put_flag(j, "private", m.is_private_);
+		put_flag(j, "saved", m.is_saved_);
+		put_flag(j, "prepaid_upgrade", m.is_prepaid_upgrade_);
+		put_flag(j, "converted", m.was_converted_);
+		put_flag(j, "upgraded", m.was_upgraded_);
+		put_flag(j, "refunded", m.was_refunded_);
+		put_str(j, "upgraded_received_gift_id", m.upgraded_received_gift_id_);
+		break;
+	}
+	case td_api::messageUpgradedGift::ID: {
+		auto &m = static_cast<const td_api::messageUpgradedGift &>(c);
+		put_json(j, "gift", upgraded_gift_json(m.gift_.get()));
+		put_json(j, "sender", sender_json(m.sender_id_.get()));
+		put_json(j, "receiver", sender_json(m.receiver_id_.get()));
+		put_str(j, "origin", tl_variant(m.origin_.get(), "upgradedGiftOrigin"));
+		if (m.origin_ && m.origin_->get_id() == td_api::upgradedGiftOriginUpgrade::ID)
+			put_msg_id(j, "gift_message_id", static_cast<const td_api::upgradedGiftOriginUpgrade &>(*m.origin_).gift_message_id_);
+		put_str(j, "received_gift_id", m.received_gift_id_);
+		put_formatted(j, "text", m.text_.get());
+		put_flag(j, "private", m.is_private_);
+		put_flag(j, "saved", m.is_saved_);
+		put_flag(j, "transferred", m.was_transferred_);
+		put_num(j, "transfer_star_count", m.transfer_star_count_);
+		put_num(j, "next_transfer_date", m.next_transfer_date_);
+		put_num(j, "next_resale_date", m.next_resale_date_);
+		put_num(j, "export_date", m.export_date_);
+		put_num(j, "craft_date", m.craft_date_);
+		break;
+	}
+	case td_api::messageRefundedUpgradedGift::ID: {
+		auto &m = static_cast<const td_api::messageRefundedUpgradedGift &>(c);
+		put_json(j, "gift", gift_json(m.gift_.get()));
+		put_json(j, "sender", sender_json(m.sender_id_.get()));
+		put_json(j, "receiver", sender_json(m.receiver_id_.get()));
+		put_str(j, "origin", tl_variant(m.origin_.get(), "upgradedGiftOrigin"));
+		break;
+	}
+	case td_api::messageUpgradedGiftPurchaseOffer::ID: {
+		auto &m = static_cast<const td_api::messageUpgradedGiftPurchaseOffer &>(c);
+		put_json(j, "gift", upgraded_gift_json(m.gift_.get()));
+		put_str(j, "state", tl_variant(m.state_.get(), "giftPurchaseOfferState"));
+		put_json(j, "price", price_json(m.price_.get()));
+		put_num(j, "expiration_date", m.expiration_date_);
+		break;
+	}
+	case td_api::messageUpgradedGiftPurchaseOfferRejected::ID: {
+		auto &m = static_cast<const td_api::messageUpgradedGiftPurchaseOfferRejected &>(c);
+		put_json(j, "gift", upgraded_gift_json(m.gift_.get()));
+		put_json(j, "price", price_json(m.price_.get()));
+		put_msg_id(j, "offer_message_id", m.offer_message_id_);
+		put_flag(j, "expired", m.was_expired_);
+		break;
+	}
+	case td_api::messagePaidMessagesRefunded::ID: {
+		auto &m = static_cast<const td_api::messagePaidMessagesRefunded &>(c);
+		put_num(j, "message_count", m.message_count_);
+		put_num(j, "star_count", m.star_count_);
+		break;
+	}
+	case td_api::messagePaidMessagePriceChanged::ID:
+		j["paid_message_star_count"] = static_cast<const td_api::messagePaidMessagePriceChanged &>(c).paid_message_star_count_;
+		break;
+	case td_api::messageDirectMessagePriceChanged::ID: {
+		auto &m = static_cast<const td_api::messageDirectMessagePriceChanged &>(c);
+		j["enabled"] = m.is_enabled_;
+		j["paid_message_star_count"] = m.paid_message_star_count_;
+		break;
+	}
+	case td_api::messageSuggestedPostApprovalFailed::ID: {
+		auto &m = static_cast<const td_api::messageSuggestedPostApprovalFailed &>(c);
+		put_msg_id(j, "suggested_post_message_id", m.suggested_post_message_id_);
+		put_json(j, "price", price_json(m.price_.get()));
+		break;
+	}
+	case td_api::messageSuggestedPostApproved::ID: {
+		auto &m = static_cast<const td_api::messageSuggestedPostApproved &>(c);
+		put_msg_id(j, "suggested_post_message_id", m.suggested_post_message_id_);
+		put_json(j, "price", price_json(m.price_.get()));
+		put_num(j, "send_date", m.send_date_);
+		break;
+	}
+	case td_api::messageSuggestedPostDeclined::ID: {
+		auto &m = static_cast<const td_api::messageSuggestedPostDeclined &>(c);
+		put_msg_id(j, "suggested_post_message_id", m.suggested_post_message_id_);
+		put_str(j, "comment", m.comment_);
+		break;
+	}
+	case td_api::messageSuggestedPostPaid::ID: {
+		auto &m = static_cast<const td_api::messageSuggestedPostPaid &>(c);
+		put_msg_id(j, "suggested_post_message_id", m.suggested_post_message_id_);
+		if (m.star_amount_) {
+			put_num(j, "star_count", m.star_amount_->star_count_);
+			put_num(j, "nanostar_count", m.star_amount_->nanostar_count_);
+		}
+		put_num(j, "gram_amount", m.gram_amount_);
+		break;
+	}
+	case td_api::messageSuggestedPostRefunded::ID: {
+		auto &m = static_cast<const td_api::messageSuggestedPostRefunded &>(c);
+		put_msg_id(j, "suggested_post_message_id", m.suggested_post_message_id_);
+		put_str(j, "reason", tl_variant(m.reason_.get(), "suggestedPostRefundReason"));
+		break;
+	}
+	case td_api::messageUsersShared::ID: {
+		auto &m = static_cast<const td_api::messageUsersShared &>(c);
+		nlohmann::json users = nlohmann::json::array();
+		for (const auto &u : m.users_) {
+			if (!u)
+				continue;
+			nlohmann::json e = { { "user_id", u->user_id_ } };
+			put_str(e, "first_name", u->first_name_);
+			put_str(e, "last_name", u->last_name_);
+			put_str(e, "username", u->username_);
+			users.push_back(e);
+		}
+		put_json(j, "users", users);
+		put_num(j, "button_id", m.button_id_);
+		break;
+	}
+	case td_api::messageChatShared::ID: {
+		auto &m = static_cast<const td_api::messageChatShared &>(c);
+		if (m.chat_) {
+			nlohmann::json e = { { "chat_id", m.chat_->chat_id_ } };
+			put_str(e, "title", m.chat_->title_);
+			put_str(e, "username", m.chat_->username_);
+			j["chat"] = e;
+		}
+		put_num(j, "button_id", m.button_id_);
+		break;
+	}
+	case td_api::messageBotWriteAccessAllowed::ID: {
+		auto &m = static_cast<const td_api::messageBotWriteAccessAllowed &>(c);
+		put_str(j, "reason", tl_variant(m.reason_.get(), "botWriteAccessAllowReason"));
+		if (m.reason_ && m.reason_->get_id() == td_api::botWriteAccessAllowReasonConnectedWebsite::ID)
+			put_str(j, "domain_name", static_cast<const td_api::botWriteAccessAllowReasonConnectedWebsite &>(*m.reason_).domain_name_);
+		break;
+	}
+	case td_api::messageWebAppDataSent::ID:
+		put_str(j, "button_text", static_cast<const td_api::messageWebAppDataSent &>(c).button_text_);
+		break;
+	case td_api::messageWebAppDataReceived::ID: {
+		auto &m = static_cast<const td_api::messageWebAppDataReceived &>(c);
+		put_str(j, "button_text", m.button_text_);
+		put_str(j, "data", m.data_);
+		break;
+	}
+	case td_api::messagePassportDataSent::ID: {
+		nlohmann::json types = nlohmann::json::array();
+		for (const auto &t : static_cast<const td_api::messagePassportDataSent &>(c).types_)
+			types.push_back(tl_variant(t.get(), "passportElementType"));
+		put_json(j, "types", types);
+		break;
+	}
+	case td_api::messagePassportDataReceived::ID: {
+		nlohmann::json types = nlohmann::json::array();
+		for (const auto &e : static_cast<const td_api::messagePassportDataReceived &>(c).elements_)
+			if (e)
+				types.push_back(tl_variant(e->type_.get(), "passportElementType"));
+		put_json(j, "types", types);
+		break;
+	}
+	case td_api::messageProximityAlertTriggered::ID: {
+		auto &m = static_cast<const td_api::messageProximityAlertTriggered &>(c);
+		put_json(j, "traveler", sender_json(m.traveler_id_.get()));
+		put_json(j, "watcher", sender_json(m.watcher_id_.get()));
+		put_num(j, "distance", m.distance_);
+		break;
+	}
+	default:
+		/* Nothing beyond the class and the description: a join by
+		 * link, a screenshot, a custom action whose text is the
+		 * description, ... */
+		break;
+	}
+
+	if (j.empty())
+		return std::nullopt;
+	return j.dump();
+}
+
 } /* namespace */
 
 const char *message_content_class_name(std::int32_t id)
@@ -1126,20 +1970,22 @@ void extract_message_content(const td_api::MessageContent &content,
 
 	/*
 	 * messageText is stored in full by the text, entities and link
-	 * preview, and the media, places, people, games and calls by their
-	 * curated keys (message-types.md sections 4.2.1 and 4.2.2); every
-	 * other class keeps what it carries as TDLib's JSON until a curated
-	 * mapping replaces it (section 4.2). Encrypted passport data is
-	 * never stored.
+	 * preview, and the media, places, people, games, calls and service
+	 * messages by their curated keys (message-types.md sections 4.2.1 to
+	 * 4.2.3); every other class keeps what it carries as TDLib's JSON
+	 * until a curated mapping replaces it (section 4.2).
 	 */
 	bool curated = false;
 	std::optional<std::string> extra = media_extra_json(content, curated);
 	if (!curated)
 		extra = structured_extra_json(content, curated);
+	if (!curated && out.content_type == models::MessageContentType::Service) {
+		extra = service_extra_json(content);
+		curated = true;
+	}
 	if (curated)
 		out.content_extra = std::move(extra);
-	else if (id != td_api::messageText::ID &&
-		 id != td_api::messagePassportDataReceived::ID)
+	else if (id != td_api::messageText::ID)
 		out.content_extra = tdlib_extra_json(content);
 }
 
