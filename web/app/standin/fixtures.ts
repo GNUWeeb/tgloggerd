@@ -314,6 +314,9 @@ export function load(url: string, persona: Persona): Loaded {
 				accounts: list.map(accountRow),
 				federations: feds.map((f) => ({ id: f.id, name: f.name, default: f.id === 0, group_count: fedGroups(f).filter(s.group).length })),
 				all_federations: allFeds().map((f) => ({ id: f.id, name: f.name, default: f.id === 0 })),
+				// Everything the full design has; Go turns these on as the
+				// federation, restriction and grant items land.
+				editable: { federations: true, group_grants: true, restrictions: true, abilities: true },
 			},
 		};
 	}

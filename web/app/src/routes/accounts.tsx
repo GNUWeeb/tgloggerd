@@ -61,6 +61,15 @@ function EmailLine({ a }: { a: AccountRow }) {
 	);
 }
 
+// What the access editor cannot change yet, in one sentence; nothing
+// when everything can be.
+function NotYet({ editable: e }: { editable: AccountsProps['editable'] }) {
+	const off = [!e.federations && 'federations', !e.group_grants && 'group grants', !e.restrictions && 'restrictions', !e.abilities && 'abilities'].filter((x): x is string => !!x);
+	if (!off.length) return null;
+	const list = off.length === 1 ? off[0]! : `${off.slice(0, -1).join(', ')} and ${off.at(-1)}`;
+	return <div className="a-banner" role="note"><Info size={15} /><span>{list[0]!.toUpperCase() + list.slice(1)} {off.length === 1 ? 'is' : 'are'} not available yet.</span></div>;
+}
+
 type Draft = AccountRow & { isNew?: boolean };
 
 function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; props: AccountsProps; viewerRole: Role; onClose: () => void; onSaved: () => void }) {
@@ -74,6 +83,9 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 	const set = (patch: Partial<Draft>) => setA({ ...a, ...patch });
 	const roles = isSuper ? ROLES : ROLES.filter((r) => r[0] === 'member');
 	const grantOf = (fid: number) => a.grants.find((g) => g.fed === fid);
+	// What the server lets this page change yet (AccountsProps.editable).
+	const E = props.editable;
+	const feds = E.federations ? props.federations : props.federations.filter((f) => f.default);
 	const call = async (fn: () => Promise<unknown>, after: 'close' | string) => {
 		setErr('');
 		try {
@@ -86,31 +98,34 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 		: ok(api.PATCH('/api/accounts/{id}', { params: { path: { id: a.id } }, body: {
 			name: a.name, role: a.role,
 			...(a.email !== init.email ? { email: a.email ?? '' } : {}),
-			...(a.role === 'admin' ? { admin_of: a.admin_of, ...(a.restrict ? { restrict: { ...a.restrict, hide_groups: a.restrict.hide_groups.map((g) => g.id) } } : {}) } : {}),
-			...(a.role === 'member' ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })), abilities: a.abilities } : {}),
+			...(a.role === 'admin' && E.federations ? { admin_of: a.admin_of } : {}),
+			...(a.role === 'admin' && E.restrictions && a.restrict ? { restrict: { ...a.restrict, hide_groups: a.restrict.hide_groups.map((g) => g.id) } } : {}),
+			...(a.role === 'member' ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: E.group_grants ? g.groups.map((x) => x.id) : [] })) } : {}),
+			...(a.role === 'member' && E.abilities ? { abilities: a.abilities } : {}),
 		} }))), 'close');
 	const restrict = a.restrict ?? { hide_private: false, hide_groups: [], join_chat: false };
 	// A member's groups per federation: on the Access tab, and when
 	// creating a member (an admin must grant at least one federation).
 	const grantsBlock = (
 		<>
-			<h3 className="a-sec">Groups, per federation</h3>
-			<p className="a-muted sm">A member sees only the groups granted here, and people only as they appear in those groups. Members never see private messages.</p>
-			{props.federations.map((f) => {
+			<h3 className="a-sec">{E.group_grants ? 'Groups, per federation' : 'Federations'}</h3>
+			{E.group_grants && <p className="a-muted sm">A member sees only the groups granted here, and people only as they appear in those groups. Members never see private messages.</p>}
+			{feds.map((f) => {
 				const g = grantOf(f.id);
 				return (
 					<section key={f.id} className={`a-fedgrant ${g ? 'on' : ''}`}>
 						<header>
 							<Switch checked={!!g} onChange={() => set({ grants: g ? a.grants.filter((x) => x.fed !== f.id) : [...a.grants, { fed: f.id, groups: [] }] })} label={<><Network size={14} /> {f.name}</>} />
-							{g && <span className="a-muted sm">{g.groups.length} of {f.group_count} groups</span>}
+							{g && E.group_grants && <span className="a-muted sm">{g.groups.length} of {f.group_count} groups</span>}
 						</header>
-						{g && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={{ kind: 'group', federation: f.id }} placeholder={`Add a group of ${f.name}...`} />}
+						{g && E.group_grants && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={{ kind: 'group', federation: f.id }} placeholder={`Add a group of ${f.name}...`} />}
 					</section>
 				);
 			})}
 		</>
 	);
 	const grantRequired = isNew && !isSuper && a.role === 'member' && a.grants.length === 0;
+	const notYet = <NotYet editable={E} />;
 	return (
 		<Modal wide title={isNew ? 'New account' : init.name} icon={!isNew ? <Avatar id={init.id} name={init.name} size={24} /> : undefined} onClose={onClose}
 			footer={<>
@@ -178,7 +193,8 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 
 			{!isNew && tab === 'access' && a.role === 'admin' && (
 				<div className="a-acctgrid">
-					<section className="a-form">
+					{!(E.federations && E.restrictions) && notYet}
+					{E.federations && <section className="a-form">
 						<h3 className="a-sec">Administers</h3>
 						<p className="a-muted sm">Federations limit what this admin manages, not what it sees.</p>
 						<div className="a-checkgrid">{props.all_federations.map((f) => {
@@ -190,8 +206,8 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 								</label>
 							);
 						})}</div>
-					</section>
-					<section className="a-form">
+					</section>}
+					{E.restrictions && <section className="a-form">
 						<h3 className="a-sec">Restrictions</h3>
 						<ul className="a-perms">
 							<li><label><input type="checkbox" checked={restrict.hide_private} onChange={() => set({ restrict: { ...restrict, hide_private: !restrict.hide_private } })} /><span><b>Hide private messages</b><span className="a-muted sm">No private-message menu, pages or API; their URLs answer 404.</span></span></label></li>
@@ -199,19 +215,22 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 								<MultiPicker value={restrict.hide_groups} onChange={(gs) => set({ restrict: { ...restrict, hide_groups: gs } })} search={{ kind: 'group' }} placeholder="Add a group to hide..." /></div></li>
 							<li><label><input type="checkbox" checked={restrict.join_chat} onChange={() => set({ restrict: { ...restrict, join_chat: !restrict.join_chat } })} /><span><b>Allow Join chat</b><span className="a-muted sm">Make the logging account join groups, and add them to its federations.</span></span></label></li>
 						</ul>
-					</section>
+					</section>}
 				</div>
 			)}
 
-			{isNew && a.role === 'member' && <div className="a-form">{grantsBlock}</div>}
+			{isNew && a.role === 'member' && <div className="a-form">{!(E.federations && E.group_grants) && notYet}{grantsBlock}</div>}
 
 			{!isNew && tab === 'access' && a.role === 'member' && (
 				<div className="a-form">
+					{!(E.federations && E.group_grants && E.abilities) && notYet}
 					{grantsBlock}
-					<h3 className="a-sec">Abilities</h3>
-					<ul className="a-perms">{ABILITIES.map(([k, t, d]) => (
-						<li key={k}><label><input type="checkbox" checked={a.abilities.includes(k)} onChange={() => set({ abilities: a.abilities.includes(k) ? a.abilities.filter((x) => x !== k) : [...a.abilities, k] })} /><span><b>{t}</b><span className="a-muted sm">{d}</span></span></label></li>
-					))}</ul>
+					{E.abilities && <>
+						<h3 className="a-sec">Abilities</h3>
+						<ul className="a-perms">{ABILITIES.map(([k, t, d]) => (
+							<li key={k}><label><input type="checkbox" checked={a.abilities.includes(k)} onChange={() => set({ abilities: a.abilities.includes(k) ? a.abilities.filter((x) => x !== k) : [...a.abilities, k] })} /><span><b>{t}</b><span className="a-muted sm">{d}</span></span></label></li>
+						))}</ul>
+					</>}
 				</div>
 			)}
 

@@ -38,6 +38,38 @@ describe('accounts', () => {
 		expect(body.grants).toHaveLength(1);
 	});
 
+	it('shows and sends only what the server lets it change yet', async () => {
+		const p = fixture<AccountsProps>('/settings/accounts').props;
+		const props = { ...p, editable: { federations: false, group_grants: false, restrictions: false, abilities: false } };
+		const member = p.accounts.find((x) => x.role === 'member' && x.active)!;
+		const admin = p.accounts.find((x) => x.role === 'admin')!;
+		// Saving fetches the page data again: keep answering with these flags.
+		const calls = fakeApi('superadmin', { 'PATCH /api/accounts/:id': () => ({}), 'GET /api/page/settings/accounts': () => ({ ...fixture('/settings/accounts'), props }) });
+		renderPage('/settings/accounts', 'superadmin', { props });
+		fireEvent.click(screen.getByRole('button', { name: `Edit ${member.username}` }));
+		fireEvent.click(within(dialog()).getByRole('tab', { name: 'Access' }));
+		const note = 'Federations, group grants, restrictions and abilities are not available yet.';
+		expect(within(dialog()).getByRole('note').textContent).toBe(note);
+		expect(within(dialog()).queryByText('Abilities')).toBeNull();
+		expect(dialog().querySelectorAll('.a-fedgrant')).toHaveLength(1); // Default only
+		expect(dialog().querySelector('.a-multi')).toBeNull(); // no group pickers
+		expect(within(dialog()).queryByText(/sees only the groups/)).toBeNull();
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
+		await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/accounts/${member.id}`)).toHaveLength(1));
+		const mb = callsTo(calls, 'PATCH', `/api/accounts/${member.id}`)[0]!.body as Record<string, unknown>;
+		expect(mb).not.toHaveProperty('abilities');
+		expect((mb.grants as { group_ids: number[] }[]).every((g) => g.group_ids.length === 0)).toBe(true);
+		fireEvent.click(screen.getByRole('button', { name: `Edit ${admin.username}` }));
+		fireEvent.click(within(dialog()).getByRole('tab', { name: 'Access' }));
+		expect(within(dialog()).queryByText('Administers')).toBeNull();
+		expect(within(dialog()).queryByText('Restrictions')).toBeNull();
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
+		await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/accounts/${admin.id}`)).toHaveLength(1));
+		const ab = callsTo(calls, 'PATCH', `/api/accounts/${admin.id}`)[0]!.body as Record<string, unknown>;
+		expect(ab).not.toHaveProperty('admin_of');
+		expect(ab).not.toHaveProperty('restrict');
+	});
+
 	it('sends an admin\'s restrictions with hidden groups as ids', async () => {
 		const p = fixture<AccountsProps>('/settings/accounts').props;
 		const admin = p.accounts.find((a) => a.role === 'admin' && (a.restrict?.hide_groups.length ?? 0) > 0)!;
