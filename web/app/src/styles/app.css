@@ -116,7 +116,9 @@
 .app .a-join.or { color: var(--accent-text); border-color: currentColor; }
 .app .a-sortpick { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg-2); }
 .app .a-sortpick select { font: inherit; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--border-2); background: var(--panel); color: var(--fg); }
-.app .a-longtext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 320px; }
+/* Text as written (descriptions, bios): its line breaks are kept. */
+.app .a-multiline { white-space: pre-wrap; overflow-wrap: anywhere; }
+.app .a-longtext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 320px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .app .a-longmore { border: 0; background: none; padding: 0; color: var(--accent-text); font: inherit; font-size: 12px; cursor: pointer; }
 .app .a-longfull { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; }
 .app .a-chip button { border: 0; background: none; width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; cursor: pointer; color: var(--fg-2); }

@@ -32,7 +32,7 @@ function HistItem({ e, v }: { e: HistoryEntry; v: Viewer }) {
 	let body;
 	if (e.kind === 'photo') body = e.removed || !e.photo ? <span className="a-muted">Photo removed</span> : <img className="a-tl-photo" src={e.photo} alt="" width={72} height={72} />;
 	else if (e.kind === 'username') body = <span className={e.action === 'removed' ? 'strike' : ''}>{e.collectible && <Gem size={12} aria-label="collectible" />}@{e.detail}{e.username_kind === 'disabled' ? ' (off)' : ''}</span>;
-	else body = e.detail || <span className="a-muted">(cleared)</span>;
+	else body = e.detail ? <span className="a-multiline">{e.detail}</span> : <span className="a-muted">(cleared)</span>;
 	return (
 		<li className={`a-tl ${e.kind === 'username' ? 'a-tl-accent' : e.kind === 'photo' ? 'a-tl-info' : ''}`}>
 			<span className="a-tl-icon"><I size={14} /></span>
@@ -124,7 +124,7 @@ function Full({ page, tab }: { page: PageData<Extract<UserProps, { limited?: fal
 							<KV rows={[
 								[Type, 'First name', u.first_name], [Type, 'Last name', u.last_name],
 								[AtSign, 'Usernames', u.usernames.length ? u.usernames.map((n) => <UsernamePill key={n.username} n={n} />) : ''],
-								[Quote, 'Bio', u.bio], [Phone, 'Phone', u.phone, true], [Languages, 'Language', u.language ?? ''],
+								[Quote, 'Bio', u.bio ? <span className="a-multiline">{u.bio}</span> : ''], [Phone, 'Phone', u.phone, true], [Languages, 'Language', u.language ?? ''],
 								u.birthday ? [Cake, 'Birthday', birthday(u.birthday)] : null,
 								u.personal_chat_id ? [Megaphone, 'Personal channel', u.personal_chat ? <Link to={`/groups/${u.personal_chat.id}`} className="a-rowlink">{u.personal_chat.title}</Link> : <span className="mono">{u.personal_chat_id}</span>] : null,
 								u.emoji_status ? [Smile, 'Emoji status', <span>custom emoji <span className="mono">{u.emoji_status.custom_emoji_id}</span>{u.emoji_status.expires_at ? `, until ${dateTime(u.emoji_status.expires_at, v)}` : ''}</span>] : null,

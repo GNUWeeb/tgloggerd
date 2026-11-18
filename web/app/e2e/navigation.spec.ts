@@ -99,3 +99,11 @@ test('pages end with the same margin as their sides, not a wide band', async ({ 
 	});
 	expect(gap).toBeLessThanOrEqual(32);
 });
+
+test('descriptions are shown with their line breaks', async ({ page }) => {
+	const g = await (await page.request.get('/api/page/groups', { headers: { cookie: 'tgd_as=superadmin' } })).json();
+	await page.goto(`/groups/${g.props.rows[0].id}`);
+	const desc = page.locator('.a-kv .a-multiline').first();
+	await expect(desc).toBeVisible();
+	expect(await desc.evaluate((e) => getComputedStyle(e).whiteSpace)).toBe('pre-wrap');
+});
