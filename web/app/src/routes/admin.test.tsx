@@ -204,7 +204,8 @@ describe('accounts', () => {
 		const p = fixture<AccountsProps>('/settings/accounts').props;
 		const admin = p.accounts.find((a) => a.role === 'admin' && (a.restrict?.hide_groups.length ?? 0) > 0)!;
 		const calls = fakeApi('superadmin', { 'PATCH /api/accounts/:id': (c) => ({ ...admin, ...(c.body as object) }) });
-		renderPage('/settings/accounts');
+		// Once every restriction is built (editable.restrictions).
+		renderPage('/settings/accounts', 'superadmin', { props: { ...p, editable: { ...p.editable, restrictions: true } } });
 		fireEvent.click(screen.getByRole('button', { name: `Edit ${admin.username}` }));
 		fireEvent.click(within(dialog()).getByRole('tab', { name: 'Access' }));
 		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));

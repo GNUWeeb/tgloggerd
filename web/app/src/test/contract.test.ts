@@ -126,6 +126,34 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		for (const k of keys) expect(badPref({ [k]: null }), k).toBeNull();
 	});
 
+	it('hiding private messages from an admin, as Go takes it', () => {
+		const accts = (adminApi('GET', 'accounts', {}, 'superadmin')[1] as { accounts?: { id: number; role: string }[] }).accounts
+			?? (pageData('/settings/accounts', 'superadmin').props as { accounts: { id: number; role: string }[] }).accounts;
+		const admin = accts.find((a) => a.id === 3)!;
+		const member = accts.find((a) => a.role === 'member')!;
+		const patch = (id: number, body: object, who: Persona = 'superadmin') => adminApi('PATCH', `accounts/${id}`, body, who);
+		const hide = { hide_private: true, hide_groups: [], join_chat: false };
+		expect(admin.role).toBe('admin');
+		// Only a superadmin; only for an admin; only that restriction.
+		expect(patch(admin.id, { restrict: hide }, 'admin')[0]).toBe(403);
+		expect(patch(member.id, { restrict: hide })[0]).toBe(400);
+		expect(patch(admin.id, { restrict: { ...hide, join_chat: true } })[1]).toMatchObject({ error: 'not_supported' });
+		expect(patch(admin.id, { restrict: { ...hide, hide_groups: [-1] } })[1]).toMatchObject({ error: 'not_supported' });
+		const [st, row] = patch(admin.id, { restrict: hide });
+		expect(st).toBe(200);
+		expect((row as { restrict: { hide_private: boolean } }).restrict.hide_private).toBe(true);
+		// The admin then has no private messages: menu, pages, chats.
+		expect(pageData('/', 'admin').viewer.nav).not.toContain('private_messages');
+		expect(pageData('/private_messages', 'admin').status).toBe(404);
+		patch(admin.id, { restrict: { ...hide, hide_private: false } });
+		expect(pageData('/', 'admin').viewer.nav).toContain('private_messages');
+		// A member made admin in the same PATCH may be restricted; leaving
+		// the admin role ends it.
+		expect(patch(member.id, { role: 'admin', restrict: hide })[0]).toBe(200);
+		const [, back] = patch(member.id, { role: 'member' });
+		expect((back as { restrict: { hide_private: boolean } | null }).restrict?.hide_private ?? false).toBe(false);
+	});
+
 	it('a name lookup', () => {
 		const [status, body] = lookupName(String(sampleContacts()[0]), 'superadmin');
 		ok(status, body, '/api/users/{id}/lookup-name', 'post');

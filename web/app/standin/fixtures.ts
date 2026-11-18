@@ -532,9 +532,9 @@ export function load(url: string, persona: Persona): Loaded {
 				accounts: list.map(accountRow),
 				federations: feds.map((f) => ({ id: f.id, name: f.name, default: f.id === 0, group_count: fedGroups(f).filter(s.group).length })),
 				all_federations: allFeds().map((f) => ({ id: f.id, name: f.name, default: f.id === 0 })),
-				// Everything the full design has; Go turns these on as the
-				// federation, restriction and grant items land.
-				editable: { federations: true, group_grants: true, restrictions: true, abilities: true },
+				// As Go has them: of the admin restrictions only hiding private
+				// messages is built.
+				editable: { federations: true, group_grants: true, restrictions: false, restrict_private: true, abilities: true },
 				// The stand-in has mail set up.
 				mail: true,
 			},
@@ -747,11 +747,21 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		if (!a || !allowed(s, 'accounts')) return [404, { error: 'not_found' }];
 		if (!m[2] && method === 'PATCH') {
 			if (a.role === 'superadmin' && body.role && body.role !== 'superadmin' && activeSuperadmins().length === 1) return [409, { error: 'last_superadmin', message: 'The last active superadmin cannot be demoted.' }];
+			// Hiding private messages is the one admin restriction built, as
+			// in Go: a superadmin's, for an account that is or becomes admin.
+			const roleAfter = body.role ?? a.role;
+			if (body.restrict) {
+				if (s.role !== 'superadmin') return [403, { error: 'forbidden', message: 'Only a superadmin restricts an admin.' }];
+				if ((body.restrict.hide_groups || []).length || body.restrict.join_chat) return [400, { error: 'not_supported', message: 'Hiding groups and Join chat are not available yet.' }];
+				if (roleAfter !== 'admin') return [400, { error: 'bad_request', message: 'Only an admin can be restricted.' }];
+			}
 			if (body.name) a.name = body.name;
 			if (body.role) a.role = body.role;
 			if (body.email !== undefined) { a.email = body.email; a.verified = false; }
 			if (body.admin_of) a.adminOf = body.admin_of;
-			if (body.restrict) a.restrict = body.restrict;
+			if (body.restrict) a.restrict = { hide_private: !!body.restrict.hide_private, hide_groups: [], join_chat: false };
+			// A restriction ends with the admin role.
+			if (roleAfter !== 'admin' && a.restrict) a.restrict = { hide_private: false, hide_groups: [], join_chat: false };
 			if (body.grants) a.grants = body.grants.map((g) => ({ fed: g.fed, groupIds: g.group_ids }));
 			if (body.abilities) a.abilities = body.abilities;
 			return [200, accountRow(a)];
