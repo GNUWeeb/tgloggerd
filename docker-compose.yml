@@ -28,8 +28,13 @@ services:
     container_name: tgloggerd-mysql
     restart: unless-stopped
     env_file: .env
+    # The buffer pool keeps the logger's tables and indexes in memory; at
+    # its 128 MB default nearly every page read went to disk. 8G holds the
+    # whole archive with room to grow; the container limit leaves the server
+    # room for its other buffers and connections.
+    command: [--innodb-buffer-pool-size=8G]
     mem_reservation: 1024m
-    mem_limit: 4096m
+    mem_limit: 12g
     volumes:
       - ./data/mysql:/var/lib/mysql
       # On first initialization this creates the web-only database and the
