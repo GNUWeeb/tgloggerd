@@ -692,8 +692,48 @@ function usernameEvent(e, i: number) {
 	return { action, ...(action !== 'removed' ? { username_kind: 'active' } : {}), ...(/\d$/.test(e.detail) ? { collectible: true } : {}) };
 }
 
-const userHistory = (usr) => getUserHistory(usr).map((e, i) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, photo: null, removed: e.kind === 'photo' ? true : undefined, ...usernameEvent(e, i) }));
-const groupHistory = (g) => getGroupHistory(g).map((e, i) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, photo: null, removed: e.kind === 'photo' ? true : undefined, user: e.user ? userSummary(e.user, false) : undefined, ...usernameEvent(e, i) }));
+// Users' and groups' photo changes: two in three set a photo (a
+// stand-in picture in a colour of its id), the third removes it. A photo
+// set carries its history row id (photo_id), which the carousel opens
+// at; a removal carries none, as in Go.
+const photoId = (owner, i: number) => Number(String(Math.abs(owner.id)).slice(-5)) * 100 + i;
+const photoSet = (i: number) => i % 3 !== 2;
+function photoEvent(owner, e, i: number) {
+	if (e.kind !== 'photo') return { photo: null };
+	return photoSet(i) ? { photo: `/files/standin-${photoId(owner, i)}`, photo_id: photoId(owner, i) } : { photo: null, removed: true };
+}
+const userHistory = (usr) => getUserHistory(usr).map((e, i) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, ...photoEvent(usr, e, i), ...usernameEvent(e, i) }));
+const groupHistory = (g) => getGroupHistory(g).map((e, i) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, ...photoEvent(g, e, i), user: e.user ? userSummary(e.user, false) : undefined, ...usernameEvent(e, i) }));
+
+// The photos an owner set (UserPhotos), newest first, one in seven
+// without a file to serve, and which is the current one (the newest,
+// unless a removal came after it).
+function photosOf(owner, history) {
+	const events = history.map((e, i) => ({ e, i })).filter((x) => x.e.kind === 'photo');
+	const items = events.filter((x) => photoSet(x.i)).map((x) => {
+		const id = photoId(owner, x.i);
+		const kept = x.i % 7 !== 6;
+		return { id, at: iso(x.e.at), url: kept ? `/files/standin-${id}` : null, file_id: kept ? id : null };
+	});
+	const newest = events[0];
+	return { items, current_id: newest && photoSet(newest.i) ? photoId(owner, newest.i) : null };
+}
+
+// GET /api/users/{id}/photos: to a viewer who sees users in full.
+export function userPhotos(id: string, persona: Persona): [number, unknown] {
+	const s = scopeOf(persona);
+	const usr = getUser(id);
+	if (persona === 'public' || !usr || !s.user(usr) || !s.fullUser) return [404, { error: 'not_found' }];
+	return [200, photosOf(usr, getUserHistory(usr))];
+}
+
+// GET /api/groups/{id}/photos: for a group the viewer sees.
+export function groupPhotos(id: string, persona: Persona): [number, unknown] {
+	const s = scopeOf(persona);
+	const g = getGroup(id);
+	if (persona === 'public' || !g || !s.group(g)) return [404, { error: 'not_found' }];
+	return [200, photosOf(g, getGroupHistory(g))];
+}
 
 // GET /api/users/{id}/history and /api/groups/{id}/history.
 export function historyApi(kind: 'users' | 'groups', id: string, q: URLSearchParams, persona: Persona): [number, unknown] {
