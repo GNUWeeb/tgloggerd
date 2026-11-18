@@ -62,6 +62,13 @@ function ForwardLine({ m }: { m: ChatMessage }) {
 	);
 }
 
+// An earlier version's media in the edit list: its picture, small, or
+// its type and name.
+function EditMedia({ m, type }: { m: NonNullable<ChatMessage['edits'][number]['media']>; type: string }) {
+	if (m.thumb) return <a className="c-editmedia" href={m.url ?? undefined} target="_blank" rel="noopener" aria-label={`Earlier ${type}`}><img src={m.thumb} alt="" loading="lazy" /></a>;
+	return <div className="c-editfile c-sub">{type}{m.name ? `: ${m.name}` : ''}{m.url ? '' : ' (not stored)'}</div>;
+}
+
 // A link preview: its site, title and description, and its picture,
 // linking to the page.
 function LinkPreview({ lp }: { lp: NonNullable<ChatMessage['link_preview']> }) {
@@ -114,11 +121,19 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 				<div className="c-meta">
 					{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}
 					{pref.showEdited && m.edits.length > 0 && <button type="button" className="c-edited" onClick={() => setEdits((x) => !x)} aria-expanded={edits}><Pencil size={10} />edited</button>}
+					{/* Edited, but no earlier version was recorded. */}
+					{pref.showEdited && m.edits.length === 0 && m.edited_at && <span className="c-edited" title={`Edited ${m.edited_at}; no earlier version recorded`}><Pencil size={10} />edited</span>}
 					<Link to={`/messages/${m.scope}/${m.id}`} className="c-time" title={m.date}>{hm(m.date, v)}</Link>
 				</div>
 				{edits && (
 					<div className="c-edits">
-						{m.edits.map((e, i) => <div key={i}><span className="c-sub">{hm(e.at, v)}</span><div>{e.text}</div></div>)}
+						{m.edits.map((e, i) => (
+							<div key={i}>
+								<span className="c-sub">{hm(e.at, v)}{e.content_type && e.content_type !== m.content_type ? ` . was ${e.content_type}` : ''}</span>
+								{e.media && <EditMedia m={e.media} type={e.content_type ?? m.content_type} />}
+								{e.text ? <div>{e.text}</div> : !e.media && <div className="c-sub">(no text)</div>}
+							</div>
+						))}
 						<div><span className="c-sub">{m.edited_at ? hm(m.edited_at, v) : ''} (current)</span><div>{m.text}</div></div>
 					</div>
 				)}
