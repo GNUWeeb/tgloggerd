@@ -804,6 +804,14 @@ struct TDLib::Impl {
 	std::unordered_map<std::uint64_t, std::promise<Object>>	requests_;
 	bool						requests_open_ = false;
 
+	/*
+	 * TDLib::status(): the state and when it last changed. Guarded by
+	 * requests_mtx_, so it moves together with requests_open_.
+	 */
+	TDLib::State					state_ = TDLib::State::Waiting;
+	int64_t						state_since_ =
+		static_cast<int64_t>(std::time(nullptr));
+
 	/* The thread that runs TDLib::loop(), to refuse request() on it. */
 	std::atomic<std::thread::id>			loop_thread_{};
 
@@ -1057,6 +1065,7 @@ struct TDLib::Impl {
 	Object request_wait(td_api::object_ptr<td_api::Function> f,
 			    std::chrono::milliseconds timeout);
 	void set_requests_open(bool open);
+	void set_state(TDLib::State st);
 	void process_response(td::ClientManager::Response response);
 	void process_update(td_api::object_ptr<td_api::Object> update);
 	void on_authorization_state_update(void);
@@ -1274,6 +1283,16 @@ Object TDLib::Impl::request_wait(td_api::object_ptr<td_api::Function> f,
  * closing client may never send them. Late answers to failed ids are dropped
  * by process_response.
  */
+void TDLib::Impl::set_state(TDLib::State st)
+{
+	std::lock_guard<std::mutex> lk(requests_mtx_);
+	if (state_ == st || state_ == TDLib::State::Closing)
+		return;
+	state_ = st;
+	state_since_ = static_cast<int64_t>(std::time(nullptr));
+}
+
+
 void TDLib::Impl::set_requests_open(bool open)
 {
 	std::unordered_map<std::uint64_t, std::promise<Object>> failed;
@@ -1733,9 +1752,18 @@ void TDLib::Impl::on_authorization_state_update(void)
 	 * TDLib::request() works only while ready. Any other state (logging
 	 * out, closing, closed, or back to logging in) fails what is pending.
 	 */
-	set_requests_open(authorization_state_->get_id() ==
-				  td_api::authorizationStateReady::ID &&
-			  !closing_);
+	int32_t id = authorization_state_->get_id();
+	bool ready = id == td_api::authorizationStateReady::ID && !closing_;
+	set_requests_open(ready);
+
+	if (ready)
+		set_state(TDLib::State::Ready);
+	else if (closing_ || id == td_api::authorizationStateLoggingOut::ID ||
+		 id == td_api::authorizationStateClosing::ID ||
+		 id == td_api::authorizationStateClosed::ID)
+		set_state(TDLib::State::Closing);
+	else
+		set_state(TDLib::State::Waiting);
 }
 
 
@@ -4102,11 +4130,18 @@ bool TDLib::isStopped(void) const
 	return impl_->stopped_;
 }
 
+TDLib::Status TDLib::status(void) const
+{
+	std::lock_guard<std::mutex> lk(impl_->requests_mtx_);
+	return { impl_->state_, impl_->state_since_ };
+}
+
 void TDLib::close(void)
 {
 	/* Stop re-arming the admin-poll alarm while TDLib shuts down. */
 	impl_->closing_ = true;
 	impl_->set_requests_open(false);
+	impl_->set_state(State::Closing);
 	impl_->send_query(td_api::make_object<td_api::close>(), {});
 }
 

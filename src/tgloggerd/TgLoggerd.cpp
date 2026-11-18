@@ -9,6 +9,7 @@
 #include <tgloggerd/StoragePath.hpp>
 #include <tgloggerd/StorageJanitor.hpp>
 #include <tgloggerd/StorageApi.hpp>
+#include <tgloggerd/StatusApi.hpp>
 #include <tgloggerd/FileFetcher.hpp>
 #include <tgloggerd/ChatApi.hpp>
 #include <tgloggerd/ContactApi.hpp>
@@ -893,6 +894,9 @@ int TgLoggerd::start(void)
 		registerChatApi(*api_, *tdlib_);
 		registerContactApi(*api_, *contacts_);
 		registerEventApi(*api_, *events_);
+		registerStatusApi(*api_, [t = tdlib_.get()] {
+			return t->status();
+		});
 		InternalApi::Config api_cfg;
 		api_cfg.listen = api_listen;
 		api_cfg.threads = api_threads;

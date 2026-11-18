@@ -116,6 +116,26 @@ change.
 File ids are `telegram_files.id`, decimal, 1 to 2^64-1; anything else
 in their place is a 400. Times are Unix seconds.
 
+### GET /v1/status
+
+The state of the daemon's TDLib client, for the web's dashboard. It
+reads a value the client keeps up to date and never calls TDLib, so it
+answers at once in every state, also while the client is not
+authorized.
+
+    200 {"tdlib": "ready", "since": 1763400000}
+
+- `tdlib`: `ready` while the client is authorized and not closing,
+  exactly when the operations that need Telegram are sent; `waiting`
+  before that (still connecting, or the account not logged in);
+  `closing` once it is logging out, closing or closed, which does not
+  change back.
+- `since`: when `tdlib` last changed, or, before the first change, when
+  the daemon started.
+
+Tests: `status_api_test` (in `CMakeLists.txt`) serves this route over a
+real listener on loopback with a stand-in for the client's state.
+
 ### GET /v1/files/{id}
 
 A file's cache state.

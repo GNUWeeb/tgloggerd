@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -141,5 +142,98 @@ func TestCall(t *testing.T) {
 	}
 	if !strings.HasPrefix(c.BaseURL(), "http://127.0.0.1:") {
 		t.Errorf("BaseURL = %q", c.BaseURL())
+	}
+}
+
+func TestStatusAndStorage(t *testing.T) {
+	var mu sync.Mutex
+	answers := map[string]string{}
+	var slow bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		body, ok := answers[r.URL.Path]
+		s := slow
+		mu.Unlock()
+		if want, _ := Bearer(testKey); r.Header.Get("Authorization") != want || r.Method != "GET" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if s {
+			time.Sleep(1500 * time.Millisecond)
+		}
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		io.WriteString(w, body)
+	}))
+	defer srv.Close()
+	set := func(path, body string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if body == "" {
+			delete(answers, path)
+		} else {
+			answers[path] = body
+		}
+	}
+
+	c, err := New(srv.URL, testKey, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	set("/v1/status", `{"tdlib":"ready","since":1763400000}`)
+	if st, ok := c.Status(ctx); !ok || st != (Status{"ready", 1763400000}) {
+		t.Errorf("Status = %+v, %v", st, ok)
+	}
+	set("/v1/storage", `{"files":3,"bytes":1024,"max_bytes":4096,"dry_run":true,"last_sweep":null}`)
+	if st, ok := c.Storage(ctx); !ok || st != (Storage{3, 1024, 4096}) {
+		t.Errorf("Storage = %+v, %v", st, ok)
+	}
+
+	// Not an answer of that shape: fail soft.
+	set("/v1/status", `{"since":5}`)
+	if st, ok := c.Status(ctx); ok {
+		t.Errorf("a status without tdlib = %+v", st)
+	}
+	set("/v1/storage", `{"files":3}`)
+	if st, ok := c.Storage(ctx); ok {
+		t.Errorf("a storage without bytes = %+v", st)
+	}
+	set("/v1/status", "")
+	set("/v1/storage", "")
+	if _, ok := c.Status(ctx); ok {
+		t.Error("a 404 status was taken")
+	}
+	if _, ok := c.Storage(ctx); ok {
+		t.Error("a 404 storage was taken")
+	}
+
+	// A daemon slower than the timeout counts as away, within it.
+	set("/v1/status", `{"tdlib":"ready","since":1}`)
+	mu.Lock()
+	slow = true
+	mu.Unlock()
+	start := time.Now()
+	if _, ok := c.Status(ctx); ok {
+		t.Error("a slow status was taken")
+	}
+	if d := time.Since(start); d > 1400*time.Millisecond {
+		t.Errorf("a slow status took %v", d)
+	}
+
+	// Off and unreachable.
+	var off *Client
+	if _, ok := off.Status(ctx); ok {
+		t.Error("an off client has a status")
+	}
+	if _, ok := off.Storage(ctx); ok {
+		t.Error("an off client has a storage")
+	}
+	srv.Close()
+	if _, ok := c.Status(ctx); ok {
+		t.Error("an unreachable daemon has a status")
 	}
 }
