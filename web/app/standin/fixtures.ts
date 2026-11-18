@@ -684,3 +684,8 @@ export function entities(persona: Persona, q: URLSearchParams): [number, unknown
 		groups: groups.map((id) => getGroup(id)).filter((g) => g && s.group(g)).map((g) => ({ ...groupSummary(g), ...(s.role === 'member' ? {} : { msg_count: g.msg_count }) })),
 	}];
 }
+
+// The landing page of a persona: its preference, else the dashboard.
+export function landingOf(persona: Persona): string {
+	return persona === 'public' ? '/' : settingsState(persona).prefs.landing || '/';
+}

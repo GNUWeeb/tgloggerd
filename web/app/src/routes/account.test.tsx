@@ -43,6 +43,26 @@ describe('sign-in', () => {
 		expect(callsTo(calls, 'POST', '/api/login')[1]!.headers.get('x-csrf-token')).toBe('pre-2');
 	});
 
+	it('goes to the account\'s landing page when no page was asked for', async () => {
+		const go = stubAssign();
+		fakeApi('public', {
+			'GET /api/login': () => ({ signed_in: false, csrf: 'pre-1' }),
+			'POST /api/login': () => ({ user: { id: 1, username: 'admin', role: 'superadmin', must_change_password: false }, csrf: 'sess', landing: '/groups' }),
+		});
+		renderPage('/login', 'public');
+		await waitFor(() => expect((screen.getByRole('button', { name: /Sign in/ }) as HTMLButtonElement).disabled).toBe(false));
+		fill('username', 'admin'); fill('password', 'standin');
+		fireEvent.submit(document.querySelector('form')!);
+		await waitFor(() => expect(go).toHaveBeenCalledWith('/groups'));
+	});
+
+	it('never follows an off-site landing page either', async () => {
+		const go = stubAssign();
+		fakeApi('public', { 'GET /api/login': () => ({ signed_in: true }), 'GET /api/session': () => ({ user: { id: 1, username: 'a', role: 'superadmin', must_change_password: false }, csrf: 's', landing: '//evil.example' }) });
+		renderPage('/login', 'public');
+		await waitFor(() => expect(go).toHaveBeenCalledWith('/'));
+	});
+
 	it('never follows an off-site `next`', async () => {
 		const go = stubAssign();
 		fakeApi('public', { 'GET /api/login': () => ({ signed_in: true }) });

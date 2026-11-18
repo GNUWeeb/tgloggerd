@@ -184,7 +184,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 			send(res, 401, { error: 'invalid_credentials', message: 'Wrong username or password.', csrf: 'standin-login' });
 			return;
 		}
-		send(res, 200, { user: { id: 1, username: body.username, role: as }, csrf: 'standin-csrf' }, [`tgd_as=${as}; Path=/; SameSite=Lax`]);
+		send(res, 200, { user: { id: 1, username: body.username, role: as, must_change_password: fx.needsPasswordChange(as) }, csrf: 'standin-csrf', landing: fx.landingOf(as) }, [`tgd_as=${as}; Path=/; SameSite=Lax`]);
 		return;
 	}
 	if (url.pathname === '/api/logout' && req.method === 'POST') {
@@ -200,7 +200,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 	}
 	if (url.pathname === '/api/session') {
 		if (who === 'public') send(res, 401, { error: 'unauthenticated' });
-		else send(res, 200, { user: fx.viewerOf(who).account, csrf: 'standin-csrf' });
+		else send(res, 200, { user: { ...fx.viewerOf(who).account, must_change_password: fx.needsPasswordChange(who) }, csrf: 'standin-csrf', landing: fx.landingOf(who) });
 		return;
 	}
 	// The account endpoints proposed for the Go service (settings pages).
