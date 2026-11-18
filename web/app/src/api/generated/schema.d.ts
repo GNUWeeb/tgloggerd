@@ -904,6 +904,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/{id}/lookup-name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look up a contact's own name
+         * @description "Look up real name" (web/docs/contact-names.md): the daemon removes the contact, reads the name the user gave itself and adds the contact back exactly as it was. It changes the logging account's contacts, so it is for superadmins only; anyone else, and a user the viewer may not see or the logger never saw, gets 404. A user the logger does not record as a contact is 409 not_a_contact before the daemon is asked. Otherwise the daemon's answer is passed on: its errors (docs/internal-api.md) keep their code, with the status 404 not_found, 409 not_a_contact or unsupported, 429 rate_limited or flood_wait, 503 unavailable or restore_pending, 504 timeout, 502 telegram_error, and Retry-After when the daemon sent one; any other failure is 502 daemon. Every request that reaches the daemon writes one contact_lookup audit row, "user <id>: ok" or the error code.
+         */
+        post: operations["lookupName"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/mcp/groups": {
         parameters: {
             query?: never;
@@ -2066,6 +2086,21 @@ export interface components {
                 title: string;
                 outcome: string;
             }[];
+        };
+        LookupName: {
+            /** Format: int64 */
+            user_id: number;
+            /** @description The user's own name, as now stored. */
+            first_name: string;
+            last_name: string;
+            /** @description The name the account saved the contact under, as before. */
+            contact_first_name: string;
+            contact_last_name: string;
+            /**
+             * Format: int64
+             * @description When the name was read, unix seconds.
+             */
+            checked_at: number;
         };
         McpIndexProps: {
             exposed_groups: number;
@@ -4002,6 +4037,65 @@ export interface operations {
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
             502: components["responses"]["DaemonFailed"];
+        };
+    };
+    lookupName: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's Telegram id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The own name, now stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LookupName"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description The daemon allows no lookup now (error rate_limited or flood_wait). */
+            429: {
+                headers: {
+                    /** @description Seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DaemonFailed"];
+            /** @description The daemon is busy or not connected (error unavailable), or a contact is removed and not added back yet (error restore_pending). */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The contact is added back, but Telegram did not report the own name in time (error timeout); nothing was stored. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     exposeMcpGroup: {

@@ -229,6 +229,7 @@ func (s *Server) routes() []route {
 		{"DELETE /api/forwarding/discord-telegram/{id}", s.RequireSession(s.deleteD2T)},
 		{"POST /api/join-chat/preview", s.RequireSession(s.previewJoin)},
 		{"POST /api/join-chat/join", s.RequireSession(s.joinChat)},
+		{"POST /api/users/{id}/lookup-name", s.RequireSession(s.lookupName)},
 	}
 }
 

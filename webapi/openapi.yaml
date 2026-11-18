@@ -91,6 +91,8 @@ tags:
     description: Live updates as Server-Sent Events.
   - name: search
     description: The advanced search over the logged users, groups, files and messages.
+  - name: contacts
+    description: Actions on the logging account's Telegram contacts.
 
 paths:
 
@@ -2495,6 +2497,88 @@ paths:
           $ref: '#/components/responses/NotFound'
         '502':
           $ref: '#/components/responses/DaemonFailed'
+
+  /api/users/{id}/lookup-name:
+    post:
+      operationId: lookupName
+      tags: [contacts]
+      summary: Look up a contact's own name
+      description: >-
+        "Look up real name" (web/docs/contact-names.md): the daemon
+        removes the contact, reads the name the user gave itself and
+        adds the contact back exactly as it was. It changes the logging
+        account's contacts, so it is for superadmins only; anyone else,
+        and a user the viewer may not see or the logger never saw, gets
+        404. A user the logger does not record as a contact is 409
+        not_a_contact before the daemon is asked. Otherwise the daemon's
+        answer is passed on: its errors (docs/internal-api.md) keep
+        their code, with the status 404 not_found, 409 not_a_contact or
+        unsupported, 429 rate_limited or flood_wait, 503 unavailable or
+        restore_pending, 504 timeout, 502 telegram_error, and
+        Retry-After when the daemon sent one; any other failure is 502
+        daemon. Every request that reaches the daemon writes one
+        contact_lookup audit row, "user <id>: ok" or the error code.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The user's Telegram id.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: The own name, now stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LookupName'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          description: The daemon allows no lookup now (error rate_limited or flood_wait).
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          $ref: '#/components/responses/DaemonFailed'
+        '503':
+          description: >-
+            The daemon is busy or not connected (error unavailable), or a
+            contact is removed and not added back yet (error
+            restore_pending).
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: >-
+            The contact is added back, but Telegram did not report the
+            own name in time (error timeout); nothing was stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/mcp/groups:
     post:
@@ -5090,6 +5174,29 @@ components:
                 type: string
               outcome:
                 type: string
+
+    # Contacts.
+    LookupName:
+      type: object
+      required: [user_id, first_name, last_name, contact_first_name, contact_last_name, checked_at]
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        first_name:
+          type: string
+          description: The user's own name, as now stored.
+        last_name:
+          type: string
+        contact_first_name:
+          type: string
+          description: The name the account saved the contact under, as before.
+        contact_last_name:
+          type: string
+        checked_at:
+          type: integer
+          format: int64
+          description: When the name was read, unix seconds.
 
     # MCP administration.
     McpIndexProps:
