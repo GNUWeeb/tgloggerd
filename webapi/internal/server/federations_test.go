@@ -6,7 +6,9 @@
 package server
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/testdb"
 )
 
@@ -569,5 +572,142 @@ func TestFederationsCreateAtOnce(t *testing.T) {
 	slices.Sort(fids)
 	if !slices.Equal(fids, []int{3, 4, 5, 6, 7, 8}) {
 		t.Errorf("ids %v", fids)
+	}
+}
+
+// propsServer is a Server over the logger's "sample" fixture and the
+// web's "federations" one, for the page data helpers.
+func propsServer(t *testing.T) *Server {
+	t.Helper()
+	return &Server{
+		log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ro:     interpolating(t, testdb.New(t, testdb.Logger, "sample")),
+		app:    testdb.New(t, testdb.Web, "federations").DB,
+		tokens: auth.NewFileTokens(testKey),
+	}
+}
+
+func fedScope(name string) scope.Scope {
+	role := map[string]scope.Role{"fed_root": scope.Superadmin, "kern_admin": scope.Admin,
+		"sec_admin": scope.Admin, "idle_admin": scope.Admin}[name]
+	adminOf := map[string][]uint64{"kern_admin": {1}, "sec_admin": {0, 2}}[name]
+	return scope.For(scope.Viewer{ID: fedAccountID(name), Role: role, EmailVerified: true,
+		AdminOf: adminOf})
+}
+
+// keys is a JSON object's keys, sorted.
+func keys(t *testing.T, v any) string {
+	t.Helper()
+	b, _ := json.Marshal(v)
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	var ks []string
+	for k := range m {
+		ks = append(ks, k)
+	}
+	slices.Sort(ks)
+	return strings.Join(ks, ",")
+}
+
+// The accounts page's federations: those the viewer administers, with
+// how many groups it sees in each, and every federation by name.
+func TestFederationsAccountsProps(t *testing.T) {
+	t.Parallel()
+	s := propsServer(t)
+	ctx := context.Background()
+	if e := accountsEditable(); !e.Federations || e.GroupGrants || e.Restrictions || e.Abilities {
+		t.Errorf("editable %+v", e)
+	}
+	for name, want := range map[string]string{
+		"fed_root":   "0 Default 3,1 Kernel 2,2 Security 2",
+		"kern_admin": "1 Kernel 2",
+		"sec_admin":  "0 Default 3,2 Security 2",
+		"idle_admin": "",
+	} {
+		managed, all, err := s.accountsFederations(ctx, fedScope(name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, f := range managed {
+			got = append(got, fmt.Sprintf("%d %s %d", f.ID, f.Name, f.GroupCount))
+		}
+		if strings.Join(got, ",") != want || len(all) != 3 || !all[0].Default || all[1].Name != "Kernel" ||
+			all[2].Name != "Security" || all[1].Default {
+			t.Errorf("%s: %v, all %+v", name, got, all)
+		}
+		if len(managed) > 0 && keys(t, managed[0]) != "default,group_count,id,name" {
+			t.Errorf("Fed with group_count: %s", keys(t, managed[0]))
+		}
+	}
+}
+
+// The federations page: a superadmin's every federation, editable, with
+// the admins it may assign; an admin's own, read-only.
+func TestFederationsPageProps(t *testing.T) {
+	t.Parallel()
+	s := propsServer(t)
+	ctx := context.Background()
+	row := func(r federationRowJSON) string {
+		var gs, as, ms []string
+		for _, g := range r.Groups {
+			gs = append(gs, fmt.Sprint(g.ID+1001000000000))
+		}
+		for _, a := range r.Admins {
+			as = append(as, a.Username)
+		}
+		for _, m := range r.Members {
+			ms = append(ms, m.Username)
+		}
+		return fmt.Sprintf("%d %s %v groups %s of %d admins %s members %s", r.ID, r.Name, r.Default,
+			strings.Join(gs, " "), r.GroupCount, strings.Join(as, " "), strings.Join(ms, " "))
+	}
+	def := "0 Default true groups -5 -10 -4 of 3 admins sec_admin members default_member"
+	kern := "1 Kernel false groups -1 -2 of 2 admins kern_admin members both_member kern_member"
+	sec := "2 Security false groups -2 -3 of 2 admins sec_admin members both_member sec_member"
+	for _, tc := range []struct {
+		name     string
+		rows     []string
+		editable bool
+		options  string
+	}{
+		{"fed_root", []string{def, kern, sec}, true, "idle_admin kern_admin sec_admin"},
+		{"kern_admin", []string{kern}, false, ""},
+		{"sec_admin", []string{def, sec}, false, ""},
+		{"idle_admin", nil, false, ""},
+	} {
+		p, err := s.federationsProps(ctx, fedScope(tc.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rows []string
+		for _, r := range p.Federations {
+			rows = append(rows, row(r))
+		}
+		var opts []string
+		for _, o := range p.AdminOptions {
+			opts = append(opts, o.Username)
+		}
+		if !slices.Equal(rows, tc.rows) || p.Editable != tc.editable || strings.Join(opts, " ") != tc.options {
+			t.Errorf("%s:\n%s\neditable %v, options %v", tc.name, strings.Join(rows, "\n"), p.Editable, opts)
+		}
+		if keys(t, p) != "admin_options,editable,federations" {
+			t.Errorf("FederationsProps keys %s", keys(t, p))
+		}
+		for _, r := range p.Federations {
+			if keys(t, r) != "admins,created,default,group_count,groups,id,members,name" {
+				t.Errorf("FederationRow keys %s", keys(t, r))
+			}
+			if (r.Created == nil) != r.Default {
+				t.Errorf("%s created %v", r.Name, r.Created)
+			}
+		}
+	}
+	// A preview shows at most federationPreview groups, the count all.
+	p, err := s.federationsProps(ctx, fedScope("fed_root"))
+	if err != nil || p.Federations[1].Groups[0].Title != "GNU/Weeb" || p.Federations[1].Groups[0].Photo == nil {
+		t.Errorf("Kernel's first group: %+v %v", p.Federations[1].Groups, err)
 	}
 }

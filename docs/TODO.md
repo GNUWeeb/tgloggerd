@@ -139,7 +139,6 @@ The web backend moves from Drogon to Go:
 Accounts, roles and federations:
 [design/web-accounts.md](design/web-accounts.md).
 
-- [`web-federations`](todo/web-federations.md): Let superadmins define federations of groups that limit what each admin manages.
 - [`web-admin-restrictions`](todo/web-admin-restrictions.md): Let a superadmin hide private messages and specific groups from an admin, with 404 everywhere.
 - [`web-member-access`](todo/web-member-access.md): Limit a member to its granted groups and show users only as they appear in them.
 - [`web-ownership`](todo/web-ownership.md): Record which account owns which resource, in a table built to take more relations later.

@@ -1882,7 +1882,7 @@ export interface components {
             abilities?: components["schemas"]["Ability"][];
         };
         AccountsProps: {
-            /** @description Which parts of an account the server can change today; the page offers only those. Each flag turns true when the item that builds it lands: federations (admin_of, and grants of federations other than Default) with web-federations, group_grants (groups inside a grant) with web-member-access, restrictions with web-admin-restrictions, abilities with web-member-access. Until then PATCH accepts these fields only unchanged and answers 400 not_supported to any change. */
+            /** @description Which parts of an account the server can change today; the page offers only those. federations (admin_of, and the federations of grants) is true. The others turn true when the item that builds them lands: group_grants (groups inside a grant) with web-member-access, restrictions with web-admin-restrictions, abilities with web-member-access. Until then PATCH accepts those fields only unchanged and answers 400 not_supported to any change. */
             editable: {
                 federations: boolean;
                 group_grants: boolean;
@@ -1890,10 +1890,11 @@ export interface components {
                 abilities: boolean;
             };
             accounts: components["schemas"]["AccountRow"][];
-            /** @description The federations the viewer may manage, with how many groups it can see in each; the groups come from the chat search. */
+            /** @description The federations the viewer administers (every one for a superadmin), Default first and then by name, with how many groups it can see in each; the groups come from the chat search. */
             federations: (components["schemas"]["Fed"] & {
                 group_count: number;
             })[];
+            /** @description Every federation, Default first and then by name, to name a member's federations the viewer does not administer. */
             all_federations: components["schemas"]["Fed"][];
         };
         FedPerson: {
@@ -1908,16 +1909,18 @@ export interface components {
             name: string;
             default: boolean;
             created: string | null;
-            /** @description Only the groups the viewer can see; group_count counts them all. */
+            /** @description A preview: at most 12 of the federation's groups the viewer can see, busiest first; group_count counts all its groups. Default's are the groups in no other federation. */
             groups: components["schemas"]["GroupSummary"][];
             group_count: number;
             admins: components["schemas"]["FedPerson"][];
             members: components["schemas"]["FedPerson"][];
         };
         FederationsProps: {
+            /** @description Every federation for a superadmin, the ones it administers for an admin; Default first, then by name. */
             federations: components["schemas"]["FederationRow"][];
+            /** @description Whether the viewer changes federations (superadmins). */
             editable: boolean;
-            /** @description Admins that may be given a federation. */
+            /** @description The active admins a superadmin may make admins of a federation; empty for an admin. */
             admin_options: components["schemas"]["FedPerson"][];
         };
         FederationWrite: {

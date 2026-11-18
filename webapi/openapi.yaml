@@ -4660,13 +4660,12 @@ components:
           type: object
           description: >-
             Which parts of an account the server can change today; the
-            page offers only those. Each flag turns true when the item
-            that builds it lands: federations (admin_of, and grants of
-            federations other than Default) with web-federations,
-            group_grants (groups inside a grant) with
-            web-member-access, restrictions with
+            page offers only those. federations (admin_of, and the
+            federations of grants) is true. The others turn true when
+            the item that builds them lands: group_grants (groups
+            inside a grant) with web-member-access, restrictions with
             web-admin-restrictions, abilities with web-member-access.
-            Until then PATCH accepts these fields only unchanged and
+            Until then PATCH accepts those fields only unchanged and
             answers 400 not_supported to any change.
           required: [federations, group_grants, restrictions, abilities]
           properties:
@@ -4685,8 +4684,10 @@ components:
         federations:
           type: array
           description: >-
-            The federations the viewer may manage, with how many groups
-            it can see in each; the groups come from the chat search.
+            The federations the viewer administers (every one for a
+            superadmin), Default first and then by name, with how many
+            groups it can see in each; the groups come from the chat
+            search.
           items:
             allOf:
               - $ref: '#/components/schemas/Fed'
@@ -4697,6 +4698,9 @@ components:
                     type: integer
         all_federations:
           type: array
+          description: >-
+            Every federation, Default first and then by name, to name
+            a member's federations the viewer does not administer.
           items:
             $ref: '#/components/schemas/Fed'
     FedPerson:
@@ -4725,7 +4729,10 @@ components:
           type: [string, 'null']
         groups:
           type: array
-          description: Only the groups the viewer can see; group_count counts them all.
+          description: >-
+            A preview: at most 12 of the federation's groups the viewer
+            can see, busiest first; group_count counts all its groups.
+            Default's are the groups in no other federation.
           items:
             $ref: '#/components/schemas/GroupSummary'
         group_count:
@@ -4744,13 +4751,19 @@ components:
       properties:
         federations:
           type: array
+          description: >-
+            Every federation for a superadmin, the ones it administers
+            for an admin; Default first, then by name.
           items:
             $ref: '#/components/schemas/FederationRow'
         editable:
           type: boolean
+          description: Whether the viewer changes federations (superadmins).
         admin_options:
           type: array
-          description: Admins that may be given a federation.
+          description: >-
+            The active admins a superadmin may make admins of a
+            federation; empty for an admin.
           items:
             $ref: '#/components/schemas/FedPerson'
     FederationWrite:
