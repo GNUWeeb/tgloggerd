@@ -451,7 +451,8 @@ The chat page's query also takes Drogon's links: ?after=, ?after_ts=
 and ?limit=, and ?date= as a day or a day and time in the viewer's
 timezone. Its header counts the members the archive has seen
 (senders and admins), since the logger does not record Telegram's
-count.
+count. /messages/{group|private}?chat_id= redirects to the message
+list filtered by that chat.
 
 Signed-out visitors may read the chats of exposed groups
 (telegram_public_groups), as the public chat page does, and get 401

@@ -49,7 +49,13 @@ type pageRoute struct {
 	// in.
 	link bool
 	load pageLoader
+	// redirect, for a path kept for old links, is where its page now
+	// is; such a route has no loader.
+	redirect pageRedirect
 }
+
+// pageRedirect gives the URL (path and query) a page path moved to.
+type pageRedirect func(pr *pageRequest) string
 
 // pageRequest is what a loader gets: the request, its session (nil for
 // a signed-out visitor), its scope and the path's parameters.
@@ -98,6 +104,8 @@ func defaultPages() []pageRoute {
 		{id: "group_messages", pattern: "/group_messages", load: loadGroupMessages},
 		{id: "private_messages", pattern: "/private_messages", load: loadPrivateMessages},
 		{id: "message", pattern: "/messages/{scope}/{id}", load: loadMessage},
+		// The Drogon message lists, linked from its message pages.
+		{id: "messages_redirect", pattern: "/messages/{scope}", redirect: messagesRedirect},
 		{id: "settings", pattern: "/settings", load: loadSettings},
 		{id: "settings_preferences", pattern: "/settings/preferences", load: loadPreferences},
 		{id: "settings_sessions", pattern: "/settings/sessions", load: loadSessions},
@@ -129,7 +137,7 @@ func pageNav(sc scope.Scope) []string {
 // operations; the page paths are listed in getPage's description.
 func (s *Server) registerPages(mux *http.ServeMux) {
 	for _, p := range s.pages {
-		if p.load == nil {
+		if p.load == nil && p.redirect == nil {
 			continue
 		}
 		pat := p.pattern
@@ -203,9 +211,10 @@ func matchSegments(pattern string, segs []string) (map[string]string, bool) {
 type pageOutcome int
 
 const (
-	pageServed pageOutcome = iota // the page data, 200 or 404
-	pageReload                    // not served here yet: load it in full
-	pageSignIn                    // the page needs a session
+	pageServed     pageOutcome = iota // the page data, 200 or 404
+	pageReload                        // not served here yet: load it in full
+	pageSignIn                        // the page needs a session
+	pageRedirected                    // the page moved to the page's URL
 )
 
 // pageNotFoundProps are the not_found page's props: none.
@@ -247,6 +256,11 @@ func (s *Server) buildPage(r *http.Request, sess *auth.Session, path string) (re
 		return page, rt, pageServed, nil
 	}
 
+	if rt != nil && rt.redirect != nil {
+		to := rt.redirect(&pageRequest{s: s, r: r, sess: sess, scope: sc, params: params,
+			query: r.URL.Query()})
+		return render.Page{URL: to}, rt, pageRedirected, nil
+	}
 	if rt != nil && rt.load == nil {
 		return render.Page{URL: pageURL}, rt, pageReload, nil
 	}
@@ -412,7 +426,8 @@ func (s *Server) getPage(w http.ResponseWriter, r *http.Request) {
 	case outcome == pageSignIn:
 		noStore(w)
 		writeError(w, http.StatusUnauthorized, "unauthenticated", nil)
-	case outcome == pageReload:
+	case outcome == pageReload, outcome == pageRedirected:
+		// A moved page is loaded in full, whose document redirects.
 		noStore(w)
 		writeJSON(w, http.StatusOK, map[string]bool{"reload": true})
 	default:
@@ -448,6 +463,10 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request) {
 	case outcome == pageSignIn:
 		noStore(w)
 		http.Redirect(w, r, signInURL(page.URL), http.StatusFound)
+		return
+	case outcome == pageRedirected:
+		noStore(w)
+		http.Redirect(w, r, page.URL, http.StatusFound)
 		return
 	case outcome == pageReload:
 		// Only pages with a loader are routed here.

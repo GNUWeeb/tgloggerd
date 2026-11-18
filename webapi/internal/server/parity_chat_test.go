@@ -26,8 +26,8 @@ import (
 // files table otherwise; edits with their media; forward origins,
 // signatures, channel senders, service types, replies; the chat page's
 // query (dates in the viewer's timezone, Drogon's after, after_ts and
-// limit); the members the archive has seen; and that every key
-// answered is described in openapi.yaml.
+// limit); the members the archive has seen; the /messages/{scope}
+// redirect; and that every key answered is described in openapi.yaml.
 
 const (
 	mediaLab    = -1001000000030
@@ -468,6 +468,36 @@ func TestPageMessageParity(t *testing.T) {
 	if m := msg(3019); m.ContentType != "unknown" || m.TdlibType != "messageVideoNote" {
 		t.Errorf("video note %+v", m)
 	}
+}
+
+func TestMessagesRedirect(t *testing.T) {
+	t.Parallel()
+	e := newParityEnv(t)
+	ck := e.as("admin")
+	f := url.QueryEscape(`[{"field":"chat_id","op":"=","value":"-1001000000030"}]`)
+	for path, loc := range map[string]string{
+		"/messages/group?chat_id=-1001000000030&limit=20&before=5": "/group_messages?f=" + f + "&per=20",
+		"/messages/group?limit=500":                                "/group_messages?per=100",
+		"/messages/private":                                        "/private_messages",
+		"/messages/private?chat_id=x":                              "/private_messages",
+	} {
+		code, h, _ := e.get(path, ck)
+		if code != http.StatusFound || h.Get("Location") != loc {
+			t.Errorf("%s: %d %q, want %q", path, code, h.Get("Location"), loc)
+		}
+	}
+	// In the browser's navigation: a full load, which redirects.
+	if code, _, body := e.get("/api/page/messages/group?chat_id=1", ck); code != 200 ||
+		string(body) != "{\"reload\":true}\n" {
+		t.Errorf("page data: %d %s", code, body)
+	}
+	// Signed out: sign in first, as for every page that is not public.
+	if code, h, _ := e.get("/messages/group?chat_id=1", ""); code != http.StatusFound ||
+		!strings.HasPrefix(h.Get("Location"), "/login?next=") {
+		t.Errorf("signed out: %d %q", code, h.Get("Location"))
+	}
+	// The pages beside it are untouched.
+	page[pMessageProps](e, "/messages/group/3001", "admin", 200, "message")
 }
 
 // specProps is the property names of a component schema, through its

@@ -7,7 +7,9 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -546,4 +548,27 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 			Stored: md.Stored, Thumb: md.Thumb, URL: md.URL, mediaDetailJSON: md.mediaDetailJSON}
 	}
 	return messageProps{Message: j}, nil
+}
+
+// messagesRedirect sends the Drogon message lists, /messages/{scope}
+// with ?chat_id= and ?limit=, to the list of that scope filtered by the
+// chat, the rows per page as many as the limit. Its ?before= cursor
+// has no equivalent there and opens the list's first page.
+func messagesRedirect(pr *pageRequest) string {
+	list := "/private_messages"
+	if pr.params["scope"] == "group" {
+		list = "/group_messages"
+	}
+	q := url.Values{}
+	if c := pr.query.Get("chat_id"); isInt(c) {
+		f, _ := json.Marshal([]listCond{{Field: "chat_id", Op: "=", Value: c}})
+		q.Set("f", string(f))
+	}
+	if n, err := strconv.Atoi(pr.query.Get("limit")); err == nil && n > 0 {
+		q.Set("per", strconv.Itoa(min(n, maxListPer)))
+	}
+	if len(q) == 0 {
+		return list
+	}
+	return list + "?" + q.Encode()
 }

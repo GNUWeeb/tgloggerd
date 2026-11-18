@@ -636,6 +636,12 @@ paths:
         email_verify /account/email/verify.
 
 
+        /messages/{group|private}, the Drogon message lists that its
+        message pages link to, answers {"reload": true}: its document
+        redirects (302) to /group_messages or /private_messages,
+        filtered by its ?chat_id= and with ?per= its ?limit=.
+
+
         password_forgot, password_set and email_verify are served to
         signed-out and signed-in visitors alike, and their GETs change
         nothing: the link token travels in the URL's fragment, which
