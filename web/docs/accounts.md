@@ -79,9 +79,13 @@ several.
   request, with its role, so a change applies to its next request.
 
 The federations API (webapi/openapi.yaml, tag accounts) is the
-superadmins'; to anyone else it answers 404:
+superadmins', except that an admin renames and describes the
+federations it administers (`PATCH` with `name` and `description`
+only; `group_ids` or `admin_ids` from it answer 403 `forbidden`). To
+anyone else, and to an admin for a federation it does not administer,
+it answers 404:
 
-    POST   /api/federations       {name, group_ids?, admin_ids?}; 201 {id}
+    POST   /api/federations       {name, description?, group_ids?, admin_ids?}; 201 {id}
     PATCH  /api/federations/{id}  the same fields, each optional; 200 {id}
     DELETE /api/federations/{id}  204
 
@@ -89,16 +93,23 @@ superadmins'; to anyone else it answers 404:
   replace the federation's groups; `admin_ids` are accounts with the
   admin role (400 `bad_admin`) and replace its admins. A name is 1 to
   64 characters and unique without regard to case (409 `taken`).
-- Default (id 0) takes `admin_ids` only; groups or a new name answer
-  400 `bad_request`, and it cannot be deleted.
+- `description` (web migration 000011) is free text about the
+  federation, trimmed, at most 2000 characters, with no control
+  characters but newline and tab (CR LF is taken as a newline;
+  otherwise 400 `bad_description`); `""` clears it. The federations
+  page's rows carry it.
+- Default (id 0) takes `description` and `admin_ids` only; groups or
+  a new name answer 400 `bad_request` (to its admins as well), and it
+  cannot be deleted.
 - Deleting a federation puts its groups back in Default unless
   another federation holds them, and files a member it was the only
   federation of in Default.
 - New federations get the highest id so far plus one (the ids are not
   AUTO_INCREMENT, see web migration 000006).
 - Audited as `federation_create`, `federation_update` (with what
-  changed: name, groups added and removed, admins before and after)
-  and `federation_delete`, with the acting superadmin.
+  changed: name, whether the description was set or cleared, groups
+  added and removed, admins before and after)
+  and `federation_delete`, with the acting account.
 - The groups of a federation are listed by the pickers' chat search,
   `GET /api/chats/search?federation=<id>`; for Default those are the
   groups in no other federation.
@@ -189,6 +200,34 @@ admins; to a member they do not exist. The accounts are those of
 account are `editable` yet, come from the federation helpers
 (`webapi/internal/server/federationprops.go`), the same ones the
 federations operations use.
+
+A federation's details page (`/settings/federations/{id}`, route
+`federation`, FederationDetailProps; the same data at
+`GET /api/federations/{id}`) is opened from its card on the
+federations page. A superadmin sees every federation, an admin those
+it administers; to anyone else, and for any other federation, it does
+not exist (404). It carries:
+
+- the federation: id, name, description, whether it is Default, when
+  and by which superadmin it was made (null for Default, and the
+  creator null when that account is gone), and `group_count`, how many
+  of its groups the viewer sees;
+- its admins and members (`{id, username, name}`, by username);
+- the first page of its groups, as `GET /api/federations/{id}/groups`
+  answers it;
+- `can_edit` (name, description, groups, admins, delete): a superadmin
+  everything but Default's name, groups and deletion; an admin of the
+  federation its name (not Default's) and description only.
+
+`GET /api/federations/{id}/groups?q=&cursor=&limit=` pages the
+federation's groups the request scope shows, busiest first (message
+count, then id, both descending), 50 by default and 1 to 200:
+`{items, next_cursor, total}`, each item a group summary with its
+message count. `q` keeps the groups whose title or active username
+contains it, without regard to case (a leading `@` is dropped), and
+`total` counts every match. A cursor the service did not give answers
+400 `bad_request`. Groups a superadmin hid from an admin are never
+listed and never counted, here and in `group_count`.
 
 ## First passwords and resets
 

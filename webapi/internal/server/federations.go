@@ -22,18 +22,21 @@ import (
 
 // The federations editor (docs/design/web-accounts.md section 3):
 // superadmins create, change and delete federations, their groups and
-// their admins. To anyone else these operations do not exist (404);
-// admins see the federations they administer on the federations page,
-// read-only. The contract is in webapi/openapi.yaml (tag accounts);
-// web/docs/accounts.md explains it.
+// their admins. An admin renames and describes the federations it
+// administers and changes nothing else of them (403); to anyone else,
+// and for a federation it does not administer, these operations do
+// not exist (404). The contract is in webapi/openapi.yaml (tag
+// accounts); web/docs/accounts.md explains it.
 
-// Limits of a federation write: the name's length in characters
-// (web_federations.name), how many groups one may hold, and the body,
-// which must take that many ids.
+// Limits of a federation write: the name's and the description's
+// lengths in characters (web_federations.name and description), how
+// many groups one may hold, and the body, which must take that many
+// ids.
 const (
-	maxFederationName   = 64
-	maxFederationGroups = 50000
-	maxFederationBody   = 1 << 20
+	maxFederationName        = 64
+	maxFederationDescription = 2000
+	maxFederationGroups      = 50000
+	maxFederationBody        = 1 << 20
 )
 
 // text is a user-facing text in the viewer's language.
@@ -47,9 +50,26 @@ func (s *Server) text(r *http.Request, key string, kv ...string) string {
 
 // federationWrite is the FederationWrite schema; absent fields stay.
 type federationWrite struct {
-	Name     *string   `json:"name"`
-	GroupIDs *[]int64  `json:"group_ids"`
-	AdminIDs *[]uint64 `json:"admin_ids"`
+	Name        *string   `json:"name"`
+	Description *string   `json:"description"`
+	GroupIDs    *[]int64  `json:"group_ids"`
+	AdminIDs    *[]uint64 `json:"admin_ids"`
+}
+
+// federationDescription checks and trims a description: at most
+// maxFederationDescription characters, with no control characters but
+// newlines and tabs. A browser's line ends (CR LF) count as newlines.
+func federationDescription(d string) (string, bool) {
+	d = strings.TrimSpace(strings.ReplaceAll(d, "\r\n", "\n"))
+	if !utf8.ValidString(d) || utf8.RuneCountInString(d) > maxFederationDescription {
+		return "", false
+	}
+	for _, c := range d {
+		if unicode.IsControl(c) && c != '\n' && c != '\t' {
+			return "", false
+		}
+	}
+	return d, true
 }
 
 // federationEditor is the superadmin behind a federation write, after
@@ -66,13 +86,20 @@ func (s *Server) federationEditor(w http.ResponseWriter, r *http.Request) (scope
 }
 
 // readFederation decodes and checks a federation write, answering the
-// request itself when it does not pass: the name, and the groups,
-// which must be groups the logger knows.
-func (s *Server) readFederation(w http.ResponseWriter, r *http.Request, sc scope.Scope) (webdb.FederationWrite, bool) {
+// request itself when it does not pass: the name, the description, and
+// the groups, which must be groups the logger knows. textOnly is for a
+// viewer that may change the name and description only; groups or
+// admins from it answer 403.
+func (s *Server) readFederation(w http.ResponseWriter, r *http.Request, sc scope.Scope,
+	textOnly bool) (webdb.FederationWrite, bool) {
 	var in federationWrite
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxFederationBody))
 	if err := dec.Decode(&in); err != nil {
 		badRequest(w, "bad_request", s.text(r, "federation.malformed"))
+		return webdb.FederationWrite{}, false
+	}
+	if textOnly && (in.GroupIDs != nil || in.AdminIDs != nil) {
+		forbidden(w, s.text(r, "federation.text_only"))
 		return webdb.FederationWrite{}, false
 	}
 	out := webdb.FederationWrite{Groups: in.GroupIDs, Admins: in.AdminIDs}
@@ -88,6 +115,15 @@ func (s *Server) readFederation(w http.ResponseWriter, r *http.Request, sc scope
 			return out, false
 		}
 		out.Name = &name
+	}
+	if in.Description != nil {
+		d, ok := federationDescription(*in.Description)
+		if !ok {
+			badRequest(w, "bad_description", s.text(r, "federation.description",
+				"max", strconv.Itoa(maxFederationDescription)))
+			return out, false
+		}
+		out.Description = &d
 	}
 	if in.GroupIDs != nil {
 		if len(*in.GroupIDs) > maxFederationGroups {
@@ -141,7 +177,7 @@ func (s *Server) createFederation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	fw, ok := s.readFederation(w, r, sc)
+	fw, ok := s.readFederation(w, r, sc, false)
 	if !ok {
 		return
 	}
@@ -166,22 +202,30 @@ func federationID(w http.ResponseWriter, r *http.Request) (uint64, bool) {
 	return id, true
 }
 
-// updateFederation answers PATCH /api/federations/{id}. Default takes
-// admins only: its groups are derived and its name is fixed.
+// updateFederation answers PATCH /api/federations/{id}: a superadmin
+// changes any federation, an admin the name and description of one it
+// administers. Default takes admins and a description only: its
+// groups are derived and its name is fixed.
 func (s *Server) updateFederation(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	if !s.checkCSRF(w, r) {
 		return
 	}
-	sc, v, ok := s.federationEditor(w, r)
+	sc := ScopeFrom(r.Context())
+	v, ok := sc.Viewer()
 	if !ok {
+		notFound(w)
 		return
 	}
 	id, ok := federationID(w, r)
 	if !ok {
 		return
 	}
-	fw, ok := s.readFederation(w, r, sc)
+	if !sc.ManagesFederations() && !sc.DescribesFederation(id) {
+		notFound(w)
+		return
+	}
+	fw, ok := s.readFederation(w, r, sc, !sc.ManagesFederations())
 	if !ok {
 		return
 	}

@@ -21,6 +21,7 @@ import { botsRoute } from './bots.tsx';
 import { settingsRoute, preferencesRoute, sessionsRoute } from './settings.tsx';
 import { accountsRoute } from './accounts.tsx';
 import { federationsRoute } from './federations.tsx';
+import { federationRoute } from './federation.tsx';
 import { forwardingIndexRoute, t2dRoute, d2tRoute } from './forwarding.tsx';
 import { joinChatRoute } from './joinchat.tsx';
 import { mcpIndexRoute, mcpGroupsRoute, mcpTokensRoute } from './mcp.tsx';
@@ -66,6 +67,7 @@ export const routes: Record<string, RouteDef> = {
 	settings_sessions: sessionsRoute,
 	accounts: accountsRoute,
 	federations: federationsRoute,
+	federation: federationRoute,
 	platform_fwd: forwardingIndexRoute,
 	fwd_telegram_discord: t2dRoute,
 	fwd_discord_telegram: d2tRoute,

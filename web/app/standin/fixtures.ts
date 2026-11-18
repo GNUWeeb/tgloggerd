@@ -550,6 +550,10 @@ export function load(url: string, persona: Persona): Loaded {
 			},
 		};
 	}
+	if ((m = path.match(/^\/settings\/federations\/(\d+)$/))) {
+		const d = federationDetail(Number(m[1]), persona);
+		return d ? { route: 'federation', status: 200, props: d } : notFound;
+	}
 	if (path === '/settings/federations') {
 		if (!allowed(s, 'federations')) return notFound;
 		const feds = s.role === 'superadmin' ? allFeds() : s.manageableFeds;
@@ -559,7 +563,7 @@ export function load(url: string, persona: Persona): Loaded {
 				editable: s.role === 'superadmin',
 				federations: feds.map((f) => {
 					const gs = fedGroups(f).filter(s.group);
-					return { id: f.id, name: f.name, default: f.id === 0, created: f.created ? iso(f.created) : null, groups: gs.slice(0, 12).map(groupSummary), group_count: gs.length, admins: fedAdmins(f).map(person), members: fedMembers(f).map(person) };
+					return { id: f.id, name: f.name, description: f.description ?? '', default: f.id === 0, created: f.created ? iso(f.created) : null, groups: gs.slice(0, 12).map(groupSummary), group_count: gs.length, admins: fedAdmins(f).map(person), members: fedMembers(f).map(person) };
 				}),
 				admin_options: accounts.filter((a) => a.role === 'admin').map(person),
 			},
@@ -766,6 +770,56 @@ function profileExtras(usr, s) {
 		background_custom_emoji_id: null, profile_background_custom_emoji_id: null,
 		restriction_reason: usr.is_scam ? 'Reported as a scam by many users.' : '',
 		has_sensitive_content: false, restricts_new_chats: n % 7 === 0,
+	};
+}
+
+// A federation's details page (FederationDetailProps), for a superadmin
+// (every federation) or an admin of it; null for anyone else. Its groups
+// come a page at a time, busiest first, searchable by title or username.
+const fedPerson = (a) => ({ id: a.id, username: a.username, name: a.name });
+function visibleFed(id: number, persona: Persona) {
+	if (persona === 'public') return null;
+	const s = scopeOf(persona);
+	const f = fedById(id);
+	if (!f || !allowed(s, 'federations')) return null;
+	if (s.role !== 'superadmin' && !s.manageableFeds.some((x) => x?.id === f.id)) return null;
+	return { f, s };
+}
+function fedRow(f, s) {
+	const creator = f.id === 0 ? null : accounts.find((a) => a.role === 'superadmin');
+	return {
+		id: f.id, name: f.name, description: f.description ?? '', default: f.id === 0, created: f.created ? iso(f.created) : null,
+		created_by: creator ? fedPerson(creator) : null, group_count: fedGroups(f).filter(s.group).length,
+	};
+}
+export function federationGroups(id: number, q: URLSearchParams, persona: Persona): [number, unknown] {
+	const v = visibleFed(id, persona);
+	if (!v) return [404, { error: 'not_found' }];
+	const limit = q.get('limit') === null ? 50 : Number(q.get('limit'));
+	if (!Number.isInteger(limit) || limit < 1 || limit > 200) return [400, { error: 'bad_request', message: 'limit is 1 to 200.' }];
+	// A leading @ of a username is dropped; a search over 512 bytes, or
+	// a cursor that does not parse, is refused.
+	const raw = (q.get('q') ?? '').trim();
+	if (new TextEncoder().encode(raw).length > 512) return [400, { error: 'bad_request', message: 'The search is too long.' }];
+	if (q.get('cursor') !== null && !/^\d+$/.test(q.get('cursor')!)) return [400, { error: 'bad_request', message: 'That cursor does not parse.' }];
+	const text = raw.replace(/^@/, '').toLowerCase();
+	const all = fedGroups(v.f).filter(v.s.group)
+		.filter((g) => !text || g.title.toLowerCase().includes(text) || (g.username ?? '').toLowerCase().includes(text))
+		.sort((a, b) => b.msg_count - a.msg_count);
+	const from = Number(q.get('cursor') ?? 0) || 0;
+	const items = all.slice(from, from + limit).map((g) => ({ ...groupSummary(g), msg_count: g.msg_count }));
+	return [200, { items, next_cursor: from + limit < all.length ? String(from + limit) : null, total: all.length }];
+}
+export function federationDetail(id: number, persona: Persona) {
+	const v = visibleFed(id, persona);
+	if (!v) return null;
+	const sup = v.s.role === 'superadmin';
+	const dflt = v.f.id === 0;
+	return {
+		federation: fedRow(v.f, v.s),
+		admins: fedAdmins(v.f).map(fedPerson), members: fedMembers(v.f).map(fedPerson),
+		groups: federationGroups(id, new URLSearchParams(), persona)[1],
+		can_edit: { name: !dflt, description: true, groups: sup && !dflt, admins: sup, delete: sup && !dflt },
 	};
 }
 
@@ -987,18 +1041,64 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 	if (p === 'federations' && method === 'POST') {
 		if (s.role !== 'superadmin') return [404, { error: 'not_found' }];
 		const id = Math.max(...federations.map((f) => f.id)) + 1;
-		federations.push({ id, name: body.name, groupIds: body.group_ids || [], created: '2026-11-17 16:00:00' });
+		federations.push({ id, name: body.name, description: String(body.description ?? '').replace(/\r\n/g, '\n').trim(), groupIds: body.group_ids || [], created: '2026-11-17 16:00:00' });
 		for (const a of accounts) if ((body.admin_ids || []).includes(a.id) && a.role === 'admin') a.adminOf.push(id);
 		return [201, { id }];
 	}
-	if ((m = p.match(/^federations\/(\d+)$/)) && method === 'PATCH') {
+	if ((m = p.match(/^federations\/(\d+)$/)) && method === 'GET') {
+		const d = federationDetail(Number(m[1]), persona);
+		return d ? [200, d] : [404, { error: 'not_found' }];
+	}
+	if ((m = p.match(/^federations\/(\d+)$/)) && method === 'DELETE') {
+		// A superadmin's; Default stays. Its groups fall back to Default by
+		// themselves (Default holds every group no federation holds), its
+		// admins stop administering it, and a member it was the only
+		// federation of is filed in Default.
 		if (s.role !== 'superadmin') return [404, { error: 'not_found' }];
-		const f = fedById(Number(m[1]));
-		if (!f) return [404, { error: 'not_found' }];
-		if (f.id !== 0) { if (body.name) f.name = body.name; if (body.group_ids) f.groupIds = body.group_ids; }
-		for (const a of accounts.filter((x) => x.role === 'admin')) {
-			const want = (body.admin_ids || []).includes(a.id);
-			a.adminOf = want ? [...new Set([...a.adminOf, f.id])] : a.adminOf.filter((x) => x !== f.id);
+		const id = Number(m[1]);
+		if (id === 0) return [400, { error: 'bad_request', message: 'The Default federation cannot be deleted.' }];
+		const i = federations.findIndex((f) => f.id === id);
+		if (i < 0) return [404, { error: 'not_found' }];
+		federations.splice(i, 1);
+		for (const a of accounts) {
+			if (a.adminOf) a.adminOf = a.adminOf.filter((x) => x !== id);
+			if (a.grants?.some((g) => g.fed === id)) {
+				a.grants = a.grants.filter((g) => g.fed !== id);
+				if (!a.grants.length) a.grants = [{ fed: 0, groupIds: [] }];
+			}
+		}
+		return [204, null];
+	}
+	if ((m = p.match(/^federations\/(\d+)\/groups$/)) && method === 'GET') {
+		return federationGroups(Number(m[1]), new URLSearchParams(body), persona);
+	}
+	if ((m = p.match(/^federations\/(\d+)$/)) && method === 'PATCH') {
+		// A superadmin changes anything but Default's name; an admin of the
+		// federation its name and description only.
+		const v = visibleFed(Number(m[1]), persona);
+		if (!v) return [404, { error: 'not_found' }];
+		const f = v.f;
+		if (v.s.role !== 'superadmin' && (body.group_ids !== undefined || body.admin_ids !== undefined)) return [403, { error: 'forbidden', message: 'Only a superadmin changes a federation\'s groups and admins.' }];
+		if (body.name !== undefined && f.id === 0) return [400, { error: 'bad_request', message: 'The Default federation cannot be renamed.' }];
+		if (body.name !== undefined && (!String(body.name).trim() || [...String(body.name).trim()].length > 64 || /[\u0000-\u001f\u007f]/.test(String(body.name)))) return [400, { error: 'bad_name', message: 'A name is 1 to 64 characters, without control characters.' }];
+		let desc: string | undefined;
+		if (body.description !== undefined) {
+			// CR LF counts as a new line; a lone CR, as other control
+			// characters but new lines and tabs, is refused.
+			desc = String(body.description).replace(/\r\n/g, '\n').trim();
+			if ([...desc].length > 2000) return [400, { error: 'bad_description', message: 'A description is at most 2000 characters.' }];
+			if (/[\u0000-\u0008\u000b-\u001f\u007f]/.test(desc)) return [400, { error: 'bad_description', message: 'A description takes no control characters but new lines and tabs.' }];
+		}
+		if (body.name !== undefined) f.name = String(body.name).trim();
+		if (desc !== undefined) f.description = desc;
+		if (v.s.role !== 'superadmin') return [200, { id: f.id }];
+		if (f.id !== 0 && body.group_ids) f.groupIds = body.group_ids;
+		// The fields given change: without admin_ids the admins stay.
+		if (body.admin_ids !== undefined) {
+			for (const a of accounts.filter((x) => x.role === 'admin')) {
+				const want = body.admin_ids.includes(a.id);
+				a.adminOf = want ? [...new Set([...a.adminOf, f.id])] : a.adminOf.filter((x) => x !== f.id);
+			}
 		}
 		return [200, { id: f.id }];
 	}

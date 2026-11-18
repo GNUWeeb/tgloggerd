@@ -179,6 +179,10 @@ func TestFederations(t *testing.T) {
 			if got := tc.s.AdministersFederation(f); got != want {
 				t.Errorf("%s: AdministersFederation(%d) = %v", tc.name, f, got)
 			}
+			// Its admins rename and describe a federation.
+			if got := tc.s.DescribesFederation(f); got != want {
+				t.Errorf("%s: DescribesFederation(%d) = %v", tc.name, f, got)
+			}
 		}
 		if ids, all := tc.s.AdministeredFederations(); !slices.Equal(ids, tc.ids) || all != tc.all {
 			t.Errorf("%s: AdministeredFederations = %v %v", tc.name, ids, all)

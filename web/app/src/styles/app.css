@@ -608,6 +608,16 @@
 .app .a-fedcard header { display: flex; align-items: center; gap: 12px; }
 .app .a-fedcard h2 { margin: 0; font-size: 15px; }
 .app .a-fedicon { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-text); flex: none; }
+.app .a-fedlink { color: inherit; }
+.app .a-fedlink::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.app .a-fedcard { position: relative; }
+.app .a-fedcard:hover { border-color: var(--border-2); }
+.app .a-fedcard a:not(.a-fedlink), .app .a-fedcard button { position: relative; z-index: 1; }
+.app .a-feddesc { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 16px; max-width: 72ch; }
+.app .a-feddesc-card { margin: 0; color: var(--fg-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.app .a-fedicon-big { width: 64px; height: 64px; border-radius: 16px; }
+.app .a-fedsearch { margin-bottom: 12px; }
+.app .a-fedlist li { gap: 10px; }
 .app .a-fedstats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
 .app .a-fedstats > div { background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; }
 .app .a-fedstats dt { color: var(--fg-3); font-size: 12px; }

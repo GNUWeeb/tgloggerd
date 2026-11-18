@@ -421,12 +421,22 @@ func (s Scope) AdministeredFederations() (ids []uint64, all bool) {
 }
 
 // ManagesFederations is whether the viewer defines federations:
-// creates, renames and deletes them, sets their groups and admins, and
-// says which federations an admin administers. Superadmins only
+// creates and deletes them, renames any, sets their groups and admins,
+// and says which federations an admin administers. Superadmins only
 // (web-accounts.md section 3); an admin sees the federations it
-// administers without changing them.
+// administers and only renames and describes them
+// (DescribesFederation).
 func (s Scope) ManagesFederations() bool {
 	return s.is(Superadmin)
+}
+
+// DescribesFederation is whether the viewer may rename the federation
+// with this id and change its description: whoever administers it, a
+// superadmin any (whether id exists is the caller's to check). Its
+// groups and admins stay the superadmins' (ManagesFederations), and
+// Default's name is nobody's to change.
+func (s Scope) DescribesFederation(id uint64) bool {
+	return s.AdministersFederation(id)
 }
 
 // String describes the scope for logs.

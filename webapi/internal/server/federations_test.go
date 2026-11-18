@@ -393,11 +393,17 @@ func TestFederationsEditor(t *testing.T) {
 	}
 	gid := func(n int) int64 { return -1001000000000 - int64(n) }
 
-	// Nobody but a superadmin.
+	// Nobody but a superadmin, except that an admin changes the name
+	// of a federation it administers (TestFederationAdminRename).
+	administers := map[string][]string{"kern_admin": {"1"}, "sec_admin": {"0", "2"}}
 	for _, name := range []string{"kern_admin", "sec_admin", "idle_admin", "kern_member"} {
 		s := newSession(t, h, name, "password")
 		for _, op := range [][2]string{{"POST", "/api/federations"}, {"PATCH", "/api/federations/1"},
-			{"PATCH", "/api/federations/0"}, {"DELETE", "/api/federations/1"}} {
+			{"PATCH", "/api/federations/2"}, {"PATCH", "/api/federations/0"},
+			{"DELETE", "/api/federations/1"}} {
+			if op[0] == "PATCH" && slices.Contains(administers[name], strings.TrimPrefix(op[1], "/api/federations/")) {
+				continue
+			}
 			if a := s.call(op[0], op[1], map[string]any{"name": "Mine"}); a.status != 404 {
 				t.Errorf("%s %s %s: %d %v", name, op[0], op[1], a.status, a.body)
 			}
@@ -697,7 +703,7 @@ func TestFederationsPageProps(t *testing.T) {
 			t.Errorf("FederationsProps keys %s", keys(t, p))
 		}
 		for _, r := range p.Federations {
-			if keys(t, r) != "admins,created,default,group_count,groups,id,members,name" {
+			if keys(t, r) != "admins,created,default,description,group_count,groups,id,members,name" {
 				t.Errorf("FederationRow keys %s", keys(t, r))
 			}
 			if (r.Created == nil) != r.Default {

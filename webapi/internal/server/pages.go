@@ -117,6 +117,7 @@ func defaultPages() []pageRoute {
 		{id: "settings_sessions", pattern: "/settings/sessions", load: loadSessions},
 		{id: "accounts", pattern: "/settings/accounts", load: loadAccounts},
 		{id: "federations", pattern: "/settings/federations", load: loadFederations},
+		{id: "federation", pattern: "/settings/federations/{id}", load: loadFederation},
 		{id: "platform_fwd", pattern: "/platform-fwd", load: loadPlatformFwd},
 		{id: "fwd_telegram_discord", pattern: "/platform-fwd/telegram-discord", load: loadT2D},
 		{id: "fwd_discord_telegram", pattern: "/platform-fwd/discord-telegram", load: loadD2T},

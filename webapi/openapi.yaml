@@ -625,6 +625,7 @@ paths:
         settings_sessions /settings/sessions;
         accounts /settings/accounts;
         federations /settings/federations;
+        federation /settings/federations/{id};
         platform_fwd /platform-fwd;
         fwd_telegram_discord /platform-fwd/telegram-discord;
         fwd_discord_telegram /platform-fwd/discord-telegram;
@@ -671,7 +672,7 @@ paths:
         group_chat and message, of the list pages users, groups,
         files, group_messages and private_messages, of the settings
         pages, of the administration pages accounts, federations,
-        platform_fwd, fwd_telegram_discord, fwd_discord_telegram,
+        federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram,
         join_chat, mcp, mcp_groups and mcp_tokens (each only for a
         viewer whose menu has it, not_found otherwise), of the three
         link pages (whose props are empty), and not_found. A signed-out
@@ -2205,7 +2206,9 @@ paths:
           description: >-
             A malformed body or more than 50000 groups (error
             bad_request), a name that is empty, over 64 characters or
-            with control characters (bad_name), an id that is no group
+            with control characters (bad_name), a description over 2000
+            characters or with control characters other than newline
+            and tab (bad_description), an id that is no group
             (bad_group), or an account that is not an admin
             (bad_admin).
           content:
@@ -2228,18 +2231,59 @@ paths:
           $ref: '#/components/responses/SessionUnavailable'
 
   /api/federations/{id}:
+    get:
+      operationId: getFederation
+      tags: [accounts]
+      summary: A federation's details
+      description: >-
+        The federation page's props (route federation,
+        /settings/federations/{id}): the federation with its
+        description, creator and how many of its groups the viewer
+        sees, its admins and members, the first page of its groups (as
+        getFederationGroups answers it without q and cursor) and what
+        the viewer may change of it. A superadmin sees every
+        federation, an admin the ones it administers; anyone else gets
+        404, as for a federation that does not exist. Groups hidden
+        from an admin are neither listed nor counted.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: The federation.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationDetailProps'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Gate'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
     patch:
       operationId: updateFederation
       tags: [accounts]
       summary: Change a federation
       description: >-
-        Superadmins only; anyone else gets 404, as does a federation
-        that does not exist. The fields given replace the federation's
-        name, groups and admins; the others stay. A group taken out of
-        its last federation is back in Default. The Default federation
-        (id 0) is derived, the groups in no other federation, so it
-        takes admin_ids only (and its own name back unchanged).
-        Audited as federation_update, with what changed.
+        A superadmin changes any federation. An admin of the
+        federation (one it administers) may send name and description
+        only; group_ids or admin_ids from it answer 403 forbidden.
+        Anyone else gets 404, as does a federation that does not exist
+        or that the admin does not administer. The fields given replace
+        the federation's
+        name, description, groups and admins; the others stay. A group
+        taken out of its last federation is back in Default. The
+        Default federation (id 0) is derived, the groups in no other
+        federation, so it takes description and admin_ids only (and
+        its own name back unchanged); a new name for it answers 400
+        bad_request, whoever sends it. Audited as federation_update,
+        with what changed (for the description, only that it was set
+        or cleared) and the account that changed it.
       security:
         - session: []
           csrf: []
@@ -2272,7 +2316,14 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          $ref: '#/components/responses/Csrf'
+          description: >-
+            The CSRF token is wrong (error csrf), an admin of the
+            federation sent group_ids or admin_ids (error forbidden),
+            or a gate is up (see Gates).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -2312,6 +2363,69 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/federations/{id}/groups:
+    get:
+      operationId: getFederationGroups
+      tags: [accounts]
+      summary: A federation's groups, page by page
+      description: >-
+        The federation's groups that the viewer's scope shows, busiest
+        first (by message count, then by id, both descending); for
+        Default, the groups in no other federation. q keeps the groups
+        whose title or active username contains it, without regard to
+        case (a leading @ is ignored); total counts every group that
+        matches, on every page. Groups hidden from an admin are never
+        listed nor counted. Who sees a federation is as for
+        getFederation (404 otherwise). Paged by an opaque cursor.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          description: The next_cursor of the previous page.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A page of groups; next_cursor is null on the last.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationGroupsPage'
+        '400':
+          description: >-
+            A malformed limit or cursor, or a q over 512 bytes (error
+            bad_request).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Gate'
         '404':
           $ref: '#/components/responses/NotFound'
         '503':
@@ -3904,6 +4018,7 @@ components:
         - $ref: '#/components/schemas/PageSessions'
         - $ref: '#/components/schemas/PageAccounts'
         - $ref: '#/components/schemas/PageFederations'
+        - $ref: '#/components/schemas/PageFederation'
         - $ref: '#/components/schemas/PageForwarding'
         - $ref: '#/components/schemas/PageT2D'
         - $ref: '#/components/schemas/PageD2T'
@@ -4085,6 +4200,16 @@ components:
               enum: [federations]
             props:
               $ref: '#/components/schemas/FederationsProps'
+    PageFederation:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          required: [route, props]
+          properties:
+            route:
+              enum: [federation]
+            props:
+              $ref: '#/components/schemas/FederationDetailProps'
     PageForwarding:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -6220,13 +6345,16 @@ components:
           type: string
     FederationRow:
       type: object
-      required: [id, name, default, created, groups, group_count, admins, members]
+      required: [id, name, description, default, created, groups, group_count, admins, members]
       properties:
         id:
           type: integer
           format: int64
         name:
           type: string
+        description:
+          type: string
+          description: Free text about the federation; empty for none.
         default:
           type: boolean
         created:
@@ -6270,11 +6398,97 @@ components:
             federation; empty for an admin.
           items:
             $ref: '#/components/schemas/FedPerson'
+    FederationDetail:
+      type: object
+      required: [id, name, description, default, created, created_by, group_count]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+          description: Free text about the federation; empty for none.
+        default:
+          type: boolean
+        created:
+          type: [string, 'null']
+          format: date-time
+          description: When it was made; null for Default.
+        created_by:
+          description: >-
+            The superadmin that made it; null for Default and when that
+            account is gone.
+          oneOf:
+            - $ref: '#/components/schemas/FedPerson'
+            - type: 'null'
+        group_count:
+          type: integer
+          description: How many of its groups the viewer sees.
+    FederationCanEdit:
+      type: object
+      description: >-
+        What the viewer may change of the federation: a superadmin
+        everything but Default's name, groups and deletion; an admin of
+        it the name (not Default's) and the description only.
+      required: [name, description, groups, admins, delete]
+      properties:
+        name:
+          type: boolean
+        description:
+          type: boolean
+        groups:
+          type: boolean
+        admins:
+          type: boolean
+        delete:
+          type: boolean
+    FederationGroupsPage:
+      type: object
+      required: [items, next_cursor, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupCounted'
+        next_cursor:
+          type: [string, 'null']
+        total:
+          type: integer
+          description: How many groups match, on every page.
+    FederationDetailProps:
+      type: object
+      required: [federation, admins, members, groups, can_edit]
+      properties:
+        federation:
+          $ref: '#/components/schemas/FederationDetail'
+        admins:
+          type: array
+          description: Its admins, by username (superadmins are not listed).
+          items:
+            $ref: '#/components/schemas/FedPerson'
+        members:
+          type: array
+          description: The members filed in it, by username.
+          items:
+            $ref: '#/components/schemas/FedPerson'
+        groups:
+          $ref: '#/components/schemas/FederationGroupsPage'
+        can_edit:
+          $ref: '#/components/schemas/FederationCanEdit'
     FederationWrite:
       type: object
       properties:
         name:
           type: string
+        description:
+          type: string
+          maxLength: 2000
+          description: >-
+            Free text about the federation, trimmed: at most 2000
+            characters, with no control characters but newline and tab
+            (CR LF counts as a newline). An empty one clears it.
         group_ids:
           type: array
           description: Not for the Default federation.

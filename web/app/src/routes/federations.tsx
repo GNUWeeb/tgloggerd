@@ -95,9 +95,11 @@ function Federations({ page }: { page: PageData<FederationsProps> }) {
 				<section key={f.id} className="a-card a-fedcard">
 					<header>
 						<span className="a-fedicon"><Network size={16} /></span>
-						<div className="a-grow"><h2>{f.name}</h2><span className="a-muted sm">{f.default ? 'Every group in no other federation' : f.created ? `created ${ago(f.created, v)}` : ''}</span></div>
+						{/* The card opens the federation's own page. */}
+						<div className="a-grow"><h2><Link to={`/settings/federations/${f.id}`} className="a-fedlink">{f.name}</Link></h2><span className="a-muted sm">{f.default ? 'Every group in no other federation' : f.created ? `created ${ago(f.created, v)}` : ''}</span></div>
 						{p.editable && <button type="button" className="a-icon-btn" aria-label={`Edit ${f.name}`} onClick={() => setEdit(f)}><Pencil size={15} /></button>}
 					</header>
+					{f.description && <p className="a-feddesc a-feddesc-card">{f.description}</p>}
 					<dl className="a-fedstats">
 						<div><dt>Groups</dt><dd><b className="num">{f.group_count}</b><Stack items={f.groups} render={(g) => <Avatar key={g.id} id={g.id} name={g.title} photo={g.photo} size={22} square />} /></dd></div>
 						<div><dt>Admins</dt><dd><b className="num">{f.admins.length}</b><Stack items={f.admins} render={(a) => <Avatar key={a.id} id={a.id} name={a.name} size={22} />} /></dd></div>
@@ -105,11 +107,11 @@ function Federations({ page }: { page: PageData<FederationsProps> }) {
 					</dl>
 					<div className="a-fedgroups">
 						{f.groups.slice(0, 6).map((g) => <Link key={g.id} to={`/groups/${g.id}`} className="a-chip a-chip-entity"><Avatar id={g.id} name={g.title} photo={g.photo} size={16} square />{g.title}</Link>)}
-						{f.group_count > 6 && <span className="a-muted sm">and {f.group_count - 6} more</span>}
+						{f.group_count > 6 && <Link to={`/settings/federations/${f.id}`} className="a-link sm">and {f.group_count - 6} more</Link>}
 					</div>
 				</section>
 			))}</div>
-			<p className="a-muted a-foot">Only superadmins change which groups a federation holds. An admin allowed to join chats may add a group it joins to its own federations.</p>
+			<p className="a-muted a-foot">Only superadmins change which groups a federation holds. An admin of a federation may rename it and describe it on its page, and an admin allowed to join chats may add a group it joins to its own federations.</p>
 			{edit && <Editor fed={edit === 'new' ? null : edit} props={p} onClose={() => setEdit(null)} onSaved={() => navigate(page.url, { replace: true, scroll: false })} />}
 		</Shell>
 	);
