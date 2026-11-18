@@ -1,8 +1,9 @@
 // The Telegram-like chat view (group or private chat), inside the shell,
 // or on its own as the public page of a group exposed through MCP.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
-import { ArrowLeft, CalendarDays, ChevronDown, ChevronsUp, ExternalLink, CloudOff, Download, Forward, Globe, Info, LogIn, Pencil, Play, Radio, Search, Trash2, X } from 'lucide-react';
-import Shell, { ThemeButton } from '../ui/Shell.tsx';
+import { ArrowLeft, CalendarDays, ChevronDown, ChevronsUp, ExternalLink, CloudOff, Download, Forward, Globe, Info, Pencil, Play, Radio, Search, Trash2, X } from 'lucide-react';
+import Shell from '../ui/Shell.tsx';
+import { PublicFrame } from '../ui/PublicFrame.tsx';
 import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
@@ -321,6 +322,8 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const title = group ? group.title : p.chat.kind === 'user' ? p.chat.user.name : '';
 	const photo = group ? group.photo : p.chat.kind === 'user' ? p.chat.user.photo : null;
 	const back = isGroup ? `/groups/${chatId}` : `/users/${chatId}`;
+	// Signed out, only an exposed group is shown: its public page.
+	const info = publicView ? (isGroup ? back : null) : back;
 	const sub = p.chat.kind === 'group'
 		? `${TYPE_LABEL[p.chat.group.type]}${p.chat.group.members ? ` . ${fmt(p.chat.group.members)} members seen` : ''} . ${fmt(group?.msg_count ?? p.chat.group.msg_count)} messages`
 		: `private chat with the logging account . ${fmt(p.chat.count)} messages`;
@@ -328,8 +331,19 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		<div className={`c-chat ${publicView ? 'public' : ''}`}>
 			<header className="c-head">
 				{!publicView && <Link to={back} className="c-iconbtn" aria-label="Back to details"><ArrowLeft size={20} /></Link>}
-				<Avatar id={chatId} name={title} photo={photo} size={40} square={isGroup} />
-				<div className="c-head-title"><h1>{title}</h1><span className="c-sub">{sub}</span></div>
+				{/* The chat's name opens its details: the group's page, or the
+				    profile of the user a private chat is with. */}
+				{info ? (
+					<Link to={info} className="c-head-link" title={isGroup ? 'Group details' : 'Profile'}>
+						<Avatar id={chatId} name={title} photo={photo} size={40} square={isGroup} />
+						<div className="c-head-title"><h1>{title}</h1><span className="c-sub">{sub}</span></div>
+					</Link>
+				) : (
+					<>
+						<Avatar id={chatId} name={title} photo={photo} size={40} square={isGroup} />
+						<div className="c-head-title"><h1>{title}</h1><span className="c-sub">{sub}</span></div>
+					</>
+				)}
 				{!publicView && (
 					<button type="button" className={`c-live ${live ? 'on' : ''}`} onClick={() => setLive((x) => !x)} aria-pressed={live} title="Show new messages as they are logged">
 						<Radio size={14} />{live ? 'Live' : 'Paused'}
@@ -369,15 +383,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	);
 	if (publicView) {
 		return (
-			<div className="app c-publicpage">
-				<header className="c-pubtop">
-					<span className="a-logo">tg</span><b>tgloggerd</b><span className="c-sub">public archive</span>
-					<span className="a-grow" />
-					<ThemeButton viewer={v} />
-					<a href={`/login?next=${encodeURIComponent(page.url)}`} className="a-btn a-btn-ghost"><LogIn size={14} />Sign in</a>
-				</header>
-				{body}
-			</div>
+			<PublicFrame viewer={v} url={page.url}>{body}</PublicFrame>
 		);
 	}
 	return <Shell flush crumbs={[[isGroup ? 'Groups' : 'Users', isGroup ? '/groups' : '/users'], [title, back], ['Chat', null]]}>{body}</Shell>;

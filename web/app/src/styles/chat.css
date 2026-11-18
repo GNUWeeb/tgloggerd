@@ -36,6 +36,9 @@
 .app .c-chat { display: flex; flex-direction: column; height: 100%; position: relative; font-family: Roboto, "Inter Variable", system-ui, sans-serif; font-size: 15px; }
 .app .c-sub { color: var(--fg-3); font-size: 13px; }
 .app .c-head { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 10px 0 12px; background: var(--c-head); border-bottom: 1px solid var(--border); flex: none; }
+.app .c-head-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; border-radius: 8px; margin: 0 -6px; padding: 4px 6px; }
+.app .c-head-link:hover { background: var(--hover); }
+.app .c-head-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .app .c-head-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
 .app .c-head-title h1 { font-size: 16px; font-weight: 600; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0; }
 .app .c-head-title .c-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -192,6 +195,7 @@
 	.app .c-hide-sm { display: none; }
 	.app .c-live { padding: 0 8px; }
 	.app .c-head { gap: 6px; padding: 0 4px; }
+	.app .c-head-link { gap: 8px; margin: 0; padding: 4px; }
 	.app .c-searchbar .c-sub { display: none; }
 	.app .c-tobottom { bottom: 64px; right: 12px; }
 }

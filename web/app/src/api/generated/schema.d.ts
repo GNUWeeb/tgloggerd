@@ -1407,7 +1407,7 @@ export interface components {
         PageGroup: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
             route: "group" | "group_admins" | "group_history";
-            props: components["schemas"]["GroupProps"];
+            props: components["schemas"]["GroupProps"] | components["schemas"]["GroupPublicProps"];
         };
         PageFiles: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
@@ -2241,6 +2241,19 @@ export interface components {
                 /** @description Always sent by the service. */
                 updated_at: string;
             })[];
+        };
+        /** @description The group route (/groups/{id}, not its admins or history tabs) for an exposed group the viewer's scope does not see: signed out, a member without it, an admin it is hidden from. As public as the group's chat: its summary and counts, with none of its admins, history, posters, activity or files. A group neither visible nor exposed answers a sign-in to a visitor and 404 to the others. */
+        GroupPublicProps: {
+            /** @constant */
+            public: true;
+            group: components["schemas"]["GroupSummary"] & {
+                usernames: components["schemas"]["Username"][];
+                description: string;
+                /** @description The people the archive has seen in the group, as GroupFull.members. */
+                members: number;
+                msg_count: number;
+                created_at: string;
+            };
         };
         GroupProps: {
             group: components["schemas"]["GroupFull"];
