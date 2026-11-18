@@ -112,6 +112,7 @@ terms, and a binary distribution must carry them.
     React, react-dom, scheduler          MIT (bundled by web/app)
     openapi-fetch and its helpers        MIT (bundled by web/app)
     lucide-react                         ISC (bundled by web/app)
+    lottie-web                           MIT (bundled by web/app)
     Inter, JetBrains Mono, Roboto        OFL-1.1 (fontsource, web/app)
 
 libcurl pulls in the distribution's TLS, resolver and authentication stack
