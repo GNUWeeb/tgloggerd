@@ -935,7 +935,7 @@ export interface paths {
         put?: never;
         /**
          * Expose a group through the MCP endpoint
-         * @description Only groups the viewer may see (web-accounts.md section 4).
+         * @description For viewers with the mcp ability (superadmins and admins today), and only groups the viewer may see (web-accounts.md section 4): a hidden or unknown group is 404. The note is cut to 255 characters. A group already exposed is 409 already_exposed; to change its note, withdraw it and expose it again. Exposing also makes the group's chat public on the web (web/docs/mcp.md). Audited as mcp_expose.
          */
         post: operations["exposeMcpGroup"];
         delete?: never;
@@ -954,7 +954,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Stop exposing a group */
+        /**
+         * Stop exposing a group
+         * @description A group the viewer may not see, or one not exposed, is 404. Audited as mcp_unexpose.
+         */
         delete: operations["unexposeMcpGroup"];
         options?: never;
         head?: never;
@@ -972,7 +975,7 @@ export interface paths {
         put?: never;
         /**
          * Create an MCP bearer token
-         * @description The token is in this answer only; it is stored as a hash.
+         * @description The token (tgmcp_ and 64 hex digits) is in this answer only; it is stored as its SHA-256 and in no log or audit row. The name, 1 to 64 characters after trimming, tells tokens apart. Owned by the viewer. Audited as mcp_token_create, with the name.
          */
         post: operations["createMcpToken"];
         delete?: never;
@@ -990,7 +993,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Revoke an MCP bearer token */
+        /**
+         * Revoke an MCP bearer token
+         * @description Stamps the token revoked; the row stays for the audit trail. Revoking a revoked token changes nothing and answers 204 too. Audited as mcp_token_revoke.
+         */
         post: operations["revokeMcpToken"];
         delete?: never;
         options?: never;
@@ -4131,6 +4137,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     unexposeMcpGroup: {

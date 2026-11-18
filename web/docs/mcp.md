@@ -552,6 +552,32 @@ making the scan covering: 143ms, at about 8% growth in index size.
 Tools run on their own event-loop pool (`MCP_THREADS`, default 2), not on an HTTP thread:
 they use the blocking database API, and a slow query must delay only another MCP call.
 
+## Administration through the JSON API (Go service)
+
+The Go service serves the administration as JSON operations
+(`webapi/openapi.yaml`, tag `mcp`), with the session's CSRF token in
+`X-CSRF-Token`, and the pages' data (`/mcp-admin`, `/mcp-admin/groups`,
+`/mcp-admin/tokens`):
+
+    POST   /api/mcp/groups               {"group_id": -100..., "note": "..."}; 201
+    DELETE /api/mcp/groups/{group_id}
+    POST   /api/mcp/tokens               {"name": "..."}; 201 {id, token}
+    POST   /api/mcp/tokens/{id}/revoke
+
+- Who: viewers with the `mcp` ability (superadmins and admins today);
+  to anyone else they do not exist (404).
+- Only groups the viewer may see are exposed, listed, counted or
+  withdrawn; a hidden group is 404 like an unknown one
+  (web-accounts.md section 4). Exposing a group twice is 409
+  `already_exposed`; a note (cut to 255 characters) changes by
+  withdrawing and exposing again, as the table's grants intend.
+- A token is minted as here, `tgmcp_` and 32 random bytes in hex,
+  answered once and stored as its SHA-256; its name is 1 to 64
+  characters. Revoking stamps `revoked_at`; revoking twice is a no-op.
+- Every change writes a `web_audit` row: `mcp_expose`,
+  `mcp_unexpose`, `mcp_token_create`, `mcp_token_revoke` (with the
+  group or the token's id and name, never the token).
+
 ## Configuration
 
 | Variable | Meaning |

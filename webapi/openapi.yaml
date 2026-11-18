@@ -2582,11 +2582,17 @@ paths:
 
   /api/mcp/groups:
     post:
-      x-tgd-status: planned
       operationId: exposeMcpGroup
       tags: [mcp]
       summary: Expose a group through the MCP endpoint
-      description: Only groups the viewer may see (web-accounts.md section 4).
+      description: >-
+        For viewers with the mcp ability (superadmins and admins
+        today), and only groups the viewer may see (web-accounts.md
+        section 4): a hidden or unknown group is 404. The note is cut
+        to 255 characters. A group already exposed is 409
+        already_exposed; to change its note, withdraw it and expose it
+        again. Exposing also makes the group's chat public on the web
+        (web/docs/mcp.md). Audited as mcp_expose.
       security:
         - session: []
           csrf: []
@@ -2623,13 +2629,17 @@ paths:
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /api/mcp/groups/{group_id}:
     delete:
-      x-tgd-status: planned
       operationId: unexposeMcpGroup
       tags: [mcp]
       summary: Stop exposing a group
+      description: >-
+        A group the viewer may not see, or one not exposed, is 404.
+        Audited as mcp_unexpose.
       security:
         - session: []
           csrf: []
@@ -2647,11 +2657,14 @@ paths:
 
   /api/mcp/tokens:
     post:
-      x-tgd-status: planned
       operationId: createMcpToken
       tags: [mcp]
       summary: Create an MCP bearer token
-      description: The token is in this answer only; it is stored as a hash.
+      description: >-
+        The token (tgmcp_ and 64 hex digits) is in this answer only; it
+        is stored as its SHA-256 and in no log or audit row. The name,
+        1 to 64 characters after trimming, tells tokens apart. Owned by
+        the viewer. Audited as mcp_token_create, with the name.
       security:
         - session: []
           csrf: []
@@ -2690,10 +2703,13 @@ paths:
 
   /api/mcp/tokens/{id}/revoke:
     post:
-      x-tgd-status: planned
       operationId: revokeMcpToken
       tags: [mcp]
       summary: Revoke an MCP bearer token
+      description: >-
+        Stamps the token revoked; the row stays for the audit trail.
+        Revoking a revoked token changes nothing and answers 204 too.
+        Audited as mcp_token_revoke.
       security:
         - session: []
           csrf: []
