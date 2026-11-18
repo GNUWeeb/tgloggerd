@@ -124,6 +124,16 @@ media objects carry `url` only when the file is stored or fetchable
 (null otherwise), and `thumb` with the same URL for pictures. Edit
 snapshots there carry no media.
 
+## Files list
+
+Every row of the Drogon files list (`/files`) links to the file's
+`/files/<token>`, stored or not, so opening an unstored one fetches it
+by the rule above. The Go service's files page data (FilesProps,
+FileRow in webapi/openapi.yaml) gives each row `url` when the file is
+stored or fetchable by the same rule and a `fetchable` flag as in the
+chat API; the list's thumbnails are of stored pictures only, so
+showing the list fetches nothing.
+
 ## Caching
 
 Files are sent with `Cache-Control: public, max-age=604800`: a week,

@@ -34,10 +34,6 @@ import (
 // run only when WEBAPI_TEST_MYSQL_DSN names a test MySQL. The daemon is
 // a fake on a loopback port the OS picks.
 
-func testRODB(t *testing.T) *sql.DB {
-	return testdb.New(t, testdb.Logger).DB
-}
-
 // fakeDaemon answers POST /v1/files/{id}/fetch from a table, and
 // records the bodies it got and the access reports.
 type fakeDaemon struct {
@@ -114,10 +110,11 @@ type mediaEnv struct {
 type mediaOpts struct {
 	noDaemon bool
 	cap      uint64
+	fixtures []string // of the logger's schema
 }
 
 func newMediaEnv(t *testing.T, o mediaOpts) *mediaEnv {
-	e := &mediaEnv{t: t, ro: testRODB(t), app: testDB(t), fake: &fakeDaemon{
+	e := &mediaEnv{t: t, ro: testdb.New(t, testdb.Logger, o.fixtures...).DB, app: testDB(t), fake: &fakeDaemon{
 		answers: map[string]func(http.ResponseWriter){}}}
 	base := t.TempDir()
 	e.store = filepath.Join(base, "storage")
@@ -213,11 +210,17 @@ func (e *mediaEnv) addFile(f fileRow) string {
 	return e.tokens.Encrypt(f.id)
 }
 
-// signIn makes an account and returns its session cookie value.
+// signIn makes an admin account and returns its session cookie value.
 func (e *mediaEnv) signIn(name string) (string, uint64) {
-	uid := addUser(e.t, e.app, name, "x", "admin", true)
+	return e.signInAs(name, "admin")
+}
+
+// signInAs makes an account of a role and returns its session cookie
+// value.
+func (e *mediaEnv) signInAs(name, role string) (string, uint64) {
+	uid := addUser(e.t, e.app, name, "x", role, true)
 	w := httptest.NewRecorder()
-	return e.cookies.Issue(w, e.cookies.NewSession(uid, name, "admin", 0)), uid
+	return e.cookies.Issue(w, e.cookies.NewSession(uid, name, role, 0)), uid
 }
 
 type got struct {

@@ -619,6 +619,7 @@ type listFile struct {
 	Size      uint64        `json:"size"`
 	Hits      int64         `json:"hits"`
 	Stored    bool          `json:"stored"`
+	Fetchable bool          `json:"fetchable"`
 	CreatedAt string        `json:"created_at"`
 	TgFileID  string        `json:"tg_file_id"`
 	URL       *string       `json:"url"`
@@ -641,7 +642,14 @@ type filesProps struct {
 // can show as a thumbnail.
 var thumbTypes = map[string]bool{"photo": true, "sticker": true}
 
-func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, rows []logdb.Row) ([]listFile, error) {
+// listFileRows are the rows as FileRow. Every file has a URL the
+// request may open, as each row of the Drogon files list links to
+// /files/<token>: a stored one's bytes, and an unstored one's whenever
+// the request may have them fetched from Telegram (Server.fileURL),
+// which opening the URL then does through the daemon. Only a stored
+// picture has a thumbnail, so that listing files fetches nothing.
+func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool,
+	rows []logdb.Row) ([]listFile, error) {
 	ids := make([]uint64, 0, len(rows))
 	for _, r := range rows {
 		ids = append(ids, r.Uint("id"))
@@ -665,11 +673,9 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, rows []logdb.
 				f.Name += "." + f.Ext
 			}
 		}
-		if f.Stored {
-			f.URL = s.photoPtr(f.ID)
-			if thumbTypes[f.FileType] {
-				f.Thumb = f.URL
-			}
+		f.URL, f.Fetchable = s.fileURL(sc, signedIn, f.ID, f.Size, f.Stored)
+		if f.Stored && thumbTypes[f.FileType] {
+			f.Thumb = f.URL
 		}
 		if o, ok := origins[f.ID]; ok {
 			f.Chat = &listChatName{ID: o.ChatID, Title: o.ChatTitle, Kind: o.ChatKind}
@@ -691,7 +697,8 @@ func loadFiles(ctx context.Context, pr *pageRequest) (any, error) {
 	}
 	sc := pr.scope
 	p := filesProps{listState: run.state, CanFetch: sc.Can(scope.FetchFiles)}
-	if p.Rows, err = s.listFileRows(ctx, sc, run.res.Rows); err != nil {
+	signedIn := pr.sess != nil
+	if p.Rows, err = s.listFileRows(ctx, sc, signedIn, run.res.Rows); err != nil {
 		return nil, err
 	}
 	if want := pr.query.Get("file"); isInt(want) {
@@ -700,7 +707,7 @@ func loadFiles(ctx context.Context, pr *pageRequest) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if rows, err := s.listFileRows(ctx, sc, res.Rows); err != nil {
+		if rows, err := s.listFileRows(ctx, sc, signedIn, res.Rows); err != nil {
 			return nil, err
 		} else if len(rows) == 1 {
 			p.Preview = &rows[0]

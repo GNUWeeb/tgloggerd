@@ -4343,6 +4343,14 @@ components:
           type: integer
         stored:
           type: boolean
+        fetchable:
+          type: boolean
+          description: >-
+            The bytes are not stored and the viewer may have them
+            fetched from Telegram, by the rule of ChatMedia's
+            fetchable (web/docs/media.md): opening url fetches them
+            through the daemon. Always sent; optional in this
+            description, as ChatMedia's is.
         created_at:
           type: string
         duration:
@@ -4351,8 +4359,15 @@ components:
           type: string
         url:
           type: [string, 'null']
+          description: >-
+            The /files/<token> URL when the bytes are stored or
+            fetchable, else null (an unstored file the viewer may not
+            have fetched, or fetching from Telegram is off).
         thumb:
           type: [string, 'null']
+          description: >-
+            The same URL for a stored photo or sticker, else null; an
+            unstored picture has none, so a list never fetches.
         chat:
           description: >-
             The chat of the first message the viewer sees that carried

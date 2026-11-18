@@ -1590,10 +1590,14 @@ export interface components {
             size: number;
             hits: number;
             stored: boolean;
+            /** @description The bytes are not stored and the viewer may have them fetched from Telegram, by the rule of ChatMedia's fetchable (web/docs/media.md): opening url fetches them through the daemon. Always sent; optional in this description, as ChatMedia's is. */
+            fetchable?: boolean;
             created_at: string;
             duration?: number;
             tg_file_id: string;
+            /** @description The /files/<token> URL when the bytes are stored or fetchable, else null (an unstored file the viewer may not have fetched, or fetching from Telegram is off). */
             url: string | null;
+            /** @description The same URL for a stored photo or sticker, else null; an unstored picture has none, so a list never fetches. */
             thumb: string | null;
             /** @description The chat of the first message the viewer sees that carried the file; null when there is none (a profile or group photo, or a message the viewer may not see). */
             chat: {
