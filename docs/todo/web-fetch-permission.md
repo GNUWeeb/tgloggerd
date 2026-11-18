@@ -25,10 +25,16 @@ to do it, not something every page view triggers.
 
 ## Design notes
 
-- Builds on the fetch path of web-fetch-unstored-media, the roles
-  (`scope.FetchFiles`) and the grants of web-member-access
-  (docs/design/web-accounts.md); agree the exact rule for page views
-  and tokens with the project owner before building.
+- Builds on the fetch path of web-fetch-unstored-media and the roles
+  (`scope.FetchFiles`, docs/design/web-accounts.md); agree the exact
+  rule for page views and tokens with the project owner before
+  building.
+- The Go service already requires `fetch_files` of a signed-in
+  account for any fetch (members get it as an ability; superadmins and
+  admins hold it): a member without it gets no link to an unstored
+  file, and a link it holds answers 404 "File not stored". What is
+  left is the explicit action, the rule for page views of those who
+  may fetch, and anonymous token requests (still: small files only).
 - The fetch decision is one function, `media::mayFetch()` in
   `web/src/media/Fetch.cpp`: `/files/<token>` asks it before calling
   the daemon, and the chat pages set `fetchable` from it
@@ -44,7 +50,6 @@ to do it, not something every page view triggers.
 
 ## Depends on
 
-- `web-member-access`
 - `go-port-media`
 
 ## Done when
