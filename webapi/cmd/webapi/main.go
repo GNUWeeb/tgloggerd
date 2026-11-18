@@ -41,6 +41,7 @@ import (
 	"tgloggerd/webapi/internal/mail"
 	"tgloggerd/webapi/internal/media"
 	"tgloggerd/webapi/internal/render"
+	"tgloggerd/webapi/internal/searchengine"
 	"tgloggerd/webapi/internal/server"
 )
 
@@ -137,6 +138,10 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		})
 		go hub.Run(ctx)
 	}
+	if err := startSearchIndexer(ctx, log, cfg, hub, dc); err != nil {
+		return err
+	}
+
 	// Pages link the client bundle vite build wrote; without it they
 	// still answer, with their data, but no script to show it.
 	assets, err := render.LoadAssets(cfg.AppDist, cfg.AppBuild)
@@ -247,6 +252,61 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		return err
 	}
 	log.Info("stopped")
+	return nil
+}
+
+// startSearchIndexer starts the search engine's indexer, when the
+// engine is configured and this instance is its indexer. It reads the
+// message tables through a pool of its own with one connection, so the
+// backfill never takes a connection the pages need, and takes its
+// events from the live hub, or without one from the daemon's stream
+// itself; without either, the reconcile alone keeps the index in step.
+func startSearchIndexer(ctx context.Context, log *slog.Logger, cfg *config.Config,
+	hub *live.Hub, dc *daemon.Client) error {
+	se := cfg.SearchEngine
+	if se.URL == "" {
+		return nil
+	}
+	c, err := searchengine.NewClient(se.URL)
+	if err != nil {
+		return fmt.Errorf("WEBAPI_SEARCH_ENGINE_URL: %w", err)
+	}
+	x, err := c.Index(se.Index)
+	if err != nil {
+		return fmt.Errorf("WEBAPI_SEARCH_ENGINE_INDEX: %w", err)
+	}
+	if !se.Indexer {
+		log.Info("search engine: another instance indexes (WEBAPI_SEARCH_ENGINE_INDEXER=0)",
+			"url", c.URL(), "index", x.Name())
+		return nil
+	}
+	pc := cfg.RO
+	pc.Name, pc.Conns = "index", 1
+	pool, err := openPool(log, pc)
+	if err != nil {
+		return err
+	}
+	var src live.Source
+	switch {
+	case hub != nil:
+		src = searchengine.HubSource{Hub: hub}
+	case dc.Enabled():
+		src = live.DaemonSource{Client: dc, Log: log}
+	default:
+		log.Warn("search engine: no event stream (WEB_TGLOGGERD_API); " +
+			"the index follows the archive by its reconcile alone")
+	}
+	ix := searchengine.NewIndexer(pool, x, src, searchengine.IndexerOptions{
+		Batch:     se.Batch,
+		Pause:     se.Pause,
+		Reconcile: se.Reconcile,
+		Log:       log.With("component", "search-index"),
+	})
+	go func() {
+		defer pool.Close()
+		ix.Run(ctx)
+	}()
+	log.Info("search engine: indexing", "url", c.URL(), "index", x.Name())
 	return nil
 }
 

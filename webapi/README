@@ -617,6 +617,42 @@ every compose command that should include it, and start it:
 The tests start their own engine (docker-compose.test.yml, profile
 "search", a 512 MB heap): scripts/test-web.sh --search-engine.
 
+## Indexing
+
+With WEBAPI_SEARCH_ENGINE_URL set, the service keeps the index in step
+with the message tables (internal/searchengine/indexer.go), one
+document per group or private message with text (captions are the
+text of a media message), keyed by scope and row id, so every write is
+idempotent:
+
+  - Events: the daemon's message.new, .edited and .deleted, from the
+    live hub (one more subscriber of the service's one subscription),
+    or from the daemon's stream itself while live updates are off. The
+    events of half a second are read again from MySQL by the tables'
+    unique (chat_id, message_id) keys in one query and written in one
+    bulk request. A row left without text loses its document.
+  - The backfill: the rows above the state's next_id, in primary key
+    order, WEBAPI_SEARCH_ENGINE_BATCH at a time with
+    WEBAPI_SEARCH_ENGINE_PAUSE between, through a pool of one
+    connection, so the pages' pool is never taken. Its place is saved
+    in the engine after every batch, so a restart resumes it. It never
+    filters on created_at, which has no index.
+  - The reconcile, every WEBAPI_SEARCH_ENGINE_RECONCILE seconds, every
+    minute while no stream delivers, and at once after a resync or
+    dropped events: the backfill's pass over new rows, then the rows
+    deleted (deleted_at's index) and edited (the (chat_id, edit_date)
+    indexes, 200 chats per query) since the last reconcile began, less
+    five minutes. It repairs what the stream missed. An edit recorded
+    with an edit date older than that window, which only a stream
+    outage during a history backfill produces, is repaired by
+    rebuilding the index: delete it and its -state index (curl -X
+    DELETE http://opensearch:9200/<name>,<name>-state from a container
+    on tgnet) and the service backfills it again.
+
+Only one instance indexes an index; set WEBAPI_SEARCH_ENGINE_INDEXER=0
+on any other. Renames of users and groups need nothing: a document
+holds ids, never names.
+
 # The request scope
 
 Server.requestScope (internal/server/media.go) builds, once per
@@ -1138,6 +1174,19 @@ and its own:
                          seconds a link works: invitations and admin
                          resets (default 259200), forgotten-password
                          resets (3600), address verifications (86400)
+    WEBAPI_SEARCH_ENGINE_URL  the search engine (see Search engine),
+                         e.g. http://opensearch:9200; unset leaves
+                         search on MySQL and the rest of these unread
+    WEBAPI_SEARCH_ENGINE_INDEX  the messages index, default
+                         tgloggerd-messages (and <name>-state)
+    WEBAPI_SEARCH_ENGINE_INDEXER  "0": another instance indexes
+    WEBAPI_SEARCH_ENGINE_BATCH  rows per query of the backfill and the
+                         reconcile, default 1000
+    WEBAPI_SEARCH_ENGINE_PAUSE  milliseconds between two of them,
+                         default 200
+    WEBAPI_SEARCH_ENGINE_RECONCILE  seconds between two reconciles,
+                         default 600 (60 while no event stream
+                         delivers)
 
 An empty value counts as unset. A malformed number stops the service at
 start. Logs are structured (log/slog, key=value) on stderr, one line per
