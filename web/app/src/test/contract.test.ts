@@ -78,7 +78,7 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 
 	it('a chat window', () => {
 		const chat = chatFor('group', String(groupId), 'superadmin');
-		for (const anchor of [{}, { before: 1e9 }, { after: 0 }, { at: 1 }]) ok(200, chatWindow(chat, anchor), '/api/chats/{scope}/{id}/messages');
+		for (const anchor of [{}, { before: 1e9 }, { after: 0 }, { at: 1 }, { after_ts: 0 }, { after_ts: 4e9 }]) ok(200, chatWindow(chat, anchor), '/api/chats/{scope}/{id}/messages');
 	});
 
 	it.each(['superadmin', 'admin', 'member'] as Persona[])('the chat search, as %s', (p) => {

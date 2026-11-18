@@ -88,15 +88,19 @@ function messageRow(m) {
 // fourth video is an animation, and some album items are videos or
 // deleted.
 const STICKER_FORMATS = ['webp', 'webm', 'tgs'];
+// How each content type renders (MediaDetail.render); stickers by format.
+const RENDER = { photo: 'image', video: 'video', animation: 'animation', voice: 'audio', audio: 'audio', document: 'file' };
+const EXT_OF = { photo: 'jpg', video: 'mp4', animation: 'mp4', voice: 'ogg', audio: 'mp3', document: 'bin' };
 export function chatMedia(md, type, fetch = false, extra = {}) {
 	if (!md) return null;
 	const stored = md.stored !== false;
 	const fetchable = !stored && fetch;
 	const url = stored || fetchable ? `/files/standin-${md.fileId}` : null;
 	const format = type === 'sticker' ? STICKER_FORMATS[md.fileId % 3] : undefined;
-	const picture = type === 'photo' || format === 'webp';
+	const render = RENDER[type] ?? (format === 'tgs' ? 'lottie' : format === 'webm' ? 'animation' : 'image');
+	const picture = render === 'image';
 	return {
-		stored, fetchable, thumb: picture ? url : null, url,
+		stored, fetchable, thumb: picture ? url : null, url, render, ext: format ?? md.ext ?? EXT_OF[type],
 		w: md.w, h: md.h, duration: md.duration, name: md.name, size: md.size, emoji: md.emoji,
 		// Telegram's voice waveform is 5-bit: 0 to 31 per bar.
 		wave: md.wave?.map((x) => Math.round(x * 31)),
@@ -106,38 +110,118 @@ export function chatMedia(md, type, fetch = false, extra = {}) {
 
 const typeOf = (m) => (m.content_type === 'video' && m.media && m.media.fileId % 4 === 0 ? 'animation' : m.content_type);
 
+// An album item's own message id: in Telegram the next ids after the
+// album's first, but the sample messages leave no room there, so the
+// stand-in gives them a range of their own.
 function albumItem(a, fetch) {
 	const kind = a.fileId % 5 === 0 ? 'video' : 'photo';
-	const extra = { kind, ...(a.fileId % 7 === 0 ? { deleted_at: iso('2026-11-16 10:00:00') } : {}) };
+	const extra = { kind, message_id: 10_000_000 + a.fileId, ...(a.fileId % 7 === 0 ? { deleted_at: iso('2026-11-16 10:00:00') } : {}) };
 	return chatMedia({ ...a, w: 4, h: 3, stored: a.fileId % 6 !== 0, ...(kind === 'video' ? { duration: 12 + (a.fileId % 50) } : {}) }, kind, fetch, extra);
 }
+
+// Where a sample forward came from (ForwardOrigin): "Someone" hid its
+// sender; the bots and news feeds are channels, each a sample group, the
+// original post's id with it.
+const FORWARD_CHANNELS = ['Linux Weekly News', 'Rust Indonesia', 'Hacker News Bot'];
+function forwardFrom(f, m) {
+	if (f.from === 'Someone') return { type: 'hidden_user', name: f.from };
+	const i = FORWARD_CHANNELS.indexOf(f.from);
+	if (i < 0) return { type: 'user', name: f.from };
+	const g = groups[i];
+	return { type: 'channel', name: f.from, chat_id: g.id, message_id: 1000 + (m.message_id % 5000), date: iso(m.date) };
+}
+
+// How a service message without text says what happened.
+const SERVICE_TYPES = { 'joined the group': 'chat_join_by_link', 'left the group': 'chat_delete_member', 'pinned a message': 'pin_message', 'changed the group photo': 'chat_change_photo', 'was added by an admin': 'chat_add_members' };
 
 export function chatMessage(m, fetch = false) {
 	const s = senderOf(m);
 	const ct = typeOf(m);
+	// A channel posts as itself; some posts carry their author's name.
+	const channel = m.chat.kind !== 'user' && m.chat.type === 'channel';
+	const sender = m.is_outgoing ? null : channel ? { id: m.chat.id, name: m.chat.title, username: m.chat.username, type: 'regular', photo: null } : userSummary(s, false);
+	// Every third service message has only its type, as rows logged
+	// without the rendered text do.
+	const bare = ct === 'service' && m.message_id % 3 === 0;
+	// A few replies point at a message the archive never logged, and a
+	// few at one in another sample chat.
+	const r = m.reply_to;
+	const reply = !r ? null : m.message_id % 11 === 0
+		? { message_id: r.message_id, sender_id: 0, sender_name: '', snippet: '', resolved: false }
+		: {
+			message_id: r.message_id, sender_id: senderOf(r)?.id ?? 0, sender_name: senderOf(r)?.name ?? 'You', snippet: r.text || `[${r.content_type}]`, resolved: true,
+			...(r.deleted_at ? { deleted: true } : {}),
+			...(m.message_id % 13 === 0 && m.chat.kind !== 'user' ? { chat_id: groups.find((g) => g.id !== m.chat.id)!.id } : {}),
+		};
+	const lp = m.link_preview;
 	return {
 		id: m.id, message_id: m.message_id, date: iso(m.date), scope: m.scope,
-		sender: m.is_outgoing ? null : userSummary(s, false), content_type: ct, text: m.text || '',
-		media: chatMedia(m.media, ct, fetch, m.album ? { kind: ct } : {}), album: (m.album || []).map((a) => albumItem(a, fetch)),
-		reply_to: m.reply_to ? { message_id: m.reply_to.message_id, sender_id: senderOf(m.reply_to)?.id ?? 0, sender_name: senderOf(m.reply_to)?.name ?? 'You', snippet: m.reply_to.text || `[${m.reply_to.content_type}]` } : null,
+		sender, content_type: ct, text: bare ? '' : m.text || '',
+		media: chatMedia(m.media, ct, fetch, m.album ? { kind: ct, message_id: m.message_id } : {}), album: (m.album || []).map((a) => albumItem(a, fetch)),
+		reply_to: reply,
 		forward: m.forward?.from ?? null, edits: (m.edits || []).map((e) => ({ at: iso(e.at), text: e.text })),
 		edited_at: m.edited_at ? iso(m.edited_at) : null, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
-		link_preview: m.link_preview ? { site: m.link_preview.site, title: m.link_preview.title, desc: m.link_preview.desc } : null,
+		link_preview: lp ? {
+			site: lp.site, title: lp.title, desc: lp.desc,
+			url: lp.site === 'GitHub' ? 'https://github.com/torvalds/linux/commit/0123456789ab' : 'https://docs.kernel.org/',
+			...(lp.site === 'GitHub' ? { media: chatMedia({ fileId: 990000 + (m.message_id % 1000), w: 1200, h: 600, size: 52000 }, 'photo', fetch) } : {}),
+		} : null,
+		...(m.forward ? { forward_from: forwardFrom(m.forward, m) } : {}),
+		...(channel ? { sender_chat: groupSummary(m.chat), is_channel_post: true, ...(m.message_id % 3 === 0 && s ? { author_signature: s.name } : {}) } : {}),
+		...(bare ? { service_type: SERVICE_TYPES[m.text] ?? 'custom' } : {}),
 	};
 }
 
-// A window of a chat: the latest messages, or those around a message
-// id or the start of a day, oldest first.
-export function chatWindow(chat, anchor: { at?: number; date?: string; before?: number; after?: number }, limit = 60, fetch = false) {
+type Anchor = { at?: number; date?: string; before?: number; after?: number; after_ts?: number };
+
+// A message's position in the sample stream for an anchor, -1 if none.
+// The stand-in reads ?date= as UTC; Go reads it in the viewer's zone.
+function anchorIndex(all, a: Anchor): number {
+	if (a.at !== undefined) return all.findIndex((m) => m.message_id === a.at);
+	if (a.after_ts !== undefined) return all.findIndex((m) => Date.parse(iso(m.date)) / 1000 >= a.after_ts);
+	if (a.date) {
+		const d = a.date.replace(' ', 'T');
+		return all.findIndex((m) => iso(m.date).slice(0, d.length) >= d);
+	}
+	return -1;
+}
+
+// A window of a chat, oldest first: before or after a message id
+// (after=0: the oldest), around a message, a time or a day, else the
+// newest messages. found is the message opened at.
+function windowOf(chat, anchor: Anchor, limit: number, fetch: boolean) {
 	const all = chatStream(chat);
 	let from = Math.max(0, all.length - limit), to = all.length;
+	let found: number | null = null;
 	if (anchor.before !== undefined) { to = all.findIndex((m) => m.message_id >= anchor.before); if (to < 0) to = all.length; from = Math.max(0, to - limit); }
-	else if (anchor.after !== undefined) { from = all.findIndex((m) => m.message_id > anchor.after); if (from < 0) from = all.length; to = Math.min(all.length, from + limit); }
-	else if (anchor.at !== undefined || anchor.date) {
-		const i = anchor.at !== undefined ? all.findIndex((m) => m.message_id === anchor.at) : all.findIndex((m) => iso(m.date).slice(0, 10) >= anchor.date);
-		if (i >= 0) { from = Math.max(0, i - limit / 2); to = Math.min(all.length, from + limit); }
+	else if (anchor.after !== undefined) {
+		const i = all.findIndex((m) => m.message_id > anchor.after);
+		if (i >= 0) { from = i; to = Math.min(all.length, from + limit); found = all[i].message_id; }
+		else { from = all.length; to = all.length; }
+	} else {
+		const i = anchorIndex(all, anchor);
+		if (i >= 0) { from = Math.max(0, i - limit / 2); to = Math.min(all.length, from + limit); found = all[i].message_id; }
 	}
-	return { messages: all.slice(from, to).map((m) => chatMessage(m, fetch)), has_older: from > 0, has_newer: to < all.length };
+	return { w: { messages: all.slice(from, to).map((m) => chatMessage(m, fetch)), has_older: from > 0, has_newer: to < all.length }, found };
+}
+
+export function chatWindow(chat, anchor: Anchor, limit = 60, fetch = false) {
+	return windowOf(chat, anchor, limit, fetch).w;
+}
+
+// The chat page's first window, by the first anchor of its query that
+// parses (ChatProps): at, after_ts, date, after; past the end, the
+// newest messages.
+function chatPageWindow(chat, q: URLSearchParams, fetch: boolean) {
+	const n = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
+	const limit = Math.min(100, Math.max(1, n('limit') ?? 60));
+	const date = q.get('date') && /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?$/.test(q.get('date')!) ? q.get('date')! : undefined;
+	const anchors: Anchor[] = [{ at: n('at') }, { after_ts: n('after_ts') }, { date }, { after: n('after') }].filter((a) => Object.values(a)[0] !== undefined);
+	for (const a of anchors) {
+		const r = windowOf(chat, a, limit, fetch);
+		if (r.found !== null) return r;
+	}
+	return windowOf(chat, {}, limit, fetch);
 }
 
 export const canFetch = (persona: Persona) => !!scopeOf(persona).canFetch;
@@ -315,14 +399,13 @@ export function load(url: string, persona: Persona): Loaded {
 		const kind = m[1] === 'groups' ? 'group' : 'private';
 		const c = chatFor(kind, m[2], persona);
 		if (!c) return notFound;
-		const at = u.searchParams.get('at') ? Number(u.searchParams.get('at')) : undefined;
-		const w = chatWindow(c, { at, date: u.searchParams.get('date') || undefined }, 60, scopeOf(persona).canFetch);
+		const { w, found } = chatPageWindow(c, u.searchParams, scopeOf(persona).canFetch);
 		return {
 			route: kind === 'group' ? 'group_chat' : 'user_chat', status: 200, props: {
 				chat: kind === 'group'
 					? { kind: 'group', group: { ...groupSummary(c), members: c.members, msg_count: c.msg_count } }
 					: { kind: 'user', user: { id: c.id, name: c.name, photo: null }, count: chatStream(c).length },
-				...w, at: at ?? null,
+				...w, at: found,
 			},
 		};
 	}
