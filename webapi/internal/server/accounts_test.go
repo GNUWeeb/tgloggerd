@@ -160,11 +160,7 @@ func TestAccountsRoles(t *testing.T) {
 		account("bea", "member", map[string]any{"fed": 7, "group_ids": []int{}})); a.status != 403 {
 		t.Fatalf("admin grants another federation: %d %v", a.status, a.body)
 	}
-	if a := ann.call("POST", "/api/accounts",
-		account("bea", "member", map[string]any{"fed": 0, "group_ids": []int{-1001}})); a.status != 400 ||
-		a.body["error"] != "not_supported" {
-		t.Fatalf("admin grants a group: %d %v", a.status, a.body)
-	}
+	// The groups of grants: TestMemberGrantsAPI.
 	beaID, _ := create(t, ann, account("bea", "member", defaultGrant))
 	if a := ann.call("PATCH", fmt.Sprintf("/api/accounts/%d", beaID),
 		map[string]any{"role": "admin"}); a.status != 403 {

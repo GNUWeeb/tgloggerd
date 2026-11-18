@@ -455,3 +455,250 @@ func TestMemberForward(t *testing.T) {
 	}
 	e.want(204, "member", "DELETE", t2dBase+"/"+id, nil)
 }
+
+// The accounts API stores a member's grants and abilities
+// (PATCH /api/accounts/{id}): the groups of a grant must be its
+// federation's, an admin changes only the federations it administers,
+// and grants go when their group leaves the federation, when the
+// member leaves the federation, and when the account stops being a
+// member. Every change is audited.
+func TestMemberGrantsAPI(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t)
+	path := fmt.Sprintf("/api/accounts/%d", memberUID)
+	grant := func(fed any, groups ...int64) map[string]any {
+		if groups == nil {
+			groups = []int64{}
+		}
+		return map[string]any{"fed": fed, "group_ids": groups}
+	}
+	patch := func(role string, body map[string]any) (int, map[string]any) {
+		t.Helper()
+		st, b, _ := e.call(role, "PATCH", path, body)
+		return st, b
+	}
+	granted := func(b map[string]any) string {
+		t.Helper()
+		var out []string
+		for _, g := range b["grants"].([]any) {
+			gm := g.(map[string]any)
+			var ids []string
+			for _, p := range gm["groups"].([]any) {
+				ids = append(ids, fmt.Sprint(num(p.(map[string]any)["id"])))
+			}
+			out = append(out, fmt.Sprintf("%v:%s", gm["fed"], strings.Join(ids, ",")))
+		}
+		return strings.Join(out, " ")
+	}
+	sees := func(g int64) bool {
+		st, p := e.page("member", "/groups/"+idText(g))
+		return st == 200 && !groupHidden(st, p)
+	}
+
+	_, ap := e.page("superadmin", "/settings/accounts")
+	if ed := ap["props"].(map[string]any)["editable"].(map[string]any); ed["group_grants"] != true ||
+		ed["abilities"] != true {
+		t.Errorf("editable %v", ed)
+	}
+
+	st, b := patch("superadmin", map[string]any{"grants": []any{grant(0, kernelChat, rustChat)},
+		"abilities": []string{"forward"}})
+	if st != 200 || granted(b) != fmt.Sprintf("0:%d,%d", rustChat, kernelChat) ||
+		js(b["abilities"]) != `["forward"]` {
+		t.Fatalf("grant: %d %v", st, b)
+	}
+	if g := b["grants"].([]any)[0].(map[string]any)["groups"].([]any)[1].(map[string]any); g["title"] != "Linux Kernel Indonesia" ||
+		g["kind"] != "group" {
+		t.Errorf("pick item %v", g)
+	}
+	if !sees(kernelChat) || !sees(rustChat) || sees(gnuWeeb) {
+		t.Error("the member does not see what it was granted")
+	}
+	if st, _ := e.page("member", "/platform-fwd"); st != 200 {
+		t.Errorf("forward: %d", st)
+	}
+
+	// Refusals: a group outside the federation, a federation that does
+	// not exist, an ability members cannot have, abilities for an admin.
+	fb := e.want(201, "superadmin", "POST", "/api/federations",
+		map[string]any{"name": "Kernel", "group_ids": []int64{kernelChat}})
+	kern := uint64(fb["id"].(float64))
+	// Kernel left Default when it joined the federation: so did its grant.
+	if sees(kernelChat) || !sees(rustChat) {
+		t.Error("a group that left Default stays granted there")
+	}
+	for _, tc := range []struct {
+		name  string
+		body  map[string]any
+		code  string
+		field string
+	}{
+		{"group of another federation", map[string]any{"grants": []any{grant(0, kernelChat)}}, "bad_request", "grants"},
+		{"group not in the federation", map[string]any{"grants": []any{grant(kern, rustChat)}}, "bad_request", "grants"},
+		{"group the archive lacks", map[string]any{"grants": []any{grant(0, -1009999999999)}}, "bad_request", "grants"},
+		{"no such federation", map[string]any{"grants": []any{grant(99, rustChat)}}, "bad_federation", ""},
+		{"unknown ability", map[string]any{"abilities": []string{"join_chat"}}, "bad_request", "abilities"},
+	} {
+		if st, b := patch("superadmin", tc.body); st != 400 || b["error"] != tc.code ||
+			(tc.field != "" && b["field"] != tc.field) {
+			t.Errorf("%s: %d %v", tc.name, st, b)
+		}
+	}
+
+	// A superadmin files the member in Kernel with its group.
+	st, b = patch("superadmin", map[string]any{"grants": []any{grant(0, rustChat), grant(kern, kernelChat)}})
+	if st != 200 || granted(b) != fmt.Sprintf("0:%d %d:%d", rustChat, kern, kernelChat) {
+		t.Fatalf("two federations: %d %v", st, b)
+	}
+	if !sees(kernelChat) || !sees(rustChat) {
+		t.Error("grants in two federations")
+	}
+	// The admin of Default sends the member's whole list back with a
+	// change in Default: Kernel's grant stays as it was. Naming
+	// Kernel's groups changes nothing there; adding a federation it
+	// does not administer is 403.
+	st, b = patch("admin", map[string]any{"grants": []any{grant(0), grant(kern)}})
+	// The admin is shown no group of Kernel, which it does not
+	// administer.
+	if st != 200 || granted(b) != fmt.Sprintf("0: %d:", kern) {
+		t.Fatalf("admin's change: %d %v", st, b)
+	}
+	if sees(rustChat) || !sees(kernelChat) {
+		t.Error("after the admin's change")
+	}
+	if st, b := patch("admin", map[string]any{"grants": []any{grant(0), grant(kern), grant(99)}}); st != 403 {
+		t.Errorf("admin names a federation it does not administer: %d %v", st, b)
+	}
+	if st, b := patch("superadmin", map[string]any{"role": "admin", "abilities": []string{"forward"}}); st != 400 {
+		t.Errorf("abilities for an admin: %d %v", st, b)
+	}
+
+	// The group leaves Kernel: its grant goes.
+	e.want(200, "superadmin", "PATCH", fmt.Sprintf("/api/federations/%d", kern),
+		map[string]any{"group_ids": []int64{}})
+	_, b, _ = e.call("superadmin", "GET", path, nil)
+	if granted(b) != fmt.Sprintf("0: %d:", kern) || sees(kernelChat) {
+		t.Errorf("after the group left the federation: %v", b["grants"])
+	}
+	e.want(200, "superadmin", "PATCH", fmt.Sprintf("/api/federations/%d", kern),
+		map[string]any{"group_ids": []int64{kernelChat}})
+	_, b = patch("superadmin", map[string]any{"grants": []any{grant(0, rustChat), grant(kern, kernelChat)}})
+	// The member leaves Kernel: its grant there goes.
+	st, b = patch("superadmin", map[string]any{"grants": []any{grant(0, rustChat)}})
+	if st != 200 || granted(b) != fmt.Sprintf("0:%d", rustChat) || sees(kernelChat) {
+		t.Errorf("after leaving the federation: %d %v", st, b["grants"])
+	}
+	if n := e.appOne("SELECT COUNT(*) FROM web_member_grant_groups WHERE web_user_id = ? AND federation_id = ?",
+		memberUID, kern); n != "0" {
+		t.Errorf("%s grants left in the federation", n)
+	}
+	// A role change away from member drops grants and abilities; back
+	// as a member it is in Default with nothing granted.
+	e.want(200, "superadmin", "PATCH", path, map[string]any{"role": "admin"})
+	b = e.want(200, "superadmin", "PATCH", path, map[string]any{"role": "member"})
+	if granted(b) != "0:" || js(b["abilities"]) != "[]" {
+		t.Errorf("after admin and back: %v %v", b["grants"], b["abilities"])
+	}
+	if n := e.appOne("SELECT COUNT(*) FROM web_member_grant_groups WHERE web_user_id = ?", memberUID) +
+		e.appOne("SELECT COUNT(*) FROM web_member_abilities WHERE web_user_id = ?", memberUID); n != "00" {
+		t.Errorf("rows left after the role change: %s", n)
+	}
+	if sees(rustChat) {
+		t.Error("sees a group after the role change")
+	}
+
+	// Creating a member with groups in its grant.
+	cb := e.want(201, "admin", "POST", "/api/accounts", map[string]any{"username": "granted",
+		"name": "Granted", "role": "member", "grants": []any{grant(0, rustChat)}})
+	_, b, _ = e.call("admin", "GET", fmt.Sprintf("/api/accounts/%v", cb["id"]), nil)
+	if granted(b) != fmt.Sprintf("0:%d", rustChat) {
+		t.Errorf("created with grants: %v", b["grants"])
+	}
+
+	if !auditHas(e, []string{
+		fmt.Sprintf("grants 0: none->%d,%d", rustChat, kernelChat),
+		"abilities none->forward",
+		fmt.Sprintf("grants %d: none->%d", kern, kernelChat),
+		"abilities forward->none",
+	}) {
+		t.Errorf("audit %v", e.audits())
+	}
+}
+
+// An admin sees, in a member's row, only the granted groups it may see
+// and change: none hidden from it (by title, id or audit line) and none
+// of a federation it does not administer. Its PATCH from that row keeps
+// the grants it was not shown; a superadmin sees and changes them all.
+func TestMemberGrantsHiddenFromAdmin(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t)
+	path := fmt.Sprintf("/api/accounts/%d", memberUID)
+	grant := func(fed any, groups ...int64) map[string]any {
+		return map[string]any{"fed": fed, "group_ids": append([]int64{}, groups...)}
+	}
+	fb := e.want(201, "superadmin", "POST", "/api/federations",
+		map[string]any{"name": "CTF", "group_ids": []int64{-1001000000010}})
+	ctf := fb["id"]
+	// Rust and Assembly Lounge are hidden from the admin, which
+	// administers Default only.
+	e.want(200, "superadmin", "PATCH", "/api/accounts/3", map[string]any{"restrict": map[string]any{
+		"hide_private": false, "hide_groups": []int64{rustChat, -1001000000005}, "join_chat": false}})
+	b := e.want(200, "superadmin", "PATCH", path, map[string]any{"grants": []any{
+		grant(0, kernelChat, rustChat), grant(ctf, -1001000000010)}})
+	full := js(b)
+	for _, want := range []string{"Rust Programming", "CTF Practice", "Linux Kernel Indonesia"} {
+		if !strings.Contains(full, want) {
+			t.Errorf("superadmin's row lacks %s: %s", want, full)
+		}
+	}
+
+	rowOf := func(role string) string {
+		t.Helper()
+		st, b, _ := e.call(role, "GET", path, nil)
+		if st != 200 {
+			t.Fatalf("%s GET: %d %v", role, st, b)
+		}
+		return js(b)
+	}
+	listed := func(role string) string {
+		t.Helper()
+		_, b, _ := e.call(role, "GET", "/api/accounts", nil)
+		return js(b)
+	}
+	for what, s := range map[string]string{"row": rowOf("admin"), "list": listed("admin")} {
+		if strings.Contains(s, "Rust Programming") || strings.Contains(s, idText(rustChat)) {
+			t.Errorf("admin's %s names the hidden group: %s", what, s)
+		}
+		if strings.Contains(s, "CTF Practice") || strings.Contains(s, "-1001000000010") {
+			t.Errorf("admin's %s names another federation's group: %s", what, s)
+		}
+		if !strings.Contains(s, "Linux Kernel Indonesia") {
+			t.Errorf("admin's %s lacks its own grant: %s", what, s)
+		}
+	}
+
+	// The admin sends back what it was shown, and removes nothing it
+	// could not see; a hidden group it names anyway is refused.
+	e.want(200, "admin", "PATCH", path, map[string]any{"grants": []any{grant(0, kernelChat), grant(ctf)}})
+	if st, b, _ := e.call("admin", "PATCH", path, map[string]any{"grants": []any{grant(0)}}); st != 200 {
+		t.Fatalf("admin clears its grants: %d %v", st, b)
+	}
+	if got := e.appOne("SELECT GROUP_CONCAT(CONCAT(federation_id, ':', group_id) ORDER BY federation_id, group_id) "+
+		"FROM web_member_grant_groups WHERE web_user_id = ?", memberUID); got != fmt.Sprintf("0:%d,%v:-1001000000010", rustChat, ctf) {
+		t.Errorf("grants after the admin's changes: %s", got)
+	}
+	if st, b, _ := e.call("admin", "PATCH", path, map[string]any{"grants": []any{grant(0, -1001000000005)}}); st != 400 ||
+		b["field"] != "grants" {
+		t.Errorf("admin grants a hidden group: %d %v", st, b)
+	}
+
+	// The superadmin sees them all, and removes the hidden one.
+	if s := rowOf("superadmin"); !strings.Contains(s, "Rust Programming") || !strings.Contains(s, "CTF Practice") {
+		t.Errorf("superadmin's row %s", s)
+	}
+	e.want(200, "superadmin", "PATCH", path, map[string]any{"grants": []any{grant(0), grant(ctf, -1001000000010)}})
+	if got := e.appOne("SELECT COUNT(*) FROM web_member_grant_groups WHERE web_user_id = ? AND federation_id = 0",
+		memberUID); got != "0" {
+		t.Errorf("superadmin's removal left %s", got)
+	}
+}
