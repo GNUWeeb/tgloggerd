@@ -24,7 +24,7 @@ type Status = S['BotStatus'];
 const KIND_LABEL: Record<Kind, string> = { telegram: 'Telegram', discord: 'Discord' };
 
 // Each status as a pill, with what to do about it.
-const STATUS: Record<Status, [string, '' | 'ok' | 'danger' | 'info' | 'muted', string | null]> = {
+export const BOT_STATUS: Record<Status, [string, '' | 'ok' | 'danger' | 'info' | 'muted', string | null]> = {
 	connected: ['connected', 'ok', null],
 	connecting: ['connecting', 'info', 'Logging in; the status follows in a moment.'],
 	intent_missing: ['intent missing', 'danger', 'Turn on Message Content Intent in the Discord developer portal (Bot page), then enable the bot again.'],
@@ -155,7 +155,7 @@ function Bots({ page }: { page: PageData<BotsProps> }) {
 					<table className="a-table">
 						<thead><tr><th>Bot</th><th>Kind</th><th>Status</th>{p.show_owner && <th>Owner</th>}<th className="r">Routes</th><th>On</th><th /></tr></thead>
 						<tbody>{rows.map((b) => {
-							const [label, tone, advice] = STATUS[b.status];
+							const [label, tone, advice] = BOT_STATUS[b.status];
 							return (
 								<tr key={b.id} className={b.enabled ? '' : 'a-off'}>
 									<td><span className="a-usercell"><Avatar id={b.id} name={b.name} size={28} /><span><span className="a-uname">{b.name}</span><span className="a-handle">{b.identity ? (b.identity.username ? `@${b.identity.username}` : `id ${b.identity.user_id}`) : 'not logged in yet'}</span></span></span></td>

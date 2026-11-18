@@ -348,7 +348,7 @@ export function load(url: string, persona: Persona): Loaded {
 			return { route: 'bots', status: 200, props: { bots: botsFor(persona).map((b) => botRow(b, persona)), show_owner: s.role !== 'member' } };
 		}
 		if (path === '/platform-fwd/discord-telegram') {
-			return { route: 'fwd_discord_telegram', status: 200, props: { federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: pick(r.chat), channel_id: r.channel, channel_name: r.channel_name, bot: r.bot, types: r.types, enabled: r.enabled, sent: r.sent })) } };
+			return { route: 'fwd_discord_telegram', status: 200, props: { federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: pick(r.chat), channel_id: r.channel, channel_name: r.channel_name, discord_bot: botRefOf(r.discord_bot_id), telegram_bot: botRefOf(r.telegram_bot_id), types: r.types, enabled: r.enabled, sent: r.sent })) } };
 		}
 		return notFound;
 	}
@@ -562,14 +562,38 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 			if (body.id !== undefined && !vis(list).some((r) => r.id === body.id)) return [404, { error: 'not_found' }];
 			return [204, null];
 		}
+		// A chat as T2D names it (chat_kind) or as D2T does (a positive id
+		// is a private chat).
+		const chatOf = (id, kind) => {
+			const c = (kind ?? (id > 0 ? 'user' : 'group')) === 'user' ? chatOptions.find((x) => x.id === id && x.kind === 'user') : getGroup(id);
+			return c && (c.kind !== 'group' || s.group(c)) ? c : null;
+		};
+		// A D2T route's bots: ones the viewer may use, of the right kind.
+		const botErr = (b) => {
+			for (const [k, kind] of [['discord_bot_id', 'discord'], ['telegram_bot_id', 'telegram']] as const) {
+				if (b[k] === undefined) continue;
+				const bot = botsFor(persona).find((x) => x.id === b[k]);
+				if (!bot) return [404, { error: 'not_found', message: 'No such bot.' }];
+				if (bot.kind !== kind) return [400, { error: 'bad_request', message: `That is not a ${kind === 'discord' ? 'Discord' : 'Telegram'} bot.` }];
+			}
+			if (b.discord_channel_id !== undefined && !/^\d{15,25}$/.test(String(b.discord_channel_id))) return [400, { error: 'bad_channel', message: 'That is not a Discord channel id.' }];
+			return null;
+		};
+		const dup = (channel, chat, self?) => list.some((x) => x !== self && x.channel === channel && x.chat.id === chat.id);
 		if (!m[2] && method === 'POST') {
-			const chat = body.chat_kind === 'user' ? chatOptions.find((c) => c.id === body.chat_id && c.kind === 'user') : getGroup(body.chat_id);
-			if (!chat || (chat.kind === 'group' && !s.group(chat))) return [400, { error: 'bad_request', message: 'Choose a chat.' }];
+			const chat = chatOf(body.chat_id, m[1] === 'telegram-discord' ? body.chat_kind : undefined);
+			if (!chat) return [404, { error: 'not_found', message: 'No such chat.' }];
 			const id = Math.max(0, ...list.map((r) => r.id)) + 1;
 			const fed = body.federation_id ?? 0;
-			list.push(m[1] === 'telegram-discord'
-				? { id, owner: PERSONAS[persona], fed, chat, url: body.webhook_url || '', types: body.types, enabled: body.enabled, last: null, sent: 0 }
-				: { id, owner: PERSONAS[persona], fed, channel: body.discord_channel_id, channel_name: '#new-channel', chat, bot: '@standin_bot', types: body.types, enabled: body.enabled, sent: 0 });
+			if (m[1] === 'telegram-discord') {
+				list.push({ id, owner: PERSONAS[persona], fed, chat, url: body.webhook_url || '', types: body.types, enabled: body.enabled, last: null, sent: 0 });
+				return [201, { id }];
+			}
+			if (body.discord_bot_id === undefined || body.telegram_bot_id === undefined) return [400, { error: 'bad_request', message: 'Choose both bots.' }];
+			const e = botErr(body);
+			if (e) return e;
+			if (dup(body.discord_channel_id, chat)) return [409, { error: 'duplicate', message: 'That channel already forwards to this chat.' }];
+			list.push({ id, owner: PERSONAS[persona], fed, channel: body.discord_channel_id, channel_name: '#new-channel', chat, discord_bot_id: body.discord_bot_id, telegram_bot_id: body.telegram_bot_id, types: body.types, enabled: body.enabled, sent: 0 });
 			return [201, { id }];
 		}
 		const r = list.find((x) => String(x.id) === m[2]);
@@ -578,7 +602,25 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 			if (s.role === 'member') return [404, { error: 'not_found' }];
 			r.owner = body.owner_id; return [204, null];
 		}
-		if (method === 'PATCH') { Object.assign(r, { ...(body.types ? { types: body.types } : {}), ...(body.enabled !== undefined ? { enabled: body.enabled } : {}) }); return [204, null]; }
+		if (method === 'PATCH') {
+			// The chat (either direction), and a D2T route's channel and bots,
+			// change too, checked as on creation.
+			let chat = r.chat;
+			if (body.chat_id !== undefined) {
+				chat = chatOf(body.chat_id, m[1] === 'telegram-discord' ? body.chat_kind : undefined);
+				if (!chat) return [404, { error: 'not_found', message: 'No such chat.' }];
+			}
+			if (m[1] === 'discord-telegram') {
+				const e = botErr(body);
+				if (e) return e;
+				if (dup(body.discord_channel_id ?? r.channel, chat, r)) return [409, { error: 'duplicate', message: 'That channel already forwards to this chat.' }];
+				if (body.discord_channel_id !== undefined) r.channel = body.discord_channel_id;
+				if (body.discord_bot_id !== undefined) r.discord_bot_id = body.discord_bot_id;
+				if (body.telegram_bot_id !== undefined) r.telegram_bot_id = body.telegram_bot_id;
+			}
+			Object.assign(r, { chat, ...(body.types ? { types: body.types } : {}), ...(body.enabled !== undefined ? { enabled: body.enabled } : {}) });
+			return [204, null];
+		}
 		if (method === 'DELETE') { list.splice(list.indexOf(r), 1); return [204, null]; }
 	}
 	if (p === 'join-chat/preview' || p === 'join-chat/join') {
@@ -793,7 +835,7 @@ export function landingOf(persona: Persona): string {
 	return persona === 'public' ? '/' : settingsState(persona).prefs.landing || '/';
 }
 
-// Bots (planned with discord-bots-per-user): every account's own
+// Bots: every account's own
 // Telegram and Discord bots. Tokens stay here and are never answered.
 const BOTS = [
 	{ id: 1, kind: 'telegram', name: 'Logger relay', token: '7000000001:' + 'a'.repeat(35), owner: 1, status: 'connected', status_at: '2026-11-17 15:58:00', status_detail: null, enabled: true, user_id: '7000000001', username: 'tgd_relay_bot' },
@@ -809,6 +851,11 @@ function botsFor(persona: Persona) {
 	const s = scopeOf(persona);
 	return s.role === 'member' ? BOTS.filter((b) => b.owner === PERSONAS[persona]) : BOTS;
 }
+
+const botRefOf = (id) => {
+	const b = BOTS.find((x) => x.id === id);
+	return b ? botRef(b) : null;
+};
 
 function botRef(b) {
 	return { id: b.id, kind: b.kind, name: b.name, identity: b.user_id ? { user_id: b.user_id, username: b.username } : null, status: b.status, enabled: b.enabled };
@@ -836,5 +883,13 @@ export function botTokenShape(kind: string, token: string): boolean {
 	try { return /^\d{15,25}$/.test(Buffer.from(parts[0], 'base64url').toString('utf8')); } catch { return false; }
 }
 
-// The sample Discord to Telegram routes use the superadmin's two bots.
-for (const r of d2t) { r.discord_bot_id ??= 2; r.telegram_bot_id ??= 1; }
+// The sample Discord to Telegram routes: the first reads with a bot
+// whose intent is missing and sends with the relay; the second was made
+// before Discord bots were stored (no Discord bot yet) and sends with a
+// disabled bot.
+const D2T_BOTS = [[3, 1], [null, 4]];
+d2t.forEach((r, i) => {
+	const [d, t] = D2T_BOTS[i] ?? [2, 1];
+	r.discord_bot_id = d; r.telegram_bot_id = t;
+	delete r.bot;
+});

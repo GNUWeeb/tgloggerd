@@ -6,7 +6,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, json, renderPage, setup } from '../test/page.tsx';
 import type { AccountsProps } from './accounts.tsx';
 import type { FederationsProps } from './federations.tsx';
-import type { T2DProps } from './forwarding.tsx';
+import type { D2TProps, T2DProps } from './forwarding.tsx';
 import type { McpGroupsProps } from './mcp.tsx';
 import type { PickItem } from '../types.ts';
 
@@ -312,6 +312,112 @@ describe('forwarding', () => {
 		fireEvent.click(del);
 		await waitFor(() => expect(callsTo(calls, 'DELETE', `/api/forwarding/telegram-discord/${r.id}`)).toHaveLength(1));
 		expect(ask).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe('Discord to Telegram', () => {
+	const ref = (id: number, kind: 'discord' | 'telegram', name: string, enabled = true) => ({ id, kind, name, identity: null, status: enabled ? 'connected' as const : 'disabled' as const, enabled });
+	const BOTS = [ref(2, 'discord', 'Discord reader'), ref(1, 'telegram', 'Logger relay'), ref(4, 'telegram', 'Research bot', false)];
+	const bots = { 'GET /api/bots': (c: { query: URLSearchParams }) => ({ bots: BOTS.filter((b) => b.kind === c.query.get('kind')) }) };
+
+	it('adds a route read by a Discord bot and sent by a Telegram bot, into a private chat too', async () => {
+		const calls = fakeApi('superadmin', {
+			...bots,
+			'GET /api/chats/search': () => ({ items: [pick(4242, 'Dewi Kusuma', 'user')], next_cursor: null }),
+			'POST /api/forwarding/discord-telegram': () => json(201, { id: 9 }),
+		});
+		renderPage('/platform-fwd/discord-telegram');
+		fireEvent.click(screen.getByRole('button', { name: /Add route/ }));
+		const save = within(dialog()).getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+		fill(dialog(), 'input[inputmode=numeric]', '1093447120571433021');
+		const discord = await within(dialog()).findByRole('combobox', { name: 'Discord bot' });
+		fireEvent.change(discord, { target: { value: '2' } });
+		fireEvent.click(dialog().querySelector('.a-picker-btn')!);
+		fireEvent.click(await within(await popup()).findByRole('button', { name: /Dewi Kusuma/ }));
+		expect(save.disabled).toBe(true); // until the Telegram bot is chosen
+		const telegram = within(dialog()).getByRole('combobox', { name: 'Telegram bot' });
+		expect([...(telegram as HTMLSelectElement).options].map((o) => o.textContent)).toEqual(['Choose a bot...', 'Logger relay - connected', 'Research bot - disabled']);
+		fireEvent.change(telegram, { target: { value: '1' } });
+		fireEvent.click(save);
+		await waitFor(() => expect(callsTo(calls, 'POST', '/api/forwarding/discord-telegram')).toHaveLength(1));
+		const body = callsTo(calls, 'POST', '/api/forwarding/discord-telegram')[0]!.body as Record<string, unknown>;
+		expect(body).toMatchObject({ discord_channel_id: '1093447120571433021', chat_id: 4242, discord_bot_id: 2, telegram_bot_id: 1, enabled: true });
+		expect(body).not.toHaveProperty('bot_token');
+		expect(callsTo(calls, 'GET', '/api/bots').map((c) => c.query.get('kind')).sort()).toEqual(['discord', 'telegram']);
+		// Groups, channels and users alike: no kind restriction.
+		expect(callsTo(calls, 'GET', '/api/chats/search')[0]!.query.get('kind')).toBeNull();
+	});
+
+	it('shows each route\'s bots with their state, and why a route forwards nothing', () => {
+		const rs = fixture<D2TProps>('/platform-fwd/discord-telegram').props.routes;
+		renderPage('/platform-fwd/discord-telegram');
+		const rows = screen.getAllByRole('button', { name: 'Edit' }).map((b) => b.closest('tr')!);
+		const unread = rs.findIndex((r) => !r.discord_bot);
+		expect(within(rows[unread]!).getByText('no Discord bot')).toBeTruthy();
+		expect(within(rows[unread]!).getByText('bot disabled')).toBeTruthy();
+		expect(within(rows[unread]!).getByText('Stopped: no Discord bot')).toBeTruthy();
+		const read = rs.findIndex((r) => r.discord_bot);
+		expect(within(rows[read]!).getByText(rs[read]!.discord_bot!.name)).toBeTruthy();
+		expect(within(rows[read]!).getByText('intent missing')).toBeTruthy();
+		expect(within(rows[read]!).getByText('On')).toBeTruthy();
+	});
+
+	it('picks a Discord bot for a route that has none', async () => {
+		const rs = fixture<D2TProps>('/platform-fwd/discord-telegram').props.routes;
+		const r = rs.find((x) => !x.discord_bot)!;
+		const calls = fakeApi('superadmin', { ...bots, 'PATCH /api/forwarding/discord-telegram/:id': () => undefined });
+		renderPage('/platform-fwd/discord-telegram');
+		fireEvent.click(screen.getByRole('button', { name: /no Discord bot/ }));
+		const save = within(dialog()).getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+		expect(save.disabled).toBe(true);
+		fireEvent.change(await within(dialog()).findByRole('combobox', { name: 'Discord bot' }), { target: { value: '2' } });
+		fireEvent.click(save);
+		await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/forwarding/discord-telegram/${r.id}`)).toHaveLength(1));
+		expect(callsTo(calls, 'PATCH', `/api/forwarding/discord-telegram/${r.id}`)[0]!.body).toEqual({ types: r.types, enabled: r.enabled, discord_bot_id: 2 });
+	});
+
+	it('edits a route\'s channel and bots, sending only what changed', async () => {
+		const r = fixture<D2TProps>('/platform-fwd/discord-telegram').props.routes.find((x) => x.discord_bot)!;
+		const calls = fakeApi('superadmin', { ...bots, 'PATCH /api/forwarding/discord-telegram/:id': () => undefined });
+		renderPage('/platform-fwd/discord-telegram');
+		const row = screen.getByText(r.channel_name).closest('tr')!;
+		fireEvent.click(within(row).getByRole('button', { name: 'Edit' }));
+		fill(dialog(), 'input[inputmode=numeric]', '1111111111111111111');
+		fireEvent.change(await within(dialog()).findByRole('combobox', { name: 'Telegram bot' }), { target: { value: '4' } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/forwarding/discord-telegram/${r.id}`)).toHaveLength(1));
+		expect(callsTo(calls, 'PATCH', `/api/forwarding/discord-telegram/${r.id}`)[0]!.body).toEqual({ types: r.types, enabled: r.enabled, discord_channel_id: '1111111111111111111', telegram_bot_id: 4 });
+	});
+
+	it('points to the Bots page when there is no bot of a kind yet', async () => {
+		fakeApi('superadmin', { 'GET /api/bots': () => ({ bots: [] }) });
+		renderPage('/platform-fwd/discord-telegram');
+		fireEvent.click(screen.getByRole('button', { name: /Add route/ }));
+		const links = await within(dialog()).findAllByRole('link', { name: 'Add one on the Bots page' });
+		expect(links).toHaveLength(2);
+		expect(links[0]!.getAttribute('href')).toBe('/platform-fwd/bots');
+	});
+});
+
+describe('Telegram to Discord edits', () => {
+	it('moves a webhook to another chat, sending the chat only when it changed', async () => {
+		const r = fixture<T2DProps>('/platform-fwd/telegram-discord').props.routes[0]!;
+		const calls = fakeApi('superadmin', {
+			'GET /api/chats/search': () => ({ items: [pick(4242, 'Dewi Kusuma', 'user')], next_cursor: null }),
+			'PATCH /api/forwarding/telegram-discord/:id': () => undefined,
+		});
+		renderPage('/platform-fwd/telegram-discord');
+		const edit = () => fireEvent.click(within(screen.getAllByRole('button', { name: 'Edit' })[0]!.closest('tr')!).getByRole('button', { name: 'Edit' }));
+		edit();
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/forwarding/telegram-discord/${r.id}`)).toHaveLength(1));
+		expect(callsTo(calls, 'PATCH', `/api/forwarding/telegram-discord/${r.id}`)[0]!.body).not.toHaveProperty('chat_id');
+		edit();
+		fireEvent.click(dialog().querySelector('.a-picker-btn')!);
+		fireEvent.click(await within(await popup()).findByRole('button', { name: /Dewi Kusuma/ }));
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/forwarding/telegram-discord/${r.id}`)).toHaveLength(2));
+		expect(callsTo(calls, 'PATCH', `/api/forwarding/telegram-discord/${r.id}`)[1]!.body).toMatchObject({ chat_id: 4242, chat_kind: 'user' });
 	});
 });
 
