@@ -37,8 +37,9 @@ const (
 
 // mappingVersion is the index layout's version, in the mapping's
 // _meta. An index made with another one is not used: delete it (and its
-// -state index) and the indexer rebuilds it.
-const mappingVersion = 1
+// -state index) and the indexer rebuilds it (webapi/README, "Search
+// engine"). Version 2 splits words at punctuation (indexSettings).
+const mappingVersion = 2
 
 // maxResultWindow lets a search page as deep as the MySQL search may
 // (logdb.MaxOffset plus a page).
@@ -91,8 +92,21 @@ func parseDocID(id string) (scope string, rowID int64, ok bool) {
 
 // indexSettings is the messages index's settings and mapping. Text is
 // split on Unicode word boundaries, lowercased and folded to ASCII, so
-// "Kernel", "kernel" and an accented "kernel" match; nothing language-specific, as
-// the archive mixes languages.
+// "Kernel", "kernel" and an accented "kernel" match; nothing
+// language-specific, as the archive mixes languages.
+//
+// Unicode word boundaries keep "git.kernel.org" or "a_b" one word,
+// where MySQL's full-text parser splits at every character that is no
+// letter or digit, so "kernel" found far fewer rows than on MySQL. The
+// words are therefore also split at such characters when indexed
+// (word_delimiter_graph), keeping the whole word beside its parts:
+// "git.kernel.org" is indexed as itself and as git, kernel and org at
+// the positions they take, so "kernel" finds it, and so does
+// "kernel.org", which a search splits the same way (the whole word or
+// its parts next to each other). Case changes, digits and a trailing
+// 's are not split at: MySQL does not either. The index-time graph is
+// flattened, as an index cannot store one; a search keeps its graph,
+// so a phrase of a split word stays exact.
 func indexSettings() map[string]any {
 	return map[string]any{
 		"settings": map[string]any{
@@ -100,11 +114,26 @@ func indexSettings() map[string]any {
 			"number_of_replicas": 0,
 			"max_result_window":  maxResultWindow,
 			"analysis": map[string]any{
+				"filter": map[string]any{
+					"word_parts": map[string]any{
+						"type":                    "word_delimiter_graph",
+						"preserve_original":       true,
+						"split_on_case_change":    false,
+						"split_on_numerics":       false,
+						"stem_english_possessive": false,
+					},
+				},
 				"analyzer": map[string]any{
 					"message_text": map[string]any{
 						"type":      "custom",
 						"tokenizer": "standard",
-						"filter":    []string{"lowercase", "asciifolding"},
+						"filter": []string{"word_parts", "flatten_graph", "lowercase",
+							"asciifolding"},
+					},
+					"message_search": map[string]any{
+						"type":      "custom",
+						"tokenizer": "standard",
+						"filter":    []string{"word_parts", "lowercase", "asciifolding"},
 					},
 				},
 			},
@@ -123,7 +152,8 @@ func indexSettings() map[string]any {
 				"deleted":      map[string]any{"type": "boolean"},
 				"content_type": map[string]any{"type": "keyword"},
 				"outgoing":     map[string]any{"type": "boolean"},
-				"text":         map[string]any{"type": "text", "analyzer": "message_text"},
+				"text": map[string]any{"type": "text", "analyzer": "message_text",
+					"search_analyzer": "message_search"},
 			},
 		},
 	}

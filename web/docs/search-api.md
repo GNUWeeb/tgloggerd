@@ -41,8 +41,13 @@ webapi/openapi.yaml. Where the two differ:
 - Errors are the Go API's `{"error": <code>, "message": <sentence>}`:
   `bad_search` with this page's messages for a refused search,
   `search_timeout` for one that ran out of time (both 400), and
-  `not_found` (404) for an unknown or hidden entity. A database error
-  that is not a timeout is a 500, not the timeout message.
+  `not_found` (404) for an unknown or hidden entity. A `matches` value
+  MySQL's boolean mode cannot parse (a lone `+`, `-` or `~`, an
+  unbalanced parenthesis, a stray `@`) is a refused search too:
+  `bad_search` with "invalid full-text search: " and MySQL's message,
+  and on a list page the whole list with that error in its state. Any
+  other database error that is not a timeout is a 500, not the timeout
+  message.
 - Everything is read through the request scope (docs/design/
   web-accounts.md section 9). `private_messages` does not exist (404)
   for a viewer who may not see private chats. The rows of the others
@@ -339,11 +344,16 @@ of MySQL's boolean mode, so it means the same on both backends, plus
 | `word*` | a word starting so (prefix) |
 | `"a phrase"` | the words in order, next to each other |
 | `"a b" @3` | the words within 3 positions (proximity; MySQL's syntax too) |
-| `word~`, `word~1`, `word~2` | the word or one within a few edits (fuzzy; engine only) |
+| `word~`, `word~1`, `word~2` | the word or one within a few edits (fuzzy; engine only: MySQL, also without an engine, searches the plain word) |
 
 Words are split on Unicode word boundaries, lowercased and folded to
-ASCII (an accented letter matches the plain one). MySQL's `~ < >` before a word and
-parentheses are read as spaces; a value with nothing to look for
+ASCII (an accented letter matches the plain one). A word joined by
+punctuation is also split at it, as MySQL splits it, and kept whole:
+`kernel` finds `git.kernel.org`, `linux-kernel` and `/usr/src/kernel`,
+and `kernel.org` finds `kernel.org` and `git.kernel.org` (its parts
+next to each other), where MySQL, reading it as `kernel org`, also
+finds rows with either word anywhere. MySQL's `~ < >` before a word
+and parentheses are read as spaces; a value with nothing to look for
 matches nothing.
 
 ### Parameters

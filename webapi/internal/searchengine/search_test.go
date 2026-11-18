@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,10 +46,16 @@ type searchEnv struct {
 	eng *Engine
 }
 
-// newSearchEnv indexes the fixtures and returns an engine on them.
-func newSearchEnv(t *testing.T) *searchEnv {
+// newSearchEnv indexes the fixtures, and the statements of more, and
+// returns an engine on them.
+func newSearchEnv(t *testing.T, more ...string) *searchEnv {
 	t.Helper()
 	db := testdb.New(t, testdb.Logger, "sample", "search_engine")
+	for _, q := range more {
+		if _, err := db.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
 	x := testIndex(t)
 	ix := NewIndexer(db.DB, x, nil, IndexerOptions{Log: quiet, Pause: time.Millisecond})
 	ctx := context.Background()
@@ -169,6 +176,77 @@ func TestEngineSyntax(t *testing.T) {
 		t.Errorf("by date, second page: %v of %d at %d", ids, r.Total, r.Offset)
 	}
 	wantEngine(t, "by date", r)
+}
+
+// Words joined by punctuation are found by their parts, as MySQL finds
+// them, and as a whole.
+func TestEngineWordParts(t *testing.T) {
+	t.Parallel()
+	e := newSearchEnv(t, `INSERT INTO telegram_group_messages (id, chat_id, message_id,
+		sender_user_id, date, content_type, text) VALUES
+		(400, -1001000000003, 480001 << 20, 9299000004, 1794931200 - 400, 'text',
+		 'patches at git.kernel.org for the linux-kernel tree in /usr/src/kernel'),
+		(401, -1001000000003, 480002 << 20, 9299000004, 1794931200 - 399, 'text',
+		 'see Kernel.Org'),
+		(402, -1001000000003, 480003 << 20, 9299000004, 1794931200 - 398, 'text',
+		 'pushed to git.kernel.org/pub'),
+		(403, -1001000000003, 480004 << 20, 9299000004, 1794931200 - 397, 'text',
+		 'built from /usr/src/kernel'),
+		(404, -1001000000003, 480005 << 20, 9299000004, 1794931200 - 396, 'text',
+		 'the org has no kernel')`)
+	gm := logdb.GroupMessages
+	inChat := func(v string) string {
+		return fmt.Sprintf(`[{"c":"text","o":"matches","v":%q,"n":"AND"},`+
+			`{"c":"chat_id","o":"=","v":"-1001000000003"}]`, v)
+	}
+	for _, c := range []struct {
+		raw  string
+		want []int64
+	}{
+		{inChat("kernel"), []int64{400, 401, 402, 403, 404}},
+		{inChat("kernel.org"), []int64{400, 401, 402}},
+		{inChat("git.kernel.org"), []int64{400, 402}},
+		{inChat(`"linux kernel"`), []int64{400}},
+		{inChat(`"org kernel"`), nil},
+		{inChat(`"linux-kernel tree"`), []int64{400}},
+		{inChat(`"git kernel" @2`), []int64{400, 402}},
+		{inChat("kern*"), []int64{400, 401, 402, 403, 404}},
+		{inChat("+kernal~ +pub"), []int64{402}},
+		{inChat("src"), []int64{400, 403}},
+	} {
+		res := e.search(t, superadmin, gm, c.raw, logdb.TextOptions{})
+		wantEngine(t, c.raw, res)
+		wantRows(t, c.raw, res, c.want...)
+	}
+
+	// The engine counts what MySQL counts, in the chat and in the
+	// whole table.
+	for _, raw := range []string{inChat("kernel"), inChat(`"linux kernel"`), inChat("src"),
+		inChat("kern*"), matches("kernel"), matches("org"), matches("+kernel +panic")} {
+		mysqlOnly, err := logdb.Search(context.Background(), e.db.DB, superadmin, gm,
+			logdb.SearchRequest{Conds: conds(t, raw), Limit: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := e.search(t, superadmin, gm, raw, logdb.TextOptions{})
+		wantEngine(t, raw, res)
+		if res.Total != mysqlOnly.Total || !slices.Equal(sorted(rowIDs(res)), sorted(rowIDs(mysqlOnly))) {
+			t.Errorf("%s: the engine found %v, MySQL %v", raw, sorted(rowIDs(res)),
+				sorted(rowIDs(mysqlOnly)))
+		}
+	}
+
+	// The highlight marks the part that matched, or the whole word.
+	for _, c := range []struct{ q, want string }{
+		{"kernel", "git.<mark>kernel</mark>.org"},
+		{"pub", "git.kernel.org&#x2F;<mark>pub</mark>"},
+		{"kernel.org", "see <mark>Kernel.Org</mark>"},
+	} {
+		res := e.search(t, superadmin, gm, inChat(c.q), logdb.TextOptions{Highlight: true})
+		if !strings.Contains(fmt.Sprint(res.Highlights), c.want) {
+			t.Errorf("%s: highlights %q, want %q", c.q, res.Highlights, c.want)
+		}
+	}
 }
 
 // The scope is in the engine's query: a restricted admin and a member
@@ -423,5 +501,115 @@ func TestParseText(t *testing.T) {
 		if s := strings.Join(got, " "); s != c.want {
 			t.Errorf("parseText(%q) = %s, want %s", c.in, s, c.want)
 		}
+	}
+}
+
+// coldEngine is a proxy to the engine that holds its first n searches
+// for delay each, as a cold engine is slow to answer them.
+func coldEngine(t *testing.T, target string, n int, delay time.Duration) string {
+	t.Helper()
+	u, err := url.Parse(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := httputil.NewSingleHostReverseProxy(u)
+	var (
+		mu   sync.Mutex
+		seen int
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/_search") {
+			mu.Lock()
+			seen++
+			cold := seen <= n
+			mu.Unlock()
+			if cold {
+				select {
+				case <-time.After(delay):
+				case <-r.Context().Done():
+					return
+				}
+			}
+		}
+		p.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// A cold engine is warmed up before searches use it: without the
+// warm-up its first search times out and the backoff keeps the next
+// ones on MySQL; with it, MySQL answers at once while it runs, and the
+// engine answers after.
+func TestEngineWarmUp(t *testing.T) {
+	t.Parallel()
+	e := newSearchEnv(t)
+	gm := logdb.GroupMessages
+	engineOn := func(base string) *Engine {
+		c, err := NewClient(base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		x, err := c.Index(e.x.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return NewEngine(x, EngineOptions{Log: quiet, Timeout: 300 * time.Millisecond,
+			Backoff: time.Minute, WarmTimeout: 10 * time.Second})
+	}
+	backend := func() (string, time.Duration) {
+		t.Helper()
+		start := time.Now()
+		res := e.search(t, superadmin, gm, matches("kernel"), logdb.TextOptions{Highlight: true})
+		if res.Backend == nil {
+			t.Fatal("no backend")
+		}
+		return res.Backend.Used + "/" + res.Backend.Fallback, time.Since(start)
+	}
+	searchWith := func(eng *Engine) (string, time.Duration) {
+		old := e.eng
+		e.eng = eng
+		defer func() { e.eng = old }()
+		return backend()
+	}
+	const cold = 2
+
+	// Without the warm-up: the first search runs into the timeout,
+	// and the backoff keeps the next one on MySQL.
+	plain := engineOn(coldEngine(t, e.x.c.URL(), cold, time.Second))
+	if b, _ := searchWith(plain); b != "mysql/"+logdb.FallbackTimeout {
+		t.Errorf("cold, first search: %s", b)
+	}
+	if b, _ := searchWith(plain); b != "mysql/"+logdb.FallbackUnavailable {
+		t.Errorf("cold, second search: %s", b)
+	}
+
+	// With it: MySQL answers at once while it runs, and the engine
+	// once it is done.
+	warmed := engineOn(coldEngine(t, e.x.c.URL(), cold, time.Second))
+	done := warmed.StartWarmUp(context.Background())
+	if b, d := searchWith(warmed); b != "mysql/"+logdb.FallbackUnavailable || d > 500*time.Millisecond {
+		t.Errorf("warming up: %s after %v", b, d)
+	}
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the warm-up did not end")
+	}
+	for i := range 3 {
+		if b, _ := searchWith(warmed); b != "engine/" {
+			t.Errorf("warmed up, search %d: %s", i, b)
+		}
+	}
+
+	// A warm-up that fails ends, and the engine is handled as before.
+	down := engineOn("http://127.0.0.1:1")
+	select {
+	case <-down.StartWarmUp(context.Background()):
+	case <-time.After(30 * time.Second):
+		t.Fatal("the failed warm-up did not end")
+	}
+	if b, _ := searchWith(down); b != "mysql/"+logdb.FallbackUnavailable {
+		t.Errorf("engine down: %s", b)
 	}
 }

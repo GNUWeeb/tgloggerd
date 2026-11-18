@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/scope"
 )
 
 // Engine answers searches from the index (logdb.Engine). It never
@@ -28,6 +29,7 @@ type Engine struct {
 	state     State
 	stateAt   time.Time // when state was read
 	downUntil time.Time
+	warming   bool // StartWarmUp's queries are running
 }
 
 // EngineOptions are the engine's limits; zero fields take defaults.
@@ -41,7 +43,10 @@ type EngineOptions struct {
 	// Backoff is how long the engine is skipped after a failure
 	// (default 30 seconds).
 	Backoff time.Duration
-	Log     *slog.Logger
+	// WarmTimeout bounds one query of the warm-up (StartWarmUp;
+	// default 30 seconds).
+	WarmTimeout time.Duration
+	Log         *slog.Logger
 }
 
 // stateTTL is how long the indexer's state is trusted before it is
@@ -58,6 +63,9 @@ func NewEngine(x *Index, o EngineOptions) *Engine {
 	}
 	if o.Backoff <= 0 {
 		o.Backoff = 30 * time.Second
+	}
+	if o.WarmTimeout <= 0 {
+		o.WarmTimeout = 30 * time.Second
 	}
 	if o.Log == nil {
 		o.Log = slog.Default()
@@ -90,7 +98,7 @@ func (e *Engine) Ready(ctx context.Context, entity string) (bool, string) {
 	}
 	e.mu.Lock()
 	now := time.Now()
-	if now.Before(e.downUntil) {
+	if e.warming || now.Before(e.downUntil) {
 		e.mu.Unlock()
 		return false, logdb.FallbackUnavailable
 	}
@@ -180,4 +188,84 @@ func (e *Engine) Query(ctx context.Context, q logdb.EngineQuery) (*logdb.EngineR
 		}
 	}
 	return r, nil
+}
+
+// StartWarmUp warms the engine up in the background and returns a
+// channel closed when it is done; until then searches go to MySQL
+// ("unavailable") without waiting on the engine.
+//
+// The first queries an engine answers after the service starts are
+// much slower than the same queries later (connections, the index's
+// files read into memory, the engine's own caches): they ran past
+// Timeout, fell back to MySQL, and the failure's backoff then kept
+// every search on MySQL for its whole length. The warm-up sends a few
+// searches of the shapes the pages send, each allowed WarmTimeout, so
+// the first search of a viewer meets a warm engine; MySQL answers
+// meanwhile, as it would during the backoff. A warm-up that fails
+// leaves the engine to the usual failure handling.
+func (e *Engine) StartWarmUp(ctx context.Context) <-chan struct{} {
+	e.mu.Lock()
+	e.warming = true
+	e.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		start := time.Now()
+		err := e.warmUp(ctx)
+		e.mu.Lock()
+		e.warming = false
+		e.mu.Unlock()
+		if err != nil {
+			e.o.Log.Warn("search engine: warm-up failed", "err", err, "took", time.Since(start))
+			return
+		}
+		e.o.Log.Info("search engine: warmed up", "took", time.Since(start))
+	}()
+	return done
+}
+
+// warmQueries are the warm-up's searches: relevance and date order,
+// a fuzzy word, highlights and facets, for both entities, as a viewer
+// who sees everything.
+func warmQueries() []logdb.EngineQuery {
+	all := scope.For(scope.Viewer{Role: scope.Superadmin})
+	var out []logdb.EngineQuery
+	for _, ent := range []string{logdb.GroupMessages.Name, logdb.PrivateMessages.Name} {
+		out = append(out,
+			logdb.EngineQuery{Entity: ent, Scope: all, Match: []string{"the"}, Size: 50,
+				Highlight: true, Facets: true},
+			logdb.EngineQuery{Entity: ent, Scope: all, Match: []string{"message~"},
+				Sort: "date", Desc: true, Size: 50, Highlight: true})
+	}
+	return out
+}
+
+func (e *Engine) warmUp(ctx context.Context) error {
+	cctx, cancel := context.WithTimeout(ctx, e.o.WarmTimeout)
+	s, err := e.x.LoadState(cctx)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("reading the index state: %w", err)
+	}
+	e.mu.Lock()
+	e.state, e.stateAt = s, time.Now()
+	e.mu.Unlock()
+	if s == (State{}) {
+		// Nothing indexed yet: searches go to MySQL as behind, and the
+		// index may not even exist.
+		return nil
+	}
+	for _, q := range warmQueries() {
+		body, err := searchBody(q)
+		if err != nil {
+			return err
+		}
+		cctx, cancel := context.WithTimeout(ctx, e.o.WarmTimeout)
+		err = e.x.c.do(cctx, http.MethodPost, "/"+seg(e.x.name)+"/_search", body, nil)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("search: %w", err)
+		}
+	}
+	return nil
 }

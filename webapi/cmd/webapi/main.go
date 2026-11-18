@@ -284,6 +284,9 @@ func startSearchEngine(ctx context.Context, log *slog.Logger, cfg *config.Config
 		MaxLag:  se.MaxLag,
 		Log:     log.With("component", "search-engine"),
 	})
+	// A cold engine answers its first searches slowly: warm it up
+	// before the searches use it.
+	engine.StartWarmUp(ctx)
 	if !se.Indexer {
 		log.Info("search engine: another instance indexes (WEBAPI_SEARCH_ENGINE_INDEXER=0)",
 			"url", c.URL(), "index", x.Name())

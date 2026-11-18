@@ -664,6 +664,21 @@ idempotent:
     DELETE http://opensearch:9200/<name>,<name>-state from a container
     on tgnet) and the service backfills it again.
 
+The index's layout has a version (mappingVersion in
+internal/searchengine/index.go, kept in the mapping's _meta), and the
+index is rebuilt rather than migrated. The indexer refuses an index of
+another version: it logs why and tries again every minute, so the old
+index soon falls behind and searches go to MySQL ("behind"). After an
+upgrade that changes the version (version 2 splits words at
+punctuation, so "kernel" finds "git.kernel.org"), delete the index and
+its -state index from a container on tgnet:
+
+    curl -X DELETE 'http://opensearch:9200/<name>,<name>-state'
+
+The indexer then creates the new index on its next try and backfills
+it from the beginning; searches go to MySQL ("behind") until the
+backfill has finished.
+
 Only one instance indexes an index; set WEBAPI_SEARCH_ENGINE_INDEXER=0
 on any other. Renames of users and groups need nothing: a document
 holds ids, never names.
@@ -695,6 +710,14 @@ the same way.
     unfinished, or not known in step for WEBAPI_SEARCH_ENGINE_MAX_LAG)
     leaves the search to MySQL, and the answer's backend says so.
     After a failure the engine is skipped for 30 seconds.
+  - Warm-up: an engine's first searches after the service starts are
+    much slower than later ones, slow enough to fail and start that
+    backoff. So the service first sends the engine a few searches of
+    the pages' shapes in the background, each allowed 30 seconds
+    (searchengine.Engine.StartWarmUp), and searches go to MySQL
+    ("unavailable") until they are done, usually within seconds; a
+    warm-up that fails is logged, and the usual failure handling
+    applies.
 
 # The request scope
 
