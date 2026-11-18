@@ -322,7 +322,8 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const title = group ? group.title : p.chat.kind === 'user' ? p.chat.user.name : '';
 	const photo = group ? group.photo : p.chat.kind === 'user' ? p.chat.user.photo : null;
 	const back = isGroup ? `/groups/${chatId}` : `/users/${chatId}`;
-	const info = publicView ? null : back;
+	// Signed out, only an exposed group is shown: its public page.
+	const info = publicView ? (isGroup ? back : null) : back;
 	const sub = p.chat.kind === 'group'
 		? `${TYPE_LABEL[p.chat.group.type]}${p.chat.group.members ? ` . ${fmt(p.chat.group.members)} members seen` : ''} . ${fmt(group?.msg_count ?? p.chat.group.msg_count)} messages`
 		: `private chat with the logging account . ${fmt(p.chat.count)} messages`;

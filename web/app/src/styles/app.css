@@ -711,3 +711,8 @@
 .app .a-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .app .a-table td.a-botstatus { max-width: 340px; min-width: 240px; white-space: normal; }
 .app .a-table td.a-rowactions { white-space: nowrap; }
+
+/* An exposed group's public page, signed out: the content column alone. */
+.app.c-publicpage .a-publicmain { max-width: 960px; width: 100%; margin: 0 auto; }
+.app .a-publicgroup { display: flex; flex-direction: column; gap: 16px; }
+.app .a-publicgroup .a-stats { margin: 0; }

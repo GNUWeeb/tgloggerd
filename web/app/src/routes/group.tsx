@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { MessageCircle, Type, AtSign, Quote, Image, ShieldCheck, Hash, CalendarDays, Users as UsersIcon, Globe, Crown, EyeOff, Gem, Pin, PinOff } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
+import { PublicFrame } from '../ui/PublicFrame.tsx';
 import { Link, useNav } from '../nav.tsx';
 import { ApiError, api, ok } from '../api/client.ts';
 import { PhotoCarousel } from '../ui/PhotoCarousel.tsx';
@@ -16,6 +17,12 @@ import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
 export type GroupProps = S['GroupProps'];
+// An exposed group to a viewer whose scope does not see it (signed out,
+// a member it is not granted to, an admin it is hidden from): the group
+// alone, without admins, history, posters, activity or files.
+export type GroupPublicProps = S['GroupPublicProps'];
+export type GroupPageProps = GroupProps | GroupPublicProps;
+const isPublic = (p: GroupPageProps): p is GroupPublicProps => 'public' in p && p.public === true;
 
 const KIND = {
 	title: [Type, 'Title changed'], description: [Quote, 'Description changed'], username: [AtSign, 'Username'],
@@ -100,6 +107,46 @@ function Admins({ admins, v }: { admins: GroupAdmin[]; v: PageData['viewer'] }) 
 			))}</ul>
 		</div>
 	);
+}
+
+// The public page of an exposed group: what it is, what it is about,
+// and its chat. Signed out it has the public frame; to a signed-in
+// viewer without the group, the usual shell.
+function PublicGroup({ page }: { page: PageData<GroupPublicProps> }) {
+	const g = page.props.group;
+	const v = page.viewer;
+	const body = (
+		<div className="a-publicgroup">
+			<div className="a-profilehead">
+				<Avatar id={g.id} name={g.title} photo={g.photo} size={64} square />
+				<div className="a-ph-main">
+					<h1>{g.title}</h1>
+					<div className="a-ph-meta">
+						{g.usernames.length ? g.usernames.map((n) => <UsernamePill key={n.username} n={n} />) : g.username && <span>@{g.username}</span>}
+						<Pill tone={g.type === 'channel' ? 'info' : ''}>{TYPE_LABEL[g.type]}</Pill>
+						<Pill tone="ok"><Globe size={11} />public</Pill>
+					</div>
+				</div>
+				<div className="a-head-actions"><Btn primary to={`/groups/${g.id}/chat`} icon={MessageCircle}>Open chat</Btn></div>
+			</div>
+			<div className="a-stats">
+				<Stat label="Messages" value={fmt(g.msg_count)} />
+				<Stat label="Members seen" value={fmt(g.members)} />
+				<Stat label="First seen" value={ago(g.created_at, v)} sub={dateTime(g.created_at, v)} />
+			</div>
+			<Card title="About">
+				{g.description ? <p className="a-multiline">{g.description}</p> : <p className="a-muted">No description.</p>}
+			</Card>
+			<p className="a-muted sm"><Globe size={13} /> This group's chat is public: anyone can read its archive here, without signing in.</p>
+		</div>
+	);
+	if (!v.signed_in) return <PublicFrame viewer={v} url={page.url}><main className="a-content a-publicmain">{body}</main></PublicFrame>;
+	return <Shell crumbs={[['Groups', '/groups'], [g.title, null]]}>{body}</Shell>;
+}
+
+function GroupPage({ page }: { page: PageData<GroupPageProps> }) {
+	const p = page.props;
+	return isPublic(p) ? <PublicGroup page={{ ...page, props: p }} /> : <Group page={{ ...page, props: p }} />;
 }
 
 function Group({ page }: { page: PageData<GroupProps> }) {
@@ -197,8 +244,8 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 	);
 }
 
-export const groupRoute: RouteDef<GroupProps> = {
-	Page: Group,
+export const groupRoute: RouteDef<GroupPageProps> = {
+	Page: GroupPage,
 	head: (p) => ({
 		title: `${p.props.group.title} - tgloggerd`,
 		description: p.props.group.description || undefined,
