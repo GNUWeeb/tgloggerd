@@ -42,17 +42,21 @@ function JoinChat({ page }: { page: PageData<JoinChatProps> }) {
 	};
 	const join = async () => setResult(await run(() => ok(api.POST('/api/join-chat/join', { body: { ref, federation_ids: feds.map(Number) } }))));
 	const c = preview?.chat;
+	// Without the daemon's API nothing can be joined from here: say so
+	// before anything is tried, as the Drogon page did.
+	const off = !page.props.api_configured;
 	return (
 		<Shell crumbs={[['Join chat', null]]}>
 			<PageHead title="Join chat" sub="Make the logging account join a group or channel. Once joined, it is logged from then on, media included." />
 			<div className="a-cols">
 				<div className="a-stack">
 					<Card title="Group or channel">
+						{off && <div className="a-banner warn" role="status"><TriangleAlert size={15} /><span>Joining is not available: this web service is not connected to the logger's API (WEB_TGLOGGERD_API). An administrator can set it up.</span></div>}
 						<form className="a-form" onSubmit={(e) => void doPreview(e)}>
 							<Field label="Invite link or username" hint="https://t.me/+..., https://t.me/joinchat/..., @name or t.me/name. Each preview costs one Telegram lookup.">
-								<input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="@groupname or https://t.me/+..." autoComplete="off" required />
+								<input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="@groupname or https://t.me/+..." autoComplete="off" required disabled={off} />
 							</Field>
-							<div><button className="a-btn a-btn-primary" disabled={busy}><Search size={14} />Preview</button></div>
+							<div><button className="a-btn a-btn-primary" disabled={busy || off}><Search size={14} />Preview</button></div>
 						</form>
 						{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 						{preview && !c && <div className="a-banner warn"><TriangleAlert size={15} /><span>{preview.message}</span></div>}

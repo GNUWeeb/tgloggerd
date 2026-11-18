@@ -431,6 +431,24 @@ describe('Bots links', () => {
 });
 
 describe('Join chat', () => {
+	it('says up front when the logger\'s API is not set up, and offers nothing to try', () => {
+		const p = fixture<{ api_configured: boolean }>('/join-chat').props;
+		const calls = fakeApi('superadmin');
+		renderPage('/join-chat', 'superadmin', { props: { ...p, api_configured: false } });
+		expect(screen.getByRole('status').textContent).toContain('not connected to the logger\'s API');
+		expect((screen.getByRole('textbox', { name: /Invite link or username/ }) as HTMLInputElement).disabled).toBe(true);
+		const preview = screen.getByRole('button', { name: 'Preview' }) as HTMLButtonElement;
+		expect(preview.disabled).toBe(true);
+		fireEvent.click(preview);
+		expect(callsTo(calls, 'POST', /join-chat/)).toHaveLength(0);
+	});
+
+	it('shows no such notice when the API is set up', () => {
+		renderPage('/join-chat');
+		expect(screen.queryByText(/not connected to the logger/)).toBeNull();
+		expect((screen.getByRole('textbox', { name: /Invite link or username/ }) as HTMLInputElement).disabled).toBe(false);
+	});
+
 	it('previews, then joins into the chosen federations', async () => {
 		const chat = { chat_id: -1001999000001, title: 'Compiler Nerds ID', type: 'supergroup', member_count: 1843, username: 'compilernerds_id', is_member: false, needs_approval: false };
 		const calls = fakeApi('superadmin', {
