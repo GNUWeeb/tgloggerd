@@ -710,6 +710,14 @@ the same way.
     unfinished, or not known in step for WEBAPI_SEARCH_ENGINE_MAX_LAG)
     leaves the search to MySQL, and the answer's backend says so.
     After a failure the engine is skipped for 30 seconds.
+  - Warm-up: an engine's first searches after the service starts are
+    much slower than later ones, slow enough to fail and start that
+    backoff. So the service first sends the engine a few searches of
+    the pages' shapes in the background, each allowed 30 seconds
+    (searchengine.Engine.StartWarmUp), and searches go to MySQL
+    ("unavailable") until they are done, usually within seconds; a
+    warm-up that fails is logged, and the usual failure handling
+    applies.
 
 # The request scope
 

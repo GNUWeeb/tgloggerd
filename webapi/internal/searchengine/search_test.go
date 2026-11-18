@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -500,5 +501,115 @@ func TestParseText(t *testing.T) {
 		if s := strings.Join(got, " "); s != c.want {
 			t.Errorf("parseText(%q) = %s, want %s", c.in, s, c.want)
 		}
+	}
+}
+
+// coldEngine is a proxy to the engine that holds its first n searches
+// for delay each, as a cold engine is slow to answer them.
+func coldEngine(t *testing.T, target string, n int, delay time.Duration) string {
+	t.Helper()
+	u, err := url.Parse(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := httputil.NewSingleHostReverseProxy(u)
+	var (
+		mu   sync.Mutex
+		seen int
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/_search") {
+			mu.Lock()
+			seen++
+			cold := seen <= n
+			mu.Unlock()
+			if cold {
+				select {
+				case <-time.After(delay):
+				case <-r.Context().Done():
+					return
+				}
+			}
+		}
+		p.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// A cold engine is warmed up before searches use it: without the
+// warm-up its first search times out and the backoff keeps the next
+// ones on MySQL; with it, MySQL answers at once while it runs, and the
+// engine answers after.
+func TestEngineWarmUp(t *testing.T) {
+	t.Parallel()
+	e := newSearchEnv(t)
+	gm := logdb.GroupMessages
+	engineOn := func(base string) *Engine {
+		c, err := NewClient(base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		x, err := c.Index(e.x.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return NewEngine(x, EngineOptions{Log: quiet, Timeout: 300 * time.Millisecond,
+			Backoff: time.Minute, WarmTimeout: 10 * time.Second})
+	}
+	backend := func() (string, time.Duration) {
+		t.Helper()
+		start := time.Now()
+		res := e.search(t, superadmin, gm, matches("kernel"), logdb.TextOptions{Highlight: true})
+		if res.Backend == nil {
+			t.Fatal("no backend")
+		}
+		return res.Backend.Used + "/" + res.Backend.Fallback, time.Since(start)
+	}
+	searchWith := func(eng *Engine) (string, time.Duration) {
+		old := e.eng
+		e.eng = eng
+		defer func() { e.eng = old }()
+		return backend()
+	}
+	const cold = 2
+
+	// Without the warm-up: the first search runs into the timeout,
+	// and the backoff keeps the next one on MySQL.
+	plain := engineOn(coldEngine(t, e.x.c.URL(), cold, time.Second))
+	if b, _ := searchWith(plain); b != "mysql/"+logdb.FallbackTimeout {
+		t.Errorf("cold, first search: %s", b)
+	}
+	if b, _ := searchWith(plain); b != "mysql/"+logdb.FallbackUnavailable {
+		t.Errorf("cold, second search: %s", b)
+	}
+
+	// With it: MySQL answers at once while it runs, and the engine
+	// once it is done.
+	warmed := engineOn(coldEngine(t, e.x.c.URL(), cold, time.Second))
+	done := warmed.StartWarmUp(context.Background())
+	if b, d := searchWith(warmed); b != "mysql/"+logdb.FallbackUnavailable || d > 500*time.Millisecond {
+		t.Errorf("warming up: %s after %v", b, d)
+	}
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the warm-up did not end")
+	}
+	for i := range 3 {
+		if b, _ := searchWith(warmed); b != "engine/" {
+			t.Errorf("warmed up, search %d: %s", i, b)
+		}
+	}
+
+	// A warm-up that fails ends, and the engine is handled as before.
+	down := engineOn("http://127.0.0.1:1")
+	select {
+	case <-down.StartWarmUp(context.Background()):
+	case <-time.After(30 * time.Second):
+		t.Fatal("the failed warm-up did not end")
+	}
+	if b, _ := searchWith(down); b != "mysql/"+logdb.FallbackUnavailable {
+		t.Errorf("engine down: %s", b)
 	}
 }
