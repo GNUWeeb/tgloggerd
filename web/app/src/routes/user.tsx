@@ -1,9 +1,10 @@
-import { BadgeCheck, MessageCircle, Type, AtSign, Quote, Phone, Image, Languages, Hash, CalendarDays, Contact, History as HistoryIcon } from 'lucide-react';
+import { BadgeCheck, CircleAlert, ScanSearch, MessageCircle, Type, AtSign, Quote, Phone, Image, Languages, Hash, CalendarDays, Contact, History as HistoryIcon } from 'lucide-react';
 import { useState } from 'react';
 import Shell from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
 import { Avatar, Btn, Card, KV, Pill, Stat, Tabs, Empty } from '../ui/primitives.tsx';
 import { Flags, Sparkline, userFlags } from '../ui/bits.tsx';
+import { LookupName } from './lookupname.tsx';
 import { ago, dateTime, fmt } from '../format.ts';
 import type { PageData, Viewer } from '../page.ts';
 import type { GroupSummary, HistoryEntry, UserSummary } from '../types.ts';
@@ -15,6 +16,12 @@ export type UserFull = S['UserFull'];
 // Full-access viewers get the profile; a member gets only the groups it
 // shares with the person (`limited`), web-accounts.md section 5.
 export type UserProps = S['UserProps'];
+
+// The contact fields and the lookup flags (web/docs/contact-names.md)
+// are being added to the full profile on the Go side; until the spec
+// has them they are read as optional extras.
+type ContactFields = { is_contact?: boolean; is_mutual_contact?: boolean; own_name_known?: boolean; own_name_checked_at?: string | null };
+type LookupFlags = { can_lookup_name?: boolean; lookup_pending?: boolean };
 
 const KIND = {
 	name: [Type, 'Name changed'], username: [AtSign, 'Username'], bio: [Quote, 'Bio changed'],
@@ -64,7 +71,10 @@ function UserPage({ page }: { page: PageData<UserProps> }) {
 }
 
 function Full({ page, tab }: { page: PageData<Extract<UserProps, { limited?: false }>>; tab: 'user' | 'history' }) {
-	const { user: u, groups, history, activity, can_private } = page.props;
+	const { user: u0, groups, history, activity, can_private } = page.props;
+	const u = u0 as typeof u0 & ContactFields;
+	const { can_lookup_name: canLookup, lookup_pending: pending } = page.props as LookupFlags;
+	const [lookup, setLookup] = useState(false);
 	const v = page.viewer;
 	const [kind, setKind] = useState<'all' | HistoryEntry['kind']>('all');
 	const shown = kind === 'all' ? history : history.filter((e) => e.kind === kind);
@@ -81,11 +91,20 @@ function Full({ page, tab }: { page: PageData<Extract<UserProps, { limited?: fal
 						{u.username && <span>@{u.username}</span>}
 						<span className="mono">{u.id}</span>
 						{u.contact_name && <span className="a-contactlabel" title="The name the logging account saved this contact under"><Contact size={13} />saved as {u.contact_name}</span>}
+						{u.is_contact && <Pill tone="info">{u.is_mutual_contact ? 'mutual contact' : 'contact'}</Pill>}
 						<Flags flags={userFlags(u)} />
 					</div>
 				</div>
-				{can_private && <div className="a-head-actions"><Btn primary to={`${base}/chat`} icon={MessageCircle}>Private chat</Btn></div>}
+				{(can_private || canLookup) && (
+					<div className="a-head-actions">
+						{canLookup && <Btn ghost icon={ScanSearch} onClick={() => setLookup(true)}>Look up real name</Btn>}
+						{can_private && <Btn primary to={`${base}/chat`} icon={MessageCircle}>Private chat</Btn>}
+					</div>
+				)}
 			</div>
+			{pending && <div className="a-banner warn" role="status"><CircleAlert size={15} /><span>A name lookup removed this contact and has not added it back yet. The logging account adds it back when it next can.</span></div>}
+			{u.is_contact && u.own_name_known === false && !pending && <div className="a-banner info" role="note"><CircleAlert size={15} /><span>The name shown is the one the logging account saved this contact under: the user was a contact before logging began, and no name they set has been seen yet.</span></div>}
+			{lookup && <LookupName id={u.id} name={u.name} contactName={u.contact_name} onClose={() => setLookup(false)} />}
 			<Tabs items={[['Overview', base, tab === 'user'], ['History', `${base}/history`, tab === 'history', history.length]]} />
 			{tab === 'user' ? (
 				<div className="a-overview">
@@ -104,6 +123,7 @@ function Full({ page, tab }: { page: PageData<Extract<UserProps, { limited?: fal
 								[Hash, 'User ID', u.id, true],
 								u.created_at ? [CalendarDays, 'First seen', dateTime(u.created_at, v)] : null,
 								u.updated_at ? [CalendarDays, 'Updated', dateTime(u.updated_at, v)] : null,
+								u.own_name_checked_at ? [ScanSearch, 'Own name checked', dateTime(u.own_name_checked_at, v)] : null,
 							]} />
 						</Card>
 						<div className="a-stack">
