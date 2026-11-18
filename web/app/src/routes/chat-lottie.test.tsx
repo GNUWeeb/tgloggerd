@@ -8,12 +8,13 @@ const stop = vi.fn();
 vi.mock('../ui/lottie.ts', () => ({ playTgs: vi.fn((_el: HTMLElement, _url: string, ready: () => void, failed: () => void) => { done = { ready, failed }; return stop; }) }));
 const { MessageMedia } = await import('./chat-media.tsx');
 const { playTgs } = await import('../ui/lottie.ts');
+import { PLAIN_KINDS } from '../test/kinds.ts';
 import type { ChatMessage } from '../types.ts';
 
 afterEach(() => { cleanup(); done = null; vi.clearAllMocks(); });
 const msg = (url: string | null): ChatMessage => ({
 	id: 1, message_id: 1, date: '2026-11-17T10:00:00Z', scope: 'group', sender: null, content_type: 'sticker', text: '',
-	media: { stored: !!url, thumb: null, url, format: 'tgs', render: 'lottie', emoji: '🙏' }, album: [], reply_to: null, forward: null, edits: [], edited_at: null, deleted_at: null, link_preview: null,
+	media: { stored: !!url, thumb: null, url, format: 'tgs', render: 'lottie', emoji: '🙏' }, album: [], reply_to: null, forward: null, edits: [], edited_at: null, deleted_at: null, link_preview: null, ...PLAIN_KINDS,
 });
 
 describe('animated stickers', () => {
