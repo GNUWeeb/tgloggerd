@@ -36,3 +36,17 @@ test('a list search lives in the URL and survives a reload', async ({ page }) =>
 	await page.reload();
 	await expect(page.locator('input[aria-label="Search"]')).toHaveValue('rust');
 });
+
+test('Ctrl-K jumps to a chat by name', async ({ page }) => {
+	await page.goto('/');
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	await page.keyboard.press('Control+k');
+	const box = page.getByRole('dialog', { name: 'Search everything' });
+	await expect(box.getByRole('combobox')).toBeFocused();
+	await box.getByRole('combobox').fill('Linux Kernel');
+	await expect(box.getByRole('option', { name: /Linux Kernel Indonesia/ })).toBeVisible();
+	await page.keyboard.press('Enter');
+	await expect(page).toHaveURL(/\/groups\/-\d+$/);
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Linux Kernel Indonesia');
+	await expect(box).toHaveCount(0);
+});
