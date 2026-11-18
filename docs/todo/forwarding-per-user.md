@@ -38,7 +38,6 @@ per-user configurations (docs/design/web-accounts.md section 6).
 
 - `web-ownership`
 - `web-member-access`
-- `go-port-admin`
 
 ## Done when
 

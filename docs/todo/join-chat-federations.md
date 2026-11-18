@@ -25,7 +25,6 @@ the right federation (docs/design/web-accounts.md section 3).
 ## Depends on
 
 - `web-admin-restrictions`
-- `go-port-admin`
 
 ## Done when
 

@@ -91,6 +91,8 @@ tags:
     description: Live updates as Server-Sent Events.
   - name: search
     description: The advanced search over the logged users, groups, files and messages.
+  - name: contacts
+    description: Actions on the logging account's Telegram contacts.
 
 paths:
 
@@ -644,9 +646,13 @@ paths:
 
         So far the service loads the data of login, dashboard, user,
         user_history, user_chat, group, group_admins, group_history,
-        group_chat and message, and of the list pages users, groups,
-        files, group_messages and private_messages (and not_found);
-        every other route answers {"reload": true}. A signed-out
+        group_chat and message, of the list pages users, groups,
+        files, group_messages and private_messages, of the settings
+        pages, of the administration pages accounts, federations,
+        platform_fwd, fwd_telegram_discord, fwd_discord_telegram,
+        join_chat, mcp, mcp_groups and mcp_tokens (each only for a
+        viewer whose menu has it, not_found otherwise), and not_found;
+        the three link pages answer {"reload": true}. A signed-out
         visitor asking for the group_chat of a group that is not
         exposed is asked to sign in (401 here, the redirect for the
         document), whether or not the group exists. A list page reads
@@ -2088,13 +2094,19 @@ paths:
 
   /api/forwarding/telegram-discord:
     post:
-      x-tgd-status: planned
       operationId: createT2D
       tags: [forwarding]
       summary: Add a Telegram to Discord webhook
       description: >-
-        The viewer becomes its owner. federation_id is needed only when
-        more than one of the owner's federations holds the group.
+        For viewers with the forward ability (superadmins and admins
+        today); anyone else gets 404, and so does a chat the logger has
+        not seen or the viewer may not see, or a federation the viewer
+        does not administer. chat_kind must match the chat id (group
+        negative, user positive). federation_id is needed only when
+        more than one of the owner's federations holds the group. The
+        viewer becomes its owner once ownership is stored
+        (web-ownership); until then every configuration is shared.
+        Audited as fwd_t2d_create, without the URL.
       security:
         - session: []
           csrf: []
@@ -2122,13 +2134,14 @@ paths:
 
   /api/forwarding/telegram-discord/test:
     post:
-      x-tgd-status: planned
       operationId: testT2D
       tags: [forwarding]
       summary: Send a test message to a webhook
       description: >-
         To a saved webhook (id) or a URL being entered (webhook_url),
-        which must be a Discord webhook URL.
+        which must be a Discord webhook URL; a saved URL is checked
+        again. Changes nothing and is not audited. The answer never
+        carries the URL.
       security:
         - session: []
           csrf: []
@@ -2169,11 +2182,13 @@ paths:
 
   /api/forwarding/telegram-discord/{id}:
     patch:
-      x-tgd-status: planned
       operationId: updateT2D
       tags: [forwarding]
       summary: Change a Telegram to Discord webhook
-      description: The webhook URL is write-only; leave it out to keep it.
+      description: >-
+        The fields given change, the others stay; the chat cannot
+        change. The webhook URL is write-only; leave it out to keep it.
+        Audited as fwd_t2d_update.
       security:
         - session: []
           csrf: []
@@ -2204,10 +2219,10 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     delete:
-      x-tgd-status: planned
       operationId: deleteT2D
       tags: [forwarding]
       summary: Delete a Telegram to Discord webhook
+      description: Audited as fwd_t2d_delete.
       security:
         - session: []
           csrf: []
@@ -2257,15 +2272,20 @@ paths:
 
   /api/forwarding/discord-telegram:
     post:
-      x-tgd-status: planned
       operationId: createD2T
       tags: [forwarding]
       summary: Add a Discord to Telegram route
       description: >-
-        The viewer becomes its owner. The bot token is write-only, and
-        a bot already owned by another account is never reused or
-        shown. federation_id is needed only when more than one of the
-        owner's federations holds the group.
+        The viewer becomes its owner (once web-ownership stores it).
+        The bot token is write-only: the same token reuses its bot,
+        which is enabled again; once bots are owned, a bot of another
+        owner is never reused or shown. Refusals: 400 bad_channel (not
+        a Discord id), bad_token (not shaped <digits>:<secret>),
+        bad_request; 404 for a chat or federation as for webhooks; 409
+        duplicate when the channel already forwards to the chat.
+        federation_id is needed only when more than one of the owner's
+        federations holds the group. Audited as fwd_d2t_create, without
+        the token.
       security:
         - session: []
           csrf: []
@@ -2290,14 +2310,19 @@ paths:
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /api/forwarding/discord-telegram/{id}:
     patch:
-      x-tgd-status: planned
       operationId: updateD2T
       tags: [forwarding]
       summary: Change a Discord to Telegram route
-      description: The bot token is write-only; leave it out to keep it.
+      description: >-
+        The fields given change, the others stay; the channel and the
+        chat cannot change. The bot token is write-only; leave it out
+        to keep the bot, give one to send through that bot instead.
+        Audited as fwd_d2t_update.
       security:
         - session: []
           csrf: []
@@ -2328,10 +2353,13 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     delete:
-      x-tgd-status: planned
       operationId: deleteD2T
       tags: [forwarding]
       summary: Delete a Discord to Telegram route
+      description: >-
+        A route that has sent messages is refused (409 in_use): those
+        rows map Discord messages to their Telegram copies for replies
+        and edits; disable it instead. Audited as fwd_d2t_delete.
       security:
         - session: []
           csrf: []
@@ -2346,6 +2374,8 @@ paths:
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /api/forwarding/discord-telegram/{id}/transfer:
     post:
@@ -2381,7 +2411,6 @@ paths:
 
   /api/join-chat/preview:
     post:
-      x-tgd-status: planned
       operationId: previewJoin
       tags: [join-chat]
       summary: Look up a group or channel before joining it
@@ -2425,15 +2454,18 @@ paths:
 
   /api/join-chat/join:
     post:
-      x-tgd-status: planned
       operationId: joinChat
       tags: [join-chat]
       summary: Join a group or channel
       description: >-
-        Writes one chat_join audit row whatever comes of it. A joined
+        For superadmins and admins holding join_chat; anyone else gets
+        404. Writes one chat_join audit row whatever comes of it, once
+        the request passes its checks (web/docs/join-chat.md). A joined
         group is added to the chosen federations, which must be ones
-        the viewer administers; none leaves it in Default
-        (web-accounts.md section 3).
+        the viewer administers (404 otherwise, before anything is
+        joined); none leaves it in Default (web-accounts.md section 3).
+        Filing the group into the chosen ones comes with
+        join-chat-federations; until then it stays in Default.
       security:
         - session: []
           csrf: []
@@ -2470,13 +2502,101 @@ paths:
         '502':
           $ref: '#/components/responses/DaemonFailed'
 
+  /api/users/{id}/lookup-name:
+    post:
+      operationId: lookupName
+      tags: [contacts]
+      summary: Look up a contact's own name
+      description: >-
+        "Look up real name" (web/docs/contact-names.md): the daemon
+        removes the contact, reads the name the user gave itself and
+        adds the contact back exactly as it was. It changes the logging
+        account's contacts, so it is for superadmins only; anyone else,
+        and a user the viewer may not see or the logger never saw, gets
+        404. A user the logger does not record as a contact is 409
+        not_a_contact before the daemon is asked. Otherwise the daemon's
+        answer is passed on: its errors (docs/internal-api.md) keep
+        their code, with the status 404 not_found, 409 not_a_contact or
+        unsupported, 429 rate_limited or flood_wait, 503 unavailable or
+        restore_pending, 504 timeout, 502 telegram_error, and
+        Retry-After when the daemon sent one; any other failure is 502
+        daemon. Every request that reaches the daemon writes one
+        contact_lookup audit row, "user <id>: ok" or the error code.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The user's Telegram id.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: The own name, now stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LookupName'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          description: The daemon allows no lookup now (error rate_limited or flood_wait).
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          $ref: '#/components/responses/DaemonFailed'
+        '503':
+          description: >-
+            The daemon is busy or not connected (error unavailable), or a
+            contact is removed and not added back yet (error
+            restore_pending).
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: >-
+            The contact is added back, but Telegram did not report the
+            own name in time (error timeout); nothing was stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/mcp/groups:
     post:
-      x-tgd-status: planned
       operationId: exposeMcpGroup
       tags: [mcp]
       summary: Expose a group through the MCP endpoint
-      description: Only groups the viewer may see (web-accounts.md section 4).
+      description: >-
+        For viewers with the mcp ability (superadmins and admins
+        today), and only groups the viewer may see (web-accounts.md
+        section 4): a hidden or unknown group is 404. The note is cut
+        to 255 characters. A group already exposed is 409
+        already_exposed; to change its note, withdraw it and expose it
+        again. Exposing also makes the group's chat public on the web
+        (web/docs/mcp.md). Audited as mcp_expose.
       security:
         - session: []
           csrf: []
@@ -2513,13 +2633,17 @@ paths:
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /api/mcp/groups/{group_id}:
     delete:
-      x-tgd-status: planned
       operationId: unexposeMcpGroup
       tags: [mcp]
       summary: Stop exposing a group
+      description: >-
+        A group the viewer may not see, or one not exposed, is 404.
+        Audited as mcp_unexpose.
       security:
         - session: []
           csrf: []
@@ -2537,11 +2661,14 @@ paths:
 
   /api/mcp/tokens:
     post:
-      x-tgd-status: planned
       operationId: createMcpToken
       tags: [mcp]
       summary: Create an MCP bearer token
-      description: The token is in this answer only; it is stored as a hash.
+      description: >-
+        The token (tgmcp_ and 64 hex digits) is in this answer only; it
+        is stored as its SHA-256 and in no log or audit row. The name,
+        1 to 64 characters after trimming, tells tokens apart. Owned by
+        the viewer. Audited as mcp_token_create, with the name.
       security:
         - session: []
           csrf: []
@@ -2580,10 +2707,13 @@ paths:
 
   /api/mcp/tokens/{id}/revoke:
     post:
-      x-tgd-status: planned
       operationId: revokeMcpToken
       tags: [mcp]
       summary: Revoke an MCP bearer token
+      description: >-
+        Stamps the token revoked; the row stays for the audit trail.
+        Revoking a revoked token changes nothing and answers 204 too.
+        Audited as mcp_token_revoke.
       security:
         - session: []
           csrf: []
@@ -2759,6 +2889,14 @@ components:
         The daemon gave no outcome: its API is off or unreachable,
         TDLib is not ready, or Telegram did not answer in time (error
         daemon); message says what to do.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: >-
+        The change conflicts with what is stored (the error code says
+        what; message is the sentence to show).
       content:
         application/json:
           schema:
@@ -4811,6 +4949,10 @@ components:
           type: boolean
     Owned:
       type: object
+      description: >-
+        Until web-ownership stores owners, every configuration is
+        shared: owner id 0 (named "Shared", active), the Default
+        federation, and no transfer candidates.
       required: [id, owner, federation, transfer_candidates]
       properties:
         id:
@@ -4857,6 +4999,9 @@ components:
             sent:
               type: integer
               format: int64
+              description: >-
+                Posts made to the webhook's URL; a message sent as a
+                caption and its media counts twice.
             last_sent:
               type: [string, 'null']
     D2TRoute:
@@ -4973,11 +5118,17 @@ components:
     # Join chat.
     JoinChat:
       type: object
+      description: >-
+        The chat as the daemon resolved it (docs/internal-api.md, POST
+        /v1/chats/resolve); username is empty when it has none.
       required: [chat_id, title, type, member_count, username, is_member, needs_approval]
       properties:
         chat_id:
           type: integer
           format: int64
+          description: >-
+            0 when the account cannot see the chat before joining (the
+            daemon's null).
         title:
           type: string
         type:
@@ -5043,6 +5194,29 @@ components:
                 type: string
               outcome:
                 type: string
+
+    # Contacts.
+    LookupName:
+      type: object
+      required: [user_id, first_name, last_name, contact_first_name, contact_last_name, checked_at]
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        first_name:
+          type: string
+          description: The user's own name, as now stored.
+        last_name:
+          type: string
+        contact_first_name:
+          type: string
+          description: The name the account saved the contact under, as before.
+        contact_last_name:
+          type: string
+        checked_at:
+          type: integer
+          format: int64
+          description: When the name was read, unix seconds.
 
     # MCP administration.
     McpIndexProps:

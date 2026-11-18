@@ -48,3 +48,19 @@ as it was; the full cycle, journal and limits are in
   through the shared client (`src/daemon/Api.cpp`, `lookupRealName`).
   Empty: the page explains that the action is not available. The request
   waits up to 120 seconds.
+
+## The JSON API (Go service)
+
+    POST /api/users/{id}/lookup-name
+
+The same action as a JSON operation (`webapi/openapi.yaml`, tag
+`contacts`), with the session's CSRF token in `X-CSRF-Token` and no
+body. It is for superadmins only (the `lookup_name` ability); to
+anyone else, and for a user the viewer may not see or the logger never
+saw, it does not exist (404). A user the database does not record as
+a contact is 409 `not_a_contact` before the daemon is asked. Success is
+the daemon's answer (`user_id`, the own and the contact names,
+`checked_at`); the daemon's errors keep their code and status (409,
+429 and 503 with `Retry-After`, 504), anything else is 502 `daemon`.
+Every request that reaches the daemon writes the same `contact_lookup`
+row as above.

@@ -28,6 +28,10 @@ Chats.
 And the advanced search, GET /api/search/{entity}, and the chat
 search of the pickers, GET /api/chats/search, described under Search.
 
+And the administration: forwarding, Join chat, "Look up real name"
+and the MCP administration, with their pages and those of the
+accounts and federations, described under Administration.
+
 # The API contract
 
 openapi.yaml (OpenAPI 3.1) is the contract of the service's API: every
@@ -38,9 +42,10 @@ should they and the description ever differ, that is a bug in one of
 them, fixed in both at once.
 
 Operations designed but not served yet are in the description too,
-marked `x-tgd-status: planned`: the account, forwarding, Join chat
-and MCP administration actions. A port serves the operation and drops
-the marker in the same change. A per-account
+marked `x-tgd-status: planned`: the email and set-password actions,
+resending an invitation and the transfer of forwarding
+configurations. A port serves the operation and drops the marker in
+the same change. A per-account
 bearer-token scheme for clients without cookies is reserved there
 (apiToken) and planned as well.
 
@@ -493,6 +498,47 @@ Restrictions, grants and the verified-address gate plug into the scope
 without changing its callers. Without a session
 the scope sees nothing; a file token is its own authorization.
 
+# Administration
+
+The Drogon web's admin pages as JSON operations (openapi.yaml, tags
+forwarding, join-chat, contacts and mcp) and page data; web/docs/
+platform-forwarding.md, join-chat.md, contact-names.md and mcp.md
+describe each, with what differs from the Drogon pages.
+
+    /api/forwarding/telegram-discord[/{id}|/test]   webhooks
+    /api/forwarding/discord-telegram[/{id}]         routes
+    POST /api/join-chat/preview, /api/join-chat/join
+    POST /api/users/{id}/lookup-name
+    /api/mcp/groups[/{group_id}], /api/mcp/tokens[/{id}/revoke]
+
+  - Each needs an ability of the request scope (Scope.Can): forward,
+    join_chat, lookup_name, mcp. Without it the operation and its page
+    do not exist (404); so does a configuration or group the scope
+    hides, through the same queries as the lists (logdb.ChatFilter,
+    GroupFilter). Every write takes the session's CSRF token.
+  - Every change writes a web_audit row with who made it; chat_join
+    and contact_lookup are worded as the Drogon pages word them, so
+    both services' rows read alike.
+  - Secrets are write-only: webhook URLs are answered with their token
+    cut off, bots by name, MCP tokens once at creation; no answer, log
+    line or audit row carries one. A webhook URL must be Discord's on
+    save and on test (parseWebhook), so the service never posts
+    elsewhere; the test's client follows no redirect.
+  - The daemon is reached through internal/daemon (POST
+    /v1/chats/resolve, /v1/chats/join, /v1/users/{id}/lookup-name);
+    without WEB_TGLOGGERD_API those answer 502 daemon.
+  - The forwarding tables and telegram_public_groups are the logger's;
+    the service writes them through the read-only pool, whose account
+    is granted DML on exactly those (web/docs/platform-forwarding.md
+    and mcp.md, Grants), as the Drogon web does.
+  - The federations a configuration or a joined group may go into
+    are the existing ones the viewer administers (fileFederations);
+    the accounts and federations pages take their federation data from
+    the federation helpers (federationprops.go). Ownership is not
+    stored yet and is answered as a constant from one place
+    (Server.ownership: shared, Default; web-ownership); filing a
+    joined group comes with join-chat-federations.
+
 # Layout
 
     openapi.yaml           The API description (see The API contract).
@@ -510,7 +556,8 @@ the scope sees nothing; a file token is its own authorization.
                            daemon stream for tests).
     internal/webdb/        The web's own schema: accounts and audit.
     internal/logdb/        Reads of the logger's schema, each taking the
-                           request scope.
+                           request scope, and the writes the web is
+                           granted there (forwarding, MCP exposure).
     internal/scope/        The request scope (what a request may see).
     internal/settings/     An account's preferences: the known keys,
                            their validation, the site defaults.
