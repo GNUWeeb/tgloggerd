@@ -128,3 +128,22 @@ test('a chat\'s top bar opens the group\'s page, and signed out an exposed group
 	await page.goto(`/groups/${g.id}`);
 	await expect(page.getByText(/This group's chat is public/)).toBeVisible();
 });
+
+test('a slow page shows a loading pill at the top, and a fast one does not', async ({ page }) => {
+	await page.goto('/');
+	const pill = page.getByText('Loading...', { exact: true });
+	// Fast: the stand-in answers at once.
+	await page.locator('.a-sidebar a[href="/groups"], nav a[href="/groups"]').first().click();
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Groups');
+	await expect(pill).toHaveCount(0);
+	// Slow: hold the page data for a second.
+	await page.route('**/api/page/users*', async (r) => { await new Promise((x) => setTimeout(x, 1000)); await r.continue(); });
+	await page.locator('.a-sidebar a[href="/users"], nav a[href="/users"]').first().click();
+	await expect(pill).toBeVisible();
+	const box = (await pill.boundingBox())!;
+	const width = page.viewportSize()!.width;
+	expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(4);
+	expect(box.y).toBeLessThan(40);
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Users');
+	await expect(pill).toHaveCount(0);
+});

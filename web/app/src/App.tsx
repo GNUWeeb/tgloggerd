@@ -4,6 +4,7 @@ import { LiveProvider } from './live/react.tsx';
 import { PageLive } from './live/PageLive.tsx';
 import { EntityProvider } from './live/useEntities.tsx';
 import { routes } from './routes/index.tsx';
+import { LoadingPill } from './ui/LoadingPill.tsx';
 import { UnknownRoute, type PageData } from './page.ts';
 import './styles/base.css';
 import './styles/app.css';
@@ -31,6 +32,7 @@ export default function App({ page }: { page: PageData }) {
 	return (
 		<NavProvider initial={page}>
 			<LiveRoot><Current /></LiveRoot>
+			<LoadingPill />
 		</NavProvider>
 	);
 }
