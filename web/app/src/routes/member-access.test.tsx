@@ -96,4 +96,11 @@ describe('member access', () => {
 		expect((await within(dialog()).findByRole('alert')).textContent).toBe('Group -1009001 is not in GNU/Weeb network.');
 	});
 
+	it('gives an admin only the granted groups it may see', () => {
+		const asAdmin = researcher('admin');
+		const asSuper = researcher('superadmin');
+		expect(asSuper.grants.find((g) => g.fed === 2)!.groups.length).toBeGreaterThan(0);
+		expect(asAdmin.grants.find((g) => g.fed === 2)!.groups).toEqual([]);
+		expect(asAdmin.grants.find((g) => g.fed === 1)!.groups).toEqual(asSuper.grants.find((g) => g.fed === 1)!.groups);
+	});
 });

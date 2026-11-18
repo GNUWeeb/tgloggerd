@@ -565,7 +565,7 @@ export function load(url: string, persona: Persona): Loaded {
 		const feds = s.role === 'superadmin' ? allFeds() : s.manageableFeds;
 		return {
 			route: 'accounts', status: 200, props: {
-				accounts: list.map(accountRow),
+				accounts: list.map((a) => accountRow(a, s)),
 				federations: feds.map((f) => ({ id: f.id, name: f.name, default: f.id === 0, group_count: fedGroups(f).filter(s.group).length })),
 				all_federations: allFeds().map((f) => ({ id: f.id, name: f.name, default: f.id === 0 })),
 				// As Go has them: of the admin restrictions, hiding private
@@ -653,13 +653,17 @@ export function settingsState(persona: Persona) {
 	return SETTINGS.get(persona);
 }
 
-export function accountRow(a) {
+// An account as the accounts page lists it. To an admin, a member's
+// grants leave out the groups of federations it does not administer and
+// the groups hidden from it, as Go does; a superadmin sees them all.
+export function accountRow(a, s?: ReturnType<typeof scopeOf>) {
+	const shown = (fed: number, id: number) => !s || s.role === 'superadmin' || (s.manageableFeds.some((f) => f.id === fed) && s.group(getGroup(id)));
 	return {
 		id: a.id, username: a.username, name: a.name, email: a.email || null, email_verified: !!a.verified, invited: !!a.invited,
 		role: a.role, active: a.active, last_signin: a.last ? iso(a.last) : null,
 		last_superadmin: a.role === 'superadmin' && a.active && activeSuperadmins().length === 1,
 		admin_of: a.adminOf || [], restrict: a.restrict ? { hide_private: a.restrict.hide_private, hide_groups: a.restrict.hide_groups.map((id) => pick(getGroup(id))), join_chat: a.restrict.join_chat } : null,
-		grants: (a.grants || []).map((g) => ({ fed: g.fed, groups: g.groupIds.map((id) => pick(getGroup(id))) })), abilities: a.abilities || [],
+		grants: (a.grants || []).map((g) => ({ fed: g.fed, groups: g.groupIds.filter((id) => shown(g.fed, id)).map((id) => pick(getGroup(id))) })), abilities: a.abilities || [],
 		audit: auditFor(a).map((r) => ({ ...r, at: iso(r.at) })),
 	};
 }
@@ -926,10 +930,12 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 			// others stay. A federation left out takes its groups with it.
 			if (body.grants) {
 				const mine = (fed: number) => s.role === 'superadmin' || s.manageableFeds.some((f) => f.id === fed);
-				a.grants = [...a.grants.filter((g) => !mine(g.fed)), ...body.grants.map((g) => ({ fed: g.fed, groupIds: [...new Set<number>(g.group_ids || [])] }))];
+				// Groups hidden from the viewer stay granted: it never saw them.
+				const hidden = (fed: number) => (a.grants.find((g) => g.fed === fed)?.groupIds ?? []).filter((id) => !s.group(getGroup(id)));
+				a.grants = [...a.grants.filter((g) => !mine(g.fed)), ...body.grants.map((g) => ({ fed: g.fed, groupIds: [...new Set<number>([...(g.group_ids || []), ...hidden(g.fed)])] }))];
 			}
 			if (body.abilities) a.abilities = body.abilities;
-			return [200, accountRow(a)];
+			return [200, accountRow(a, s)];
 		}
 		if (m[2] === 'disable') {
 			if (a.role === 'superadmin' && activeSuperadmins().length === 1) return [409, { error: 'last_superadmin', message: 'The last active superadmin cannot be disabled.' }];
