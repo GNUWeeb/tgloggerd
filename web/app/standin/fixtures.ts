@@ -173,7 +173,12 @@ export function chatMessage(m, fetch = false) {
 		sender, content_type: ct, text: bare ? '' : m.text || '',
 		media: chatMedia(m.media, ct, fetch, m.album ? { kind: ct, message_id: m.message_id } : {}), album: (m.album || []).map((a) => albumItem(a, fetch)),
 		reply_to: reply,
-		forward: m.forward?.from ?? null, edits: (m.edits || []).map((e) => ({ at: iso(e.at), text: e.text })),
+		// Each version says its type; a media message's first version had
+		// another file (the media was replaced in the edit).
+		forward: m.forward?.from ?? null, edits: (m.edits || []).map((e, i) => ({
+			at: iso(e.at), text: e.text, content_type: ct,
+			...(i === 0 && m.media ? { media: chatMedia({ ...m.media, fileId: m.media.fileId + 500000 }, ct, fetch) } : {}),
+		})),
 		edited_at: m.edited_at ? iso(m.edited_at) : null, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
 		link_preview: lp ? {
 			site: lp.site, title: lp.title, desc: lp.desc,

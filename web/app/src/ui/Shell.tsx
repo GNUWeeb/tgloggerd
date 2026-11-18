@@ -1,7 +1,7 @@
 // The page frame: sidebar (only the pages the viewer has, pinned groups
 // first), breadcrumbs and the content area. Menu entries come from the
 // viewer's `nav` page keys; hidden pages are absent, never disabled.
-import { useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import {
 	LayoutDashboard, Users, UsersRound, MessagesSquare, MessageCircle, FileText,
 	ArrowLeftRight, Bot, Settings, Search, Menu, LogOut, Sun, Moon, Monitor,
@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Link, useNav } from '../nav.tsx';
 import { Avatar } from './primitives.tsx';
+import { QuickJump, useQuickJumpKey } from './QuickJump.tsx';
 import type { Viewer } from '../page.ts';
 import { logout } from '../api/auth.ts';
 import { useLiveState } from '../live/react.tsx';
@@ -102,6 +103,9 @@ export default function Shell({ crumbs = [], flush = false, children }: { crumbs
 	const keys = new Set(viewer.nav ?? FALLBACK_NAV);
 	const groups = NAV.map((g) => ({ ...g, items: g.items.filter((it) => it[3] === null || keys.has(it[3])) })).filter((g) => g.items.length);
 	const acct = viewer.account;
+	const [jump, setJump] = useState(false);
+	useQuickJumpKey(useCallback(() => setJump((x) => !x), []));
+	const jumpPages = groups.flatMap((g) => g.items.map(([href, label, icon]) => ({ href, label, icon })));
 	return (
 		<div className="app">
 			<div className={`a-shell ${open ? 'nav-open' : ''} ${flush ? 'a-flush' : ''} ${collapsed ? 'a-collapsed' : ''}`}>
@@ -156,10 +160,11 @@ export default function Shell({ crumbs = [], flush = false, children }: { crumbs
 							))}
 						</nav>
 						<LiveDot />
-						<button type="button" className="a-cmdk" aria-label="Search"><Search size={14} /><span>Search everything...</span><kbd>Ctrl K</kbd></button>
+						<button type="button" className="a-cmdk" aria-label="Search everything" aria-keyshortcuts="Control+K Meta+K" onClick={() => setJump(true)}><Search size={14} /><span>Search everything...</span><kbd>Ctrl K</kbd></button>
 					</header>
 					<LiveNoticeBar />
 					<main className="a-content">{children}</main>
+					{jump && <QuickJump pages={jumpPages} onClose={() => setJump(false)} />}
 				</div>
 			</div>
 		</div>

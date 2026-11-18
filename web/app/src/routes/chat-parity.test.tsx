@@ -88,6 +88,29 @@ describe('chat parity', () => {
 		expect(within(row(0)).getByText(/messageVideoNote/)).toBeTruthy();
 	});
 
+	it('lists earlier versions with their media and former type', () => {
+		chatWith([{
+			content_type: 'photo', text: 'now a photo', edited_at: '2026-11-10T11:00:00Z',
+			media: { stored: true, url: '/files/now', thumb: '/files/now', render: 'image' },
+			edits: [
+				{ at: '2026-11-10T10:00:00Z', text: 'was a document', content_type: 'document', media: { stored: true, url: '/files/doc', thumb: null, name: 'notes.pdf' } },
+				{ at: '2026-11-10T10:30:00Z', text: 'an older photo', content_type: 'photo', media: { stored: true, url: '/files/old', thumb: '/files/old' } },
+			],
+		}]);
+		fireEvent.click(within(row(0)).getByRole('button', { name: /edited/ }));
+		const list = row(0).querySelector('.c-edits') as HTMLElement;
+		expect(within(list).getByText(/was document/)).toBeTruthy();
+		expect(within(list).getByText('document: notes.pdf')).toBeTruthy();
+		expect(within(list).getByRole('link', { name: 'Earlier photo' }).querySelector('img')!.getAttribute('src')).toBe('/files/old');
+	});
+
+	it('marks a message edited even when no earlier version was recorded', () => {
+		chatWith([{ text: 'changed', edits: [], edited_at: '2026-11-10T11:00:00Z' }]);
+		const mark = within(row(0)).getByText('edited');
+		expect(mark.closest('button')).toBeNull();
+		expect(mark.closest('[title]')!.getAttribute('title')).toMatch(/no earlier version recorded/);
+	});
+
 	it('jumps to the oldest messages and to a date and time', async () => {
 		const calls = fakeApi('superadmin', { 'GET /api/chats/group/:id/messages': () => ({ messages: [], has_older: true, has_newer: false }) });
 		renderPage(chatUrl());
