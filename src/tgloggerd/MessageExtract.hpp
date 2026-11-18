@@ -10,6 +10,8 @@
 #include <td/telegram/td_api.h>
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace tgloggerd {
 
@@ -161,6 +163,33 @@ void extract_message_content(const td_api::message &message,
  * that has none. Mirrors extract_message_content's text sources. */
 const td_api::formattedText *
 message_formatted_text(const td_api::message &message);
+
+/*
+ * One of a message's files beyond its main one (telegram_message_files):
+ * the file, its telegram_files.file_type, its name if it has one, and its
+ * role and position in the table.
+ */
+struct ExtraFile {
+	const td_api::file	*file;
+	const char		*category;
+	std::string		file_name;
+	const char		*role;
+	int			position;
+};
+
+/*
+ * The files of @content beyond its main one, in a stable order: a video's
+ * cover, a live photo's video, each paid media item, a game's photo and
+ * animation, an invoice's photo and paid media, the photo of a chat photo
+ * change or suggestion.
+ */
+std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
+
+/* The largest size of a photo, or nullptr. */
+const td_api::file *photo_best_size(const td_api::photo *p);
+
+/* The largest size of a chat photo, or nullptr. */
+const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p);
 
 /* The user id of a message's sender, or 0 if the sender is a chat or
  * channel, or absent. */

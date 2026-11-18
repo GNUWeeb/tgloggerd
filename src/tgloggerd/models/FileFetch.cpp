@@ -59,32 +59,45 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 	 */
 	const std::string n = std::to_string(limit);
 	auto rows = db_.query(
-		"(SELECT 0, chat_id, message_id FROM telegram_group_messages"
+		"(SELECT 0, chat_id, message_id, NULL, NULL FROM telegram_group_messages"
 		"  FORCE INDEX (fk_group_messages_file)"
 		"  WHERE file_id = ? AND deleted_at IS NULL"
 		"  ORDER BY id DESC LIMIT " + n + ")"
 		" UNION ALL "
-		"(SELECT 1, chat_id, message_id FROM telegram_private_messages"
+		"(SELECT 1, chat_id, message_id, NULL, NULL FROM telegram_private_messages"
 		"  FORCE INDEX (fk_private_messages_file)"
 		"  WHERE file_id = ? AND deleted_at IS NULL"
 		"  ORDER BY id DESC LIMIT " + n + ")"
 		" UNION ALL "
-		"(SELECT 2, m.chat_id, m.message_id FROM telegram_link_previews lp"
+		"(SELECT 2, m.chat_id, m.message_id, NULL, NULL FROM telegram_link_previews lp"
 		"  JOIN telegram_group_messages m ON m.id = lp.group_message_id"
 		"  WHERE lp.photo_file_id = ? AND m.deleted_at IS NULL"
 		"  ORDER BY lp.id DESC LIMIT " + n + ")"
 		" UNION ALL "
-		"(SELECT 3, m.chat_id, m.message_id FROM telegram_link_previews lp"
+		"(SELECT 3, m.chat_id, m.message_id, NULL, NULL FROM telegram_link_previews lp"
 		"  JOIN telegram_private_messages m ON m.id = lp.private_message_id"
 		"  WHERE lp.photo_file_id = ? AND m.deleted_at IS NULL"
 		"  ORDER BY lp.id DESC LIMIT " + n + ")"
 		" UNION ALL "
-		"(SELECT 4, id, 0 FROM telegram_groups WHERE photo_file_id = ?"
+		"(SELECT 6, m.chat_id, m.message_id, mf.role, mf.position"
+		"  FROM telegram_message_files mf"
+		"  JOIN telegram_group_messages m ON m.id = mf.group_message_id"
+		"  WHERE mf.file_id = ? AND m.deleted_at IS NULL"
+		"  ORDER BY mf.id DESC LIMIT " + n + ")"
+		" UNION ALL "
+		"(SELECT 7, m.chat_id, m.message_id, mf.role, mf.position"
+		"  FROM telegram_message_files mf"
+		"  JOIN telegram_private_messages m ON m.id = mf.private_message_id"
+		"  WHERE mf.file_id = ? AND m.deleted_at IS NULL"
+		"  ORDER BY mf.id DESC LIMIT " + n + ")"
+		" UNION ALL "
+		"(SELECT 4, id, 0, NULL, NULL FROM telegram_groups WHERE photo_file_id = ?"
 		"  LIMIT " + n + ")"
 		" UNION ALL "
-		"(SELECT 5, id, 0 FROM telegram_users"
+		"(SELECT 5, id, 0, NULL, NULL FROM telegram_users"
 		"  WHERE profile_photo_file_id = ? LIMIT " + n + ")",
-		{ files_id, files_id, files_id, files_id, files_id, files_id });
+		{ files_id, files_id, files_id, files_id, files_id, files_id,
+		  files_id, files_id });
 
 	std::vector<models::FileSource> out;
 	for (const auto &r : rows) {
@@ -104,6 +117,12 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 			break;
 		case 4:
 			s.kind = Kind::GroupPhoto;
+			break;
+		case 6:
+		case 7:
+			s.kind = Kind::MessageExtra;
+			s.role = r[3].value_or("");
+			s.position = r[4].has_value() ? std::stoi(*r[4]) : 0;
 			break;
 		default:
 			s.kind = Kind::UserPhoto;

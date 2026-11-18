@@ -269,8 +269,9 @@ public:
 	/*
 	 * Up to @limit things that reference the file and can be fetched
 	 * afresh for a valid file reference, best first: the newest live
-	 * messages carrying it (as attachment, then as link preview image),
-	 * then the groups and users whose current photo it is. Deleted
+	 * messages carrying it (as attachment, then as link preview image,
+	 * then as one of its other files), then the groups and users whose
+	 * current photo it is. Deleted
 	 * messages are left out: the server no longer has them.
 	 */
 	std::vector<models::FileSource> listFileSources(uint64_t files_id,
@@ -440,6 +441,17 @@ public:
 				   uint64_t file_id);
 	void setGroupMessageFile(int64_t chat_id, int64_t message_id,
 				 uint64_t file_id);
+
+	/*
+	 * Record one of a message's files beyond its main one
+	 * (telegram_message_files): @role is the table's role value ("cover",
+	 * "paid", ...), @position its order within the role. A no-op when the
+	 * message row does not exist; an existing (role, position) is pointed
+	 * at the new file.
+	 */
+	void setMessageExtraFile(int64_t chat_id, int64_t message_id,
+				 bool is_group, const std::string &role,
+				 int position, uint64_t file_id);
 
 	/*
 	 * Link a message to the one it replies to. Records the replied

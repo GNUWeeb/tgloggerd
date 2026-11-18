@@ -469,17 +469,36 @@ videos), a photo with a live-photo video, a video with a cover, a poll
 with media, a game with a photo, an invoice with a photo, a chat photo
 change. A new table follows the pattern of `telegram_link_previews`:
 
-    telegram_message_files
+    telegram_message_files (migration 000036)
       id, group_message_id NULL, private_message_id NULL,
-      position SMALLINT, role ENUM('main','cover','live_video',
-      'paid','preview','poll','game','invoice','chat_photo',
-      'thumbnail'), file_id (FK telegram_files, ON DELETE SET NULL)
+      role ENUM('cover','live_video','paid','preview','poll','game',
+      'invoice','chat_photo','thumbnail'), position SMALLINT,
+      file_id (FK telegram_files, ON DELETE SET NULL),
+      UNIQUE (message, role, position)
 
 The existing `file_id` column stays the main file and keeps its
 meaning, so the web and the forwarders do not change; the new table
-lists every file including the main one. Downloads follow the storage
-cache rules (`docs/design/storage-cache.md`): non-member chats keep
-the file id only. See decision
+holds the other files only (decision
+[2026-11-18-msg-extra-files-only](decisions/2026-11-18-msg-extra-files-only.md)).
+A video note's round video is now the main file, like any other media.
+
+| Role | Files |
+|---|---|
+| `cover` | a video's cover photo (largest size) |
+| `live_video` | the video of a live photo |
+| `paid` | each photo or video of paid media, `position` its index among the items (previews of unpaid items have no file); an invoice's paid media at position 0 |
+| `game` | a game's photo (position 0) and animation (position 1) |
+| `invoice` | an invoice's product photo |
+| `chat_photo` | the new photo of a chat photo change or a suggested profile photo (largest size) |
+| `poll`, `preview`, `thumbnail` | reserved: poll media (msg-polls); thumbnails and a video's other qualities are not stored, since they repeat the media |
+
+Each file goes through the same path as a main file: linked when it is
+already known, recorded without its bytes where the storage cache rules
+say so (`docs/design/storage-cache.md`), else downloaded. The fetcher
+can fetch one again from the message, which it finds through the
+table (a `MessageExtra` source with the role and position). An edit
+that replaces a file overwrites its (role, position); one that drops a
+file leaves the old row in place. See decision
 [2026-11-18-msg-message-files](decisions/2026-11-18-msg-message-files.md).
 
 ### 4.4 Polls
