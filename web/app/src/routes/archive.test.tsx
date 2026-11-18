@@ -61,6 +61,52 @@ describe('files', () => {
 		expect(within(d).queryAllByRole('link').some((a) => /\/(groups|users|messages)\//.test(a.getAttribute('href') ?? ''))).toBe(false);
 	});
 
+	it('fetches an unstored file from Telegram through its URL when the viewer may', async () => {
+		const p = fixture<FilesProps>('/files?view=list').props;
+		const f = { ...p.rows[0]!, id: 4243, name: 'far-away.mp4', stored: false, fetchable: true, url: '/files/tok-far', thumb: null };
+		renderPage('/files?view=list&file=4243', 'superadmin', { props: { ...p, rows: [f], preview: f } });
+		const d = await screen.findByRole('dialog', { name: 'far-away.mp4' });
+		expect(within(d).getByRole('link', { name: /Fetch from Telegram/ }).getAttribute('href')).toBe('/files/tok-far');
+		expect(within(d).getByText('no, can be fetched from Telegram')).toBeTruthy();
+		expect(within(d).queryByRole('link', { name: /^Download/ })).toBeNull();
+		const row = screen.getAllByRole('row').find((r) => within(r).queryByText('far-away.mp4'))!;
+		expect(within(row).getByText('fetchable')).toBeTruthy();
+	});
+
+	it('offers nothing to fetch for an unstored file the viewer may not have fetched', async () => {
+		const p = fixture<FilesProps>('/files?view=list').props;
+		const f = { ...p.rows[0]!, id: 4244, name: 'gone.pdf', stored: false, fetchable: false, url: null, thumb: null, sha256: null };
+		renderPage('/files?view=list&file=4244', 'superadmin', { props: { ...p, rows: [f], preview: f } });
+		const d = await screen.findByRole('dialog', { name: 'gone.pdf' });
+		expect(within(d).queryByRole('link', { name: /Fetch from Telegram|Download/ })).toBeNull();
+		expect(within(d).getByText(/only its details were kept/)).toBeTruthy();
+		expect(within(d).getByText('not recorded')).toBeTruthy();
+	});
+
+	it('shows a stored file\'s SHA-256 and last access', async () => {
+		const p = fixture<FilesProps>('/files?view=list').props;
+		const f = p.rows.find((r) => r.stored && r.sha256)!;
+		renderPage(`/files?view=list&file=${f.id}`, 'superadmin', { props: { ...p, preview: f } });
+		const d = await screen.findByRole('dialog', { name: f.name });
+		expect(within(d).getByText(f.sha256!, { exact: false })).toBeTruthy();
+		expect(within(d).getByText('Last access')).toBeTruthy();
+	});
+
+	it('sorts by id, extension and last access, and filters a digest only by = and !=', async () => {
+		const calls = fakeApi('superadmin');
+		renderPage('/files?view=list');
+		for (const h of ['ID', 'Ext', 'Last access']) expect(screen.getByRole('columnheader', { name: new RegExp(h) })).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+		const field = screen.getByRole('combobox', { name: 'Field' });
+		expect([...(field as HTMLSelectElement).options].map((o) => o.value)).toEqual(expect.arrayContaining(['tg_file_id', 'sha256', 'updated_at', 'accessed_at']));
+		fireEvent.change(field, { target: { value: 'sha256' } });
+		expect([...(screen.getByRole('combobox', { name: 'Condition' }) as HTMLSelectElement).options].map((o) => o.value)).toEqual(['=', '!=']);
+		fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'ab'.repeat(32) } });
+		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+		await waitFor(() => expect(lastPageCall(calls)?.query.get('f')).toBeTruthy());
+		expect(JSON.parse(lastPageCall(calls).query.get('f')!)).toEqual([{ field: 'sha256', op: '=', value: 'ab'.repeat(32) }]);
+	});
+
 	it('switches between grid and list', async () => {
 		const calls = fakeApi('superadmin');
 		renderPage('/files');

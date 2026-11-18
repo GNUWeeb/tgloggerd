@@ -13,6 +13,8 @@ import type { Cond, FieldDef, ListProps, Op } from '../types.ts';
 const OPS: Record<FieldDef['type'], Op[]> = {
 	number: ['=', '>', '<', '!='], text: ['contains', '=', 'empty'], enum: ['=', '!='], bool: ['is'], date: ['>', '<'],
 };
+// A field's operators: its own, or its type's.
+const opsOf = (f: FieldDef): Op[] => f.ops ?? OPS[f.type];
 
 export function useListNav<T>(L: ListProps<T>) {
 	const { page, navigate } = useNav();
@@ -34,11 +36,11 @@ function FilterAdd({ fields, onAdd }: { fields: FieldDef[]; onAdd: (c: Cond) => 
 	const [open, setOpen] = useState(false);
 	const [field, setField] = useState(first.key);
 	const f = fields.find((x) => x.key === field) ?? first;
-	const [op, setOp] = useState<Op>(OPS[f.type][0] as Op);
+	const [op, setOp] = useState<Op>(opsOf(f)[0] as Op);
 	const [value, setValue] = useState(f.type === 'bool' ? 'yes' : '');
 	const change = (k: string) => {
 		const nf = fields.find((x) => x.key === k) ?? first;
-		setField(k); setOp(OPS[nf.type][0] as Op);
+		setField(k); setOp(opsOf(nf)[0] as Op);
 		setValue(nf.type === 'bool' ? 'yes' : nf.type === 'enum' ? (nf.values?.[0] ?? '') : '');
 	};
 	return (
@@ -47,7 +49,7 @@ function FilterAdd({ fields, onAdd }: { fields: FieldDef[]; onAdd: (c: Cond) => 
 			{open && (
 				<form className="a-pop" onSubmit={(e) => { e.preventDefault(); onAdd({ field, op, value }); setOpen(false); }}>
 					<label>Field<select value={field} onChange={(e) => change(e.target.value)}>{fields.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}</select></label>
-					<label>Condition<select value={op} onChange={(e) => setOp(e.target.value as Op)}>{OPS[f.type].map((o) => <option key={o}>{o}</option>)}</select></label>
+					<label>Condition<select value={op} onChange={(e) => setOp(e.target.value as Op)}>{opsOf(f).map((o) => <option key={o}>{o}</option>)}</select></label>
 					{op !== 'empty' && (
 						<label>Value
 							{f.type === 'bool' ? <select value={value} onChange={(e) => setValue(e.target.value)}><option>yes</option><option>no</option></select>
