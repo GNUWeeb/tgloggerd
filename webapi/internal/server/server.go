@@ -73,6 +73,8 @@ type Deps struct {
 	clock func() time.Time
 	prefs func(ctx context.Context, uid uint64) (settings.Prefs, error)
 	pins  func(ctx context.Context, uid uint64, sc scope.Scope) ([]logdb.PinnedGroup, error)
+	// discord replaces the client that sends webhook test messages.
+	discord *http.Client
 }
 
 // Server carries what the handlers share.
@@ -104,6 +106,8 @@ type Server struct {
 	viewerPins  func(ctx context.Context, uid uint64, sc scope.Scope) ([]logdb.PinnedGroup, error)
 	pages       []pageRoute
 	clock       func() time.Time
+	// discord sends the webhook test messages.
+	discord *http.Client
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -150,6 +154,16 @@ func New(d Deps) http.Handler {
 	s.viewerPins = s.pinnedGroups
 	if d.pins != nil {
 		s.viewerPins = d.pins
+	}
+	s.discord = d.discord
+	if s.discord == nil {
+		s.discord = &http.Client{
+			Timeout: discordTimeout,
+			// A redirect could lead away from Discord's hosts.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -206,6 +220,13 @@ func (s *Server) routes() []route {
 		{"POST /api/federations", s.RequireSession(s.createFederation)},
 		{"PATCH /api/federations/{id}", s.RequireSession(s.updateFederation)},
 		{"DELETE /api/federations/{id}", s.RequireSession(s.deleteFederation)},
+		{"POST /api/forwarding/telegram-discord", s.RequireSession(s.createT2D)},
+		{"POST /api/forwarding/telegram-discord/test", s.RequireSession(s.testT2D)},
+		{"PATCH /api/forwarding/telegram-discord/{id}", s.RequireSession(s.updateT2D)},
+		{"DELETE /api/forwarding/telegram-discord/{id}", s.RequireSession(s.deleteT2D)},
+		{"POST /api/forwarding/discord-telegram", s.RequireSession(s.createD2T)},
+		{"PATCH /api/forwarding/discord-telegram/{id}", s.RequireSession(s.updateD2T)},
+		{"DELETE /api/forwarding/discord-telegram/{id}", s.RequireSession(s.deleteD2T)},
 	}
 }
 

@@ -28,6 +28,55 @@ daemon declines to re-send what the other delivered, so a message is not echoed
 back to where it came from: `discordd` skips webhook-authored Discord messages,
 and `tgloggerd` skips Telegram messages sent by a bot in `telegram_bots`.
 
+## The JSON API (Go service)
+
+The Go service (`webapi/`) serves the same configuration as JSON
+operations, described in `webapi/openapi.yaml` (tag `forwarding`).
+Bodies are JSON, every write carries the session's CSRF token in
+`X-CSRF-Token`, and errors are `{"error": "<code>", "message": "..."}`.
+
+    POST   /api/forwarding/telegram-discord        create; 201 {id}
+    PATCH  /api/forwarding/telegram-discord/{id}   types, enabled, webhook_url
+    DELETE /api/forwarding/telegram-discord/{id}
+    POST   /api/forwarding/telegram-discord/test   {id} or {webhook_url}; 204
+    POST   /api/forwarding/discord-telegram        create; 201 {id}
+    PATCH  /api/forwarding/discord-telegram/{id}   types, enabled, bot_token
+    DELETE /api/forwarding/discord-telegram/{id}
+
+The pages' data (`/platform-fwd`, `/platform-fwd/telegram-discord`,
+`/platform-fwd/discord-telegram`) lists the configurations with their
+counts of what was sent.
+
+- Who: viewers with the `forward` ability of the request scope
+  (superadmins and admins today; members once granted it, with
+  `forwarding-per-user`). To anyone else the operations and pages do
+  not exist (404). A configuration whose Telegram chat the viewer may
+  not see, a group hidden from it or a private chat when private
+  messages are, is 404 as well, in the lists too.
+- Types are lists of the keys above (`["text", "photo"]`); create
+  needs them all, PATCH changes only the fields it is given. The
+  chat (and the Discord channel) of a configuration cannot change.
+- The webhook URL is checked as `parseWebhook` does here, on create,
+  on change and on test, also when a saved webhook is tested: anything
+  but `https` on one of Discord's hosts with an `/api/webhooks/<id>/<token>`
+  path is 400 `bad_webhook`, and nothing is posted. The test message
+  answers 204, or 502 `send_failed` with Discord's status.
+- Secrets are write-only in both directions: lists show the webhook URL
+  with its token cut off (`url_masked`) and a bot by its username, and
+  no answer, log line or audit row carries a URL or a token.
+- Discord to Telegram refuses a channel id that is not a snowflake
+  (`bad_channel`), a token not shaped `<digits>:<secret>`
+  (`bad_token`), a duplicate channel and chat (409 `duplicate`) and
+  deleting a route that has sent messages (409 `in_use`).
+- Every change writes a `web_audit` row: `fwd_t2d_create`,
+  `fwd_t2d_update`, `fwd_t2d_delete`, `fwd_d2t_create`,
+  `fwd_d2t_update`, `fwd_d2t_delete`, with the id, the chat and what
+  changed. Tests change nothing and are not audited.
+- Ownership is not stored yet (`web-ownership`): every configuration
+  shows as shared, in the Default federation, and the transfer
+  operations are planned. The Go service writes through the same
+  read-only account and grants as the Drogon pages (see *Grants*).
+
 ## Content-type filters
 
 Each route, in either direction, chooses which **content types** it forwards.

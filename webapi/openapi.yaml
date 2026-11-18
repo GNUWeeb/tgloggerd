@@ -2088,13 +2088,19 @@ paths:
 
   /api/forwarding/telegram-discord:
     post:
-      x-tgd-status: planned
       operationId: createT2D
       tags: [forwarding]
       summary: Add a Telegram to Discord webhook
       description: >-
-        The viewer becomes its owner. federation_id is needed only when
-        more than one of the owner's federations holds the group.
+        For viewers with the forward ability (superadmins and admins
+        today); anyone else gets 404, and so does a chat the logger has
+        not seen or the viewer may not see, or a federation the viewer
+        does not administer. chat_kind must match the chat id (group
+        negative, user positive). federation_id is needed only when
+        more than one of the owner's federations holds the group. The
+        viewer becomes its owner once ownership is stored
+        (web-ownership); until then every configuration is shared.
+        Audited as fwd_t2d_create, without the URL.
       security:
         - session: []
           csrf: []
@@ -2122,13 +2128,14 @@ paths:
 
   /api/forwarding/telegram-discord/test:
     post:
-      x-tgd-status: planned
       operationId: testT2D
       tags: [forwarding]
       summary: Send a test message to a webhook
       description: >-
         To a saved webhook (id) or a URL being entered (webhook_url),
-        which must be a Discord webhook URL.
+        which must be a Discord webhook URL; a saved URL is checked
+        again. Changes nothing and is not audited. The answer never
+        carries the URL.
       security:
         - session: []
           csrf: []
@@ -2169,11 +2176,13 @@ paths:
 
   /api/forwarding/telegram-discord/{id}:
     patch:
-      x-tgd-status: planned
       operationId: updateT2D
       tags: [forwarding]
       summary: Change a Telegram to Discord webhook
-      description: The webhook URL is write-only; leave it out to keep it.
+      description: >-
+        The fields given change, the others stay; the chat cannot
+        change. The webhook URL is write-only; leave it out to keep it.
+        Audited as fwd_t2d_update.
       security:
         - session: []
           csrf: []
@@ -2204,10 +2213,10 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     delete:
-      x-tgd-status: planned
       operationId: deleteT2D
       tags: [forwarding]
       summary: Delete a Telegram to Discord webhook
+      description: Audited as fwd_t2d_delete.
       security:
         - session: []
           csrf: []
@@ -2257,15 +2266,20 @@ paths:
 
   /api/forwarding/discord-telegram:
     post:
-      x-tgd-status: planned
       operationId: createD2T
       tags: [forwarding]
       summary: Add a Discord to Telegram route
       description: >-
-        The viewer becomes its owner. The bot token is write-only, and
-        a bot already owned by another account is never reused or
-        shown. federation_id is needed only when more than one of the
-        owner's federations holds the group.
+        The viewer becomes its owner (once web-ownership stores it).
+        The bot token is write-only: the same token reuses its bot,
+        which is enabled again; once bots are owned, a bot of another
+        owner is never reused or shown. Refusals: 400 bad_channel (not
+        a Discord id), bad_token (not shaped <digits>:<secret>),
+        bad_request; 404 for a chat or federation as for webhooks; 409
+        duplicate when the channel already forwards to the chat.
+        federation_id is needed only when more than one of the owner's
+        federations holds the group. Audited as fwd_d2t_create, without
+        the token.
       security:
         - session: []
           csrf: []
@@ -2290,14 +2304,19 @@ paths:
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /api/forwarding/discord-telegram/{id}:
     patch:
-      x-tgd-status: planned
       operationId: updateD2T
       tags: [forwarding]
       summary: Change a Discord to Telegram route
-      description: The bot token is write-only; leave it out to keep it.
+      description: >-
+        The fields given change, the others stay; the channel and the
+        chat cannot change. The bot token is write-only; leave it out
+        to keep the bot, give one to send through that bot instead.
+        Audited as fwd_d2t_update.
       security:
         - session: []
           csrf: []
@@ -2328,10 +2347,13 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     delete:
-      x-tgd-status: planned
       operationId: deleteD2T
       tags: [forwarding]
       summary: Delete a Discord to Telegram route
+      description: >-
+        A route that has sent messages is refused (409 in_use): those
+        rows map Discord messages to their Telegram copies for replies
+        and edits; disable it instead. Audited as fwd_d2t_delete.
       security:
         - session: []
           csrf: []
@@ -2346,6 +2368,8 @@ paths:
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /api/forwarding/discord-telegram/{id}/transfer:
     post:
@@ -2759,6 +2783,14 @@ components:
         The daemon gave no outcome: its API is off or unreachable,
         TDLib is not ready, or Telegram did not answer in time (error
         daemon); message says what to do.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: >-
+        The change conflicts with what is stored (the error code says
+        what; message is the sentence to show).
       content:
         application/json:
           schema:
@@ -4811,6 +4843,10 @@ components:
           type: boolean
     Owned:
       type: object
+      description: >-
+        Until web-ownership stores owners, every configuration is
+        shared: owner id 0 (named "Shared", active), the Default
+        federation, and no transfer candidates.
       required: [id, owner, federation, transfer_candidates]
       properties:
         id:
@@ -4857,6 +4893,9 @@ components:
             sent:
               type: integer
               format: int64
+              description: >-
+                Posts made to the webhook's URL; a message sent as a
+                caption and its media counts twice.
             last_sent:
               type: [string, 'null']
     D2TRoute:

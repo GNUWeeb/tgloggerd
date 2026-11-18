@@ -727,7 +727,7 @@ export interface paths {
         put?: never;
         /**
          * Add a Telegram to Discord webhook
-         * @description The viewer becomes its owner. federation_id is needed only when more than one of the owner's federations holds the group.
+         * @description For viewers with the forward ability (superadmins and admins today); anyone else gets 404, and so does a chat the logger has not seen or the viewer may not see, or a federation the viewer does not administer. chat_kind must match the chat id (group negative, user positive). federation_id is needed only when more than one of the owner's federations holds the group. The viewer becomes its owner once ownership is stored (web-ownership); until then every configuration is shared. Audited as fwd_t2d_create, without the URL.
          */
         post: operations["createT2D"];
         delete?: never;
@@ -747,7 +747,7 @@ export interface paths {
         put?: never;
         /**
          * Send a test message to a webhook
-         * @description To a saved webhook (id) or a URL being entered (webhook_url), which must be a Discord webhook URL.
+         * @description To a saved webhook (id) or a URL being entered (webhook_url), which must be a Discord webhook URL; a saved URL is checked again. Changes nothing and is not audited. The answer never carries the URL.
          */
         post: operations["testT2D"];
         delete?: never;
@@ -766,13 +766,16 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a Telegram to Discord webhook */
+        /**
+         * Delete a Telegram to Discord webhook
+         * @description Audited as fwd_t2d_delete.
+         */
         delete: operations["deleteT2D"];
         options?: never;
         head?: never;
         /**
          * Change a Telegram to Discord webhook
-         * @description The webhook URL is write-only; leave it out to keep it.
+         * @description The fields given change, the others stay; the chat cannot change. The webhook URL is write-only; leave it out to keep it. Audited as fwd_t2d_update.
          */
         patch: operations["updateT2D"];
         trace?: never;
@@ -808,7 +811,7 @@ export interface paths {
         put?: never;
         /**
          * Add a Discord to Telegram route
-         * @description The viewer becomes its owner. The bot token is write-only, and a bot already owned by another account is never reused or shown. federation_id is needed only when more than one of the owner's federations holds the group.
+         * @description The viewer becomes its owner (once web-ownership stores it). The bot token is write-only: the same token reuses its bot, which is enabled again; once bots are owned, a bot of another owner is never reused or shown. Refusals: 400 bad_channel (not a Discord id), bad_token (not shaped <digits>:<secret>), bad_request; 404 for a chat or federation as for webhooks; 409 duplicate when the channel already forwards to the chat. federation_id is needed only when more than one of the owner's federations holds the group. Audited as fwd_d2t_create, without the token.
          */
         post: operations["createD2T"];
         delete?: never;
@@ -827,13 +830,16 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a Discord to Telegram route */
+        /**
+         * Delete a Discord to Telegram route
+         * @description A route that has sent messages is refused (409 in_use): those rows map Discord messages to their Telegram copies for replies and edits; disable it instead. Audited as fwd_d2t_delete.
+         */
         delete: operations["deleteD2T"];
         options?: never;
         head?: never;
         /**
          * Change a Discord to Telegram route
-         * @description The bot token is write-only; leave it out to keep it.
+         * @description The fields given change, the others stay; the channel and the chat cannot change. The bot token is write-only; leave it out to keep the bot, give one to send through that bot instead. Audited as fwd_d2t_update.
          */
         patch: operations["updateD2T"];
         trace?: never;
@@ -1940,6 +1946,7 @@ export interface components {
             role?: string;
             active?: boolean;
         };
+        /** @description Until web-ownership stores owners, every configuration is shared: owner id 0 (named "Shared", active), the Default federation, and no transfer candidates. */
         Owned: {
             /** Format: int64 */
             id: number;
@@ -1960,7 +1967,10 @@ export interface components {
             url_masked: string;
             types: components["schemas"]["T2DTypes"];
             enabled: boolean;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Posts made to the webhook's URL; a message sent as a caption and its media counts twice.
+             */
             sent: number;
             last_sent: string | null;
         };
@@ -2158,6 +2168,15 @@ export interface components {
         };
         /** @description The daemon gave no outcome: its API is off or unreachable, TDLib is not ready, or Telegram did not answer in time (error daemon); message says what to do. */
         DaemonFailed: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The change conflicts with what is stored (the error code says what; message is the sentence to show). */
+        Conflict: {
             headers: {
                 [name: string]: unknown;
             };
@@ -3830,6 +3849,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     deleteD2T: {
@@ -3853,6 +3873,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     updateD2T: {
