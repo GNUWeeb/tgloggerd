@@ -424,7 +424,39 @@ const char *forward_kind_str(models::MessageContentType t)
 	case models::MessageContentType::Sticker:   return "sticker";
 	case models::MessageContentType::Animation: return "animation";
 	case models::MessageContentType::Service:   return "service";
+	case models::MessageContentType::VideoNote: return "video_note";
+	case models::MessageContentType::Location:  return "location";
+	case models::MessageContentType::Venue:     return "venue";
+	case models::MessageContentType::Contact:   return "contact";
+	case models::MessageContentType::Dice:      return "dice";
+	case models::MessageContentType::Game:      return "game";
+	case models::MessageContentType::Poll:      return "poll";
+	case models::MessageContentType::Checklist: return "checklist";
+	case models::MessageContentType::Story:     return "story";
+	case models::MessageContentType::PaidMedia: return "paid_media";
+	case models::MessageContentType::Invoice:   return "invoice";
+	case models::MessageContentType::Giveaway:  return "giveaway";
+	case models::MessageContentType::Call:      return "call";
 	default:                                    return "";
+	}
+}
+
+/* Whether a content kind has a main file the forwarder mirrors once it is
+ * stored (message_content_file returns it). */
+bool forward_kind_has_file(models::MessageContentType t)
+{
+	switch (t) {
+	case models::MessageContentType::Photo:
+	case models::MessageContentType::Video:
+	case models::MessageContentType::Document:
+	case models::MessageContentType::Audio:
+	case models::MessageContentType::Voice:
+	case models::MessageContentType::Sticker:
+	case models::MessageContentType::Animation:
+	case models::MessageContentType::VideoNote:
+		return true;
+	default:
+		return false;
 	}
 }
 
@@ -1806,8 +1838,19 @@ void TDLib::Impl::build_forward_message(const td_api::message &message,
 		extract_fmt_entities(*ft, fm.entities);
 	fm.kind = forward_kind_str(mc.content_type);
 	/* Media kinds carry a downloadable file (forwarded once stored). */
-	fm.has_file = !fm.kind.empty() && fm.kind != "text" &&
-		      fm.kind != "service";
+	fm.has_file = forward_kind_has_file(mc.content_type);
+
+	/*
+	 * Content with nothing to read but its structure (a location, a poll,
+	 * a contact, ...) is forwarded as a short rendering of it, after any
+	 * text or caption so that the entities, which index into that text,
+	 * stay where they are.
+	 */
+	if (message.content_) {
+		std::string summary = forward_summary(*message.content_);
+		if (!summary.empty())
+			fm.text += (fm.text.empty() ? "" : "\n") + summary;
+	}
 }
 
 void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,

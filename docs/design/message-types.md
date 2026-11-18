@@ -643,9 +643,27 @@ for the detail of section 4.2 (decision
 ### 4.10 Forwarding to Discord
 
 The new kinds are forwarded under the existing `fwd_other` flag
-(migration 000031), as a short text rendering (a location as a map
-link, a contact as name and phone, a poll as its question and options,
-a dice as its value) plus the main file where there is one.
+(migration 000031). A kind with nothing to read but its structure is
+forwarded as a short plain-text line after its text or caption, which
+keeps the caption's formatting offsets valid:
+
+| Kind | Line |
+|---|---|
+| location, live location | `Location: <map link>`, `Live location: <map link>` (OpenStreetMap) |
+| venue | `Venue: <title>, <address>` and a map link |
+| contact | `Contact: <name>, <phone>` |
+| dice | `Dice <emoji>: <value>` |
+| poll | `Poll: <question>` (or `Quiz:`) and one `- <option>` line per option |
+| game | `Game: <title>` |
+| story | `Shared a story` |
+| invoice | `Invoice: <title> (<currency>)` |
+| checklist | `Checklist:` and one `[x]` or `[ ]` line per task, under the title (the message text) |
+| call | `Call, 1:23`, `Video call`, `Missed call`, `Declined video call`; `Group call, 1:02:05` |
+| giveaway | `Giveaway: <n> winners` |
+| paid media | `Paid media: <n> items, <stars> stars` |
+
+A video note forwards its round video as its file, like any other
+media; paid media has no main file and forwards its line only.
 
 ## 5. Web impact (Go port; the main session's work)
 

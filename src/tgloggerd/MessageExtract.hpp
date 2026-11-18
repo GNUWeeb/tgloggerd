@@ -238,6 +238,16 @@ formatted_text_entities_json(const td_api::formattedText &ft);
 /* A fact check as the "fact_check" value of meta, or nullopt for none. */
 std::optional<std::string> fact_check_json(const td_api::factCheck *fc);
 
+/*
+ * A short plain-text rendering of content that has no text of its own to
+ * forward, for the Discord forwarder: a location as a map link, a contact
+ * as its name and phone, a poll as its question and options, and so on
+ * for venues, dice, games, shared stories, invoices, checklists, calls,
+ * giveaways and paid media. Empty for every other class, whose text (or
+ * caption) and file say it all.
+ */
+std::string forward_summary(const td_api::MessageContent &c);
+
 /* The largest size of a photo, or nullptr. */
 const td_api::file *photo_best_size(const td_api::photo *p);
 

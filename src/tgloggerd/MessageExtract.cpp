@@ -14,6 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdio>
 #include <exception>
 #include <string>
 #include <optional>
@@ -2801,6 +2802,177 @@ std::optional<std::string> message_meta_json(const td_api::message &m)
 	if (j.empty())
 		return std::nullopt;
 	return j.dump();
+}
+
+namespace {
+
+/* Coordinates as plain decimal degrees, enough for a map link. */
+std::string coord(double v)
+{
+	char buf[32];
+	snprintf(buf, sizeof(buf), "%.6f", v);
+	return buf;
+}
+
+std::string map_link(const td_api::location *l)
+{
+	if (!l)
+		return std::string();
+	const std::string lat = coord(l->latitude_), lon = coord(l->longitude_);
+	return "https://www.openstreetmap.org/?mlat=" + lat + "&mlon=" + lon +
+	       "#map=17/" + lat + "/" + lon;
+}
+
+std::string duration_text(int32_t seconds)
+{
+	char buf[32];
+	if (seconds >= 3600)
+		snprintf(buf, sizeof(buf), "%d:%02d:%02d", seconds / 3600,
+			 seconds / 60 % 60, seconds % 60);
+	else
+		snprintf(buf, sizeof(buf), "%d:%02d", seconds / 60, seconds % 60);
+	return buf;
+}
+
+std::string text_of(const td_api::formattedText *ft)
+{
+	return ft ? ft->text_ : std::string();
+}
+
+} /* namespace */
+
+std::string forward_summary(const td_api::MessageContent &c)
+{
+	switch (c.get_id()) {
+	case td_api::messageLocation::ID: {
+		auto &m = static_cast<const td_api::messageLocation &>(c);
+		return "Location: " + map_link(m.location_.get());
+	}
+	case td_api::messageLiveLocation::ID: {
+		auto &m = static_cast<const td_api::messageLiveLocation &>(c);
+		return "Live location: " +
+		       map_link(m.location_ ? m.location_->location_.get()
+					    : nullptr);
+	}
+	case td_api::messageVenue::ID: {
+		auto &m = static_cast<const td_api::messageVenue &>(c);
+		if (!m.venue_)
+			return "Venue";
+		std::string out = "Venue: " + m.venue_->title_;
+		if (!m.venue_->address_.empty())
+			out += ", " + m.venue_->address_;
+		std::string link = map_link(m.venue_->location_.get());
+		if (!link.empty())
+			out += "\n" + link;
+		return out;
+	}
+	case td_api::messageContact::ID: {
+		auto &m = static_cast<const td_api::messageContact &>(c);
+		if (!m.contact_)
+			return "Contact";
+		std::string name = m.contact_->first_name_;
+		if (!m.contact_->last_name_.empty())
+			name += (name.empty() ? "" : " ") + m.contact_->last_name_;
+		std::string out = "Contact: " + name;
+		if (!m.contact_->phone_number_.empty())
+			out += (name.empty() ? "" : ", ") + m.contact_->phone_number_;
+		return out;
+	}
+	case td_api::messageDice::ID: {
+		auto &m = static_cast<const td_api::messageDice &>(c);
+		std::string out = "Dice " + m.emoji_;
+		if (m.value_ != 0)
+			out += ": " + std::to_string(m.value_);
+		return out;
+	}
+	case td_api::messageStakeDice::ID: {
+		auto &m = static_cast<const td_api::messageStakeDice &>(c);
+		return m.value_ != 0 ? "Dice: " + std::to_string(m.value_)
+				     : std::string("Dice");
+	}
+	case td_api::messagePoll::ID: {
+		auto &m = static_cast<const td_api::messagePoll &>(c);
+		if (!m.poll_)
+			return "Poll";
+		const bool quiz = m.poll_->type_ &&
+			m.poll_->type_->get_id() == td_api::pollTypeQuiz::ID;
+		std::string out = std::string(quiz ? "Quiz: " : "Poll: ") +
+				  text_of(m.poll_->question_.get());
+		for (const auto &o : m.poll_->options_)
+			if (o)
+				out += "\n- " + text_of(o->text_.get());
+		return out;
+	}
+	case td_api::messageGame::ID: {
+		auto &m = static_cast<const td_api::messageGame &>(c);
+		return m.game_ ? "Game: " + m.game_->title_ : std::string("Game");
+	}
+	case td_api::messageStory::ID:
+		return "Shared a story";
+	case td_api::messageInvoice::ID: {
+		auto &m = static_cast<const td_api::messageInvoice &>(c);
+		std::string out = "Invoice";
+		if (m.product_info_ && !m.product_info_->title_.empty())
+			out += ": " + m.product_info_->title_;
+		if (!m.currency_.empty())
+			out += " (" + m.currency_ + ")";
+		return out;
+	}
+	case td_api::messageChecklist::ID: {
+		auto &m = static_cast<const td_api::messageChecklist &>(c);
+		/* The title is the message text already. */
+		std::string out = "Checklist:";
+		if (m.list_)
+			for (const auto &t : m.list_->tasks_)
+				if (t)
+					out += std::string("\n") +
+					       (t->completed_by_ ? "[x] " : "[ ] ") +
+					       text_of(t->text_.get());
+		return out;
+	}
+	case td_api::messageCall::ID: {
+		auto &m = static_cast<const td_api::messageCall &>(c);
+		const char *what = m.is_video_ ? "Video call" : "Call";
+		if (m.discard_reason_ &&
+		    m.discard_reason_->get_id() == td_api::callDiscardReasonMissed::ID)
+			return std::string("Missed ") +
+			       (m.is_video_ ? "video call" : "call");
+		if (m.discard_reason_ &&
+		    m.discard_reason_->get_id() == td_api::callDiscardReasonDeclined::ID)
+			return std::string("Declined ") +
+			       (m.is_video_ ? "video call" : "call");
+		if (m.duration_ > 0)
+			return std::string(what) + ", " + duration_text(m.duration_);
+		return what;
+	}
+	case td_api::messageGroupCall::ID: {
+		auto &m = static_cast<const td_api::messageGroupCall &>(c);
+		std::string out = m.is_video_ ? "Group video call" : "Group call";
+		if (m.duration_ > 0)
+			out += ", " + duration_text(m.duration_);
+		return out;
+	}
+	case td_api::messageGiveaway::ID: {
+		auto &m = static_cast<const td_api::messageGiveaway &>(c);
+		std::string out = "Giveaway";
+		if (m.winner_count_ > 0)
+			out += ": " + std::to_string(m.winner_count_) +
+			       (m.winner_count_ == 1 ? " winner" : " winners");
+		return out;
+	}
+	case td_api::messagePaidMedia::ID: {
+		auto &m = static_cast<const td_api::messagePaidMedia &>(c);
+		std::string out = "Paid media";
+		if (!m.media_.empty())
+			out += ": " + std::to_string(m.media_.size()) +
+			       (m.media_.size() == 1 ? " item" : " items");
+		if (m.star_count_ > 0)
+			out += ", " + std::to_string(m.star_count_) + " stars";
+		return out;
+	}
+	default:
+		return std::string();
+	}
 }
 
 } /* namespace tgloggerd */
