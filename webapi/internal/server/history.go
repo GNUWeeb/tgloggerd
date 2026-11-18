@@ -42,16 +42,6 @@ func (v view) groupHistory(es []logdb.HistoryEntry, users map[int64]logdb.User) 
 	return out
 }
 
-// userHistory turns an entry of a user's timeline into JSON, a photo
-// change with its photo_id (the item of GET /api/users/{id}/photos).
-func (v view) userHistory(e logdb.HistoryEntry) historyJSON {
-	h := v.history(e)
-	if e.Kind == "photo" && e.Photo.ID != 0 {
-		h.PhotoID = ptrTo(e.RowID())
-	}
-	return h
-}
-
 // historyRequest reads the path's id and the before and limit
 // parameters; false when it has answered already.
 func historyRequest(w http.ResponseWriter, r *http.Request) (id int64, before string, limit int, ok bool) {
@@ -102,7 +92,7 @@ func (s *Server) getUserHistory(w http.ResponseWriter, r *http.Request) {
 	v := s.viewFor(sc, true)
 	a := historyAnswer{Entries: []historyJSON{}, Next: nextCursor(h)}
 	for _, e := range h.Entries {
-		a.Entries = append(a.Entries, v.userHistory(e))
+		a.Entries = append(a.Entries, v.history(e))
 	}
 	writeJSON(w, http.StatusOK, a)
 }
@@ -129,20 +119,46 @@ func (s *Server) userInFull(w http.ResponseWriter, r *http.Request, sc scope.Sco
 	return us[0], true
 }
 
-// userPhotoJSON is one of a user's recorded profile photos
-// (UserPhoto).
-type userPhotoJSON struct {
+// photoJSON is one recorded photo of a user or group (logdb.Photo).
+type photoJSON struct {
 	ID     uint64  `json:"id"`
 	At     string  `json:"at"`
 	URL    *string `json:"url"`
 	FileID *uint64 `json:"file_id"`
 }
 
-// userPhotosAnswer is UserPhotos: the photos, and which is the current
-// one.
-type userPhotosAnswer struct {
-	Items     []userPhotoJSON `json:"items"`
-	CurrentID *uint64         `json:"current_id"`
+// photosAnswer is UserPhotos and GroupPhotos: the photos, and which is
+// the current one.
+type photosAnswer struct {
+	Items     []photoJSON `json:"items"`
+	CurrentID *uint64     `json:"current_id"`
+}
+
+// photos turns the recorded photos into their answer; current is the
+// file of the photo now (0 for none).
+func (v view) photos(ps []logdb.Photo, current uint64) photosAnswer {
+	a := photosAnswer{Items: []photoJSON{}}
+	for _, p := range ps {
+		a.Items = append(a.Items, photoJSON{ID: p.ID, At: iso(p.At), URL: v.photo(p.File),
+			FileID: ptrTo(p.File.ID)})
+		// The current photo is the newest time its file was set; the
+		// same file may have been the photo before.
+		if a.CurrentID == nil && current != 0 && p.File.ID == current {
+			a.CurrentID = ptrTo(p.ID)
+		}
+	}
+	return a
+}
+
+// photoOwnerID is the path's id; false, having answered 404, when it
+// is no number.
+func photoOwnerID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		notFound(w)
+		return 0, false
+	}
+	return id, true
 }
 
 // getUserPhotos answers GET /api/users/{id}/photos: every recorded
@@ -153,9 +169,8 @@ type userPhotosAnswer struct {
 func (s *Server) getUserPhotos(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	sc := ScopeFrom(r.Context())
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		notFound(w)
+	id, ok := photoOwnerID(w, r)
+	if !ok {
 		return
 	}
 	u, ok := s.userInFull(w, r, sc, id, "photos")
@@ -167,18 +182,34 @@ func (s *Server) getUserPhotos(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "photos", err)
 		return
 	}
-	v := s.viewFor(sc, true)
-	a := userPhotosAnswer{Items: []userPhotoJSON{}}
-	for _, p := range ps {
-		a.Items = append(a.Items, userPhotoJSON{ID: p.ID, At: iso(p.At), URL: v.photo(p.File),
-			FileID: ptrTo(p.File.ID)})
-		// The current photo is the newest time its file was set; the
-		// same file may have been the photo before.
-		if a.CurrentID == nil && u.Photo.ID != 0 && p.File.ID == u.Photo.ID {
-			a.CurrentID = ptrTo(p.ID)
-		}
+	writeJSON(w, http.StatusOK, s.viewFor(sc, true).photos(ps, u.Photo.ID))
+}
+
+// getGroupPhotos answers GET /api/groups/{id}/photos, the group page's
+// carousel, as getUserPhotos does for users: for a group the scope
+// sees, as the group's history.
+func (s *Server) getGroupPhotos(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	sc := ScopeFrom(r.Context())
+	id, ok := photoOwnerID(w, r)
+	if !ok {
+		return
 	}
-	writeJSON(w, http.StatusOK, a)
+	gs, err := logdb.VisibleGroups(r.Context(), s.ro, sc, []int64{id})
+	if err != nil {
+		s.internalError(w, "photos", err)
+		return
+	}
+	if len(gs) == 0 {
+		notFound(w)
+		return
+	}
+	ps, err := logdb.GroupPhotos(r.Context(), s.ro, id)
+	if err != nil {
+		s.internalError(w, "photos", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.viewFor(sc, true).photos(ps, gs[0].Photo.ID))
 }
 
 // getGroupHistory answers GET /api/groups/{id}/history, for a group the

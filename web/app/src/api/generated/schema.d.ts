@@ -1167,6 +1167,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/groups/{id}/photos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every recorded photo of a group
+         * @description The group's photos as the logger recorded them (telegram_group_hist_photo), newest first and at most 500, for the group page's photo carousel, as getUserPhotos answers for a user; the photo removals are left out. Each item's id is the photo_id of its photo change in the group's history (GroupHistoryEntry). current_id is the item of the group's current photo (telegram_groups.photo_file_id): the newest one with that file, or null. For a group the viewer sees, as the group page and its history; any other, a group hidden from an admin included, is 404. Not public, not even for an exposed group.
+         */
+        get: operations["getGroupPhotos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1634,19 +1654,20 @@ export interface components {
              */
             photo_id?: number;
         };
+        /** @description A user's recorded profile photos (getUserPhotos), or a group's recorded photos (getGroupPhotos). */
         UserPhotos: {
             /** @description Newest first, at most 500. */
             items: components["schemas"]["UserPhoto"][];
             /**
              * Format: int64
-             * @description The id of the item that is the user's current photo, or null.
+             * @description The id of the item that is the user's or group's current photo, or null.
              */
             current_id: number | null;
         };
         UserPhoto: {
             /**
              * Format: int64
-             * @description The photo's history row; the photo_id of its photo change in the history.
+             * @description The photo's history row; the photo_id of its photo change in the user's or group's history.
              */
             id: number;
             /** @description When the photo was set (recorded), RFC 3339. */
@@ -1690,6 +1711,11 @@ export interface components {
             status?: "creator" | "administrator";
             photo?: string | null;
             removed?: boolean;
+            /**
+             * Format: int64
+             * @description A photo change's photo: the id of its item in GET /api/groups/{id}/photos. Absent for a removal and for the other kinds.
+             */
+            photo_id?: number;
             user?: components["schemas"]["UserSummary"];
         };
         /** @enum {string} */
@@ -5238,6 +5264,32 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getGroupPhotos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group's Telegram chat id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The photos, and which is the current one. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPhotos"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
             503: components["responses"]["SessionUnavailable"];

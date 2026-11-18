@@ -3400,6 +3400,47 @@ paths:
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
+  /api/groups/{id}/photos:
+    get:
+      operationId: getGroupPhotos
+      tags: [history]
+      summary: Every recorded photo of a group
+      description: >-
+        The group's photos as the logger recorded them
+        (telegram_group_hist_photo), newest first and at most 500, for
+        the group page's photo carousel, as getUserPhotos answers for a
+        user; the photo removals are left out. Each item's id is the
+        photo_id of its photo change in the group's history
+        (GroupHistoryEntry). current_id is the item of the group's
+        current photo (telegram_groups.photo_file_id): the newest one
+        with that file, or null. For a group the viewer sees, as the
+        group page and its history; any other, a group hidden from an
+        admin included, is 404. Not public, not even for an exposed
+        group.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The group's Telegram chat id.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: The photos, and which is the current one.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPhotos'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
 components:
 
   securitySchemes:
@@ -4482,6 +4523,9 @@ components:
             the other kinds.
     UserPhotos:
       type: object
+      description: >-
+        A user's recorded profile photos (getUserPhotos), or a group's
+        recorded photos (getGroupPhotos).
       required: [items, current_id]
       properties:
         items:
@@ -4493,8 +4537,8 @@ components:
           type: [integer, 'null']
           format: int64
           description: >-
-            The id of the item that is the user's current photo, or
-            null.
+            The id of the item that is the user's or group's current
+            photo, or null.
     UserPhoto:
       type: object
       required: [id, at, url, file_id]
@@ -4504,7 +4548,7 @@ components:
           format: int64
           description: >-
             The photo's history row; the photo_id of its photo change
-            in the history.
+            in the user's or group's history.
         at:
           type: string
           description: When the photo was set (recorded), RFC 3339.
@@ -4572,6 +4616,13 @@ components:
           type: [string, 'null']
         removed:
           type: boolean
+        photo_id:
+          type: integer
+          format: int64
+          description: >-
+            A photo change's photo: the id of its item in
+            GET /api/groups/{id}/photos. Absent for a removal and for
+            the other kinds.
         user:
           $ref: '#/components/schemas/UserSummary'
     MessageScope:

@@ -1,5 +1,6 @@
--- Dummy profile photo history for the user page's photo carousel (GET
--- /api/users/{id}/photos), loaded after "sample". Invented for tests.
+-- Dummy photo history for the user and group pages' photo carousel
+-- (GET /api/users/{id}/photos, /api/groups/{id}/photos), loaded after
+-- "sample". Invented for tests.
 --
 -- Ids, beside the sample's:
 --   users      9299400001 (Foto Banyak), 9299400002 (Foto Lain)
@@ -12,7 +13,9 @@
 -- current photo), 1003 (850002, metadata only: the tests have no
 -- daemon, so it cannot be served), 1002 (removed), 1001 (850001).
 -- Foto Lain has one photo (1006), which must not show for Foto Banyak.
--- GNU/Weeb (sample) gets a photo change with a file (1001).
+-- GNU/Weeb's (sample) photos, newest first: 1003 (880008, the current
+-- photo), 1002 (removed), 1001 (850003), 1004 (850002, cannot be
+-- served). Linux Kernel Indonesia (sample) has one photo (1005).
 
 INSERT INTO telegram_files (id, tg_file_id, tg_unique_id, file_type, file_size, on_disk,
 	sha256, file_ext, orig_file_name, hit_count, created_at, updated_at, accessed_at)
@@ -43,4 +46,8 @@ INSERT INTO telegram_user_hist_profile_photo (id, user_id, file_id, created_at) 
 	(1006, 9299400002, 850003, '2026-07-02 10:00:00');
 
 INSERT INTO telegram_group_hist_photo (id, group_id, file_id, created_at) VALUES
-	(1001, -1001000000001, 850003, '2026-07-01 10:00:00');
+	(1001, -1001000000001, 850003, '2026-07-01 10:00:00'),
+	(1002, -1001000000001, NULL, '2026-08-01 10:00:00'),
+	(1003, -1001000000001, 880008, '2026-09-01 10:00:00'),
+	(1004, -1001000000001, 850002, '2026-02-01 10:00:00'),
+	(1005, -1001000000002, 850001, '2026-09-02 10:00:00');

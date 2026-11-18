@@ -6,6 +6,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,16 +19,16 @@ import (
 	"tgloggerd/webapi/internal/testdb"
 )
 
-// The user page's photo carousel: GET /api/users/{id}/photos and the
-// photo_id of the history's photo changes, on the logger fixtures
-// "sample" and "photos".
+// The user and group pages' photo carousel: GET /api/users/{id}/photos,
+// GET /api/groups/{id}/photos and the photo_id of the history's photo
+// changes, on the logger fixtures "sample" and "photos".
 
 const (
 	fotoBanyak = 9299400001 // five photo changes, one a removal
 	fotoLain   = 9299400002
 )
 
-func newPhotosEnv(t *testing.T) *chatEnv {
+func newPhotosEnv(t *testing.T) (*chatEnv, *sql.DB) {
 	t.Helper()
 	ro := testdb.New(t, testdb.Logger, "sample", "photos").DB
 	app := testdb.New(t, testdb.Web, "accounts").DB
@@ -44,7 +45,7 @@ func newPhotosEnv(t *testing.T) *chatEnv {
 		Tokens:  e.tokens,
 		clock:   func() time.Time { return chatNow },
 	})
-	return e
+	return e, app
 }
 
 type tPhoto struct {
@@ -65,7 +66,7 @@ func photosPath(id int64) string {
 
 func TestUserPhotos(t *testing.T) {
 	t.Parallel()
-	e := newPhotosEnv(t)
+	e, _ := newPhotosEnv(t)
 
 	// Every photo newest first (a tie by row id), the removal left
 	// out, another user's absent; the file that cannot be served has
@@ -157,7 +158,7 @@ func histPhotoIDs(t *testing.T, es []map[string]json.RawMessage) []uint64 {
 
 func TestUserHistoryPhotoID(t *testing.T) {
 	t.Parallel()
-	e := newPhotosEnv(t)
+	e, _ := newPhotosEnv(t)
 	want := fmt.Sprint([]uint64{1005, 1004, 1003, 0, 1001})
 
 	// The API's page and the user page and history page carry the
@@ -188,19 +189,70 @@ func TestUserHistoryPhotoID(t *testing.T) {
 		t.Errorf("photos ids %v", ids)
 	}
 
-	// A group's photo changes have no photo_id.
+	// A group's photo changes carry theirs too, on its pages and the
+	// API, the same as its photos answer's.
+	wantG := fmt.Sprint([]uint64{1003, 0, 1001, 1004})
 	var g struct{ Entries []map[string]json.RawMessage }
 	e.decode(histPath("groups", gnuWeeb, "", 0), e.as("admin"), 200, &g)
-	n := 0
-	for _, h := range g.Entries {
-		if string(h["kind"]) == `"photo"` {
-			n++
-			if _, ok := h["photo_id"]; ok || h["photo"] == nil {
-				t.Errorf("group photo change %v", h)
-			}
+	if got := fmt.Sprint(histPhotoIDs(t, g.Entries)); got != wantG {
+		t.Errorf("group api history photo ids %s, want %s", got, wantG)
+	}
+	for _, pg := range []struct{ path, route string }{
+		{fmt.Sprintf("/groups/%d", gnuWeeb), "group"},
+		{fmt.Sprintf("/groups/%d/history", gnuWeeb), "group_history"},
+	} {
+		gp := page[props](e, pg.path, "admin", 200, pg.route)
+		if got := fmt.Sprint(histPhotoIDs(t, gp.History)); got != wantG {
+			t.Errorf("%s photo ids %s, want %s", pg.path, got, wantG)
 		}
 	}
-	if n != 1 {
-		t.Errorf("group photo changes %d, want 1", n)
+}
+
+func TestGroupPhotos(t *testing.T) {
+	t.Parallel()
+	e, app := newPhotosEnv(t)
+	path := func(id int64) string { return fmt.Sprintf("/api/groups/%d/photos", id) }
+
+	// Every photo newest first, the removal and the other group's
+	// left out, the unservable file without a URL, the current photo
+	// marked.
+	var p tPhotos
+	e.decode(path(gnuWeeb), e.as("admin"), 200, &p)
+	var got []string
+	for _, it := range p.Items {
+		s := fmt.Sprintf("%d:%s:%d:%v", it.ID, it.At, *it.FileID, it.URL != nil)
+		if it.URL != nil && *it.URL != "/files/"+e.tokens.Encrypt(*it.FileID) {
+			t.Errorf("item %d: url %s", it.ID, *it.URL)
+		}
+		got = append(got, s)
+	}
+	want := "[1003:2026-09-01T10:00:00Z:880008:true 1001:2026-07-01T10:00:00Z:850003:true " +
+		"1004:2026-02-01T10:00:00Z:850002:false]"
+	if fmt.Sprint(got) != want {
+		t.Errorf("items %v, want %s", got, want)
+	}
+	if p.CurrentID == nil || *p.CurrentID != 1003 {
+		t.Errorf("current_id %v, want 1003", p.CurrentID)
+	}
+	// A group with no recorded photos: none, and no current one.
+	e.decode(path(-1001000000003), e.as("admin"), 200, &p)
+	if p.Items == nil || len(p.Items) != 0 || p.CurrentID != nil {
+		t.Errorf("no photos %+v %v", p.Items, p.CurrentID)
+	}
+
+	// The group page's access: an admin sees the group until it is
+	// hidden from it; a member, an unknown group and a bad id are 404;
+	// signed out it is 401, even for an exposed group.
+	e.decode(path(gnuWeeb), e.as("gw_admin"), 200, nil)
+	if _, err := app.Exec("INSERT INTO web_admin_hidden_groups (web_user_id, group_id) "+
+		"VALUES (3, ?)", gnuWeeb); err != nil {
+		t.Fatal(err)
+	}
+	e.decode(path(gnuWeeb), e.as("gw_admin"), 404, nil)
+	e.decode(path(gnuWeeb), e.as("researcher"), 404, nil)
+	e.decode(path(-1001999999999), e.as("admin"), 404, nil)
+	e.decode("/api/groups/x/photos", e.as("admin"), 404, nil)
+	if code, _, _ := e.get(path(gnuWeeb), ""); code != http.StatusUnauthorized {
+		t.Errorf("signed out: %d", code)
 	}
 }
