@@ -4155,23 +4155,32 @@ components:
         thumb:
           type: [string, 'null']
         chat:
-          type: object
-          required: [id, title, kind]
-          properties:
-            id:
-              type: integer
-              format: int64
-            title:
-              type: string
-            kind:
-              type: string
-              enum: [group, user]
+          description: >-
+            The chat of the first message the viewer sees that carried
+            the file; null when there is none (a profile or group
+            photo, or a message the viewer may not see).
+          oneOf:
+            - type: object
+              required: [id, title, kind]
+              properties:
+                id:
+                  type: integer
+                  format: int64
+                title:
+                  type: string
+                kind:
+                  type: string
+                  enum: [group, user]
+            - type: 'null'
         sender:
           oneOf:
             - $ref: '#/components/schemas/IdName'
             - type: 'null'
         message:
-          $ref: '#/components/schemas/MessageRef'
+          description: That message; null exactly when chat is null.
+          oneOf:
+            - $ref: '#/components/schemas/MessageRef'
+            - type: 'null'
     IdName:
       type: object
       required: [id, name]

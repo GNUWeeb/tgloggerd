@@ -1517,15 +1517,17 @@ export interface components {
             tg_file_id: string;
             url: string | null;
             thumb: string | null;
+            /** @description The chat of the first message the viewer sees that carried the file; null when there is none (a profile or group photo, or a message the viewer may not see). */
             chat: {
                 /** Format: int64 */
                 id: number;
                 title: string;
                 /** @enum {string} */
                 kind: "group" | "user";
-            };
+            } | null;
             sender: components["schemas"]["IdName"] | null;
-            message: components["schemas"]["MessageRef"];
+            /** @description That message; null exactly when chat is null. */
+            message: components["schemas"]["MessageRef"] | null;
         };
         IdName: {
             /** Format: int64 */

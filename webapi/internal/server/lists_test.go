@@ -202,7 +202,7 @@ func TestListFiles(t *testing.T) {
 		t.Errorf("voice in a private chat: %v", f)
 	}
 	// A profile photo was sent in no message.
-	if f := byID["880007"]; js(f["chat"]) != `{"id":0,"kind":"group","title":""}` || f["sender"] != nil {
+	if f := byID["880007"]; f["chat"] != nil || f["message"] != nil || f["sender"] != nil {
 		t.Errorf("profile photo: %v", f)
 	}
 	if pv := p["preview"].(map[string]any); pv["id"] != float64(880005) {
