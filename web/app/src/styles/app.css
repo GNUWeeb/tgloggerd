@@ -728,3 +728,21 @@
 .app .a-msgkind { margin: 4px 0 10px; max-width: 520px; }
 .app .a-msginteract { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
 .app .a-msgcounts { display: inline-flex; gap: 10px; }
+
+/* The search engine's options on the message lists (SearchEngine.tsx). */
+.app .a-engine { display: flex; flex-direction: column; gap: 8px; margin: -4px 0 12px; }
+.app .a-engine-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.app .a-engine-help { margin-left: auto; }
+.app .a-engine-syntax { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.app .a-engine-syntax > div { display: contents; }
+.app .a-engine-syntax dt { color: var(--accent-text); }
+.app .a-engine-syntax dd { margin: 0; color: var(--fg-2); }
+.app .a-facets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.app .a-facets > .a-muted { display: inline-flex; align-items: center; gap: 4px; }
+.app .a-facet { display: inline-flex; align-items: center; gap: 8px; max-width: 260px; height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); color: var(--fg); cursor: pointer; }
+.app .a-facet:hover:not(:disabled) { border-color: var(--accent); }
+.app .a-facet:disabled { cursor: default; opacity: .7; }
+.app .a-facet .num { color: var(--fg-3); }
+.app .a-hl mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.app .a-hl-gap { color: var(--fg-3); }
+@media (max-width: 640px) { .app .a-engine-help { margin-left: 0; } }
