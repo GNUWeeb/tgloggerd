@@ -141,6 +141,7 @@ Accounts, roles and federations:
 - [`web-member-access`](todo/web-member-access.md): Limit a member to its granted groups and show users only as they appear in them.
 - [`web-ownership`](todo/web-ownership.md): Record which account owns which resource, in a table built to take more relations later.
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
+- [`discord-bots-per-user`](todo/discord-bots-per-user.md): Keep Discord bot tokens in the database, per account, and have discordd run every enabled bot.
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
 - [`web-email`](todo/web-email.md): Give every account an email address for set-password links, password resets and security notices.
 - [`web-user-settings`](todo/web-user-settings.md): Apply every per-account setting in the list loaders and the React pages.

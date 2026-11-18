@@ -14,7 +14,15 @@ may follow (docs/design/web-accounts.md section 6).
   relation, created_at, created_by)` in the web DB, `relation` =
   `owner` today; helper API to read, set and transfer ownership,
   audited.
-- Not in scope: applying it to forwarding (forwarding-per-user).
+- The owned resource types: MCP exposed groups, MCP tokens, Telegram
+  bots, Discord bots, Telegram to Discord webhooks and Discord to
+  Telegram routes (decision 2026-11-18-ownership-and-bots.md).
+- A one-off command, run at deployment, that gives every resource
+  without an owner to a named account (`superadmin`, the first
+  superadmin), idempotent and audited; documented in web/docs/.
+- New resources are owned by the account that creates them.
+- Not in scope: applying it to forwarding (forwarding-per-user) and
+  to Discord bots (discord-bots-per-user).
 
 ## Design notes
 
