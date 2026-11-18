@@ -375,6 +375,11 @@ func writeFederation(ctx context.Context, tx *sql.Tx, id uint64, w FederationWri
 				return "", err
 			}
 		}
+		// A group that left the federation leaves its members'
+		// grants; one that joined it is no longer in Default.
+		if err := dropGrantsOfGroups(ctx, tx, id, added, removed); err != nil {
+			return "", err
+		}
 		if len(added)+len(removed) > 0 || old == nil {
 			detail += fmt.Sprintf("; groups +%d -%d", len(added), len(removed))
 		}
