@@ -38,7 +38,7 @@ service refs, interaction, topics):
 
 ## Depends on
 
-`msg-polls`, `msg-topics`
+`msg-topics`
 
 ## Done when
 

@@ -108,7 +108,6 @@ The file store as a capped cache in front of Telegram:
 Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
-- [`msg-polls`](todo/msg-polls.md): Store polls and quizzes with their options and keep their latest results current.
 - [`msg-topics`](todo/msg-topics.md): Record the forum topic or thread of each group message, and the topics themselves.
 - [`msg-meta`](todo/msg-meta.md): Store pinned state, via bot, reply quotes, story replies, forward source, keyboards and the other message-level fields.
 - [`msg-link-preview-extras`](todo/msg-link-preview-extras.md): Keep a link preview's description formatting, media position and the message's preview options.

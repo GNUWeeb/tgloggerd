@@ -13,6 +13,7 @@
 #include <tgloggerd/models/PrivateMessage.hpp>
 #include <tgloggerd/models/GroupMessage.hpp>
 #include <tgloggerd/models/LinkPreview.hpp>
+#include <tgloggerd/models/Poll.hpp>
 #include <tgloggerd/models/GroupAdmin.hpp>
 #include <tgloggerd/models/Backfill.hpp>
 
@@ -427,6 +428,13 @@ public:
 	 * preview after the message first arrives.
 	 */
 	void upsertLinkPreview(const models::LinkPreview &lp, bool is_group);
+
+	/*
+	 * Store a poll as it stands now: the poll and its current options,
+	 * updated in place, and the options it no longer lists marked
+	 * deleted. See models/Poll.cpp.
+	 */
+	void upsertPoll(const models::Poll &p);
 
 	/* Attach a downloaded image to a message's link preview. */
 	void setLinkPreviewPhoto(int64_t chat_id, int64_t message_id,

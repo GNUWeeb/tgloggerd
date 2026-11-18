@@ -64,6 +64,8 @@ add_executable(tgloggerd
 	src/tgloggerd/models/GroupAdmin.hpp
 	src/tgloggerd/models/GroupAdmin.cpp
 	src/tgloggerd/models/Backfill.hpp
+	src/tgloggerd/models/Poll.hpp
+	src/tgloggerd/models/Poll.cpp
 	src/tgloggerd/models/Backfill.cpp
 	src/tgloggerd/helpers/common.c
 	src/tgloggerd/helpers/common.h

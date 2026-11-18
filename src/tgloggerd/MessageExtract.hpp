@@ -6,6 +6,7 @@
 #define TGLOGGERD__MESSAGE_EXTRACT_HPP
 
 #include <tgloggerd/models/Message.hpp>
+#include <tgloggerd/models/Poll.hpp>
 
 #include <td/telegram/td_api.h>
 
@@ -184,6 +185,17 @@ struct ExtraFile {
  * change or suggestion.
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
+
+/*
+ * A TDLib poll as telegram_polls and telegram_poll_options keep it: what
+ * every reader of the chat sees, without this account's own vote and
+ * permissions.
+ */
+models::Poll extract_poll(const td_api::poll &p);
+
+/* The same for the poll of a message, with the poll's own media, which
+ * the message carries and updatePoll does not. */
+models::Poll extract_poll(const td_api::messagePoll &m);
 
 /* The largest size of a photo, or nullptr. */
 const td_api::file *photo_best_size(const td_api::photo *p);
