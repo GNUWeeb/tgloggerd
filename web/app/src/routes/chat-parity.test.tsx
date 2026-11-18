@@ -35,6 +35,19 @@ describe('chat parity', () => {
 		expect(within(row(0)).getByText('- Dewi Kusuma')).toBeTruthy();
 	});
 
+	it('names a chat the viewer may not see without linking it', () => {
+		const hidden = { id: 0, name: '(hidden chat)', username: '', type: 'unknown' as const, photo: null };
+		chatWith([
+			{ sender: hidden, text: 'posted as a hidden chat' },
+			{ forward: '(hidden chat)', forward_from: { type: 'channel', name: '(hidden chat)', date: '2026-11-01T08:00:00Z' } },
+			{ reply_to: { message_id: 5, sender_id: 0, sender_name: '(hidden chat)', snippet: 'hi', resolved: true } },
+		]);
+		expect(within(row(0)).getByText('(hidden chat)').closest('a')).toBeNull();
+		expect(row(0).querySelector('a[href="/users/0"]')).toBeNull();
+		expect(within(row(1)).getByText('(hidden chat)').closest('a')).toBeNull();
+		expect(row(2).querySelector('a[href*="/users/0"], a[href*="/groups/0"]')).toBeNull();
+	});
+
 	it('links a forward to where it came from', () => {
 		chatWith([
 			{ forward: 'Linux Weekly News', forward_from: { type: 'channel', name: 'Linux Weekly News', chat_id: -100123, message_id: 77 } },

@@ -68,7 +68,7 @@ function Messages({ page }: { page: PageData<MessagesProps> }) {
 		{ key: 'date', label: 'Sent', sort: true, cls: 'mono a-dim', render: (m) => <span title={m.date}>{dateTime(m.date, v)}</span> },
 		{ key: 'chat', label: scope === 'group' ? 'Group' : 'Chat with', cls: 'a-hide-md', render: (m) => <Link to={chatLink(m.chat)} className="a-chatcell"><Avatar id={m.chat.id} name={m.chat.title} photo={m.chat.photo} size={20} square={m.chat.kind === 'group'} /><span className="a-ellipsis">{m.chat.title}</span></Link> },
 		{ key: 'sender', label: scope === 'group' ? 'Sender' : 'From', render: (m) => (m.sender
-			? <Link to={`/users/${m.sender.id}`} className="a-chatcell"><Avatar id={m.sender.id} name={m.sender.name} photo={m.sender.photo} size={20} /><span className="a-ellipsis">{m.sender.name}</span></Link>
+			? m.sender.id === 0 ? <span className="a-chatcell a-muted"><span className="a-ellipsis">{m.sender.name}</span></span> : <Link to={`/users/${m.sender.id}`} className="a-chatcell"><Avatar id={m.sender.id} name={m.sender.name} photo={m.sender.photo} size={20} /><span className="a-ellipsis">{m.sender.name}</span></Link>
 			: <span className="a-out">you</span>) },
 		{ key: 'content_type', label: 'Type', render: (m) => <span className="a-typecell"><TypeIcon type={m.content_type} />{m.content_type}</span> },
 		{ key: 'text', label: 'Text', cls: 'a-textcell', render: (m) => <Link to={`/messages/${scope}/${m.id}`} className={`a-snippet ${m.deleted_at ? 'is-deleted' : ''} ${m.content_type === 'service' ? 'is-service' : ''}`}><Hl text={m.snippet} q={L.q} /></Link> },
