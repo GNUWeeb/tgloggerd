@@ -34,6 +34,10 @@ accounts and federations, described under Administration.
 
 And the MCP endpoint, /mcp, described under MCP.
 
+And account email: verified addresses, set-password and verification
+links, forgotten passwords and security notices, described under
+Account email.
+
 # The API contract
 
 openapi.yaml (OpenAPI 3.1) is the contract of the service's API: every
@@ -44,8 +48,7 @@ should they and the description ever differ, that is a bug in one of
 them, fixed in both at once.
 
 Operations designed but not served yet are in the description too,
-marked `x-tgd-status: planned`: the email and set-password actions,
-resending an invitation and the transfer of forwarding
+marked `x-tgd-status: planned`: the transfer of forwarding
 configurations. A port serves the operation and drops the marker in
 the same change. A per-account
 bearer-token scheme for clients without cookies is reserved there
@@ -145,21 +148,24 @@ text) and a fresh pre-login "csrf" token on refused logins.
                       passwords.
 
 The user object also carries must_change_password: the account signed
-in with a temporary password. Until it has chosen its own, every
-operation behind a session answers 403 password_change_required,
-except GET /api/session, POST /api/logout and POST
-/api/account/password (the gate of the request scope; see The request
-scope).
+in with a password set for it (typed by its creator, or a temporary
+one). Until it has chosen its own, every operation behind a session
+answers 403 password_change_required, except GET /api/session, POST
+/api/logout and POST /api/account/password (the gate of the request
+scope; see The request scope). There is no gate on a missing email
+address (see Account email).
 
 The accounts administration (GET and POST /api/accounts, GET and PATCH
-/api/accounts/{id}, and its disable, enable, password-reset and
-sign-out-everywhere actions) is described in openapi.yaml and
-web/docs/accounts.md: who manages whom comes from the request scope,
-new accounts and resets get a temporary password shown once, and the
-last active superadmin cannot be disabled or demoted. The federations
-editor (POST /api/federations, PATCH and DELETE
-/api/federations/{id}) is the superadmins' and is described there
-too.
+/api/accounts/{id}, and its disable, enable, password-reset,
+resend-invite and sign-out-everywhere actions) is described in
+openapi.yaml and web/docs/accounts.md: who manages whom comes from the
+request scope, a new account gets the first password its creator typed
+or a temporary one shown once (or, asked for, an invitation by email),
+a reset sends a link to a verified address when mail is set up and
+gives a temporary password otherwise, and the last active superadmin
+cannot be disabled or demoted. The federations editor (POST
+/api/federations, PATCH and DELETE /api/federations/{id}) is the
+superadmins' and is described there too.
 
 The login throttle is in the process's memory, as in Drogon, so each
 service counts failures on its own. The address logged and throttled
@@ -369,13 +375,14 @@ paths that are no page and for things the scope hides, 404 either way.
     its slashes plain or encoded as %2F, and the page's query string
     as its own. An empty path is the dashboard.
   - A signed-out visitor gets only the public pages: login, the three
-    email link pages (which answer reload for now) and the public
-    chats of exposed groups. Any other path, a page or not, answers
+    email link pages and the public chats of exposed groups. Any
+    other path, a page or not, answers
     401 on /api/page and redirects a document request to
     /login?next=<path and query>; so does the chat of a group that is
     not exposed, whether it exists or not.
-  - The email address gate (web-accounts.md section 8) has one hook,
-    Server.emailRequired in pages.go; web-email fills it in.
+  - The password gate comes before the loader, for every page but the
+    three link pages: a forced password change answers the
+    password_change route at the URL asked for.
   - The page data's viewer carries the display settings in effect,
     the account's own or the site's (web/docs/settings.md); the
     document's <html> takes its lang and theme.
@@ -496,8 +503,9 @@ private chat or user until grants exist (web-member-access), and then
 the users of their groups only by name and photo; admins may do all
 but join chats and look up real names, and manage the members of
 their federations (Scope.SeesAccount, AdministersFederation).
-Restrictions, grants and the verified-address gate plug into the scope
-without changing its callers. Without a session
+Restrictions and grants plug into the scope without changing its
+callers; there is no gate on a missing email address
+(decisions/2026-11-18-email-optional.md). Without a session
 the scope sees nothing; a file token is its own authorization.
 
 # Administration
@@ -637,6 +645,43 @@ MCP_TOKEN and both services' /mcp URLs:
 
     MCP_TOKEN=tgmcp_... scripts/mcp_compare.py \
         --a http://<drogon>/mcp --b http://<webapi>/mcp
+
+# Account email
+
+    POST /api/account/email          change the address (verification link)
+    POST /api/account/email/verify   use a verification link
+    POST /api/password/set           use a set-password link
+    POST /api/password/forgot        ask for a reset link
+    POST /api/accounts/{id}/resend-invite
+
+web/docs/email.md describes the flows and openapi.yaml the operations
+(Gates and Email links in its description). In short:
+
+  - Links are <site>/password/set#token=<token> and
+    <site>/account/email/verify#token=<token>, single-use, expiring,
+    stored as the SHA-256 of the token (web_email_links). The token is
+    in the fragment and the pages post it only when the person acts,
+    so the pages' GETs consume nothing.
+  - Email is optional, for each account and for the service
+    (decisions/2026-11-18-email-optional.md): no account is asked for
+    an address. Links and notices go out only when the account has an
+    address and mail is set up; otherwise nothing is sent and nothing
+    waits for mail.
+  - A new account gets a typed or a generated temporary password and
+    must change it at its first sign-in; with "invite": true, a
+    set-password link instead. A reset sends a link to a verified
+    address when mail is on, else gives a temporary password. Setting
+    a password from a link verifies the address it went to. The
+    forgotten-password form answers 202 whatever it is asked, sends
+    only to a verified address, and is throttled per client and per
+    account.
+  - The security notices (password, address, new device, disabled,
+    role) go to the verified address only. Texts come from
+    internal/i18n (mail.*), in the account's language and time zone.
+  - internal/mail sends through the SMTP relay of WEBAPI_SMTP_*: queued
+    in memory, never blocking a request, retried for about a day on a
+    temporary failure, logged without the bodies. Tests use
+    internal/mail/mailtest, an SMTP server on a loopback port.
 
 # Layout
 
@@ -873,6 +918,23 @@ and its own:
                          set none, default Asia/Jakarta, 24h, en and
                          system (web/docs/settings.md); a value the
                          preference does not take stops the service
+    WEBAPI_SMTP_HOST     the SMTP relay of account mail; unset turns
+                         mail off: no links or notices are sent, and
+                         first passwords and resets are temporary
+                         passwords
+    WEBAPI_SMTP_PORT     default 587, or 465 with tls
+    WEBAPI_SMTP_SECURITY starttls (default), tls, or none (a relay on
+                         the same host only)
+    WEBAPI_SMTP_USER, WEBAPI_SMTP_PASSWORD
+                         AUTH PLAIN; unset sends without
+    WEBAPI_SMTP_FROM     the sender; required with a relay
+    WEB_PUBLIC_URL       the site the links point to, falling back to
+                         TG_DISCORD_PUBLIC_URL; an http(s) URL is
+                         required with a relay
+    WEBAPI_INVITE_LINK_TTL, WEBAPI_RESET_LINK_TTL, WEBAPI_VERIFY_LINK_TTL
+                         seconds a link works: invitations and admin
+                         resets (default 259200), forgotten-password
+                         resets (3600), address verifications (86400)
 
 An empty value counts as unset. A malformed number stops the service at
 start. Logs are structured (log/slog, key=value) on stderr, one line per

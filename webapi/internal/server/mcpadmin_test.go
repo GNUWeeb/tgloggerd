@@ -142,7 +142,7 @@ func TestMcpHiddenGroups(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t)
 	ctx := context.Background()
-	member := scope.For(scope.Viewer{ID: 5, Role: scope.Member, EmailVerified: true})
+	member := scope.For(scope.Viewer{ID: 5, Role: scope.Member})
 	if ok, err := logdb.GroupVisible(ctx, e.ro, member, -1001000000002); ok || err != nil {
 		t.Errorf("member sees the group: %v %v", ok, err)
 	}

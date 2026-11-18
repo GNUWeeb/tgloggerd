@@ -26,9 +26,9 @@ func TestParseRole(t *testing.T) {
 }
 
 func TestVisibility(t *testing.T) {
-	super := For(Viewer{ID: 1, Role: Superadmin, EmailVerified: true})
-	admin := For(Viewer{ID: 2, Role: Admin, EmailVerified: true})
-	member := For(Viewer{ID: 3, Role: Member, EmailVerified: true})
+	super := For(Viewer{ID: 1, Role: Superadmin})
+	admin := For(Viewer{ID: 2, Role: Admin})
+	member := For(Viewer{ID: 3, Role: Member})
 	for _, tc := range []struct {
 		name               string
 		s                  Scope
@@ -57,9 +57,9 @@ func TestVisibility(t *testing.T) {
 }
 
 func TestAbilitiesAndPages(t *testing.T) {
-	super := For(Viewer{ID: 1, Role: Superadmin, EmailVerified: true})
-	admin := For(Viewer{ID: 2, Role: Admin, EmailVerified: true})
-	member := For(Viewer{ID: 3, Role: Member, EmailVerified: true})
+	super := For(Viewer{ID: 1, Role: Superadmin})
+	admin := For(Viewer{ID: 2, Role: Admin})
+	member := For(Viewer{ID: 3, Role: Member})
 	all := []Ability{JoinChat, LookupName, ManageMCP, StoreAudit, Forward, FetchFiles}
 	for _, a := range all {
 		if !super.Can(a) {
@@ -97,9 +97,9 @@ func TestAbilitiesAndPages(t *testing.T) {
 }
 
 func TestManagingAccounts(t *testing.T) {
-	super := For(Viewer{ID: 1, Role: Superadmin, EmailVerified: true})
-	admin := For(Viewer{ID: 2, Role: Admin, EmailVerified: true, AdminOf: []uint64{DefaultFederation}})
-	member := For(Viewer{ID: 3, Role: Member, EmailVerified: true})
+	super := For(Viewer{ID: 1, Role: Superadmin})
+	admin := For(Viewer{ID: 2, Role: Admin, AdminOf: []uint64{DefaultFederation}})
+	member := For(Viewer{ID: 3, Role: Member})
 	roles := []Role{Superadmin, Admin, Member}
 
 	if !super.ManagesAccounts() || !admin.ManagesAccounts() || member.ManagesAccounts() ||
@@ -134,11 +134,10 @@ func TestGate(t *testing.T) {
 		v    Viewer
 		want Gate
 	}{
-		{Viewer{ID: 1, Role: Admin, EmailVerified: true}, None},
-		{Viewer{ID: 1, Role: Admin, EmailVerified: true, MustChangePassword: true}, PasswordChange},
-		// The password comes first: changing the address needs it.
-		{Viewer{ID: 1, Role: Member, MustChangePassword: true}, PasswordChange},
-		{Viewer{ID: 1, Role: Member}, EmailRequired},
+		{Viewer{ID: 1, Role: Admin}, None},
+		{Viewer{ID: 1, Role: Admin, MustChangePassword: true}, PasswordChange},
+		// No address is required.
+		{Viewer{ID: 1, Role: Member}, None},
 	} {
 		if got := For(tc.v).Gate(); got != tc.want {
 			t.Errorf("%+v: Gate = %q, want %q", tc.v, got, tc.want)
@@ -153,13 +152,13 @@ func TestGate(t *testing.T) {
 // the members filed in a federation it administers, whichever others
 // they are in, and nothing else; never what it sees.
 func TestFederations(t *testing.T) {
-	super := For(Viewer{ID: 1, Role: Superadmin, EmailVerified: true})
+	super := For(Viewer{ID: 1, Role: Superadmin})
 	// Unsorted, with a repeat: For keeps it sorted and unique.
-	fedA := For(Viewer{ID: 2, Role: Admin, EmailVerified: true, AdminOf: []uint64{7, 3, 7}})
-	defAdmin := For(Viewer{ID: 3, Role: Admin, EmailVerified: true, AdminOf: []uint64{DefaultFederation}})
-	none := For(Viewer{ID: 4, Role: Admin, EmailVerified: true})
+	fedA := For(Viewer{ID: 2, Role: Admin, AdminOf: []uint64{7, 3, 7}})
+	defAdmin := For(Viewer{ID: 3, Role: Admin, AdminOf: []uint64{DefaultFederation}})
+	none := For(Viewer{ID: 4, Role: Admin})
 	// A member's AdminOf means nothing.
-	member := For(Viewer{ID: 5, Role: Member, EmailVerified: true, AdminOf: []uint64{3}})
+	member := For(Viewer{ID: 5, Role: Member, AdminOf: []uint64{3}})
 
 	for _, tc := range []struct {
 		name string
@@ -220,8 +219,8 @@ func TestFederations(t *testing.T) {
 	}
 
 	// The same rows build equal scopes, in any order.
-	if !reflect.DeepEqual(fedA, For(Viewer{ID: 2, Role: Admin, EmailVerified: true, AdminOf: []uint64{3, 7}})) ||
-		!reflect.DeepEqual(none, For(Viewer{ID: 4, Role: Admin, EmailVerified: true, AdminOf: []uint64{}})) {
+	if !reflect.DeepEqual(fedA, For(Viewer{ID: 2, Role: Admin, AdminOf: []uint64{3, 7}})) ||
+		!reflect.DeepEqual(none, For(Viewer{ID: 4, Role: Admin, AdminOf: []uint64{}})) {
 		t.Error("scopes of the same rows differ")
 	}
 }

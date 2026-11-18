@@ -17,7 +17,7 @@
 // the methods below without changing their callers:
 // web-admin-restrictions an admin's hidden groups, hidden private
 // messages and join_chat, web-member-access a member's granted groups
-// and abilities, web-email the verified-address gate.
+// and abilities.
 package scope
 
 import (
@@ -72,10 +72,8 @@ const (
 	// and must choose its own
 	// (decisions/2026-11-18-temporary-passwords.md).
 	PasswordChange Gate = "password_change_required"
-	// EmailRequired: the account has no verified address
-	// (web-accounts.md section 8). It applies once web-email fills
-	// Viewer.EmailVerified from the account.
-	EmailRequired Gate = "email_required"
+	// An address is optional, so there is no gate on a missing or
+	// unverified one (decisions/2026-11-18-email-optional.md).
 )
 
 // DefaultFederation is the id of the Default federation, the groups in
@@ -89,9 +87,6 @@ type Viewer struct {
 	ID                 uint64
 	Role               Role
 	MustChangePassword bool
-	// EmailVerified is whether the account has a verified address;
-	// false applies the EmailRequired gate.
-	EmailVerified bool
 	// AdminOf is the federations an admin administers
 	// (web_federation_admins), in ascending order; nil for the other
 	// roles, as a superadmin administers every federation without
@@ -186,8 +181,6 @@ func (s Scope) Gate() Gate {
 		return None
 	case s.v.MustChangePassword:
 		return PasswordChange
-	case !s.v.EmailVerified:
-		return EmailRequired
 	}
 	return None
 }

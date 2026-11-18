@@ -24,6 +24,7 @@ import (
 
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/daemon"
+	"tgloggerd/webapi/internal/mail"
 	"tgloggerd/webapi/internal/settings"
 )
 
@@ -129,6 +130,16 @@ type Config struct {
 	// MCPLogRequests is MCP_LOG_REQUESTS == "1": log the shape of the
 	// requests to /mcp.
 	MCPLogRequests bool
+	// Mail is the SMTP relay (WEBAPI_SMTP_*), nil when
+	// WEBAPI_SMTP_HOST is unset: no mail is sent (email is optional).
+	// The links in mail point to PublicURL.
+	Mail *mail.Config
+	// InviteLinkTTL, ResetLinkTTL and VerifyLinkTTL are how long the
+	// links sent work (WEBAPI_INVITE_LINK_TTL, _RESET_, _VERIFY_,
+	// seconds).
+	InviteLinkTTL time.Duration
+	ResetLinkTTL  time.Duration
+	VerifyLinkTTL time.Duration
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -346,5 +357,65 @@ func FromEnv() (*Config, error) {
 	c.MCPAllowedOrigins = env("MCP_ALLOWED_ORIGINS", "")
 	c.MCPLogRequests = env("MCP_LOG_REQUESTS", "0") == "1"
 
+	if err := mailFromEnv(&c); err != nil {
+		return nil, err
+	}
+
 	return &c, nil
+}
+
+// mailFromEnv reads the SMTP relay and the links' settings
+// (docs/design/web-accounts.md section 8); the links point to
+// PublicURL, read before. A relay without the site's URL stops the
+// service, since its links would lead nowhere.
+func mailFromEnv(c *Config) error {
+	for _, l := range []struct {
+		key, def string
+		to       *time.Duration
+	}{
+		{"WEBAPI_INVITE_LINK_TTL", "259200", &c.InviteLinkTTL},
+		{"WEBAPI_RESET_LINK_TTL", "3600", &c.ResetLinkTTL},
+		{"WEBAPI_VERIFY_LINK_TTL", "86400", &c.VerifyLinkTTL},
+	} {
+		n, err := positive(l.key, l.def)
+		if err != nil {
+			return err
+		}
+		*l.to = time.Duration(n) * time.Second
+	}
+
+	host := env("WEBAPI_SMTP_HOST", "")
+	if host == "" {
+		return nil
+	}
+	if !strings.HasPrefix(c.PublicURL, "https://") && !strings.HasPrefix(c.PublicURL, "http://") {
+		return fmt.Errorf("WEBAPI_SMTP_HOST is set, but WEB_PUBLIC_URL (or TG_DISCORD_PUBLIC_URL) "+
+			"is not an http(s) URL for the links in mail: %q", c.PublicURL)
+	}
+	sec, ok := mail.ParseSecurity(env("WEBAPI_SMTP_SECURITY", "starttls"))
+	if !ok {
+		return fmt.Errorf("WEBAPI_SMTP_SECURITY: %q is not starttls, tls or none",
+			os.Getenv("WEBAPI_SMTP_SECURITY"))
+	}
+	defPort := "587"
+	if sec == mail.TLS {
+		defPort = "465"
+	}
+	p, err := port("WEBAPI_SMTP_PORT", defPort)
+	if err != nil {
+		return err
+	}
+	from := env("WEBAPI_SMTP_FROM", "")
+	if from == "" {
+		return fmt.Errorf("WEBAPI_SMTP_HOST is set, but WEBAPI_SMTP_FROM (the sender) is not")
+	}
+	c.Mail = &mail.Config{
+		Host:     host,
+		Port:     int(p),
+		User:     env("WEBAPI_SMTP_USER", ""),
+		Password: os.Getenv("WEBAPI_SMTP_PASSWORD"),
+		From:     from,
+		Security: sec,
+	}
+	return nil
 }
