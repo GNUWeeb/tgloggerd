@@ -487,11 +487,11 @@ extract_forward_info(const td_api::message &message)
 	return fi;
 }
 
-/*
- * Return the primary downloadable file of a message's content, or nullptr
- * if the content carries no file. On success, *category is set to the
- * matching telegram_files.file_type value. For photos, the largest size is chosen.
- */
+const td_api::file *thumb_file(const td_api::thumbnail *t)
+{
+	return (t && t->file_) ? t->file_.get() : nullptr;
+}
+
 /*
  * The best image a link preview offers, and the preview's own metadata.
  *
@@ -509,47 +509,6 @@ extract_forward_info(const td_api::message &message)
  *
  * Returns the file to download, or nullptr when the preview has no image.
  */
-const td_api::file *photo_best_size(const td_api::photo *p)
-{
-	if (!p)
-		return nullptr;
-	const td_api::file *best = nullptr;
-	int64_t best_px = -1;
-	for (const auto &sz : p->sizes_) {
-		if (!sz || !sz->photo_)
-			continue;
-		const int64_t px = (int64_t)sz->width_ * sz->height_;
-		if (px > best_px) {
-			best_px = px;
-			best = sz->photo_.get();
-		}
-	}
-	return best;
-}
-
-const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
-{
-	if (!p)
-		return nullptr;
-	const td_api::file *best = nullptr;
-	int64_t best_px = -1;
-	for (const auto &sz : p->sizes_) {
-		if (!sz || !sz->photo_)
-			continue;
-		const int64_t px = (int64_t)sz->width_ * sz->height_;
-		if (px > best_px) {
-			best_px = px;
-			best = sz->photo_.get();
-		}
-	}
-	return best;
-}
-
-const td_api::file *thumb_file(const td_api::thumbnail *t)
-{
-	return (t && t->file_) ? t->file_.get() : nullptr;
-}
-
 const td_api::file *link_preview_image(const td_api::LinkPreviewType *t,
 				       const char **type_name)
 {
@@ -665,6 +624,11 @@ const td_api::linkPreview *message_link_preview(const td_api::MessageContent &c)
 	return static_cast<const td_api::messageText &>(c).link_preview_.get();
 }
 
+/*
+ * Return the primary downloadable file of a message's content, or nullptr
+ * if the content carries no file. On success, *category is set to the
+ * matching telegram_files.file_type value. For photos, the largest size is chosen.
+ */
 const td_api::file *message_content_file(const td_api::MessageContent &content,
 					 const char **category,
 					 std::string *file_name)
@@ -730,10 +694,16 @@ const td_api::file *message_content_file(const td_api::MessageContent &content,
 		*file_name = c.animation_->file_name_;
 		return c.animation_->animation_.get();
 	}
+	case td_api::messageVideoNote::ID: {
+		auto &c = static_cast<const td_api::messageVideoNote &>(content);
+		*category = "video_note";
+		return c.video_note_ ? c.video_note_->video_.get() : nullptr;
+	}
 	default:
 		return nullptr;
 	}
 }
+
 
 /* Bound the reply-chain walk and the dedup set of fetched reply targets. */
 constexpr int kMaxReplyDepth = 128;
@@ -893,6 +863,10 @@ struct TDLib::Impl {
 		bool		is_link_preview = false;
 		/* The downloadFile query this entry waits on. */
 		std::uint64_t	dl_query = 0;
+		/* For a file beyond the message's main one: its role and
+		 * position in telegram_message_files; empty for the main. */
+		std::string	role{};
+		int		position = 0;
 	};
 	/*
 	 * Keyed by TDLib file id -- which TDLib DEDUPLICATES by remote id, so
@@ -1053,6 +1027,7 @@ struct TDLib::Impl {
 				      bool is_group);
 	void maybe_download_message_file(const td_api::message &message,
 					 bool is_group);
+	void ingest_message_file(PendingMsgFile ref, const td_api::file &file);
 	void emit_message_file(const PendingMsgFile &ref, const td_api::file &f);
 	bool record_without_download(int64_t chat_id, const td_api::file &f);
 	void emit_file_meta(const PendingMsgFile &ref, const td_api::file &f,
@@ -2341,11 +2316,30 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 	std::string file_name;
 	const td_api::file *f =
 		message_content_file(*message.content_, &category, &file_name);
-	if (!f)
-		return;
+	if (f)
+		ingest_message_file(PendingMsgFile{ message.chat_id_,
+			to_server_msg_id(message.id_), is_group, category,
+			file_name }, *f);
 
-	PendingMsgFile ref{ message.chat_id_, to_server_msg_id(message.id_),
-			    is_group, category, file_name };
+	for (const auto &x : message_extra_files(*message.content_)) {
+		PendingMsgFile ref{ message.chat_id_,
+			to_server_msg_id(message.id_), is_group, x.category,
+			x.file_name };
+		ref.role = x.role;
+		ref.position = x.position;
+		ingest_message_file(std::move(ref), *x.file);
+	}
+}
+
+/*
+ * Get one file of a message into the store, or at least recorded: link it
+ * when it is already known, record it without its bytes when this chat does
+ * not store media, else download it and remember the message for it.
+ */
+void TDLib::Impl::ingest_message_file(PendingMsgFile ref,
+				      const td_api::file &file)
+{
+	const td_api::file *f = &file;
 
 	/*
 	 * Already recorded from an earlier download: link the existing files
@@ -2360,14 +2354,17 @@ void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 	 * this chat stores its media: then the download below fills the row
 	 * in (upsertFile matches it by unique id).
 	 */
-	const bool no_download = record_without_download(message.chat_id_, *f);
+	const bool no_download = record_without_download(ref.chat_id, *f);
 	if (file_lookup_ && message_file_link_handler_ && f->remote_ &&
 	    (!f->remote_->id_.empty() || !f->remote_->unique_id_.empty())) {
 		auto fid = file_lookup_(f->remote_->id_, f->remote_->unique_id_);
 		if (fid.has_value() && (!fid->meta_only || no_download)) {
-			message_file_link_handler_(MessageFileLink{
-				ref.chat_id, ref.message_id, ref.is_group,
-				ref.is_link_preview, fid->id });
+			MessageFileLink lk{ ref.chat_id, ref.message_id,
+					    ref.is_group, ref.is_link_preview,
+					    fid->id };
+			lk.role = ref.role;
+			lk.position = ref.position;
+			message_file_link_handler_(lk);
 			return;
 		}
 	}
@@ -2425,6 +2422,8 @@ void TDLib::Impl::emit_file_meta(const PendingMsgFile &ref,
 	m.file_size = f.size_ > 0 ? f.size_ : 0;
 	m.content_type = ref.content_type;
 	m.orig_file_name = ref.orig_file_name;
+	m.role = ref.role;
+	m.position = ref.position;
 	file_meta_handler_(m);
 }
 
@@ -2447,6 +2446,8 @@ void TDLib::Impl::emit_message_file(const PendingMsgFile &ref,
 	mf.file_size = f.size_;
 	mf.content_type = ref.content_type;
 	mf.orig_file_name = ref.orig_file_name;
+	mf.role = ref.role;
+	mf.position = ref.position;
 	message_file_handler_(mf);
 }
 
@@ -3508,6 +3509,7 @@ Object TDLib::Impl::resolve_file(const models::FileSource &src,
 	switch (src.kind) {
 	case Kind::Message:
 	case Kind::LinkPreview:
+	case Kind::MessageExtra:
 		/* Stored ids are server ids; TDLib wants its own. */
 		q = td_api::make_object<td_api::getMessage>(
 			src.chat_id, src.message_id * kTdMsgIdShift);
@@ -3548,6 +3550,15 @@ Object TDLib::Impl::resolve_file(const models::FileSource &src,
 			m.content_ ? message_link_preview(*m.content_) : nullptr;
 		if (lp)
 			f = link_preview_image(lp->type_.get(), &category);
+		break;
+	}
+	case Kind::MessageExtra: {
+		auto &m = static_cast<const td_api::message &>(*obj);
+		if (!m.content_)
+			break;
+		for (const auto &x : message_extra_files(*m.content_))
+			if (src.role == x.role && src.position == x.position)
+				f = x.file;
 		break;
 	}
 	case Kind::GroupPhoto: {

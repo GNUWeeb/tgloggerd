@@ -880,17 +880,25 @@ void TgLoggerd::onMessageFile(const MessageFile &m)
 	bool is_group = m.is_group;
 	uint64_t fid = *file_id;
 	const bool is_preview = m.is_link_preview;
-	serial_->post([this, chat_id, message_id, is_group, fid, is_preview] {
+	const std::string role = m.role;
+	const int position = m.position;
+	serial_->post([this, chat_id, message_id, is_group, fid, is_preview,
+		       role, position] {
 		try {
 			/*
 			 * A preview image belongs to the card, not to the
 			 * message: setting it as the message's own file would
 			 * make a text message render as an attachment
-			 * everywhere.
+			 * everywhere. A further file (a cover, a paid item)
+			 * goes to telegram_message_files for the same reason.
 			 */
 			if (is_preview)
 				db_->setLinkPreviewPhoto(chat_id, message_id,
 							 is_group, fid);
+			else if (!role.empty())
+				db_->setMessageExtraFile(chat_id, message_id,
+							 is_group, role,
+							 position, fid);
 			else if (is_group)
 				db_->setGroupMessageFile(chat_id, message_id,
 							 fid);
@@ -898,10 +906,11 @@ void TgLoggerd::onMessageFile(const MessageFile &m)
 				db_->setPrivateMessageFile(chat_id, message_id,
 							   fid);
 			events_->fileStored(fid, chat_id, message_id);
-			pr_info(l_, "Stored %s | %s chat_id=%lld"
+			pr_info(l_, "Stored %s%s | %s chat_id=%lld"
 				" msg_id=%lld file_id=%llu",
 				is_preview ? "link preview image"
 					   : "message file",
+				role.empty() ? "" : (" " + role).c_str(),
 				is_group ? "group" : "private",
 				(long long)chat_id, (long long)message_id,
 				(unsigned long long)fid);
@@ -914,8 +923,9 @@ void TgLoggerd::onMessageFile(const MessageFile &m)
 
 	/* If this file belongs to a live forwarded message, mirror it to
 	 * Discord -- but a preview image is not the message's media, and
-	 * Discord renders the link's own card anyway. */
-	if (discord_ && !is_preview)
+	 * Discord renders the link's own card anyway. Only the main file is
+	 * mirrored, as before. */
+	if (discord_ && !is_preview && role.empty())
 		discord_->on_media_stored(chat_id, message_id, fid);
 }
 
@@ -931,6 +941,17 @@ void TgLoggerd::onMessageFileLink(const MessageFileLink &lk)
 		db_->setLinkPreviewPhoto(lk.chat_id, lk.message_id, lk.is_group,
 					 lk.file_id);
 		events_->fileStored(lk.file_id, lk.chat_id, lk.message_id);
+		return;
+	}
+	if (!lk.role.empty()) {
+		db_->setMessageExtraFile(lk.chat_id, lk.message_id, lk.is_group,
+					 lk.role, lk.position, lk.file_id);
+		events_->fileStored(lk.file_id, lk.chat_id, lk.message_id);
+		pr_info(l_, "Linked message %s file (already recorded) | %s"
+			" chat_id=%lld msg_id=%lld file_id=%llu",
+			lk.role.c_str(), lk.is_group ? "group" : "private",
+			(long long)lk.chat_id, (long long)lk.message_id,
+			(unsigned long long)lk.file_id);
 		return;
 	}
 	if (lk.is_group)
@@ -1008,9 +1029,11 @@ void TgLoggerd::onFileMeta(const FileMeta &m)
 			(unsigned long long)k.id);
 		return;
 	}
-	onMessageFileLink(MessageFileLink{ m.chat_id, m.message_id,
-					   m.is_group, m.is_link_preview,
-					   k.id });
+	MessageFileLink lk{ m.chat_id, m.message_id, m.is_group,
+			    m.is_link_preview, k.id };
+	lk.role = m.role;
+	lk.position = m.position;
+	onMessageFileLink(lk);
 }
 
 std::optional<uint64_t>

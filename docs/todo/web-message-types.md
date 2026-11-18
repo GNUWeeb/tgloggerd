@@ -38,7 +38,7 @@ service refs, interaction, topics):
 
 ## Depends on
 
-`msg-message-files`, `msg-polls`, `msg-topics`
+`msg-polls`, `msg-topics`
 
 ## Done when
 

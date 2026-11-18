@@ -106,6 +106,11 @@ struct MessageFile {
 	int64_t		file_size;
 	std::string	content_type;	/* telegram_files.file_type: "photo", ... */
 	std::string	orig_file_name;	/* original Telegram name; empty if none */
+	/* A file beyond the message's main one: its role and position in
+	 * telegram_message_files ("cover", "paid", ...); empty for the main
+	 * file, which is the message row's file_id. */
+	std::string	role{};
+	int		position = 0;
 };
 
 /*
@@ -119,6 +124,8 @@ struct MessageFileLink {
 	bool		is_group;
 	bool		is_link_preview = false; /* see MessageFile */
 	uint64_t	file_id;	/* existing telegram_files.id */
+	std::string	role{};		/* see MessageFile */
+	int		position = 0;
 };
 
 /*
@@ -150,6 +157,8 @@ struct FileMeta {
 	int64_t		file_size;	/* 0 if unknown */
 	std::string	content_type;	/* telegram_files.file_type */
 	std::string	orig_file_name;	/* original Telegram name; empty if none */
+	std::string	role{};		/* see MessageFile */
+	int		position = 0;
 };
 
 /*

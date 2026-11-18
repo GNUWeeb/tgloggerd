@@ -438,6 +438,30 @@ bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
 	return recorded;
 }
 
+void DB::setMessageExtraFile(int64_t chat_id, int64_t message_id,
+			     bool is_group, const std::string &role,
+			     int position, uint64_t file_id)
+{
+	const char *tbl = is_group ? "telegram_group_messages"
+				   : "telegram_private_messages";
+	const char *fk  = is_group ? "group_message_id"
+				   : "private_message_id";
+	/*
+	 * Through a derived table so the new row can be named in the
+	 * ON DUPLICATE KEY UPDATE (VALUES() there is deprecated). No message
+	 * row, no insert: the file arrives after the row in every path, and a
+	 * miss is a message that was never stored.
+	 */
+	db_.execute(std::string("INSERT INTO telegram_message_files (") + fk +
+		    ", role, position, file_id)"
+		    " SELECT * FROM (SELECT m.id, ? AS role, ? AS position,"
+		    " ? AS file_id FROM " + tbl + " m"
+		    " WHERE m.chat_id = ? AND m.message_id = ?) AS new"
+		    " ON DUPLICATE KEY UPDATE file_id = new.file_id",
+		    { role, (int64_t)position, (int64_t)file_id,
+		      (int64_t)chat_id, (int64_t)message_id });
+}
+
 void DB::insertForwardInfo(mysql::Transaction &tx, const char *table,
 			   const char *fk_column, uint64_t message_row_id,
 			   const models::ForwardInfo &info)

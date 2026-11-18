@@ -1877,6 +1877,33 @@ std::optional<std::string> service_extra_json(const td_api::MessageContent &c)
 	return j.dump();
 }
 
+/* The photo or video file of one paid media item, or nullptr for a preview
+ * (not paid for: only its size is known) or an unsupported item. */
+const td_api::file *paid_media_file(const td_api::PaidMedia *pm,
+				    const char **category,
+				    std::string *file_name)
+{
+	if (!pm)
+		return nullptr;
+	switch (pm->get_id()) {
+	case td_api::paidMediaPhoto::ID:
+		*category = "photo";
+		return photo_best_size(
+			static_cast<const td_api::paidMediaPhoto &>(*pm)
+				.photo_.get());
+	case td_api::paidMediaVideo::ID: {
+		auto &v = static_cast<const td_api::paidMediaVideo &>(*pm);
+		*category = "video";
+		if (!v.video_)
+			return nullptr;
+		*file_name = v.video_->file_name_;
+		return v.video_->video_.get();
+	}
+	default:
+		return nullptr;
+	}
+}
+
 } /* namespace */
 
 const char *message_content_class_name(std::int32_t id)
@@ -1997,6 +2024,125 @@ message_formatted_text(const td_api::message &message)
 	if (!message.content_)
 		return nullptr;
 	return content_formatted_text(*message.content_);
+}
+
+const td_api::file *photo_best_size(const td_api::photo *p)
+{
+	if (!p)
+		return nullptr;
+	const td_api::file *best = nullptr;
+	int64_t best_px = -1;
+	for (const auto &sz : p->sizes_) {
+		if (!sz || !sz->photo_)
+			continue;
+		const int64_t px = (int64_t)sz->width_ * sz->height_;
+		if (px > best_px) {
+			best_px = px;
+			best = sz->photo_.get();
+		}
+	}
+	return best;
+}
+
+const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
+{
+	if (!p)
+		return nullptr;
+	const td_api::file *best = nullptr;
+	int64_t best_px = -1;
+	for (const auto &sz : p->sizes_) {
+		if (!sz || !sz->photo_)
+			continue;
+		const int64_t px = (int64_t)sz->width_ * sz->height_;
+		if (px > best_px) {
+			best_px = px;
+			best = sz->photo_.get();
+		}
+	}
+	return best;
+}
+
+/*
+ * The files of @content beyond the one message_content_file() returns, in
+ * a stable order: a video's cover, a live photo's video, each paid media
+ * item, a game's photo and animation, an invoice's photo and paid media,
+ * the photo of a chat photo change or suggestion. Thumbnails and a
+ * video's other qualities are not listed: the first only repeat the
+ * media, the second are the same video again.
+ */
+std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content)
+{
+	std::vector<ExtraFile> out;
+	auto add = [&out](const td_api::file *f, const char *category,
+			  std::string name, const char *role, int position) {
+		if (f)
+			out.push_back(ExtraFile{ f, category, std::move(name),
+						 role, position });
+	};
+
+	switch (content.get_id()) {
+	case td_api::messagePhoto::ID: {
+		auto &c = static_cast<const td_api::messagePhoto &>(content);
+		if (c.video_)
+			add(c.video_->video_.get(), "video",
+			    c.video_->file_name_, "live_video", 0);
+		break;
+	}
+	case td_api::messageVideo::ID: {
+		auto &c = static_cast<const td_api::messageVideo &>(content);
+		add(photo_best_size(c.cover_.get()), "photo", "", "cover", 0);
+		break;
+	}
+	case td_api::messagePaidMedia::ID: {
+		auto &c = static_cast<const td_api::messagePaidMedia &>(content);
+		for (size_t i = 0; i < c.media_.size(); i++) {
+			const char *category = "unknown";
+			std::string name;
+			const td_api::file *f = paid_media_file(
+				c.media_[i].get(), &category, &name);
+			add(f, category, name, "paid", (int)i);
+		}
+		break;
+	}
+	case td_api::messageGame::ID: {
+		auto &c = static_cast<const td_api::messageGame &>(content);
+		if (!c.game_)
+			break;
+		add(photo_best_size(c.game_->photo_.get()), "photo", "",
+		    "game", 0);
+		if (c.game_->animation_)
+			add(c.game_->animation_->animation_.get(), "animation",
+			    c.game_->animation_->file_name_, "game", 1);
+		break;
+	}
+	case td_api::messageInvoice::ID: {
+		auto &c = static_cast<const td_api::messageInvoice &>(content);
+		if (c.product_info_)
+			add(photo_best_size(c.product_info_->photo_.get()),
+			    "photo", "", "invoice", 0);
+		const char *category = "unknown";
+		std::string name;
+		const td_api::file *f = paid_media_file(c.paid_media_.get(),
+							&category, &name);
+		add(f, category, name, "paid", 0);
+		break;
+	}
+	case td_api::messageChatChangePhoto::ID:
+		add(chat_photo_best_size(
+			    static_cast<const td_api::messageChatChangePhoto &>(
+				    content).photo_.get()),
+		    "photo", "", "chat_photo", 0);
+		break;
+	case td_api::messageSuggestProfilePhoto::ID:
+		add(chat_photo_best_size(
+			    static_cast<const td_api::messageSuggestProfilePhoto &>(
+				    content).photo_.get()),
+		    "photo", "", "chat_photo", 0);
+		break;
+	default:
+		break;
+	}
+	return out;
 }
 
 } /* namespace tgloggerd */
