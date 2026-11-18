@@ -61,6 +61,11 @@ function OwnerCell({ r }: { r: Owned }) {
 // The owner today; editors and viewers can join this list later.
 type Dir = 'telegram-discord' | 'discord-telegram';
 
+// Handing a route to another owner is designed but not served yet
+// (the transfer operations are planned in webapi/openapi.yaml): until it
+// is, the dialog shows the owner only. Turn this on with the service.
+const ROUTE_TRANSFER_SERVED = false;
+
 function Access({ r, dir, title, canTransfer, onClose, onSaved }: { r: Owned; dir: Dir; title: string; canTransfer: boolean; onClose: () => void; onSaved: () => void }) {
 	const [to, setTo] = useState('');
 	const [err, setErr] = useState('');
@@ -222,7 +227,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 					<Switch checked={edit.enabled} onChange={(on) => setEdit({ ...edit, enabled: on })} label="Enabled" />
 				</Modal>
 			)}
-			{access && <Access r={access} dir="telegram-discord" title={access.chat.title} canTransfer={!member} onClose={() => setAccess(null)} onSaved={refresh} />}
+			{access && <Access r={access} dir="telegram-discord" title={access.chat.title} canTransfer={ROUTE_TRANSFER_SERVED && !member} onClose={() => setAccess(null)} onSaved={refresh} />}
 		</Shell>
 	);
 }
@@ -355,7 +360,7 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 					<Switch checked={edit.enabled} onChange={(on) => setEdit({ ...edit, enabled: on })} label="Enabled" />
 				</Modal>
 			)}
-			{access && <Access r={access} dir="discord-telegram" title={access.channel_name} canTransfer={!member} onClose={() => setAccess(null)} onSaved={refresh} />}
+			{access && <Access r={access} dir="discord-telegram" title={access.channel_name} canTransfer={ROUTE_TRANSFER_SERVED && !member} onClose={() => setAccess(null)} onSaved={refresh} />}
 		</Shell>
 	);
 }

@@ -30,7 +30,7 @@ export function QuickJump({ pages, onClose }: { pages: JumpPage[]; onClose: () =
 		const t = setTimeout(() => {
 			setBusy(true);
 			searchChats({ q: q.trim(), kind: 'any', limit: 8 }, ac.signal)
-				.then((r) => { setChats(r.items); setFailed(false); }, (x: Error) => { if (x.name !== 'AbortError') setFailed(true); })
+				.then((r) => { setChats(r.items); setAt(0); setFailed(false); }, (x: Error) => { if (x.name !== 'AbortError') setFailed(true); })
 				.finally(() => { if (!ac.signal.aborted) setBusy(false); });
 		}, 150);
 		return () => { clearTimeout(t); ac.abort(); };
@@ -40,7 +40,6 @@ export function QuickJump({ pages, onClose }: { pages: JumpPage[]; onClose: () =
 		...pages.filter((p) => term && p.label.toLowerCase().includes(term)).map((page) => ({ kind: 'page' as const, page })),
 		...chats.map((chat) => ({ kind: 'chat' as const, chat })),
 	];
-	useEffect(() => { setAt(0); }, [q, chats]);
 	const go = (h: Hit | undefined) => { if (!h) return; onClose(); navigate(hrefOf(h)); };
 	const key = (e: KeyboardEvent) => {
 		if (e.key === 'Escape') { e.preventDefault(); onClose(); }
@@ -53,7 +52,7 @@ export function QuickJump({ pages, onClose }: { pages: JumpPage[]; onClose: () =
 			<div className="a-jump" role="dialog" aria-modal="true" aria-label="Search everything">
 				<div className="a-jump-in">
 					<Search size={16} />
-					<input ref={input} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={key} placeholder="Jump to a page or a chat"
+					<input ref={input} value={q} onChange={(e) => { setQ(e.target.value); setAt(0); }} onKeyDown={key} placeholder="Jump to a page or a chat"
 						role="combobox" aria-expanded="true" aria-controls="a-jump-list" aria-activedescendant={hits[at] ? `a-jump-${at}` : undefined} aria-autocomplete="list" />
 					<kbd>Esc</kbd>
 				</div>

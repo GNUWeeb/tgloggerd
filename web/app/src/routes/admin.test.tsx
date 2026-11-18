@@ -315,6 +315,16 @@ describe('forwarding', () => {
 	});
 });
 
+describe('people with access', () => {
+	it('shows the owner and offers no transfer while the service has none', () => {
+		renderPage('/platform-fwd/telegram-discord');
+		fireEvent.click(screen.getAllByRole('button', { name: 'People with access' })[0]!);
+		expect(within(dialog()).getByText('Owner')).toBeTruthy();
+		expect(within(dialog()).queryByRole('button', { name: 'Transfer ownership' })).toBeNull();
+		expect(within(dialog()).queryByText('Transfer ownership to')).toBeNull();
+	});
+});
+
 describe('Discord to Telegram', () => {
 	const ref = (id: number, kind: 'discord' | 'telegram', name: string, enabled = true) => ({ id, kind, name, identity: null, status: enabled ? 'connected' as const : 'disabled' as const, enabled });
 	const BOTS = [ref(2, 'discord', 'Discord reader'), ref(1, 'telegram', 'Logger relay'), ref(4, 'telegram', 'Research bot', false)];
@@ -431,6 +441,24 @@ describe('Bots links', () => {
 });
 
 describe('Join chat', () => {
+	it('says up front when the logger\'s API is not set up, and offers nothing to try', () => {
+		const p = fixture<{ api_configured: boolean }>('/join-chat').props;
+		const calls = fakeApi('superadmin');
+		renderPage('/join-chat', 'superadmin', { props: { ...p, api_configured: false } });
+		expect(screen.getByRole('status').textContent).toContain('not connected to the logger\'s API');
+		expect((screen.getByRole('textbox', { name: /Invite link or username/ }) as HTMLInputElement).disabled).toBe(true);
+		const preview = screen.getByRole('button', { name: 'Preview' }) as HTMLButtonElement;
+		expect(preview.disabled).toBe(true);
+		fireEvent.click(preview);
+		expect(callsTo(calls, 'POST', /join-chat/)).toHaveLength(0);
+	});
+
+	it('shows no such notice when the API is set up', () => {
+		renderPage('/join-chat');
+		expect(screen.queryByText(/not connected to the logger/)).toBeNull();
+		expect((screen.getByRole('textbox', { name: /Invite link or username/ }) as HTMLInputElement).disabled).toBe(false);
+	});
+
 	it('previews, then joins into the chosen federations', async () => {
 		const chat = { chat_id: -1001999000001, title: 'Compiler Nerds ID', type: 'supergroup', member_count: 1843, username: 'compilernerds_id', is_member: false, needs_approval: false };
 		const calls = fakeApi('superadmin', {

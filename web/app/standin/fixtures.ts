@@ -447,13 +447,17 @@ export function load(url: string, persona: Persona): Loaded {
 		if (!allowed(s, m[1] === 'group' ? 'group_messages' : 'private_messages')) return notFound;
 		const x = getMessage(m[1], m[2]);
 		if (!x || (m[1] === 'group' && !s.group(x.chat))) return notFound;
-		const media = x.media ? { file_id: x.media.fileId, name: x.media.name || '', size: x.media.size || 0, duration: x.media.duration, stored: x.media.stored !== false, thumb: null, url: null } : null;
+		// The message as the chat shows it gives the parts both pages share
+		// (MessageExtra, the media's detail, the edits' types and media).
+		const c = chatMessage(x, s.canFetch);
+		const media = c.media ? { ...c.media, file_id: x.media.fileId, name: x.media.name || '', size: x.media.size || 0 } : null;
+		const extra = Object.fromEntries(['sender_chat', 'forward_from', 'author_signature', 'is_channel_post', 'service_type', 'tdlib_type'].filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
 		return {
 			route: 'message', status: 200, props: {
 				message: {
-					...messageRow(x), text: x.content_type === 'service' ? x.text : x.text,
+					...messageRow(x), ...extra, text: c.text, sender: c.sender ?? messageRow(x).sender,
 					reply_to: x.reply_to ? { scope: x.scope, id: x.reply_to.id, sender_name: senderOf(x.reply_to)?.name ?? '', snippet: x.reply_to.text || `[${x.reply_to.content_type}]` } : null,
-					edits: (x.edits || []).map((e) => ({ at: iso(e.at), text: e.text })), edited_at: x.edited_at ? iso(x.edited_at) : null, media,
+					edits: c.edits, edited_at: x.edited_at ? iso(x.edited_at) : null, media,
 				},
 			},
 		};
