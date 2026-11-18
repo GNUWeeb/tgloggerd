@@ -2,6 +2,7 @@
 // of groups that decide what each admin manages. Superadmins edit them;
 // an admin sees the federations it administers, read only.
 import { useEffect, useState, type ReactNode } from 'react';
+import { track } from '../ui/busy.ts';
 import { Info, Network, Pencil, Plus, TriangleAlert } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
@@ -38,7 +39,7 @@ function Editor({ fed, props, onClose, onSaved }: { fed: FederationRow | null; p
 	useEffect(() => {
 		if (!fed || isDefault) return;
 		const ac = new AbortController();
-		searchAllChats({ kind: 'group', federation: fed.id }, 5000, ac.signal)
+		track(searchAllChats({ kind: 'group', federation: fed.id }, 5000, ac.signal))
 			.then((r) => { if (r.truncated) setLoadErr('This federation has too many groups to edit here.'); else setGroups(r.items); })
 			.catch(() => { if (!ac.signal.aborted) setLoadErr('The groups of this federation could not be loaded.'); });
 		return () => ac.abort();

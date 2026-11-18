@@ -717,3 +717,9 @@
 .app.c-publicpage .a-publicmain { max-width: 960px; width: 100%; margin: 0 auto; }
 .app .a-publicgroup { display: flex; flex-direction: column; gap: 16px; }
 .app .a-publicgroup .a-stats { margin: 0; }
+
+/* The loading pill: top centre, above everything, never in the way. */
+.app.a-loadpill-slot { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; min-height: 0; background: none; pointer-events: none; }
+.app .a-loadpill { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 14px; border-radius: 999px; background: var(--panel); color: var(--fg); border: 1px solid var(--border); box-shadow: 0 4px 14px rgb(0 0 0 / .12); font-weight: 550; font-size: 12.5px; animation: a-fade .15s ease-out; }
+.app .a-loadpill .a-spin { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .app .a-loadpill, .app .a-loadpill .a-spin { animation: none; } }

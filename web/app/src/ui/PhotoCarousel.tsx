@@ -4,6 +4,7 @@
 // Home and End, the buttons and a swipe move through them; Esc, the close
 // button or a click beside the photo closes it.
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
+import { track } from './busy.ts';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, CloudOff, ExternalLink, LoaderCircle, X } from 'lucide-react';
 import { api, ApiError, ok } from '../api/client.ts';
@@ -26,7 +27,7 @@ export function PhotoCarousel({ kind, id, start, title, viewer, onClose }: { kin
 		const call = kind === 'users'
 			? ok(api.GET('/api/users/{id}/photos', { params: { path: { id } } }))
 			: ok(api.GET('/api/groups/{id}/photos', { params: { path: { id } } }));
-		call.then((p) => {
+		track(call).then((p) => {
 			if (!live) return;
 			setPhotos(p);
 			// The photo asked for, else the current one, else the newest.

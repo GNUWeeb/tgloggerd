@@ -2,6 +2,7 @@
 // owner and federation (web-accounts.md section 6). Members see only
 // their own routes; a "People with access" dialog transfers ownership.
 import { useEffect, useState } from 'react';
+import { track } from '../ui/busy.ts';
 import { ArrowLeftRight, ArrowRight, BotMessageSquare, Crown, Eye, EyeOff, Network, Pencil, Plus, Send, Trash2, TriangleAlert, Users } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
@@ -260,7 +261,7 @@ function BotSelect({ kind, value, onChange }: { kind: BotKind; value: number | n
 	const [err, setErr] = useState('');
 	useEffect(() => {
 		let live = true;
-		ok(api.GET('/api/bots', { params: { query: { kind } } })).then((r) => { if (live) setBots(r.bots); }, (x) => { if (live) setErr(errText(x)); });
+		track(ok(api.GET('/api/bots', { params: { query: { kind } } }))).then((r) => { if (live) setBots(r.bots); }, (x) => { if (live) setErr(errText(x)); });
 		return () => { live = false; };
 	}, [kind]);
 	if (err) return <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>;

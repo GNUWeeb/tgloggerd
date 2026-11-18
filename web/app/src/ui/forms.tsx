@@ -1,5 +1,6 @@
 // Form parts for the settings and administration pages.
 import { useEffect, useState, type ReactNode } from 'react';
+import { track } from './busy.ts';
 import { Check, Search, X } from 'lucide-react';
 import { Avatar } from './primitives.tsx';
 import { searchChats, type ChatQuery } from '../api/search.ts';
@@ -36,7 +37,7 @@ function useChatResults(query: ChatQuery | undefined, q: string, open: boolean, 
 		const ac = new AbortController();
 		setState((s) => ({ ...s, loading: true, failed: false }));
 		const t = setTimeout(() => {
-			searchChats({ ...query, q: q.trim(), limit: 20 }, ac.signal)
+			track(searchChats({ ...query, q: q.trim(), limit: 20 }, ac.signal))
 				.then((page) => setState({ items: page.items, loading: false, failed: false }))
 				.catch(() => { if (!ac.signal.aborted) setState({ items: [], loading: false, failed: true }); });
 		}, q ? 200 : 0);

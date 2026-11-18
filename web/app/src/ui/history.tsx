@@ -2,6 +2,7 @@
 // the newest page and the cursor of the next (history_next); older
 // pages come from GET /api/{users|groups}/{id}/history?before=.
 import { useCallback, useEffect, useState } from 'react';
+import { track } from './busy.ts';
 import { Gem, History as HistoryIcon, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { ApiError } from '../api/client.ts';
 import { Pill } from './primitives.tsx';
@@ -20,7 +21,7 @@ export function useHistoryPages<T>(first: T[], next: string | null, load: (befor
 		if (!cursor || busy) return;
 		setBusy(true); setErr('');
 		try {
-			const p = await load(cursor);
+			const p = await track(load(cursor));
 			setEntries((cur) => [...cur, ...p.entries]);
 			setCursor(p.next);
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }

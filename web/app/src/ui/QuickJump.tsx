@@ -2,6 +2,7 @@
 // to a chat (a group, a channel or a private chat) by typing part of its
 // name. Chats come from GET /api/chats/search, within the viewer's scope.
 import { useEffect, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
+import { track } from './busy.ts';
 import { createPortal } from 'react-dom';
 import { CornerDownLeft, Search } from 'lucide-react';
 import { useNav } from '../nav.tsx';
@@ -29,7 +30,7 @@ export function QuickJump({ pages, onClose }: { pages: JumpPage[]; onClose: () =
 		const ac = new AbortController();
 		const t = setTimeout(() => {
 			setBusy(true);
-			searchChats({ q: q.trim(), kind: 'any', limit: 8 }, ac.signal)
+			track(searchChats({ q: q.trim(), kind: 'any', limit: 8 }, ac.signal))
 				.then((r) => { setChats(r.items); setAt(0); setFailed(false); }, (x: Error) => { if (x.name !== 'AbortError') setFailed(true); })
 				.finally(() => { if (!ac.signal.aborted) setBusy(false); });
 		}, 150);
