@@ -149,6 +149,8 @@ export interface paths {
          *
          *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; bots /platform-fwd/bots (planned: discord-bots-per-user); join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
          *
+         *     /messages/{group|private}, the Drogon message lists that its message pages link to, answers {"reload": true}: its document redirects (302) to /group_messages or /private_messages, filtered by its ?chat_id= and with ?per= its ?limit=.
+         *
          *     password_forgot, password_set and email_verify are served to signed-out and signed-in visitors alike, and their GETs change nothing: the link token travels in the URL's fragment, which never reaches the server, and is posted only when the person acts on the page.
          *
          *     A signed-in account that must change its password gets the password_change route for every page path except those three, until it has chosen its own (see Gates). There is no page gate on a missing email address.
@@ -195,7 +197,7 @@ export interface paths {
         };
         /**
          * A window of a chat's messages
-         * @description Messages of a group or a private chat, oldest first, for scrolling and live updates. At most one of before, after and around is given; with none the window is the newest messages. Replaces the Drogon /v1/chats/{scope}/{id}/messages with the message shape of the chat pages; the cursors are the same message ids, and limit is clamped to 1..100 as there.
+         * @description Messages of a group or a private chat, oldest first, for scrolling and live updates. At most one of before, after, around and after_ts is given; with none the window is the newest messages. after=0 is the oldest messages. Replaces the Drogon /v1/chats/{scope}/{id}/messages with the message shape of the chat pages; the cursors are the same message ids, and limit is clamped to 1..100 as there.
          *
          *     Messages sent as an album (consecutive rows sharing a media album id) come as one message: the first item's ids, date and sender, its media as `media` and the other items' as `album`, the caption and edits of the item that has one. A window whose edge cuts an album is extended to hold all of it, so an album always folds the same way; a window after an album's own message id therefore starts with that album again, which a client drops by `id`.
          *
@@ -1642,11 +1644,80 @@ export interface components {
             edited: boolean;
             deleted_at: string | null;
         };
+        /** @description A version of a message before an edit, from `at` until the next version (or the message as it is). */
         Edit: {
             at: string;
             text: string;
+            content_type?: components["schemas"]["ContentType"];
+            /** @description The version's media, when it had a file. */
+            media?: components["schemas"]["ChatMedia"];
         };
-        MessageFull: components["schemas"]["MessageRow"] & {
+        /** @description Where a forwarded message came from (the fwd_info row). name is the sender's or chat's name as `forward` shows it; the ids are present when recorded, for links to /users/{user_id} and /groups/{chat_id}. */
+        ForwardOrigin: {
+            /** @enum {string} */
+            type: "user" | "hidden_user" | "chat" | "channel";
+            name: string;
+            /** Format: int64 */
+            user_id?: number;
+            /** Format: int64 */
+            chat_id?: number;
+            /**
+             * Format: int64
+             * @description The original message's id in chat_id (a channel post).
+             */
+            message_id?: number;
+            /** @description When the original was sent. */
+            date?: string;
+        };
+        /** @description Fields ChatMessage and MessageFull share. Absent when they do not apply. */
+        MessageExtra: {
+            /** @description The chat the message was posted as (a channel, a group's anonymous admin), which `sender` also shows like a user with the chat's id; link it to /groups/{id}. */
+            sender_chat?: components["schemas"]["GroupSummary"];
+            forward_from?: components["schemas"]["ForwardOrigin"];
+            /** @description The author's signature of a channel post. */
+            author_signature?: string;
+            /** @description Present (true) for a channel post. */
+            is_channel_post?: boolean;
+            /** @description A service message's action (chat_add_members, pin_message, ...; docs/design/message-types.md section 4.2.3), shown when its text is empty, as the Drogon chat view does. */
+            service_type?: string;
+            /** @description The exact TDLib class (messageVideoNote, ...), recorded for rows logged since daemon migration 000034. The kinds that migration added to content_type are shown as unknown until the chat view renders them, so this says what they are. */
+            tdlib_type?: string;
+        };
+        /** @description What a message's media is beyond its file. Rows logged since daemon migration 000034 carry it in content_extra (docs/design/message-types.md section 4.2.1); older rows have render, ext and a sticker's format from the content type and the file, as the Drogon chat view reads them, and none of the others. Each key is absent when unknown. */
+        MediaDetail: {
+            /**
+             * @description How it renders (Drogon's mediaRender): an image (photos, .webp stickers), a video (videos, round video notes), an animation that loops muted without controls (GIFs, .webm stickers), a Lottie animation (.tgs stickers), audio (music and voice notes), or a file link.
+             * @enum {string}
+             */
+            render?: "image" | "video" | "animation" | "lottie" | "audio" | "file";
+            /** @description The file's extension, without the dot. */
+            ext?: string;
+            /**
+             * @description A sticker's format: content_extra's, else the file's extension. Stickers only.
+             * @enum {string}
+             */
+            format?: "webp" | "webm" | "tgs";
+            mime?: string;
+            /** @description Width in pixels (a video note's diameter). */
+            w?: number;
+            /** @description Height in pixels. */
+            h?: number;
+            /** @description Length in seconds (video, animation, audio, voice). */
+            duration?: number;
+            /** @description A sticker's emoji. */
+            emoji?: string;
+            /** @description A voice note's (or video note's) waveform as Telegram encodes it, decoded: one 5-bit value per bar, usually 100 bars. */
+            wave?: number[];
+            /** @description An audio file's title. */
+            title?: string;
+            /** @description An audio file's performer. */
+            performer?: string;
+            /** @description TDLib's tiny blurred preview as a data: URL (a JPEG), shown even when the file is not stored. */
+            minithumb?: string;
+            /** @description A video's cover photo (telegram_message_files, role cover), its /files/<token> URL, when it is stored or may be fetched. */
+            poster?: string;
+        };
+        MessageFull: components["schemas"]["MessageRow"] & components["schemas"]["MessageExtra"] & {
             text: string;
             reply_to: {
                 scope: components["schemas"]["MessageScope"];
@@ -1657,36 +1728,41 @@ export interface components {
             } | null;
             edits: components["schemas"]["Edit"][];
             edited_at: string | null;
-            media: {
+            media: (components["schemas"]["MediaDetail"] & {
                 /** Format: int64 */
                 file_id: number;
                 name: string;
                 /** Format: int64 */
                 size: number;
-                duration?: number;
                 stored: boolean;
+                /** @description As ChatMedia's thumb. */
                 thumb: string | null;
                 url: string | null;
-            } | null;
+            }) | null;
         };
-        /** @description A message's file (web/docs/media.md). url is the /files/<token> URL when the bytes are stored or may be fetched from Telegram, else null; thumb is the same URL for a picture. */
-        ChatMedia: {
+        /** @description A message's file (web/docs/media.md) and its detail. url is the /files/<token> URL when the bytes are stored or may be fetched from Telegram, else null; thumb is the same URL for media that render as an image, and for other media its poster, else its minithumb (a blurred preview), when known; else null. */
+        ChatMedia: components["schemas"]["MediaDetail"] & components["schemas"]["ChatMediaFile"];
+        ChatMediaFile: {
             stored: boolean;
             /** @description The bytes are not stored and the viewer may have them fetched from Telegram: the daemon API is on, and a viewer without a session asks only for a file under the store's per-file cap. */
             fetchable?: boolean;
             thumb: string | null;
             url: string | null;
-            w?: number;
-            h?: number;
-            duration?: number;
             name?: string;
             /** Format: int64 */
             size?: number;
-            emoji?: string;
-            /** @description A voice note's waveform as Telegram encodes it, decoded: one 5-bit value per bar, usually 100 bars. Absent when the archive does not record it. */
-            wave?: number[];
+            /**
+             * Format: int64
+             * @description An album item's own message id (the album message's media and album items only), for #msg links and replies to it.
+             */
+            message_id?: number;
+            /** @description An album item's own content type (photo, video, document, audio, animation): an album may mix them. Album items only. */
+            kind?: components["schemas"]["ContentType"];
+            /** @description When an album item was deleted; absent while it is not. Album items only. */
+            deleted_at?: string;
         };
-        ChatMessage: {
+        ChatMessage: components["schemas"]["MessageExtra"] & components["schemas"]["ChatMessageBase"];
+        ChatMessageBase: {
             /** Format: int64 */
             id: number;
             /** Format: int64 */
@@ -1708,9 +1784,13 @@ export interface components {
                 snippet: string;
                 /**
                  * Format: int64
-                 * @description The chat of a target in another chat; absent for a target in this one.
+                 * @description The chat of a target in another chat; absent for a target in this one. A negative id is a group (/groups/{chat_id}/chat?at=<message_id>), a positive one a private chat.
                  */
                 chat_id?: number;
+                /** @description The target is logged and sender and snippet describe it; false: only its id is known, shown as "message #<message_id>". */
+                resolved?: boolean;
+                /** @description The target was deleted. */
+                deleted?: boolean;
             } | null;
             forward: string | null;
             edits: components["schemas"]["Edit"][];
@@ -1848,13 +1928,13 @@ export interface components {
         MessageProps: {
             message: components["schemas"]["MessageFull"];
         };
-        /** @description The chat page's first window (getChatMessages, limit 60). The page's query opens it at a message (?at=<message id>, around it) or a day (?date=YYYY-MM-DD in UTC, around the day's first message, which `at` then names); without either, or past the end, the newest messages. */
+        /** @description The chat page's first window (getChatMessages, limit 60 or the page's ?limit=, clamped to 1..100). The page's query opens it, by the first of these that parses: ?at=<message id> around that message; ?after_ts=<unix time> at the first message sent then or later (the Drogon page's links); ?date= around the first message at or after a day or a time in the viewer's timezone (Viewer.timezone: YYYY-MM-DD, YYYY-MM-DDTHH:MM, YYYY-MM-DD HH:MM, either with :SS, or RFC 3339 with its own offset); ?after=<message id> at the messages after it, and ?after=0 at the oldest messages. Without one, or past the end, the newest messages. `at` names the message opened at: the found one, or for ?after= the window's first. The Drogon page's #msg-<message id> anchors name message_id, so a client maps them to it. */
         ChatProps: {
             chat: {
                 /** @constant */
                 kind: "group";
                 group: components["schemas"]["GroupSummary"] & {
-                    /** @description Not recorded by the logger yet, so 0. */
+                    /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators. The logger does not record Telegram's own member count. */
                     members: number;
                     msg_count: number;
                 };
@@ -2927,6 +3007,8 @@ export interface operations {
                 after?: number;
                 /** @description Messages around this message id, which is included. */
                 around?: number;
+                /** @description A unix time: the messages from the first one sent then or later, as the Drogon API's after_ts; the newest messages when none is that recent. */
+                after_ts?: number;
                 limit?: number;
             };
             header?: never;

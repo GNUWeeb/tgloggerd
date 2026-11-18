@@ -119,7 +119,6 @@ Storing every kind of Telegram message faithfully:
 The web backend moves from Drogon to Go:
 [design/web-go.md](design/web-go.md).
 
-- [`parity-chat`](todo/parity-chat.md): Bring the Go chat data up to what the Drogon chat view shows.
 - [`parity-people`](todo/parity-people.md): Bring the user and group page data and the list pages' search up to the Drogon pages.
 - [`go-web-pages`](todo/go-web-pages.md): Route the page paths the Go service serves through nginx to it.
 - [`ssr-render-service`](todo/ssr-render-service.md): Deploy the render service and its build on the running stack.

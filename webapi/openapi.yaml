@@ -636,6 +636,12 @@ paths:
         email_verify /account/email/verify.
 
 
+        /messages/{group|private}, the Drogon message lists that its
+        message pages link to, answers {"reload": true}: its document
+        redirects (302) to /group_messages or /private_messages,
+        filtered by its ?chat_id= and with ?per= its ?limit=.
+
+
         password_forgot, password_set and email_verify are served to
         signed-out and signed-in visitors alike, and their GETs change
         nothing: the link token travels in the URL's fragment, which
@@ -780,11 +786,12 @@ paths:
       summary: A window of a chat's messages
       description: >-
         Messages of a group or a private chat, oldest first, for
-        scrolling and live updates. At most one of before, after and
-        around is given; with none the window is the newest messages.
-        Replaces the Drogon /v1/chats/{scope}/{id}/messages with the
-        message shape of the chat pages; the cursors are the same
-        message ids, and limit is clamped to 1..100 as there.
+        scrolling and live updates. At most one of before, after,
+        around and after_ts is given; with none the window is the
+        newest messages. after=0 is the oldest messages. Replaces the
+        Drogon /v1/chats/{scope}/{id}/messages with the message shape
+        of the chat pages; the cursors are the same message ids, and
+        limit is clamped to 1..100 as there.
 
 
         Messages sent as an album (consecutive rows sharing a media
@@ -836,6 +843,16 @@ paths:
           in: query
           required: false
           description: Messages around this message id, which is included.
+          schema:
+            type: integer
+            format: int64
+        - name: after_ts
+          in: query
+          required: false
+          description: >-
+            A unix time: the messages from the first one sent then or
+            later, as the Drogon API's after_ts; the newest messages
+            when none is that recent.
           schema:
             type: integer
             format: int64
@@ -4458,15 +4475,153 @@ components:
           type: [string, 'null']
     Edit:
       type: object
+      description: >-
+        A version of a message before an edit, from `at` until the next
+        version (or the message as it is).
       required: [at, text]
       properties:
         at:
           type: string
         text:
           type: string
+        content_type:
+          $ref: '#/components/schemas/ContentType'
+        media:
+          description: The version's media, when it had a file.
+          $ref: '#/components/schemas/ChatMedia'
+    ForwardOrigin:
+      type: object
+      description: >-
+        Where a forwarded message came from (the fwd_info row). name is
+        the sender's or chat's name as `forward` shows it; the ids are
+        present when recorded, for links to /users/{user_id} and
+        /groups/{chat_id}.
+      required: [type, name]
+      properties:
+        type:
+          type: string
+          enum: [user, hidden_user, chat, channel]
+        name:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        chat_id:
+          type: integer
+          format: int64
+        message_id:
+          type: integer
+          format: int64
+          description: The original message's id in chat_id (a channel post).
+        date:
+          type: string
+          description: When the original was sent.
+    MessageExtra:
+      type: object
+      description: >-
+        Fields ChatMessage and MessageFull share. Absent when they do
+        not apply.
+      properties:
+        sender_chat:
+          description: >-
+            The chat the message was posted as (a channel, a group's
+            anonymous admin), which `sender` also shows like a user
+            with the chat's id; link it to /groups/{id}.
+          $ref: '#/components/schemas/GroupSummary'
+        forward_from:
+          $ref: '#/components/schemas/ForwardOrigin'
+        author_signature:
+          type: string
+          description: The author's signature of a channel post.
+        is_channel_post:
+          type: boolean
+          description: Present (true) for a channel post.
+        service_type:
+          type: string
+          description: >-
+            A service message's action (chat_add_members, pin_message,
+            ...; docs/design/message-types.md section 4.2.3), shown
+            when its text is empty, as the Drogon chat view does.
+        tdlib_type:
+          type: string
+          description: >-
+            The exact TDLib class (messageVideoNote, ...), recorded for
+            rows logged since daemon migration 000034. The kinds that
+            migration added to content_type are shown as unknown until
+            the chat view renders them, so this says what they are.
+    MediaDetail:
+      type: object
+      description: >-
+        What a message's media is beyond its file. Rows logged since
+        daemon migration 000034 carry it in content_extra
+        (docs/design/message-types.md section 4.2.1); older rows have
+        render, ext and a sticker's format from the content type and
+        the file, as the Drogon chat view reads them, and none of the
+        others. Each key is absent when unknown.
+      properties:
+        render:
+          type: string
+          enum: [image, video, animation, lottie, audio, file]
+          description: >-
+            How it renders (Drogon's mediaRender): an image (photos,
+            .webp stickers), a video (videos, round video notes), an
+            animation that loops muted without controls (GIFs, .webm
+            stickers), a Lottie animation (.tgs stickers), audio
+            (music and voice notes), or a file link.
+        ext:
+          type: string
+          description: The file's extension, without the dot.
+        format:
+          type: string
+          enum: [webp, webm, tgs]
+          description: >-
+            A sticker's format: content_extra's, else the file's
+            extension. Stickers only.
+        mime:
+          type: string
+        w:
+          type: integer
+          description: Width in pixels (a video note's diameter).
+        h:
+          type: integer
+          description: Height in pixels.
+        duration:
+          type: integer
+          description: Length in seconds (video, animation, audio, voice).
+        emoji:
+          type: string
+          description: A sticker's emoji.
+        wave:
+          type: array
+          description: >-
+            A voice note's (or video note's) waveform as Telegram
+            encodes it, decoded: one 5-bit value per bar, usually 100
+            bars.
+          items:
+            type: integer
+            minimum: 0
+            maximum: 31
+        title:
+          type: string
+          description: An audio file's title.
+        performer:
+          type: string
+          description: An audio file's performer.
+        minithumb:
+          type: string
+          description: >-
+            TDLib's tiny blurred preview as a data: URL (a JPEG), shown
+            even when the file is not stored.
+        poster:
+          type: string
+          description: >-
+            A video's cover photo (telegram_message_files, role cover),
+            its /files/<token> URL, when it is stored or may be
+            fetched.
     MessageFull:
       allOf:
         - $ref: '#/components/schemas/MessageRow'
+        - $ref: '#/components/schemas/MessageExtra'
         - type: object
           required: [text, reply_to, edits, edited_at, media]
           properties:
@@ -4495,32 +4650,39 @@ components:
               type: [string, 'null']
             media:
               oneOf:
-                - type: object
-                  required: [file_id, name, size, stored, thumb, url]
-                  properties:
-                    file_id:
-                      type: integer
-                      format: int64
-                    name:
-                      type: string
-                    size:
-                      type: integer
-                      format: int64
-                    duration:
-                      type: integer
-                    stored:
-                      type: boolean
-                    thumb:
-                      type: [string, 'null']
-                    url:
-                      type: [string, 'null']
+                - allOf:
+                    - $ref: '#/components/schemas/MediaDetail'
+                    - type: object
+                      required: [file_id, name, size, stored, thumb, url]
+                      properties:
+                        file_id:
+                          type: integer
+                          format: int64
+                        name:
+                          type: string
+                        size:
+                          type: integer
+                          format: int64
+                        stored:
+                          type: boolean
+                        thumb:
+                          type: [string, 'null']
+                          description: As ChatMedia's thumb.
+                        url:
+                          type: [string, 'null']
                 - type: 'null'
     ChatMedia:
-      type: object
       description: >-
-        A message's file (web/docs/media.md). url is the /files/<token>
-        URL when the bytes are stored or may be fetched from Telegram,
-        else null; thumb is the same URL for a picture.
+        A message's file (web/docs/media.md) and its detail. url is the
+        /files/<token> URL when the bytes are stored or may be fetched
+        from Telegram, else null; thumb is the same URL for media that
+        render as an image, and for other media its poster, else its
+        minithumb (a blurred preview), when known; else null.
+      allOf:
+        - $ref: '#/components/schemas/MediaDetail'
+        - $ref: '#/components/schemas/ChatMediaFile'
+    ChatMediaFile:
+      type: object
       required: [stored, thumb, url]
       properties:
         stored:
@@ -4536,30 +4698,32 @@ components:
           type: [string, 'null']
         url:
           type: [string, 'null']
-        w:
-          type: integer
-        h:
-          type: integer
-        duration:
-          type: integer
         name:
           type: string
         size:
           type: integer
           format: int64
-        emoji:
-          type: string
-        wave:
-          type: array
+        message_id:
+          type: integer
+          format: int64
           description: >-
-            A voice note's waveform as Telegram encodes it, decoded:
-            one 5-bit value per bar, usually 100 bars. Absent when
-            the archive does not record it.
-          items:
-            type: integer
-            minimum: 0
-            maximum: 31
+            An album item's own message id (the album message's media
+            and album items only), for #msg links and replies to it.
+        kind:
+          description: >-
+            An album item's own content type (photo, video, document,
+            audio, animation): an album may mix them. Album items only.
+          $ref: '#/components/schemas/ContentType'
+        deleted_at:
+          type: string
+          description: >-
+            When an album item was deleted; absent while it is not.
+            Album items only.
     ChatMessage:
+      allOf:
+        - $ref: '#/components/schemas/MessageExtra'
+        - $ref: '#/components/schemas/ChatMessageBase'
+    ChatMessageBase:
       type: object
       required: [id, message_id, date, scope, sender, content_type, text, media, album, reply_to, forward, edits, edited_at, deleted_at, link_preview]
       properties:
@@ -4610,7 +4774,18 @@ components:
                   format: int64
                   description: >-
                     The chat of a target in another chat; absent for
-                    a target in this one.
+                    a target in this one. A negative id is a group
+                    (/groups/{chat_id}/chat?at=<message_id>), a
+                    positive one a private chat.
+                resolved:
+                  type: boolean
+                  description: >-
+                    The target is logged and sender and snippet
+                    describe it; false: only its id is known, shown
+                    as "message #<message_id>".
+                deleted:
+                  type: boolean
+                  description: The target was deleted.
             - type: 'null'
         forward:
           type: [string, 'null']
@@ -4936,11 +5111,20 @@ components:
     ChatProps:
       type: object
       description: >-
-        The chat page's first window (getChatMessages, limit 60). The
-        page's query opens it at a message (?at=<message id>, around
-        it) or a day (?date=YYYY-MM-DD in UTC, around the day's first
-        message, which `at` then names); without either, or past the
-        end, the newest messages.
+        The chat page's first window (getChatMessages, limit 60 or the
+        page's ?limit=, clamped to 1..100). The page's query opens it,
+        by the first of these that parses: ?at=<message id> around
+        that message; ?after_ts=<unix time> at the first message sent
+        then or later (the Drogon page's links); ?date= around the
+        first message at or after a day or a time in the viewer's
+        timezone (Viewer.timezone: YYYY-MM-DD, YYYY-MM-DDTHH:MM,
+        YYYY-MM-DD HH:MM, either with :SS, or RFC 3339 with its own
+        offset); ?after=<message id> at the messages after it, and
+        ?after=0 at the oldest messages. Without one, or past the end,
+        the newest messages. `at` names the message opened at: the
+        found one, or for ?after= the window's first. The Drogon
+        page's #msg-<message id> anchors name message_id, so a client
+        maps them to it.
       required: [chat, messages, has_older, has_newer, at]
       properties:
         chat:
@@ -4958,7 +5142,12 @@ components:
                       properties:
                         members:
                           type: integer
-                          description: Not recorded by the logger yet, so 0.
+                          description: >-
+                            How many people the archive has seen in the
+                            group: the distinct users who sent a
+                            message there and its administrators. The
+                            logger does not record Telegram's own
+                            member count.
                         msg_count:
                           type: integer
             - type: object

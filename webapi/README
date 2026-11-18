@@ -427,7 +427,32 @@ within the chat, albums folded into one message (a window cut through
 an album reads the rest of it, so it folds the same way in every
 window), edits and link previews read in one query per window, media
 with stored and fetchable as web/docs/media.md describes. The chat
-page's loader reads its first window through the same code.
+page's loader reads its first window through the same code. after=0
+is the oldest messages, and after_ts=<unix time> starts at the first
+message sent then or later, as Drogon's after_ts did.
+
+Each message carries what the Drogon chat view shows
+(internal/server/chatmedia.go): how its media renders (image, video,
+animation, lottie, audio, file), its size, duration, a sticker's
+format and emoji, a voice note's waveform, an audio file's title and
+performer, TDLib's blurred minithumbnail and a video's cover photo;
+for album items their own message id, kind and deletion; each edit's
+content type and media; the forward origin with its ids, the author's
+signature, a chat posting as the sender, the service type, whether a
+reply's target is logged or deleted. The detail comes from
+content_extra (daemon migration 000034) and the cover from
+telegram_message_files (000036); older rows fall back to what Drogon
+reads, the content type and the file's extension. The kinds 000034
+added to content_type are answered as unknown, with tdlib_type
+naming them, until the chat view renders them. Both migrations must
+have run before this service reads the logger's database.
+
+The chat page's query also takes Drogon's links: ?after=, ?after_ts=
+and ?limit=, and ?date= as a day or a day and time in the viewer's
+timezone. Its header counts the members the archive has seen
+(senders and admins), since the logger does not record Telegram's
+count. /messages/{group|private}?chat_id= redirects to the message
+list filtered by that chat.
 
 Signed-out visitors may read the chats of exposed groups
 (telegram_public_groups), as the public chat page does, and get 401

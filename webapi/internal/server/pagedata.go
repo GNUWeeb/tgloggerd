@@ -7,11 +7,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/url"
 	"strconv"
 	"time"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/settings"
 )
 
 // The loaders of the dashboard, user, group, chat and message pages
@@ -277,6 +280,9 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 
 type chatGroupJSON struct {
 	groupSummaryJSON
+	// Members is how many people the archive has seen in the group
+	// (logdb.Chat.KnownMembers): the logger does not record Telegram's
+	// own count.
 	Members  int64  `json:"members"`
 	MsgCount uint64 `json:"msg_count"`
 }
@@ -300,20 +306,86 @@ type chatProps struct {
 	At *int64 `json:"at"`
 }
 
-// chatPageAnchor reads the chat page's query: ?at=<message id> opens
-// the window around that message, ?date=YYYY-MM-DD around the first
-// message of that day (UTC); with neither, or one that does not parse,
-// the newest messages.
+// chatDateLayouts are the forms ?date= takes, read in the viewer's
+// timezone: a day, or a day and a time (with or without seconds, a T
+// or a space between).
+var chatDateLayouts = []string{time.DateOnly, "2006-01-02T15:04", "2006-01-02 15:04",
+	"2006-01-02T15:04:05", time.DateTime}
+
+// parseChatDate reads ?date=: one of chatDateLayouts in loc, or an
+// RFC 3339 time with its own offset.
+func parseChatDate(v string, loc *time.Location) (time.Time, bool) {
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t, true
+	}
+	for _, l := range chatDateLayouts {
+		if t, err := time.ParseInLocation(l, v, loc); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// viewerLocation is the timezone the viewer reads times in: its own
+// preference, else the site's default (pageViewer's timezone).
+func (pr *pageRequest) viewerLocation(ctx context.Context) (*time.Location, error) {
+	var prefs settings.Prefs
+	if pr.sess != nil {
+		var err error
+		if prefs, err = pr.s.viewerPrefs(ctx, pr.sess.UID); err != nil {
+			return nil, err
+		}
+	}
+	loc, err := time.LoadLocation(settings.Resolve(prefs, pr.s.defaults).Timezone)
+	if err != nil {
+		return time.UTC, nil
+	}
+	return loc, nil
+}
+
+// chatPageAnchor reads the chat page's query, the first of these that
+// parses: ?at=<message id> opens the window around that message;
+// ?after_ts=<unix time> at the first message sent then or later, as
+// the Drogon chat page did; ?date= around the first message at or
+// after that day or time in the viewer's timezone; ?after=<message id>
+// at the messages after it (the Drogon page's paging links, and
+// ?after=0 for the oldest messages). With none, or past the end, the
+// newest messages. ?limit= sizes the window as for the API. at is the
+// message the page is opened at; for ?after= the window's first.
 func chatPageAnchor(ctx context.Context, pr *pageRequest, c logdb.Chat) (logdb.Anchor, *int64, error) {
-	if at, err := strconv.ParseInt(pr.query.Get("at"), 10, 64); err == nil {
+	q := pr.query
+	if at, err := strconv.ParseInt(q.Get("at"), 10, 64); err == nil {
 		return logdb.Anchor{Around: &at}, &at, nil
 	}
-	if d, err := time.Parse(time.DateOnly, pr.query.Get("date")); err == nil {
-		id, ok, err := c.DateAnchor(ctx, pr.s.ro, d.Unix())
-		if err != nil || !ok {
+	var ts int64
+	ok := false
+	if n, err := strconv.ParseInt(q.Get("after_ts"), 10, 64); err == nil {
+		id, found, err := c.DateAnchor(ctx, pr.s.ro, n)
+		if err != nil || !found {
+			return logdb.Anchor{}, nil, err
+		}
+		after := id - 1
+		return logdb.Anchor{After: &after}, &id, nil
+	}
+	if v := q.Get("date"); v != "" {
+		loc, err := pr.viewerLocation(ctx)
+		if err != nil {
+			return logdb.Anchor{}, nil, err
+		}
+		var t time.Time
+		if t, ok = parseChatDate(v, loc); ok {
+			ts = t.Unix()
+		}
+	}
+	if ok {
+		id, found, err := c.DateAnchor(ctx, pr.s.ro, ts)
+		if err != nil || !found {
 			return logdb.Anchor{}, nil, err
 		}
 		return logdb.Anchor{Around: &id}, &id, nil
+	}
+	if after, err := strconv.ParseInt(q.Get("after"), 10, 64); err == nil {
+		return logdb.Anchor{After: &after}, nil, nil
 	}
 	return logdb.Anchor{}, nil, nil
 }
@@ -330,17 +402,29 @@ func loadChat(ctx context.Context, pr *pageRequest, group bool) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	w, err := c.Window(ctx, pr.s.ro, a, chatDefaultLimit)
+	_, limit, err := chatAnchor(map[string][]string{"limit": pr.query["limit"]})
+	if err != nil {
+		limit = chatDefaultLimit
+	}
+	w, err := c.Window(ctx, pr.s.ro, a, limit)
 	if err != nil {
 		return nil, err
+	}
+	if a.After != nil && at == nil && len(w.Messages) > 0 {
+		first := w.Messages[0].MessageID
+		at = &first
 	}
 	v := pr.view()
 	p := chatProps{chatWindowJSON: v.window(c, w), At: at}
 	if group {
 		gs := v.group(c.GroupInfo)
 		gs.MsgCount = nil
+		members, err := c.KnownMembers(ctx, pr.s.ro)
+		if err != nil {
+			return nil, err
+		}
 		p.Chat = chatHeadJSON{Kind: "group", Group: &chatGroupJSON{groupSummaryJSON: gs,
-			MsgCount: c.GroupInfo.MsgCount}}
+			Members: members, MsgCount: c.GroupInfo.MsgCount}}
 	} else {
 		n := c.Count
 		p.Chat = chatHeadJSON{Kind: "user", User: &chatUserJSON{ID: c.UserInfo.ID,
@@ -381,6 +465,7 @@ type messageMediaJSON struct {
 	Stored bool    `json:"stored"`
 	Thumb  *string `json:"thumb"`
 	URL    *string `json:"url"`
+	mediaDetailJSON
 }
 
 type messageFullJSON struct {
@@ -400,6 +485,7 @@ type messageFullJSON struct {
 	Edits       []editJSON        `json:"edits"`
 	EditedAt    *string           `json:"edited_at"`
 	Media       *messageMediaJSON `json:"media"`
+	messageExtraJSON
 }
 
 type messageProps struct {
@@ -436,9 +522,9 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	m := d.Message
 	j := messageFullJSON{
 		ID: m.RowID, Scope: scopeName(group), MessageID: m.MessageID, Date: iso(m.Date),
-		Sender: v.sender(n, m), ContentType: m.ContentType, Snippet: snippet(m),
+		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Snippet: snippet(m),
 		Forwarded: n.forward(m), Edited: m.EditDate > 0, DeletedAt: isoPtr(m.DeletedAt),
-		Text: m.Text, Edits: v.edits(m),
+		Text: m.Text, Edits: v.edits(m), messageExtraJSON: v.messageExtra(n, m),
 	}
 	if m.EditDate > 0 {
 		j.EditedAt = isoPtr(m.EditDate)
@@ -456,9 +542,33 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 			SenderName: rep.SenderName, Snippet: rep.Snippet}
 	}
 	if m.File.ID != 0 {
-		md := v.media(m.ContentType, m.File)
+		md := v.media(m.ContentType, m.File, m.Extra)
+		v.poster(md, m)
 		j.Media = &messageMediaJSON{FileID: m.File.ID, Name: md.Name, Size: md.Size,
-			Stored: md.Stored, Thumb: md.Thumb, URL: md.URL}
+			Stored: md.Stored, Thumb: md.Thumb, URL: md.URL, mediaDetailJSON: md.mediaDetailJSON}
 	}
 	return messageProps{Message: j}, nil
+}
+
+// messagesRedirect sends the Drogon message lists, /messages/{scope}
+// with ?chat_id= and ?limit=, to the list of that scope filtered by the
+// chat, the rows per page as many as the limit. Its ?before= cursor
+// has no equivalent there and opens the list's first page.
+func messagesRedirect(pr *pageRequest) string {
+	list := "/private_messages"
+	if pr.params["scope"] == "group" {
+		list = "/group_messages"
+	}
+	q := url.Values{}
+	if c := pr.query.Get("chat_id"); isInt(c) {
+		f, _ := json.Marshal([]listCond{{Field: "chat_id", Op: "=", Value: c}})
+		q.Set("f", string(f))
+	}
+	if n, err := strconv.Atoi(pr.query.Get("limit")); err == nil && n > 0 {
+		q.Set("per", strconv.Itoa(min(n, maxListPer)))
+	}
+	if len(q) == 0 {
+		return list
+	}
+	return list + "?" + q.Encode()
 }
