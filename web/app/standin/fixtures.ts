@@ -11,6 +11,7 @@ import { buildScope, allowed } from '../../mockup/src/data/scope.js';
 import { TOTALS } from '../../mockup/src/data/totals.js';
 import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/data/admin.js';
 import { createHash, randomBytes } from 'node:crypto';
+import { REGISTRY, SLOW, compile, fieldsOf, legacyQuery, type ListError } from './search.ts';
 import { queryRows } from '../../mockup/src/data/seed.js';
 import type { PageData, Viewer } from '../src/page.ts';
 
@@ -56,6 +57,17 @@ function userSummary(u, full: boolean) {
 	return {
 		...base, msg_count: u.msg_count, is_verified: u.is_verified, is_premium: u.is_premium, is_scam: u.is_scam, is_fake: u.is_fake,
 		is_support: u.is_support, language: u.language, created_at: iso(u.created_at), updated_at: iso(u.updated_at),
+	};
+}
+
+// A row of the users list (UserRow): the Drogon list's other columns go
+// to full viewers only.
+function userRow(u, full: boolean) {
+	if (!full) return userSummary(u, false);
+	return {
+		...userSummary(u, true), phone: u.phone || '', bio: u.bio || '', restriction_reason: u.is_scam ? 'Reported as a scam by many users.' : '',
+		has_sensitive_content: false, restricts_new_chats: Number(String(u.id).slice(-4)) % 7 === 0, paid_message_star_count: 0, personal_chat_id: null,
+		emoji_status: u.is_premium ? String(5368324170671202286n + BigInt(Number(String(u.id).slice(-4)))) : null,
 	};
 }
 
@@ -280,16 +292,40 @@ function fileRow(f, fetch: boolean) {
 
 const q = (u: URL, k: string) => u.searchParams.get(k);
 
-type Loaded = { route: string; status: 200 | 404; props: unknown };
+type Loaded = { route: string; status: 200 | 404; props: unknown; url?: string };
+const LISTS = ['/users', '/groups', '/group_messages', '/private_messages', '/files'];
 const notFound: Loaded = { route: 'not_found', status: 404, props: {} };
 
-function listState(q: URLSearchParams, defSort: string) {
+// A list's state from its query: per defaults to the viewer's rows per
+// page (else the list's own default) and goes up to 1000.
+function listState(q: URLSearchParams, defSort: string, defPer = 25, persona?: Persona) {
 	let conds = [];
 	try { conds = q.get('f') ? JSON.parse(q.get('f')) : []; } catch { conds = []; }
+	const pref = persona && persona !== 'public' ? settingsState(persona).prefs.rows_per_page : null;
 	return {
 		q: q.get('q') || '', conds, sort: q.get('sort') || defSort, dir: q.get('dir') || 'desc',
-		page: Number(q.get('page')) || 1, per: Number(q.get('per')) || 25,
+		page: Number(q.get('page')) || 1, per: Math.min(1000, Math.max(1, Number(q.get('per')) || pref || defPer)),
 	};
+}
+
+// A list with the advanced search: its own filter keys (the rows' own
+// keys) and its registry's fields, as one chain. A refused search, or one
+// containing the sample word for a slow one, answers the plain list with
+// the reason; q and conds are then empty, as applied.
+function searchList(st, registry: string, rows: Record<string, unknown>[], keep: ((x) => boolean) | null, query: (st, keep) => { rows: unknown[]; total: number; page: number; pages: number }, estimate = false) {
+	const fields = REGISTRY[registry]!;
+	let error: ListError | null = null;
+	let test: ((r) => boolean) | null = null;
+	if (st.q.includes(SLOW)) error = { code: 'search_timeout', message: 'The search ran out of its time limit.' };
+	else {
+		const t = compile(st.conds, Object.keys(rows[0] ?? {}), fields);
+		if (typeof t === 'function') test = t; else error = t;
+	}
+	const applied = error ? { ...st, q: '', conds: [] } : st;
+	const r = query({ ...applied, conds: [] }, (x) => (!keep || keep(x)) && (!test || test(x)));
+	// Without a search the biggest list counts by the table's estimate.
+	const exact = !(estimate && !applied.q && !applied.conds.length);
+	return { st: applied, r: exact ? r : { ...r, total: Math.round(r.total / 100) * 100 || r.total }, extra: { total_exact: exact, fields: fieldsOf(fields), ...(error ? { error } : {}) } };
 }
 
 // Path -> route and props, with the viewer's scope applied: hidden things
@@ -297,6 +333,16 @@ function listState(q: URLSearchParams, defSort: string) {
 export function load(url: string, persona: Persona): Loaded {
 	const u = new URL(url, 'http://x');
 	const path = u.pathname.replace(/\/+$/, '') || '/';
+	// A Drogon list URL is read as the same list; the page names the
+	// translated URL, for the address bar.
+	if (LISTS.includes(path)) {
+		const lq = legacyQuery(u.searchParams);
+		if (lq) {
+			u.search = lq.toString() ? '?' + lq.toString() : '';
+			const r = load(u.pathname + u.search, persona);
+			return { ...r, url: u.pathname + u.search };
+		}
+	}
 	const s = scopeOf(persona);
 	const full = s.fullUser;
 	let m;
@@ -326,9 +372,8 @@ export function load(url: string, persona: Persona): Loaded {
 		};
 	}
 	if (path === '/users') {
-		const st = listState(u.searchParams, full ? 'msg_count' : 'name');
-		const r = queryUsers(st, s.role === 'member' ? s.user : null);
-		return { route: 'users', status: 200, props: { ...st, ...r, rows: r.rows.map((x) => userSummary(x, full)), archive_total: full ? TOTAL_USERS : undefined } };
+		const { st, r, extra } = searchList(listState(u.searchParams, full ? 'msg_count' : 'name', 25, persona), full ? 'users' : 'users_member', users, s.role === 'member' ? s.user : null, queryUsers);
+		return { route: 'users', status: 200, props: { ...st, ...r, ...extra, rows: r.rows.map((x) => userRow(x, full)), archive_total: full ? TOTAL_USERS : undefined } };
 	}
 	if ((m = path.match(/^\/users\/(\d+)(\/history)?$/))) {
 		const usr = getUser(m[1]);
@@ -355,9 +400,8 @@ export function load(url: string, persona: Persona): Loaded {
 		};
 	}
 	if (path === '/groups') {
-		const st = listState(u.searchParams, 'msg_count');
-		const r = queryGroups(st, s.role === 'superadmin' ? null : s.group);
-		return { route: 'groups', status: 200, props: { ...st, ...r, rows: r.rows.map((g) => ({ ...groupSummary(g), msg_count: g.msg_count, admin_count: g.admin_count, description: g.description, created_at: iso(g.created_at) })), archive_total: s.role === 'member' ? undefined : TOTALS.groups } };
+		const { st, r, extra } = searchList(listState(u.searchParams, 'msg_count', 25, persona), 'groups', groups, s.role === 'superadmin' ? null : s.group, queryGroups);
+		return { route: 'groups', status: 200, props: { ...st, ...r, ...extra, rows: r.rows.map((g) => ({ ...groupSummary(g), msg_count: g.msg_count, admin_count: g.admin_count, description: g.description, created_at: iso(g.created_at), updated_at: iso(g.updated_at) })), archive_total: s.role === 'member' ? undefined : TOTALS.groups } };
 	}
 	if ((m = path.match(/^\/groups\/(-\d+)(\/admins|\/history)?$/))) {
 		const g = getGroup(m[1]);
@@ -388,10 +432,9 @@ export function load(url: string, persona: Persona): Loaded {
 	if (path === '/group_messages' || path === '/private_messages' || path === '/messages/group' || path === '/messages/private') {
 		const scope = path.includes('private') ? 'private' : 'group';
 		if (!allowed(s, scope === 'group' ? 'group_messages' : 'private_messages')) return notFound;
-		const st = listState(u.searchParams, 'date');
-		const per = Number(u.searchParams.get('per')) || 50;
-		const r = queryMessages(scope, { ...st, per }, scope === 'group' && s.role !== 'superadmin' ? (x) => s.group(x.chat) : null);
-		return { route: scope === 'group' ? 'group_messages' : 'private_messages', status: 200, props: { ...st, ...r, per, scope, rows: r.rows.map(messageRow), archive_total: s.role === 'member' ? undefined : scope === 'group' ? TOTALS.group_messages : TOTALS.private_messages } };
+		const all = scope === 'group' ? groupMessages() : privateMessages();
+		const { st, r, extra } = searchList(listState(u.searchParams, 'date', 50, persona), 'messages', all, scope === 'group' && s.role !== 'superadmin' ? (x) => s.group(x.chat) : null, (state, keep) => queryMessages(scope, state, keep), scope === 'group');
+		return { route: scope === 'group' ? 'group_messages' : 'private_messages', status: 200, props: { ...st, ...r, ...extra, scope, rows: r.rows.map(messageRow), archive_total: s.role === 'member' ? undefined : scope === 'group' ? TOTALS.group_messages : TOTALS.private_messages } };
 	}
 	if ((m = path.match(/^\/messages\/(group|private)\/(\d+)$/))) {
 		if (!allowed(s, m[1] === 'group' ? 'group_messages' : 'private_messages')) return notFound;
@@ -870,7 +913,7 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 
 export function pageData(url: string, persona: Persona): PageData {
 	const r = load(url, persona);
-	return { v: 1, route: r.route, url, status: r.status, props: r.props, viewer: viewerOf(persona) };
+	return { v: 1, route: r.route, url: r.url ?? url, status: r.status, props: r.props, viewer: viewerOf(persona) };
 }
 
 export { federations };

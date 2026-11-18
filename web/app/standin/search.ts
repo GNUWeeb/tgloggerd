@@ -1,0 +1,147 @@
+// The stand-in's list search, as the Go lists run it (ListState,
+// web/docs/search-api.md): a list's own filter keys and the fields of
+// its search registry, joined by AND and OR (AND binds tighter), with a
+// refused search or one that runs out of time answering the plain list
+// and the reason. Only what the sample data can answer is modelled.
+
+export type Cond = { field: string; op: string; value: string; n?: 'AND' | 'OR' };
+type Row = Record<string, unknown>;
+type FieldType = 'text' | 'int' | 'bool' | 'datetime' | 'enum';
+export interface SField { key: string; label: string; type: FieldType; sortable: boolean; operators: string[]; enum?: string; get?: (r: Row) => unknown }
+
+const TEXT = ['=', '!=', 'LIKE', 'NOT LIKE', '%LIKE%', 'NOT %LIKE%'];
+const CMP = ['=', '!=', '<', '>', '<=', '>='];
+const BOOL = ['=', '!='];
+const NULLS = ['IS NULL', 'IS NOT NULL'];
+const OWN_OPS = ['=', '!=', '>', '<', '>=', '<=', 'contains', 'empty', 'is'];
+
+// The registries: the fields each list's search offers.
+export const REGISTRY: Record<string, SField[]> = {
+	users: [
+		{ key: 'first_name', label: 'First name', type: 'text', sortable: true, operators: TEXT },
+		{ key: 'last_name', label: 'Last name', type: 'text', sortable: true, operators: TEXT },
+		{ key: 'phone', label: 'Phone', type: 'text', sortable: false, operators: [...TEXT, ...NULLS] },
+		{ key: 'bio', label: 'Bio', type: 'text', sortable: false, operators: [...TEXT, ...NULLS] },
+		{ key: 'is_premium', label: 'Premium', type: 'bool', sortable: true, operators: BOOL },
+		{ key: 'is_verified', label: 'Verified', type: 'bool', sortable: true, operators: BOOL },
+		{ key: 'is_contact', label: 'Contact', type: 'bool', sortable: false, operators: BOOL },
+		{ key: 'has_photo', label: 'Has photo', type: 'bool', sortable: false, operators: NULLS, get: (r) => (r.has_photo ? 1 : null) },
+		{ key: 'created_at', label: 'Created', type: 'datetime', sortable: true, operators: CMP },
+	],
+	// A member's users: only these, as in Go.
+	users_member: [
+		{ key: 'has_photo', label: 'Has photo', type: 'bool', sortable: false, operators: NULLS, get: (r) => (r.has_photo ? 1 : null) },
+	],
+	groups: [
+		{ key: 'title', label: 'Title', type: 'text', sortable: true, operators: TEXT },
+		{ key: 'description', label: 'Description', type: 'text', sortable: false, operators: [...TEXT, ...NULLS] },
+		{ key: 'updated_at', label: 'Updated', type: 'datetime', sortable: true, operators: CMP },
+		{ key: 'admin_count', label: 'Admins', type: 'int', sortable: true, operators: CMP },
+	],
+	messages: [
+		{ key: 'text', label: 'Text', type: 'text', sortable: false, operators: ['matches', '%LIKE%', 'NOT %LIKE%', ...NULLS] },
+		{ key: 'message_id', label: 'Message ID', type: 'int', sortable: true, operators: CMP },
+	],
+};
+
+export const fieldsOf = (fs: SField[]) => fs.map(({ get: _g, ...f }) => f);
+
+const like = (pattern: string, s: string) => new RegExp('^' + pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.') + '$', 'is').test(s);
+const has = (s: string, part: string) => s.toLowerCase().includes(part.toLowerCase());
+// MySQL boolean full-text, roughly: +word and plain words must appear,
+// -word must not, "a phrase" appears as is.
+function matches(text: string, q: string): boolean {
+	const terms = q.match(/[-+]?"[^"]+"|\S+/g) ?? [];
+	return terms.length > 0 && terms.every((t) => {
+		const neg = t.startsWith('-');
+		const w = t.replace(/^[-+]/, '').replace(/^"|"$/g, '');
+		return neg ? !has(text, w) : has(text, w);
+	});
+}
+
+function ownMatch(v: unknown, c: Cond): boolean {
+	const num = typeof v === 'number';
+	switch (c.op) {
+		case 'contains': return has(String(v ?? ''), c.value);
+		case '=': return String(v) === String(c.value);
+		case '!=': return String(v) !== String(c.value);
+		case '>': return num ? (v as number) > Number(c.value) : String(v) > c.value;
+		case '<': return num ? (v as number) < Number(c.value) : String(v) < c.value;
+		case '>=': return num ? (v as number) >= Number(c.value) : String(v) >= c.value;
+		case '<=': return num ? (v as number) <= Number(c.value) : String(v) <= c.value;
+		case 'is': return Boolean(v) === (c.value === 'yes' || c.value === 'true');
+		case 'empty': return !v;
+		default: return false;
+	}
+}
+
+function searchMatch(f: SField, row: Row, c: Cond): boolean {
+	const raw = f.get ? f.get(row) : row[f.key];
+	if (c.op === 'IS NULL') return raw === null || raw === undefined || raw === '';
+	if (c.op === 'IS NOT NULL') return !(raw === null || raw === undefined || raw === '');
+	if (f.type === 'bool') return (c.op === '=') === (Boolean(raw) === (c.value === '1'));
+	if (f.type === 'int') return ownMatch(Number(raw), { ...c, value: c.value });
+	const s = String(raw ?? '');
+	switch (c.op) {
+		case 'LIKE': return like(c.value, s);
+		case 'NOT LIKE': return !like(c.value, s);
+		case '%LIKE%': return has(s, c.value);
+		case 'NOT %LIKE%': return !has(s, c.value);
+		case 'matches': return matches(s, c.value);
+		default: return ownMatch(s, c);
+	}
+}
+
+export type ListError = { code: 'bad_search' | 'search_timeout'; message: string };
+
+// The conditions as one test of a row, or why the list refuses them.
+export function compile(conds: Cond[], own: string[], fields: SField[]): ((r: Row) => boolean) | ListError {
+	const tests: ((r: Row) => boolean)[] = [];
+	for (const c of conds) {
+		// A list's own key with one of its own operators keeps its own
+		// meaning (the message lists' text contains); else the registry's.
+		const f = own.includes(c.field) && OWN_OPS.includes(c.op) ? undefined : fields.find((x) => x.key === c.field);
+		if (f) {
+			if (!f.operators.includes(c.op)) return { code: 'bad_search', message: `${f.label} does not take ${c.op}.` };
+			if (f.type === 'int' && !NULLS.includes(c.op) && !/^-?\d+$/.test(c.value)) return { code: 'bad_search', message: `${f.label} takes a whole number.` };
+			if (f.type === 'datetime' && !/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(c.value)) return { code: 'bad_search', message: `${f.label} takes a date and time, YYYY-MM-DD HH:MM:SS.` };
+			tests.push((r) => searchMatch(f, r, c));
+		} else if (own.includes(c.field)) {
+			if (!OWN_OPS.includes(c.op)) return { code: 'bad_search', message: `${c.field} does not take ${c.op}.` };
+			tests.push((r) => ownMatch(r[c.field], c));
+		} else return { code: 'bad_search', message: `There is no field ${c.field} to filter by.` };
+	}
+	// AND binds tighter than OR: split the chain at each OR.
+	const groups: ((r: Row) => boolean)[][] = [[]];
+	tests.forEach((t, i) => {
+		groups[groups.length - 1]!.push(t);
+		if (conds[i]!.n === 'OR' && i < tests.length - 1) groups.push([]);
+	});
+	return (r) => groups.some((g) => g.every((t) => t(r)));
+}
+
+// The query of a Drogon list URL (search, offset, limit, sort, order)
+// as this list's, or null when it is not one (Go's legacyQuery).
+export function legacyQuery(q: URLSearchParams): URLSearchParams | null {
+	if (!['search', 'offset', 'limit', 'order'].some((k) => q.has(k))) return null;
+	if (['f', 'page', 'per', 'dir'].some((k) => q.has(k))) return null;
+	const out = new URLSearchParams();
+	if (q.get('q')) out.set('q', q.get('q')!);
+	let conds: { c: string; o: string; v?: string; n?: string }[] = [];
+	try { conds = q.get('search') ? JSON.parse(q.get('search')!) : []; } catch { conds = []; }
+	if (conds.length) out.set('f', JSON.stringify(conds.map((c, i) => ({ field: c.c, op: c.o, value: c.v ?? '', ...(c.n === 'OR' && i < conds.length - 1 ? { n: 'OR' } : {}) }))));
+	let per = 0;
+	if (q.has('limit')) { per = Math.min(1000, Math.max(1, Number(q.get('limit')) || 1)); out.set('per', String(per)); }
+	const off = Math.max(0, Number(q.get('offset')) || 0);
+	if (off > 0) {
+		if (!per) { per = 50; out.set('per', '50'); }
+		const page = Math.floor(off / per) + 1;
+		if (page > 1) out.set('page', String(page));
+	}
+	if (q.get('sort')) out.set('sort', q.get('sort')!);
+	if (q.has('order')) out.set('dir', q.get('order')!.toLowerCase() === 'asc' ? 'asc' : 'desc');
+	return out;
+}
+
+// The sample text that stands for a search running out of time.
+export const SLOW = 'slowsearch';
