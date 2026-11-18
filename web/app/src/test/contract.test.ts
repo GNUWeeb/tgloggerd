@@ -26,6 +26,11 @@ const userId = first('/users', 'superadmin', (p: { rows: { id: number }[] }) => 
 const groupId = first('/groups', 'superadmin', (p: { rows: { id: number }[] }) => p.rows[0]!.id);
 const memberGroupId = first('/groups', 'member', (p: { rows: { id: number }[] }) => p.rows[0]!.id);
 const exposedId = first('/groups', 'superadmin', (p: { rows: { id: number; exposed?: boolean }[] }) => p.rows.find((g) => g.exposed)!.id);
+// An exposed group the member is not granted: its page is the public one.
+const exposedHiddenId = first('/groups', 'superadmin', (p: { rows: { id: number; exposed?: boolean }[] }) => {
+	const mine = new Set(first('/groups', 'member', (q: { rows: { id: number }[] }) => q.rows.map((g) => g.id)));
+	return p.rows.find((g) => g.exposed && !mine.has(g.id))!.id;
+});
 const groupMsg = first('/group_messages', 'superadmin', (p: { rows: { id: number }[] }) => p.rows[0]!.id);
 const privateMsg = first('/private_messages', 'superadmin', (p: { rows: { id: number }[] }) => p.rows[0]!.id);
 const fileId = first('/files?view=list', 'superadmin', (p: { rows: { id: number }[] }) => p.rows[0]!.id);
@@ -55,7 +60,7 @@ const PAGES: [Persona, string][] = [
 	['superadmin', `/users/${userId}`], ['superadmin', `/users/${userId}/history`], ['superadmin', `/users/${userId}/chat`],
 	['member', `/users/${userId}`], ['superadmin', '/private_messages'], ['superadmin', `/messages/group/${groupMsg}`],
 	['superadmin', `/messages/private/${privateMsg}`], ['superadmin', `/groups/${groupId}/chat?at=1`],
-	['public', `/groups/${exposedId}/chat`], ['public', '/login'], ['public', '/login?next=%2Fusers'],
+	['public', `/groups/${exposedId}/chat`], ['public', `/groups/${exposedId}`], ['member', `/groups/${exposedHiddenId}`], ['public', '/login'], ['public', '/login?next=%2Fusers'],
 	['public', '/password/forgot'], ['public', '/password/set'], ['public', '/account/email/verify'], ['superadmin', '/password/forgot'],
 	['noemail', '/users'], ['noemail', '/'],
 	['newpw', '/users'], ['newpw', '/settings'], ['newpw', '/password/forgot'],

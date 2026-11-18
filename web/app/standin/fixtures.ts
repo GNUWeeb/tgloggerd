@@ -367,7 +367,7 @@ export function load(url: string, persona: Persona): Loaded {
 	if (path === '/account/email/verify') return { route: 'email_verify', status: 200, props: {} };
 	const acct = persona === 'public' ? null : accounts.find((a) => a.id === PERSONAS[persona]);
 	if (acct && mustChange.has(acct.id)) return { route: 'password_change', status: 200, props: { username: acct.username, next: path + u.search } };
-	if (persona === 'public' && !/^\/groups\/-?\d+\/chat$/.test(path)) return notFound;
+	if (persona === 'public' && !/^\/groups\/-?\d+(\/chat)?$/.test(path)) return notFound;
 	if (path === '/') {
 		const vis = groups.slice(0, 12).filter(s.group);
 		return {
@@ -422,6 +422,20 @@ export function load(url: string, persona: Persona): Loaded {
 	}
 	if ((m = path.match(/^\/groups\/(-\d+)(\/admins|\/history)?$/))) {
 		const g = getGroup(m[1]);
+		// An exposed group the viewer's scope does not see (signed out, a
+		// member without it, an admin it is hidden from) has a public page:
+		// the group itself, without admins, history, posters or activity.
+		if (g && g.exposed && (persona === 'public' || !s.group(g)) && !m[2]) {
+			return {
+				route: 'group', status: 200, props: {
+					public: true,
+					group: {
+						id: g.id, title: g.title, username: g.username, type: g.type, photo: null, description: g.description, members: g.members, msg_count: g.msg_count,
+						created_at: iso(g.created_at), exposed: true, usernames: g.username ? [{ username: g.username, active: true, kind: 'active', collectible: false }] : [],
+					},
+				},
+			};
+		}
 		if (!g || !s.group(g)) return notFound;
 		return {
 			route: m[2] === '/admins' ? 'group_admins' : m[2] === '/history' ? 'group_history' : 'group', status: 200, props: {

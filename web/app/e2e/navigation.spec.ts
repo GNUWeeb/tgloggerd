@@ -107,3 +107,24 @@ test('descriptions are shown with their line breaks', async ({ page }) => {
 	await expect(desc).toBeVisible();
 	expect(await desc.evaluate((e) => getComputedStyle(e).whiteSpace)).toBe('pre-wrap');
 });
+
+test('a chat\'s top bar opens the group\'s page, and signed out an exposed group\'s public page', async ({ page, as, request }) => {
+	const rows = (await (await request.get('/api/page/groups', { headers: { cookie: 'tgd_as=superadmin' } })).json()).props.rows as { id: number; title: string; exposed?: boolean }[];
+	const g = rows.find((x) => x.exposed)!;
+	await page.goto(`/groups/${g.id}/chat`);
+	await page.locator('.c-head a.c-head-link').click();
+	await expect(page).toHaveURL(new RegExp(`/groups/${g.id}$`));
+	await expect(page.getByRole('link', { name: 'History' })).toBeVisible();
+	await as('public');
+	await page.goto(`/groups/${g.id}/chat`);
+	await page.locator('.c-head a.c-head-link').click();
+	await expect(page).toHaveURL(new RegExp(`/groups/${g.id}$`));
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText(g.title);
+	await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'History' })).toHaveCount(0);
+	await page.getByRole('link', { name: 'Open chat' }).click();
+	await expect(page).toHaveURL(new RegExp(`/groups/${g.id}/chat$`));
+	// Served fresh, not through the app: the server renders it signed out.
+	await page.goto(`/groups/${g.id}`);
+	await expect(page.getByText(/This group's chat is public/)).toBeVisible();
+});
