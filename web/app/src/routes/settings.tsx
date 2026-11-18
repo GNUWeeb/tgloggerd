@@ -226,7 +226,7 @@ function SessionsPage({ page }: { page: PageData<SessionsProps> }) {
 						<span className="a-sessicon">{/Android|iPhone|iPad/.test(s.device) ? <Smartphone size={18} /> : <Monitor size={18} />}</span>
 						<span className="a-grow a-minw">
 							<b>{s.device}{s.current && <Pill tone="ok">this browser</Pill>}</b>
-							<span className="a-muted sm">{s.place} . {s.ip} . signed in {ago(s.started, v)}</span>
+							<span className="a-muted sm">{[s.place, s.ip, `signed in ${ago(s.started, v)}`].filter(Boolean).join(' . ')}</span>
 						</span>
 						<span className="a-muted sm" title={s.last}>{s.current ? 'active now' : `active ${ago(s.last, v)}`}</span>
 						{!s.current && <Btn ghost onClick={() => void act(() => ok(api.DELETE('/api/account/sessions/{id}', { params: { path: { id: s.id } } })))}>Sign out</Btn>}

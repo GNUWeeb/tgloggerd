@@ -130,6 +130,17 @@ describe('settings', () => {
 		await waitFor(() => expect(callsTo(calls, 'DELETE', `/api/account/saved-searches/${p.saved_searches[0]!.id}`)).toHaveLength(1));
 	});
 
+	it('leaves out a session\'s place while the server has none', () => {
+		const p = fixture<SessionsProps>('/settings/sessions').props;
+		const sessions = p.sessions.map((x, i) => ({ ...x, place: i === 0 ? '' : 'Bandung, ID' }));
+		fakeApi('superadmin');
+		renderPage('/settings/sessions', 'superadmin', { props: { ...p, sessions } });
+		const lines = [...document.querySelectorAll('.a-sessions li .a-grow .a-muted')].map((e) => e.textContent!);
+		expect(lines[0]).toMatch(new RegExp(`^${sessions[0]!.ip.replace(/\./g, '\\.')} \\. signed in `));
+		expect(lines[1]).toMatch(/^Bandung, ID \. /);
+		expect(lines.every((l) => !l.startsWith(' .') && !l.includes(' .  .'))).toBe(true);
+	});
+
 	it('signs out one other session, or all others', async () => {
 		const p = fixture<SessionsProps>('/settings/sessions').props;
 		const other = p.sessions.find((s) => !s.current)!;
