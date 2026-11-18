@@ -150,9 +150,29 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 	    sameTdlibType(old_content.tdlib_type, new_content.tdlib_type))
 		return false;
 
+	if (locationVersionTooSoon(tx, edits_table, fk_column, message_row_id,
+				   old_content, new_content))
+		return false;
+
 	appendMessageVersion(tx, edits_table, fk_column, message_row_id,
 			     old_content, old_edit_date);
 	return true;
+}
+
+bool DB::locationVersionTooSoon(mysql::Transaction &tx,
+				const char *edits_table,
+				const char *fk_column,
+				uint64_t message_row_id,
+				const models::MessageContent &old_content,
+				const models::MessageContent &new_content)
+{
+	if (old_content.content_type != models::MessageContentType::Location ||
+	    new_content.content_type != models::MessageContentType::Location)
+		return false;
+	return !tx.query(std::string("SELECT 1 FROM ") + edits_table +
+			 " WHERE " + fk_column + " = ?"
+			 " AND created_at > NOW() - INTERVAL 60 SECOND LIMIT 1",
+			 { (int64_t)message_row_id }).empty();
 }
 
 /*
@@ -294,7 +314,8 @@ bool is_media_content_type(models::MessageContentType t)
  * superseded is stamped with the date it held while live, which IS known, and
  * the live row's date is left for updateMessageEdited to set.
  *
- * Returns true when a version was recorded.
+ * Returns true when a version was recorded. A location that moved within a
+ * minute of its last version updates the live row and returns false.
  */
 bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
 				     const models::MessageContent &content,
@@ -373,8 +394,13 @@ bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
 		int64_t prev_edit_date = old[1].has_value() ?
 			std::stoll(*old[1]) : 0;
 
-		appendMessageVersion(tx, edits, fk, row_id, prev,
-				     prev_edit_date);
+		/* A moving location updates the live row every time, but
+		 * leaves a version at most once a minute. */
+		bool append = !locationVersionTooSoon(tx, edits, fk, row_id,
+						      prev, content);
+		if (append)
+			appendMessageVersion(tx, edits, fk, row_id, prev,
+					     prev_edit_date);
 
 		mysql::Param text_param = std::monostate{};
 		if (content.text.has_value())
@@ -407,7 +433,7 @@ bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
 			extra_param,
 			(int64_t)row_id,
 		});
-		recorded = true;
+		recorded = append;
 	});
 	return recorded;
 }

@@ -23,8 +23,7 @@ kinds like `unknown`, which it already handles.
 
 ## Depends on
 
-`msg-structured-content`, `msg-service-detail`,
-`msg-message-files`, `msg-polls`, `msg-topics`
+`msg-service-detail`, `msg-message-files`, `msg-polls`, `msg-topics`
 
 ## Done when
 
