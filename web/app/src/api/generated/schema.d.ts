@@ -125,7 +125,7 @@ export interface paths {
          *
          *     To resume, reconnect with the last seq seen, as `last` or as the Last-Event-ID header the browser sends on its own reconnect (the header wins). Recent events are kept, so a short disconnect loses nothing; a longer one, or one across a restart of the daemon, starts with a resync.
          *
-         *     Topics: `chat:<chat_id>` (message.new, message.edited, message.deleted and file.stored of one chat), `messages` (the same for every chat the viewer may see), `user:<id>` (user.updated), `group:<chat_id>` (group.updated) and `stats` (stats.changed). Repeats count once; at most 2000 topics, and the request line may run to tens of kilobytes. Kinds may be added; a client skips kinds it does not know.
+         *     Topics: `chat:<chat_id>` (message.new, message.edited, message.deleted and file.stored of one chat), `messages` (the same for every chat the viewer may see), `user:<id>` (user.updated), `group:<chat_id>` (group.updated), `stats` (stats.changed) and, planned with discord-bots-per-user, `bots` (bot.updated, for the bots the viewer may see). Repeats count once; at most 2000 topics, and the request line may run to tens of kilobytes. Kinds may be added; a client skips kinds it does not know.
          */
         get: operations["getEvents"];
         put?: never;
@@ -147,7 +147,7 @@ export interface paths {
          * A page's data
          * @description The data of the page at /<path>, the same object the server embeds in the page's HTML on a first load (web-ssr.md sections 5 and 7), for navigation in the browser. `path` is the page's path without its leading slash (empty for the dashboard at /); its slashes may be sent as they are or encoded as %2F. The page's query string (search, filters, sort, page) is passed on as the query string of this request.
          *
-         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
+         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; bots /platform-fwd/bots (planned: discord-bots-per-user); join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
          *
          *     password_forgot, password_set and email_verify are served to signed-out and signed-in visitors alike, and their GETs change nothing: the link token travels in the URL's fragment, which never reaches the server, and is posted only when the person acts on the page.
          *
@@ -864,6 +864,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The bots the viewer may use
+         * @description For the bot pickers of the route forms: a member with `forward` gets its own bots, admins and superadmins every bot (decisions/2026-11-18-ownership-and-bots.md). Others get 404.
+         */
+        get: operations["listBots"];
+        put?: never;
+        /**
+         * Add a bot
+         * @description The viewer becomes its owner; it starts connecting. The token is write-only and never answered. Re-adding one of the viewer's own bots answers that bot. Refusals: 400 bad_token (its shape), 400 bad_request (a name that is empty or over 64 characters); 409 token_in_use when another account has the bot, without saying which. Audited as bot_create, without the token.
+         */
+        post: operations["createBot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bots/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a bot
+         * @description Refused with 409 bot_in_use, with a message saying how many routes use it, while Discord to Telegram routes use the bot. Audited as bot_delete.
+         */
+        delete: operations["deleteBot"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename, enable or disable a bot, or replace its token
+         * @description One of the viewer's bots (any bot for admins and superadmins); others answer 404. Audited as bot_update, without the token.
+         */
+        patch: operations["updateBot"];
+        trace?: never;
+    };
+    "/api/bots/{id}/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give a bot to another owner
+         * @description Admins and superadmins, to one of the bot's transfer_candidates; a member gets 404. A route whose owner no longer owns its bots keeps working; giving a route to a member needs both its bots to be the member's (409 bot_not_owned on the route's transfer). Audited as bot_transfer.
+         */
+        post: operations["transferBot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/join-chat/preview": {
         parameters: {
             query?: never;
@@ -1162,7 +1230,7 @@ export interface components {
             props?: Record<string, never>;
         };
         /** @description The page data; `route` says which props it carries. */
-        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PagePasswordChange"];
+        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageBots"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PagePasswordChange"];
         PageLinkPage: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
             route: "password_forgot" | "password_set" | "email_verify";
@@ -1263,6 +1331,11 @@ export interface components {
             route: "fwd_discord_telegram";
             props: components["schemas"]["D2TProps"];
         };
+        PageBots: components["schemas"]["PageBase"] & {
+            /** @enum {unknown} */
+            route: "bots";
+            props: components["schemas"]["BotsProps"];
+        };
         PageJoinChat: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
             route: "join_chat";
@@ -1294,7 +1367,7 @@ export interface components {
              * @description The frame's event name. New kinds may be added.
              * @enum {string}
              */
-            kind: "hello" | "resync" | "session" | "message.new" | "message.edited" | "message.deleted" | "user.updated" | "group.updated" | "file.stored" | "stats.changed";
+            kind: "hello" | "resync" | "session" | "message.new" | "message.edited" | "message.deleted" | "user.updated" | "group.updated" | "file.stored" | "stats.changed" | "bot.updated";
             /**
              * Format: int64
              * @description message.*, file.stored (for message media), group.updated.
@@ -1315,6 +1388,11 @@ export interface components {
              * @description file.stored.
              */
             file_id?: number;
+            /**
+             * Format: int64
+             * @description bot.updated (planned, discord-bots-per-user): a bot the viewer may see changed (its status, name, or enabled state).
+             */
+            bot_id?: number;
             /** @description user.updated and group.updated, when present: the parts that may have changed (users: name, photo, bio, birthday, personal_chat; groups: photo, admins). Absent: anything. */
             fields?: string[];
             /** @description stats.changed: the visible chats whose counters moved (groups negative, private chats positive). */
@@ -2040,6 +2118,10 @@ export interface components {
             chat: components["schemas"]["PickItem"];
             /** @description The sending bot's username; never its token. */
             bot: string;
+            /** @description Planned (discord-bots-per-user): the Discord bot that reads the channel; becomes required, and bot goes. */
+            discord_bot?: components["schemas"]["BotRef"];
+            /** @description Planned (discord-bots-per-user): the Telegram bot that sends into the chat; becomes required, and bot goes. */
+            telegram_bot?: components["schemas"]["BotRef"];
             types: components["schemas"]["D2TTypes"];
             enabled: boolean;
             /** Format: int64 */
@@ -2084,6 +2166,76 @@ export interface components {
             enabled: boolean;
             /** Format: int64 */
             federation_id?: number | null;
+            /**
+             * Format: int64
+             * @description Planned (discord-bots-per-user): the Discord bot to read the channel with, one the viewer may use; becomes required, and bot_token goes.
+             */
+            discord_bot_id?: number;
+            /**
+             * Format: int64
+             * @description Planned (discord-bots-per-user): the Telegram bot to send with, one the viewer may use; becomes required, and bot_token goes.
+             */
+            telegram_bot_id?: number;
+        };
+        /**
+         * @description A Telegram bot sends into Telegram chats (Discord to Telegram routes); a Discord bot reads Discord channels for them.
+         * @enum {string}
+         */
+        BotKind: "telegram" | "discord";
+        /**
+         * @description As discordd last saw the bot: connected; connecting (enabled, not logged in yet, or trying again after an enable); intent_missing (Discord only: the Message Content intent is off in the developer portal); token_refused (the platform refused the token; the bot is disabled and not retried in a loop); disabled (switched off by its owner).
+         * @enum {string}
+         */
+        BotStatus: "connected" | "connecting" | "intent_missing" | "token_refused" | "disabled";
+        /** @description Who the bot is on its platform, once it has logged in: the Telegram bot's user id (the non-secret half of its token) or the Discord bot user's id, and its username. Never any part of the token's secret. */
+        BotIdentity: {
+            user_id: string;
+            username: string | null;
+        };
+        /** @description A bot as pickers and routes show it. */
+        BotRef: {
+            /** Format: int64 */
+            id: number;
+            kind: components["schemas"]["BotKind"];
+            name: string;
+            identity: components["schemas"]["BotIdentity"] | null;
+            status: components["schemas"]["BotStatus"];
+            enabled: boolean;
+        };
+        /** @description A bot on the Bots page. Its token is write-only: no answer, page or attribute carries it once it is saved (decisions/2026-11-18-ownership-and-bots.md). */
+        Bot: components["schemas"]["BotRef"] & {
+            owner: components["schemas"]["FwdPerson"] & {
+                active: boolean;
+            };
+            /** @description Who the bot may be given to; empty for a member, who cannot transfer. */
+            transfer_candidates: components["schemas"]["FwdPerson"][];
+            /**
+             * Format: date-time
+             * @description When discordd last reported the status.
+             */
+            status_at: string | null;
+            /** @description discordd's own words about the status, shown as they are. */
+            status_detail: string | null;
+            /** @description How many Discord to Telegram routes use the bot. */
+            routes: number;
+        };
+        /** @description The viewer's bots: a member with `forward` sees its own only; admins and superadmins see every bot, with its owner (show_owner). */
+        BotsProps: {
+            bots: components["schemas"]["Bot"][];
+            show_owner: boolean;
+        };
+        BotCreate: {
+            kind: components["schemas"]["BotKind"];
+            /** @description The account's own label for the bot, 1 to 64 characters. */
+            name: string;
+            /** @description Write-only, checked in shape only (whether it works shows in the status): Telegram <digits>:<secret>, the secret 30 or more of [A-Za-z0-9_-]; Discord three dot-separated base64url parts, the first decoding to a Discord id. */
+            token: string;
+        };
+        /** @description The fields given change. A token replaces the bot's credential (shape-checked as on creation). Enabling a bot whose token was refused, or whose intent was missing, sets it connecting and has discordd try it once more. */
+        BotUpdate: {
+            name?: string;
+            enabled?: boolean;
+            token?: string;
         };
         Transfer: {
             /** Format: int64 */
@@ -4049,6 +4201,16 @@ export interface operations {
                     types?: components["schemas"]["D2TTypes"];
                     enabled?: boolean;
                     bot_token?: string;
+                    /**
+                     * Format: int64
+                     * @description Planned (discord-bots-per-user), as on creation.
+                     */
+                    discord_bot_id?: number;
+                    /**
+                     * Format: int64
+                     * @description Planned (discord-bots-per-user), as on creation.
+                     */
+                    telegram_bot_id?: number;
                 };
             };
         };
@@ -4067,6 +4229,144 @@ export interface operations {
         };
     };
     transferD2T: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Transfer"];
+            };
+        };
+        responses: {
+            /** @description Transferred. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listBots: {
+        parameters: {
+            query?: {
+                kind?: components["schemas"]["BotKind"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bots. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        bots: components["schemas"]["BotRef"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BotCreate"];
+            };
+        };
+        responses: {
+            /** @description Added. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bot"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    deleteBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateBot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BotUpdate"];
+            };
+        };
+        responses: {
+            /** @description The bot as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bot"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    transferBot: {
         parameters: {
             query?: never;
             header?: never;
