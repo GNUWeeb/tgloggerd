@@ -575,6 +575,16 @@ list, so a client notices no change, and WEB_PUBLIC_URL (or
 TG_DISCORD_PUBLIC_URL), MCP_THREADS, MCP_ALLOWED_ORIGINS and
 MCP_LOG_REQUESTS come from the same .env.
 
+Before the switch, scripts/mcp_compare.py sends the same requests to
+both services, one right after the other, and reports every answer
+that is not the same bytes: the transport and token refusals, and every
+tool on ids it finds through the endpoints (the exposed groups, their
+senders, recent and edited messages). It needs a live token in
+MCP_TOKEN and both services' /mcp URLs:
+
+    MCP_TOKEN=tgmcp_... scripts/mcp_compare.py \
+        --a http://<drogon>/mcp --b http://<webapi>/mcp
+
 # Layout
 
     openapi.yaml           The API description (see The API contract).
