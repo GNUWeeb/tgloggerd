@@ -8,6 +8,12 @@ The protocol engine is [`src/gwmcp`](../../src/gwmcp/README.md), a self-containe
 with no tgloggerd dependency. This document covers the parts that live in the web app: the
 HTTP transport, authentication, the filter grammar, and the tools.
 
+Two services answer it the same way, byte for byte: the Drogon web, and the Go service
+(`webapi/internal/mcp`, transport in `webapi/internal/server/mcp.go`), whose tests replay a
+set of requests against the Drogon web's captured answers (`webapi/README`, MCP). nginx
+decides which one serves `/mcp`; both read the same tokens, the same allowlist and the same
+settings.
+
 ## Exposure — the part that matters
 
 **Nothing is readable until an admin adds it.** `/mcp-admin/groups` manages
@@ -34,7 +40,8 @@ Consequences, all verified against the running server:
 - An `or` that names a private group beside an allowed one still yields only the allowed
   one's messages.
 - `telegram_private_messages` — direct messages — is not referenced by any file under
-  `web/src/mcp/`. That is a grep-checkable invariant, not a convention.
+  `web/src/mcp/` or `webapi/internal/mcp/`. That is a grep-checkable invariant, not a
+  convention (the Go package's tests check it).
 
 Publicness is **curated, not derived**. A group having an active public username is shown
 in the admin UI as a hint and is never acted on; see `migrations/000022` for why.
@@ -409,11 +416,14 @@ for the caller to notice.
 grammar, and the two vendored stopword lists are built from formal prose, which chat is
 not. Four layers, each earning its place against this archive:
 
-1. **Vendored stopwords** — `src/mcp/Stopwords.hpp`, 885 merged entries from the
+1. **Vendored stopwords** — `src/mcp/Stopwords.hpp` (and, generated from it,
+   `webapi/internal/mcp/stopwords.go`), 885 merged entries from the
    [stopwords-iso Indonesian list][sw-id] and the [NLTK English list][sw-en]. Generated,
    and vendored rather than fetched at runtime: a tool must not depend on a third-party URL
    being reachable, and a word list that changes under you silently changes your results.
-2. **Corpus noise** — `src/mcp/NoiseWords.hpp`, 384 hand-maintained entries the formal
+2. **Corpus noise** — `src/mcp/NoiseWords.hpp` (and its copy
+   `webapi/internal/mcp/noisewords.go`; a Go test keeps the two equal), 384
+   hand-maintained entries the formal
    lists have no reason to contain: chat spellings (`gak`, `yg`, `kalo`), particles
    (`aja`, `sih`, `dong`), internet shorthand (`lol`, `btw`, `imo`), interjections,
    quoted-mail scaffolding (`subject`, `wrote`) and calendar vocabulary (`jul`, `senin`).
@@ -550,7 +560,10 @@ answer's, so it degrades exactly on the busiest groups. Migration `000023` adds 
 making the scan covering: 143ms, at about 8% growth in index size.
 
 Tools run on their own event-loop pool (`MCP_THREADS`, default 2), not on an HTTP thread:
-they use the blocking database API, and a slow query must delay only another MCP call.
+they use the blocking database API, and a slow query must delay only another MCP call. The
+Go service has no such pool to keep free; it lets at most `MCP_THREADS` calls run at once
+and the others wait for a turn, which bounds the read-only connections MCP holds the same
+way.
 
 ## Administration through the JSON API (Go service)
 
@@ -582,8 +595,10 @@ The Go service serves the administration as JSON operations
 
 | Variable | Meaning |
 |---|---|
-| `MCP_THREADS` | Threads for tool execution (default 2, max 16). |
-| `MCP_ALLOWED_ORIGINS` | Comma-separated browser origins, or `*`. Unset refuses all browser requests; non-browser clients are unaffected. |
+| `MCP_THREADS` | Threads for tool execution (default 2, max 16); in the Go service, tool calls run at once. |
+| `MCP_ALLOWED_ORIGINS` | Comma-separated browser origins, or `*`. Unset allows any origin (see `Origin` above); non-browser clients are unaffected. |
+| `WEB_PUBLIC_URL` | Base of the absolute `/files/<token>` links; falls back to `TG_DISCORD_PUBLIC_URL`. |
+| `MCP_LOG_REQUESTS` | `1` logs the shape of each request, never a credential's value. |
 
 No grants beyond those in `migrations/000022` and `web/migrations/000003` are needed.
 

@@ -1004,6 +1004,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mcp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Declined; no server-to-client stream is offered
+         * @description Answers 405 with Allow POST, which the protocol provides for a server that never initiates messages. Needs no token.
+         */
+        get: operations["getMcp"];
+        put?: never;
+        /**
+         * One MCP message (JSON-RPC 2.0)
+         * @description The Model Context Protocol endpoint, read-only, for language model clients (web/docs/mcp.md). The body is one JSON-RPC 2.0 message: a request of initialize, ping, tools/list or tools/call, or a notification. The transport is Streamable HTTP in its minimal form: every answer is one application/json body, there is no SSE stream and no session (no Mcp-Session-Id). Protocol 2025-06-18; 2025-03-26 is accepted.
+         *
+         *     The tools read only the groups an administrator put on the exposure list (telegram_public_groups); the user tools describe accounts and are not limited to it. A tool's failure the caller can fix (a bad filter, an unknown id) is a result with isError true; a malformed call is a JSON-RPC error. Both are answered with 200, and so is a body that is empty or not JSON (error -32700).
+         *
+         *     Authenticated by an MCP bearer token (tgmcp_ and 64 hex digits, made in the MCP administration), in the Authorization header or, for clients that can only be given a URL, in the key query parameter; the header wins. No session cookie and no CSRF token. A refusal is a JSON-RPC error with a null id and no WWW-Authenticate header, on purpose (web/docs/mcp.md).
+         */
+        post: operations["postMcp"];
+        /** Declined; the endpoint keeps no sessions */
+        delete: operations["deleteMcp"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2134,6 +2163,29 @@ export interface components {
                 last_used: string | null;
                 revoked: string | null;
             }[];
+        };
+        /** @description A JSON-RPC 2.0 request (with an id) or notification (without). The methods answered are initialize, ping, tools/list and tools/call ({name, arguments}); tools/list describes each tool's arguments. */
+        McpMessage: {
+            /** @enum {string} */
+            jsonrpc: "2.0";
+            id?: string | number | null;
+            method: string;
+            params?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description A JSON-RPC 2.0 answer: result, or error. A tools/call result is {content: [{type: text, text}], structuredContent, isError}; the text is the structured content serialised, or the error message when isError is true. */
+        McpAnswer: {
+            /** @enum {string} */
+            jsonrpc: "2.0";
+            id: string | number | null;
+            result?: {
+                [key: string]: unknown;
+            };
+            error?: {
+                code: number;
+                message: string;
+            };
         };
     };
     responses: {
@@ -4219,6 +4271,134 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getMcp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No SSE stream. */
+            405: {
+                headers: {
+                    /** @description POST */
+                    Allow?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+        };
+    };
+    postMcp: {
+        parameters: {
+            query?: {
+                /** @description The token, for clients that cannot set a header. */
+                key?: string;
+            };
+            header?: {
+                /** @description The negotiated protocol version. Only its shape is checked (YYYY-MM-DD); initialize negotiates the version itself. */
+                "MCP-Protocol-Version"?: string;
+                /** @description Checked only when MCP_ALLOWED_ORIGINS is set; any origin is accepted otherwise. */
+                Origin?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["McpMessage"];
+            };
+        };
+        responses: {
+            /** @description The JSON-RPC answer: a result, or an error (also for a body that is empty, not JSON, a batch or not a JSON-RPC request). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpAnswer"];
+                };
+            };
+            /** @description A notification (or a response) was accepted; no body. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description MCP-Protocol-Version is not a YYYY-MM-DD date. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpAnswer"];
+                };
+            };
+            /** @description No token, a malformed one, or one that is unknown, revoked or belongs to a disabled account. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpAnswer"];
+                };
+            };
+            /** @description Origin is not in MCP_ALLOWED_ORIGINS. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpAnswer"];
+                };
+            };
+            /** @description The body is larger than 1 MiB. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpAnswer"];
+                };
+            };
+            /** @description The tokens could not be checked. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["McpAnswer"];
+                };
+            };
+        };
+    };
+    deleteMcp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No session to end. */
+            405: {
+                headers: {
+                    /** @description POST */
+                    Allow?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
         };
     };
 }

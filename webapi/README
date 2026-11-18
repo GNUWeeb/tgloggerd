@@ -32,6 +32,8 @@ And the administration: forwarding, Join chat, "Look up real name"
 and the MCP administration, with their pages and those of the
 accounts and federations, described under Administration.
 
+And the MCP endpoint, /mcp, described under MCP.
+
 # The API contract
 
 openapi.yaml (OpenAPI 3.1) is the contract of the service's API: every
@@ -539,6 +541,103 @@ describe each, with what differs from the Drogon pages.
     (Server.ownership: shared, Default; web-ownership); filing a
     joined group comes with join-chat-federations.
 
+# MCP
+
+    POST /mcp     one JSON-RPC 2.0 message of the Model Context Protocol
+    GET  /mcp     405, Allow: POST (no server-to-client stream)
+    DELETE /mcp   405, Allow: POST (no sessions)
+
+The port of the Drogon web's MCP endpoint (McpController, the gwmcp
+library and web/src/mcp): the same path, transport, methods, tools,
+arguments and answers, byte for byte, and the same bearer tokens.
+web/docs/mcp.md describes the behaviour for both; internal/mcp is the
+engine (JSON-RPC framing, initialize, ping, tools/list, tools/call, the
+fourteen telegram_* tools, the filter tree, the word lists) and
+internal/server/mcp.go the transport. No third-party module: JSON-RPC
+over HTTP is a few lines of the standard library.
+
+  - Tokens: "Authorization: Bearer tgmcp_<64 hex>", else ?key=, looked
+    up in web_mcp_tokens by SHA-256 (web migration 000003). Missing,
+    malformed, unknown, revoked or a disabled account's: 401 with a
+    JSON-RPC error and no WWW-Authenticate header (web/docs/mcp.md says
+    why). A use stamps last_used_at. The route takes no session and no
+    CSRF token, and the token's account and its role do not limit the
+    tools: what they read is decided by the exposure list alone, as in
+    the Drogon web.
+  - Exposure: the tools read only the groups on the curated list
+    telegram_public_groups, never one that merely has a public username.
+    The message tools go through one gate, msgGate (internal/mcp/
+    gate.go), which binds the listed ids as constants; the group tools
+    carry the list as a condition of their statement; the user tools are
+    not limited to it, as in the Drogon web. Nothing in internal/mcp
+    names the private messages table (a test checks).
+  - The two query-plan traps of web/docs/mcp.md are avoided the same
+    way: message scans choose their ids from the message table alone and
+    join the display columns onto at most limit rows (runMessageQuery),
+    and recent messages are one indexed walk per exposed group, merged
+    (listRecent).
+  - Answers are written by internal/mcp's own encoder, which spells
+    them as the Drogon web's JSON library does (sorted keys, no HTML
+    escaping, "25.0" for a whole double), so both services give the
+    same bytes. internal/server/testdata/mcp/drogon.json holds the
+    Drogon web's answers to the requests of cases.json on the "mcp"
+    fixture, captured from it; TestMCPDrogonAnswers wants the same from
+    this service. The one known difference is the text of a JSON parse
+    error, which quotes each JSON parser's own message.
+  - The word lists of telegram_popular_words are the Drogon web's
+    (stopwords.go, generated from web/src/mcp/Stopwords.hpp, keeps that
+    file's MIT attribution; noisewords.go is NoiseWords.hpp); a test
+    compares them with the C++ headers.
+  - At most MCP_THREADS tool calls run at once; the rest wait for a
+    turn, so slow queries hold at most that many connections of the
+    read-only pool. Every statement carries the 5-second
+    MAX_EXECUTION_TIME of the Drogon code.
+  - MCP_LOG_REQUESTS=1 logs the shape of each request (whether a
+    credential came, never its value; Origin, MCP-Protocol-Version,
+    User-Agent) as an "mcp-trace" line. The request log line never has
+    the query string, so a ?key= does not reach the log.
+
+## Routing /mcp through nginx
+
+While Drogon serves /mcp, nothing changes. To move it, add an exact
+location next to the /api/ one, with the same upstream:
+
+    location = /mcp {
+        proxy_pass         http://10.0.88.7:8081;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection        "";
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # A tool call may wait for a turn and then run statements of up
+        # to 5 seconds each.
+        proxy_read_timeout 120s;
+        # Optional: keeps a ?key= token out of the access log.
+        access_log         off;
+    }
+
+The query string, ?key= included, is passed on as it is. "location =
+/mcp" matches the path exactly, so /mcp/ and /mcp-admin stay where they
+are. The default log format records the request line, query string
+included; a format without $request, $request_uri and $args can keep
+access_log on.
+The Drogon route stays in place, so moving back is removing the
+location. Both services read the same tokens and the same exposure
+list, so a client notices no change, and WEB_PUBLIC_URL (or
+TG_DISCORD_PUBLIC_URL), MCP_THREADS, MCP_ALLOWED_ORIGINS and
+MCP_LOG_REQUESTS come from the same .env.
+
+Before the switch, scripts/mcp_compare.py sends the same requests to
+both services, one right after the other, and reports every answer
+that is not the same bytes: the transport and token refusals, and every
+tool on ids it finds through the endpoints (the exposed groups, their
+senders, recent and edited messages). It needs a live token in
+MCP_TOKEN and both services' /mcp URLs:
+
+    MCP_TOKEN=tgmcp_... scripts/mcp_compare.py \
+        --a http://<drogon>/mcp --b http://<webapi>/mcp
+
 # Layout
 
     openapi.yaml           The API description (see The API contract).
@@ -563,6 +662,8 @@ describe each, with what differs from the Drogon pages.
                            their validation, the site defaults.
     internal/i18n/         The user-facing texts by language, one
                            catalogue per language (catalog/<lang>.json).
+    internal/mcp/          The MCP engine: JSON-RPC, the tools, the
+                           filter tree, the tokens, the exposure gate.
     internal/media/        The rules files are served by: store path,
                            names and types, ranges, the fetch policy,
                            the TDLib path check.
@@ -728,6 +829,19 @@ with the same meaning, since the two must agree:
                                  default 1073741824; 0 = none. A request
                                  without a session fetches only files
                                  under it.
+
+and the Drogon web's MCP settings, with the same meaning:
+
+    WEB_PUBLIC_URL               the site's public base URL, for absolute
+                                 /files/<token> links in MCP answers;
+                                 falls back to TG_DISCORD_PUBLIC_URL.
+                                 Neither: the links are left out
+    MCP_THREADS                  MCP tool calls run at once, default 2,
+                                 1 to 16
+    MCP_ALLOWED_ORIGINS          browser origins allowed to call /mcp,
+                                 comma-separated, or *; empty allows
+                                 any (a token is required anyway)
+    MCP_LOG_REQUESTS             "1" logs the shape of /mcp requests
 
 and its own:
 

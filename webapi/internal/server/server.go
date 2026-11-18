@@ -23,6 +23,7 @@ import (
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/live"
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/mcp"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/settings"
@@ -64,6 +65,8 @@ type Deps struct {
 	// Defaults are the site's settings for what an account did not
 	// set; empty fields are settings.SiteDefaults.
 	Defaults settings.Defaults
+	// MCP is the /mcp endpoint's settings.
+	MCP MCPConfig
 
 	// pages replaces the page table, state the database's account
 	// state behind a session, clock the time, prefs the accounts'
@@ -108,6 +111,11 @@ type Server struct {
 	clock       func() time.Time
 	// discord sends the webhook test messages.
 	discord *http.Client
+	// mcp answers /mcp; mcpSlots holds one token per tool call that
+	// may run at once (MCP_THREADS).
+	mcp      *mcp.Server
+	mcpCfg   MCPConfig
+	mcpSlots chan struct{}
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -139,6 +147,9 @@ func New(d Deps) http.Handler {
 	if s.pages == nil {
 		s.pages = defaultPages()
 	}
+	s.mcpCfg = d.MCP
+	s.mcpSlots = make(chan struct{}, max(d.MCP.Threads, 1))
+	s.mcp = mcp.NewTelegramServer(d.RO, s.mcpFileURL)
 	if d.state != nil {
 		s.verifier.State = d.state
 	}
@@ -234,6 +245,9 @@ func (s *Server) routes() []route {
 		{"DELETE /api/mcp/groups/{group_id}", s.RequireSession(s.unexposeMcpGroup)},
 		{"POST /api/mcp/tokens", s.RequireSession(s.createMcpToken)},
 		{"POST /api/mcp/tokens/{id}/revoke", s.RequireSession(s.revokeMcpToken)},
+		{"POST /mcp", s.postMCP},
+		{"GET /mcp", s.getMCP},
+		{"DELETE /mcp", s.deleteMCP},
 	}
 }
 

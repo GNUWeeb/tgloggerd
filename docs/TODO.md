@@ -147,7 +147,6 @@ Accounts, roles and federations:
 - [`web-user-settings`](todo/web-user-settings.md): Apply every per-account setting in the list loaders and the React pages.
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
 - [`search-engine-backend`](todo/search-engine-backend.md): Add OpenSearch as an optional search backend, with extra search options in the frontend when it is on (optional).
-- [`go-port-mcp`](todo/go-port-mcp.md): Move the MCP endpoint to the Go service.
 - [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
 
 ## Operations

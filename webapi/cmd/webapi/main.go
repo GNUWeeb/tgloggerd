@@ -171,6 +171,12 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		Assets:     assets,
 		AssetFiles: assetFiles,
 		Defaults:   cfg.Defaults,
+		MCP: server.MCPConfig{
+			PublicURL:      cfg.PublicURL,
+			Threads:        cfg.MCPThreads,
+			AllowedOrigins: cfg.MCPAllowedOrigins,
+			LogRequests:    cfg.MCPLogRequests,
+		},
 	})
 
 	addr := net.JoinHostPort(cfg.ListenAddr, strconv.Itoa(int(cfg.ListenPort)))
