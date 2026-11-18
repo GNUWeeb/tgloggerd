@@ -247,6 +247,17 @@ type chatMessageJSON struct {
 	DeletedAt   *string          `json:"deleted_at"`
 	LinkPreview *linkPreviewJSON `json:"link_preview"`
 	messageExtraJSON
+	messageKindsJSON
+}
+
+// messageKindsJSON are the fields of MessageKinds, which ChatMessage
+// and MessageFull share: the kind's detail (kinds.go).
+type messageKindsJSON struct {
+	Detail any `json:"detail"`
+}
+
+func (v view) messageKinds(k kinds, m logdb.Message) messageKindsJSON {
+	return messageKindsJSON{Detail: v.detail(k, m)}
 }
 
 // messageExtraJSON are the fields ChatMessage and MessageFull share
@@ -447,13 +458,14 @@ func (v view) edits(m logdb.Message) []editJSON {
 	return out
 }
 
-func (v view) chatMessage(n names, group bool, chatID int64, m logdb.Message) chatMessageJSON {
+func (v view) chatMessage(n names, k kinds, group bool, chatID int64, m logdb.Message) chatMessageJSON {
 	j := chatMessageJSON{
 		ID: m.RowID, MessageID: m.MessageID, Date: iso(m.Date), Scope: scopeName(group),
 		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Text: m.Text,
 		Media: v.media(m.ContentType, m.File, m.Extra), Album: []chatMediaJSON{},
 		ReplyTo: v.reply(n, chatID, m), Forward: v.forwardName(n, m), Edits: v.edits(m),
 		DeletedAt: isoPtr(m.DeletedAt), messageExtraJSON: v.messageExtra(n, m),
+		messageKindsJSON: v.messageKinds(k, m),
 	}
 	v.poster(j.Media, m)
 	if m.EditDate > 0 {
@@ -474,7 +486,7 @@ func (v view) chatMessage(n names, group bool, chatID int64, m logdb.Message) ch
 // message is deleted only when all its items are; each item's media
 // says its own message, kind and deletion, since an album may mix
 // photos and videos (or documents, or audio) and lose items one by one.
-func (v view) chatMessages(n names, group bool, chatID int64, ms []logdb.Message) []chatMessageJSON {
+func (v view) chatMessages(n names, kd kinds, group bool, chatID int64, ms []logdb.Message) []chatMessageJSON {
 	out := []chatMessageJSON{}
 	for i := 0; i < len(ms); {
 		k := i + 1
@@ -483,12 +495,12 @@ func (v view) chatMessages(n names, group bool, chatID int64, ms []logdb.Message
 				k++
 			}
 		}
-		j := v.chatMessage(n, group, chatID, ms[i])
+		j := v.chatMessage(n, kd, group, chatID, ms[i])
 		if k-i > 1 {
 			var lastDeleted int64
 			allDeleted := true
 			for x := i; x < k; x++ {
-				item := v.chatMessage(n, group, chatID, ms[x])
+				item := v.chatMessage(n, kd, group, chatID, ms[x])
 				if md := item.Media; md != nil {
 					md.MessageID, md.Kind, md.DeletedAt = ms[x].MessageID, item.ContentType,
 						item.DeletedAt
@@ -523,9 +535,9 @@ func (v view) chatMessages(n names, group bool, chatID int64, ms []logdb.Message
 	return out
 }
 
-func (v view) window(c logdb.Chat, w logdb.Window) chatWindowJSON {
+func (v view) window(c logdb.Chat, w logdb.Window, k kinds) chatWindowJSON {
 	return chatWindowJSON{
-		Messages: v.chatMessages(names{w.Users, w.Groups}, c.Group, c.ID, w.Messages),
+		Messages: v.chatMessages(names{w.Users, w.Groups}, k, c.Group, c.ID, w.Messages),
 		HasOlder: w.HasOlder, HasNewer: w.HasNewer,
 	}
 }
@@ -674,7 +686,12 @@ func (s *Server) getChatMessages(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "chat window", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.viewFor(sc, sess != nil).window(c, win))
+	k, err := s.loadKinds(r.Context(), sc, c.ID, win.Messages)
+	if err != nil {
+		s.internalError(w, "chat window kinds", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.viewFor(sc, sess != nil).window(c, win, k))
 }
 
 // entitiesMax is how many ids each list of GET /api/entities takes.

@@ -639,8 +639,12 @@ func loadChat(ctx context.Context, pr *pageRequest, group bool) (any, error) {
 		first := w.Messages[0].MessageID
 		at = &first
 	}
+	k, err := pr.s.loadKinds(ctx, pr.scope, c.ID, w.Messages)
+	if err != nil {
+		return nil, err
+	}
 	v := pr.view()
-	p := chatProps{chatWindowJSON: v.window(c, w), At: at}
+	p := chatProps{chatWindowJSON: v.window(c, w, k), At: at}
 	if group {
 		gs := v.group(c.GroupInfo)
 		gs.MsgCount = nil
@@ -711,6 +715,7 @@ type messageFullJSON struct {
 	EditedAt    *string           `json:"edited_at"`
 	Media       *messageMediaJSON `json:"media"`
 	messageExtraJSON
+	messageKindsJSON
 }
 
 type messageProps struct {
@@ -742,6 +747,10 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, notFoundOr(err)
 	}
+	k, err := pr.s.loadKinds(ctx, pr.scope, d.ChatID, []logdb.Message{d.Message})
+	if err != nil {
+		return nil, err
+	}
 	v := pr.view()
 	n := names{d.Users, d.Groups}
 	m := d.Message
@@ -750,6 +759,7 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Snippet: snippet(m),
 		Forwarded: v.forwardName(n, m), Edited: m.EditDate > 0, DeletedAt: isoPtr(m.DeletedAt),
 		Text: m.Text, Edits: v.edits(m), messageExtraJSON: v.messageExtra(n, m),
+		messageKindsJSON: v.messageKinds(k, m),
 	}
 	if m.EditDate > 0 {
 		j.EditedAt = isoPtr(m.EditDate)

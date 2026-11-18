@@ -156,7 +156,11 @@ type Message struct {
 	File  FileRef // ID 0 = none
 	// Cover is a video's cover photo (telegram_message_files, role
 	// cover, since migration 000036); ID 0 = none.
-	Cover     FileRef
+	Cover FileRef
+	// Files are the message's other files (telegram_message_files)
+	// for the kinds whose detail shows them: a game's photo, an
+	// invoice's, paid media's items.
+	Files     []MessageFile
 	DeletedAt int64 // 0 = not deleted
 	AlbumID   int64 // 0 = none
 	Reply     *Reply
@@ -528,20 +532,39 @@ func completeMessages(ctx context.Context, db *sql.DB, group bool, ms []Message)
 	return rows.Err()
 }
 
-// completeCovers adds the cover photos of the videos among ms.
+// MessageFile is a file of a message beyond its main one
+// (telegram_message_files, docs/design/message-types.md section 4.3).
+type MessageFile struct {
+	Role     string // cover, paid, game, invoice, ...
+	Position int
+	File     FileRef
+}
+
+// filesKinds are the content types whose other files the chat shows,
+// and the roles it reads for each.
+var filesKinds = map[string]string{
+	"video":      "'cover'",
+	"game":       "'game'",
+	"invoice":    "'invoice'",
+	"paid_media": "'paid'",
+}
+
+// completeCovers adds the cover photos of the videos among ms and the
+// files of the other kinds filesKinds names, in one query.
 func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uint64]*Message, ms []Message) error {
-	var videos []Message
+	var with []Message
 	for _, m := range ms {
-		if m.ContentType == "video" {
-			videos = append(videos, m)
+		if filesKinds[m.ContentType] != "" {
+			with = append(with, m)
 		}
 	}
-	if len(videos) == 0 {
+	if len(with) == 0 {
 		return nil
 	}
-	rows, err := db.QueryContext(ctx, "SELECT mf."+t.fk+", mf.file_id, "+fileColumnsOf("f")+
-		" FROM telegram_message_files mf JOIN telegram_files f ON f.id = mf.file_id "+
-		"WHERE mf."+t.fk+" IN ("+idList(videos)+") AND mf.role = 'cover' AND mf.position = 0")
+	rows, err := db.QueryContext(ctx, "SELECT mf."+t.fk+", mf.role, mf.position, mf.file_id, "+
+		fileColumnsOf("f")+" FROM telegram_message_files mf JOIN telegram_files f ON f.id = mf.file_id "+
+		"WHERE mf."+t.fk+" IN ("+idList(with)+") AND mf.role IN ('cover', 'game', 'invoice', 'paid') "+
+		"ORDER BY mf."+t.fk+", mf.role, mf.position")
 	if err != nil {
 		return err
 	}
@@ -549,14 +572,26 @@ func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uin
 	for rows.Next() {
 		var (
 			mid, fileID uint64
+			mf          MessageFile
 			f           nullFile
 		)
-		if err := rows.Scan(append([]any{&mid, &fileID}, f.dest()...)...); err != nil {
+		if err := rows.Scan(append([]any{&mid, &mf.Role, &mf.Position, &fileID}, f.dest()...)...); err != nil {
 			return err
 		}
-		if m := byRow[mid]; m != nil {
-			m.Cover = f.ref(fileID)
+		m := byRow[mid]
+		// Only the roles of the message's own kind: a row's kind may
+		// have changed with an edit, leaving another kind's files.
+		if m == nil || !strings.Contains(filesKinds[m.ContentType], "'"+mf.Role+"'") {
+			continue
 		}
+		mf.File = f.ref(fileID)
+		if mf.Role == "cover" {
+			if mf.Position == 0 {
+				m.Cover = mf.File
+			}
+			continue
+		}
+		m.Files = append(m.Files, mf)
 	}
 	return rows.Err()
 }
