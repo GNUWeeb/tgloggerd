@@ -1,7 +1,7 @@
 // The page frame: sidebar (only the pages the viewer has, pinned groups
 // first), breadcrumbs and the content area. Menu entries come from the
 // viewer's `nav` page keys; hidden pages are absent, never disabled.
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
 	LayoutDashboard, Users, UsersRound, MessagesSquare, MessageCircle, FileText,
 	ArrowLeftRight, Bot, Settings, Search, Menu, LogOut, Sun, Moon, Monitor,
@@ -11,6 +11,7 @@ import {
 import { Link, useNav } from '../nav.tsx';
 import { Avatar } from './primitives.tsx';
 import { QuickJump, useQuickJumpKey } from './QuickJump.tsx';
+import { applyTheme, savePrefs, storeTheme, storedTheme, type Theme } from '../api/prefs.ts';
 import type { Viewer } from '../page.ts';
 import { logout } from '../api/auth.ts';
 import { useLiveState } from '../live/react.tsx';
@@ -55,13 +56,23 @@ function isOn(path: string, href: string): boolean {
 
 const THEMES = ['system', 'light', 'dark'] as const;
 
+// System, light, dark in turn. The choice is kept: as the account's
+// preference when signed in, else in this browser (the public pages).
 export function ThemeButton({ viewer }: { viewer: Viewer }) {
-	const [mode, setMode] = useState<(typeof THEMES)[number]>(viewer.theme || 'system');
+	const [mode, setMode] = useState<Theme>(viewer.theme || 'system');
+	// Signed out, the browser's own choice; after hydration, so the
+	// server's page and the first render agree.
+	useEffect(() => {
+		if (viewer.signed_in) return;
+		const t = storedTheme();
+		if (t) { setMode(t); applyTheme(t); }
+	}, [viewer.signed_in]);
 	const next = () => {
 		const m = THEMES[(THEMES.indexOf(mode) + 1) % THEMES.length] ?? 'system';
 		setMode(m);
-		if (m === 'system') delete document.documentElement.dataset.theme;
-		else document.documentElement.dataset.theme = m;
+		applyTheme(m);
+		if (viewer.signed_in) void savePrefs({ theme: m }).catch(() => { /* this page keeps it; the next one shows the saved one */ });
+		else storeTheme(m);
 	};
 	const I = mode === 'light' ? Sun : mode === 'dark' ? Moon : Monitor;
 	return <button type="button" className="a-icon-btn" onClick={next} title={`Theme: ${mode}`} aria-label={`Theme: ${mode}`}><I size={16} /></button>;
@@ -148,7 +159,12 @@ export default function Shell({ crumbs = [], flush = false, children }: { crumbs
 				<div className="a-main">
 					<header className="a-top">
 						<button type="button" className="a-icon-btn a-menu" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={18} /></button>
-						<button type="button" className="a-icon-btn a-collapse" onClick={() => setCollapsed((c) => !c)} aria-pressed={collapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+						<button type="button" className="a-icon-btn a-collapse" onClick={() => {
+							const c = !collapsed;
+							setCollapsed(c);
+							// The account keeps it, for every page and device.
+							if (viewer.signed_in) void savePrefs({ sidebar: c ? 'collapsed' : 'open' }).catch(() => {});
+						}} aria-pressed={collapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
 							{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
 						</button>
 						<nav className="a-crumbs" aria-label="Breadcrumb">
