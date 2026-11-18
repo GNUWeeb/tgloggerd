@@ -50,7 +50,7 @@ stays optional and the dashboard keeps working without it.
 
 ## Depends on
 
-- `web-member-access`
+Nothing.
 
 ## Done when
 

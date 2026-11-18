@@ -56,11 +56,12 @@ The pages' data (`/platform-fwd`, `/platform-fwd/telegram-discord`,
 configurations with their counts of what was sent, and the bots.
 
 - Who: viewers with the `forward` ability of the request scope
-  (superadmins and admins today; members once granted it, with
-  `forwarding-per-user`). To anyone else the operations and pages do
-  not exist (404). A configuration whose Telegram chat the viewer may
-  not see, a group hidden from it or a private chat when private
-  messages are, is 404 as well, in the lists too.
+  (superadmins and admins, and members given it). To anyone else the
+  operations and pages do not exist (404). A configuration whose
+  Telegram chat the viewer may not see, a group hidden from it or not
+  granted to it or a private chat when private messages are, is 404
+  as well, in the lists and counts too. A member sees and changes only
+  the configurations it owns: any other is 404 to it.
 - Types are lists of the keys above (`["text", "photo"]`); create
   needs them all, PATCH changes only the fields it is given. The
   chat (and the Discord channel) of a configuration cannot change.

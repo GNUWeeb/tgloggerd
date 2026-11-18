@@ -44,6 +44,11 @@ type Account struct {
 	HidePrivate bool
 	// HideGroups are the groups hidden from an admin, ascending.
 	HideGroups []int64
+	// Grants are a member's granted groups by federation (ascending),
+	// Abilities its abilities (ascending); nil for none, and for the
+	// other roles.
+	Grants    map[uint64][]int64
+	Abilities []string
 }
 
 // AccountAudit is one audited change of an account.
@@ -71,7 +76,8 @@ const accountColumns = "SELECT u.id, u.username, u.display_name, " +
 	"UNIX_TIMESTAMP(u.created_at), " +
 	"(SELECT UNIX_TIMESTAMP(MAX(a.created_at)) FROM web_audit a " +
 	"WHERE a.web_user_id = u.id AND a.action = 'login_ok'), u.hide_private, " +
-	adminOfColumn + ", " + memberOfColumn + ", " + hiddenGroupsColumn +
+	adminOfColumn + ", " + memberOfColumn + ", " + hiddenGroupsColumn + ", " + grantsColumn +
+	", " + abilitiesColumn +
 	"FROM web_users u "
 
 type scanner interface {
@@ -84,10 +90,12 @@ func scanAccount(row scanner) (Account, error) {
 		created                   float64
 		signin                    sql.NullFloat64
 		adminOf, memberOf, hidden sql.NullString
+		grants, abilities         sql.NullString
 	)
 	err := row.Scan(&a.ID, &a.Username, &a.DisplayName, &a.Email, &a.EmailVerified, &a.Role,
 		&a.Active, &a.HasPassword, &a.MustChangePassword, &a.CreatedBy,
-		&created, &signin, &a.HidePrivate, &adminOf, &memberOf, &hidden)
+		&created, &signin, &a.HidePrivate, &adminOf, &memberOf, &hidden,
+		&grants, &abilities)
 	if err != nil {
 		return Account{}, err
 	}
@@ -98,6 +106,12 @@ func scanAccount(row scanner) (Account, error) {
 		return Account{}, err
 	}
 	if a.HideGroups, err = groupList(hidden); err != nil {
+		return Account{}, err
+	}
+	if a.Grants, err = grantMap(grants); err != nil {
+		return Account{}, err
+	}
+	if a.Abilities, err = abilityList(abilities); err != nil {
 		return Account{}, err
 	}
 	a.CreatedAt = time.Unix(int64(created), 0).UTC()
@@ -183,6 +197,9 @@ type NewAccount struct {
 	// Federations files a member in these federations; they must
 	// exist (else ErrNoFederation).
 	Federations []uint64
+	// Grants are the member's granted groups in some of Federations
+	// (checked by the caller to be those federations' groups).
+	Grants GrantChange
 }
 
 // duplicate tells which unique key a failed insert or update hit.
@@ -235,6 +252,13 @@ func CreateAccount(ctx context.Context, db *sql.DB, n NewAccount, ip string) (ui
 			return 0, err
 		}
 		detail += " federations=" + idsText(uniq(n.Federations))
+		more, err := setGrants(ctx, tx, id, n.Grants)
+		if err != nil {
+			return 0, err
+		}
+		if len(more) > 0 {
+			detail += "; " + strings.Join(more, "; ")
+		}
 	}
 	if err := AuditAccount(ctx, tx, n.CreatedBy, id, "account_create", ip, detail); err != nil {
 		return 0, err
@@ -272,6 +296,12 @@ type AccountChange struct {
 	// HideGroups replaces the groups hidden from an admin; they are
 	// dropped whenever the account ends as another role.
 	HideGroups *[]int64
+	// Grants replaces a member's granted groups in the federations it
+	// names (after Federations is applied); Abilities replaces its
+	// abilities. Both are dropped whenever the account ends as another
+	// role (the grants with its filings).
+	Grants    *GrantChange
+	Abilities *[]string
 }
 
 // UpdateAccount applies a change and audits it with the actor, in one
@@ -426,6 +456,26 @@ func UpdateAccount(ctx context.Context, db *sql.DB, actor, id uint64, c AccountC
 		}
 		if !slices.Equal(before, after) {
 			detail = append(detail, part.what+" "+idsText(before)+"->"+idsText(after))
+		}
+	}
+	if c.Grants != nil && role == "member" {
+		more, err := setGrants(ctx, tx, id, *c.Grants)
+		if err != nil {
+			return false, err
+		}
+		detail = append(detail, more...)
+	}
+	if c.Abilities != nil || role != "member" {
+		var want []string
+		if c.Abilities != nil && role == "member" {
+			want = *c.Abilities
+		}
+		more, err := setAbilities(ctx, tx, id, want)
+		if err != nil {
+			return false, err
+		}
+		if more != "" {
+			detail = append(detail, more)
 		}
 	}
 	if len(sets) == 0 && len(detail) == 0 {

@@ -289,8 +289,10 @@ live.Source, leaving the fan-out as it is.
     every stream, so activity in a hidden chat never reaches a viewer.
     A stats.changed keeps only the visible chat and user ids and is
     dropped when none is left. Kinds the service does not know are
-    dropped, since nobody can say who may see them. A member sees
-    the events of no chat or user until grants exist.
+    dropped, since nobody can say who may see them. A member gets
+    the events of its granted groups, and of the people of its user
+    topics that appear in them (checked when the stream opens, as the
+    hub's filter cannot query).
   - Every WEBAPI_LIVE_RECHECK seconds an open stream checks its session
     again. Revoked, expired or the account gone: a "session" event with
     reason "revoked", then the stream closes. A different request
@@ -580,17 +582,20 @@ it, and every permission check asks it; there is no other mechanism.
 Something outside it answers 404, a forbidden action on something
 inside it 403.
 
-So far it is built from the role and, for an admin, the federations it
-administers (web/docs/accounts.md has the table): superadmins and
-admins see every group, private chat and user; members see no group,
-private chat or user until grants exist (web-member-access), and then
-the users of their groups only by name and photo; admins may do all
-but join chats and look up real names, and manage the members of
-their federations (Scope.SeesAccount, AdministersFederation).
-Restrictions and grants plug into the scope without changing its
-callers; there is no gate on a missing email address
-(decisions/2026-11-18-email-optional.md). Without a session
-the scope sees nothing; a file token is its own authorization.
+It is built from the role and, for an admin, the federations it
+administers and its restrictions, for a member its granted groups and
+abilities (web/docs/accounts.md has the table): superadmins see every
+group, private chat and user, admins all but what a superadmin hides
+from them; members see their granted groups (GroupFilter "IN (...)"),
+the people who appear in them (UserFilter; logdb.VisibleUserIDs for a
+few by id) by name, photo and username only, and no private chat, and
+may forward or fetch files only when given those abilities; admins
+may do all but join chats and look up real names, and manage the
+members of their federations (Scope.SeesAccount,
+AdministersFederation). The scope runs no query itself; there is no
+gate on a missing email address
+(decisions/2026-11-18-email-optional.md). Without a session the scope
+sees nothing; a file token is its own authorization.
 
 # Administration
 

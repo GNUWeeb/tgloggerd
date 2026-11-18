@@ -104,8 +104,8 @@ func (s *Server) mediaError(w http.ResponseWriter, what string, err error) {
 // section 9). sess is the verified session, nil for a request without
 // one; its Role, MustChangePassword and AdminOf (the federations an
 // admin administers) are the account's as read on this request
-// (auth.Verifier), not the cookie's. Later items add the account's
-// restrictions and grants here.
+// (auth.Verifier), not the cookie's, and so are an admin's
+// restrictions and a member's grants and abilities.
 func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
 	if sess == nil {
 		return scope.Anonymous()
@@ -122,7 +122,18 @@ func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
 		AdminOf:            webdb.SplitIDs(sess.AdminOf),
 		HidePrivate:        sess.HidePrivate,
 		HideGroups:         webdb.SplitGroupIDs(sess.HideGroups),
+		GrantedGroups:      webdb.SplitGroupIDs(sess.GrantedGroups),
+		Abilities:          abilitiesOf(webdb.SplitAbilities(sess.Abilities)),
 	})
+}
+
+// abilitiesOf is a member's stored abilities as the scope takes them.
+func abilitiesOf(as []string) []scope.Ability {
+	out := make([]scope.Ability, 0, len(as))
+	for _, a := range as {
+		out = append(out, scope.Ability(a))
+	}
+	return out
 }
 
 // mayFetch decides whether a request may have the daemon fetch a file
@@ -131,11 +142,18 @@ func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
 // place that decides it, as media::mayFetch() is in the Drogon web:
 // /files/<token> asks it before calling the daemon, and every JSON
 // answer that links a file (fileURL) asks it whether to give the link,
-// so narrowing who may fetch (docs/todo/web-fetch-permission.md, from
-// sc's abilities) is done here and holds for all of them.
-func (s *Server) mayFetch(_ scope.Scope, size uint64, signedIn bool) media.Decision {
+// so narrowing who may fetch is done here and holds for all of them. A
+// signed-in account may only with the fetch_files ability
+// (scope.Can(FetchFiles)): every superadmin and admin, and a member
+// given it (web-member-access); a member without it gets no link to an
+// unstored file and no fetch through a link it holds.
+func (s *Server) mayFetch(sc scope.Scope, size uint64, signedIn bool) media.Decision {
 	p := media.Policy{Enabled: s.daemon.Enabled(), StoreCap: s.media.StoreFileCap}
-	return p.MayFetch(size, signedIn)
+	d := p.MayFetch(size, signedIn)
+	if _, account := sc.Viewer(); d == media.Allowed && account && !sc.Can(scope.FetchFiles) {
+		return media.Denied
+	}
+	return d
 }
 
 // fileURL is a file's /files/<token> URL for a request: given when the
@@ -323,6 +341,11 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	case media.NeedsSession:
 		needsSession(w)
+		return
+	case media.Denied:
+		statusPage(w, http.StatusNotFound, "File not stored",
+			"This file's bytes are not in storage, and this account may "+
+				"not fetch files from Telegram.")
 		return
 	}
 

@@ -13,11 +13,11 @@
 // the request may see.
 //
 // The scope is built from the account's role and, for an admin, the
-// federations it administers. Later items add to Viewer and fill in
-// the methods below without changing their callers:
-// web-admin-restrictions an admin's hidden groups, hidden private
-// messages and join_chat, web-member-access a member's granted groups
-// and abilities.
+// federations it administers and its restrictions (hidden groups,
+// hidden private messages), for a member the groups granted to it and
+// its abilities. The scope never runs a query itself: what needs one
+// (whether a member sees a user) is a condition it hands to the query
+// (UserFilter), which the logdb package runs.
 package scope
 
 import (
@@ -100,6 +100,12 @@ type Viewer struct {
 	// HideGroups are the groups hidden from an admin, by chat id. For
 	// sorts them and clears them for the other roles.
 	HideGroups []int64
+	// GrantedGroups are the groups granted to a member, by chat id:
+	// the union over its federations (web-member-access). Abilities
+	// are the abilities given to a member (Forward, FetchFiles). For
+	// sorts both and clears them for the other roles.
+	GrantedGroups []int64
+	Abilities     []Ability
 }
 
 // Account is an account the request acts on, as far as the rules of
@@ -162,6 +168,25 @@ func For(v Viewer) Scope {
 	} else {
 		v.HideGroups = nil
 	}
+	if v.Role == Member && len(v.GrantedGroups) > 0 {
+		v.GrantedGroups = slices.Compact(slices.Sorted(slices.Values(v.GrantedGroups)))
+	} else {
+		v.GrantedGroups = nil
+	}
+	// Only the member abilities mean anything for a member.
+	var abilities []Ability
+	if v.Role == Member {
+		for _, a := range v.Abilities {
+			if a == Forward || a == FetchFiles {
+				abilities = append(abilities, a)
+			}
+		}
+	}
+	if len(abilities) > 0 {
+		v.Abilities = slices.Compact(slices.Sorted(slices.Values(abilities)))
+	} else {
+		v.Abilities = nil
+	}
 	return Scope{kind: viewer, v: v}
 }
 
@@ -204,7 +229,7 @@ func (s Scope) Gate() Gate {
 // SeesAllGroups is whether every group is visible, so a query needs no
 // group filter. Superadmins see every group, and so do admins except
 // those a superadmin hid from them (web-admin-restrictions); a member
-// sees only its granted groups, none until web-member-access grants any.
+// sees only its granted groups (web-member-access).
 func (s Scope) SeesAllGroups() bool {
 	return s.kind == everything || s.is(Superadmin) || (s.is(Admin) && len(s.v.HideGroups) == 0)
 }
@@ -214,17 +239,54 @@ func (s Scope) SeesAllGroups() bool {
 // column is the query's own name for the group's chat id column, such
 // as "m.chat_id", a constant of the caller's, never input. The
 // condition is "1 = 1" when every group is visible, "column NOT IN
-// (...)" over an admin's hidden groups, and "1 = 0" when none is.
+// (...)" over an admin's hidden groups, "column IN (...)" over a
+// member's granted groups, and "1 = 0" when none is. An IN list keeps
+// the chat_id indexes usable, so a member's queries read its groups'
+// rows only.
 func (s Scope) GroupFilter(column string) (string, []any) {
 	switch {
 	case s.SeesAllGroups():
 		return "1 = 1", nil
 	case s.is(Admin):
-		args := make([]any, len(s.v.HideGroups))
-		for i, g := range s.v.HideGroups {
-			args[i] = g
-		}
-		return column + " NOT IN (" + strings.TrimSuffix(strings.Repeat("?, ", len(args)), ", ") + ")", args
+		return column + " NOT IN (" + marks(len(s.v.HideGroups)) + ")", groupArgs(s.v.HideGroups)
+	case s.is(Member) && len(s.v.GrantedGroups) > 0:
+		return column + " IN (" + marks(len(s.v.GrantedGroups)) + ")", groupArgs(s.v.GrantedGroups)
+	}
+	return "1 = 0", nil
+}
+
+func marks(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
+}
+
+func groupArgs(ids []int64) []any {
+	args := make([]any, len(ids))
+	for i, g := range ids {
+		args[i] = g
+	}
+	return args
+}
+
+// UserFilter is the condition, with its arguments, that a query over
+// users adds to its WHERE so only visible users come back. column is
+// the query's own name for the user id column, such as "u.id", a
+// constant of the caller's, never input. A viewer that sees users in
+// full sees every user ("1 = 1"); a member sees a user only as it
+// appears in its granted groups (web-accounts.md section 5): as the
+// sender of a message there or as one of their admins. The two EXISTS
+// are answered by the (sender_user_id, chat_id) index of the group
+// messages and the (user_id) index of the group admins. Anyone else
+// sees no user ("1 = 0").
+func (s Scope) UserFilter(column string) (string, []any) {
+	switch {
+	case s.SeesAllUsers():
+		return "1 = 1", nil
+	case s.is(Member) && len(s.v.GrantedGroups) > 0:
+		in := marks(len(s.v.GrantedGroups))
+		args := append(groupArgs(s.v.GrantedGroups), groupArgs(s.v.GrantedGroups)...)
+		return "(" + column + " IN (SELECT uf_m.sender_user_id FROM telegram_group_messages uf_m " +
+			"WHERE uf_m.chat_id IN (" + in + ")) OR " + column + " IN (SELECT uf_a.user_id FROM " +
+			"telegram_group_admins uf_a WHERE uf_a.group_id IN (" + in + ")))", args
 	}
 	return "1 = 0", nil
 }
@@ -235,6 +297,12 @@ func (s Scope) GroupFilter(column string) (string, []any) {
 // hidden groups' messages from a stored total.
 func (s Scope) HiddenGroups() []int64 { return s.v.HideGroups }
 
+// GrantedGroups are the groups granted to this member, ascending; nil
+// for everyone else. Visibility goes through GroupFilter, SeesGroup and
+// UserFilter; this is for the queries that inline the groups, as a
+// member's message totals do.
+func (s Scope) GrantedGroups() []int64 { return s.v.GrantedGroups }
+
 // SeesGroup is whether one group is visible.
 func (s Scope) SeesGroup(chatID int64) bool {
 	switch {
@@ -243,6 +311,9 @@ func (s Scope) SeesGroup(chatID int64) bool {
 	case s.is(Admin):
 		_, hidden := slices.BinarySearch(s.v.HideGroups, chatID)
 		return !hidden
+	case s.is(Member):
+		_, granted := slices.BinarySearch(s.v.GrantedGroups, chatID)
+		return granted
 	}
 	return false
 }
@@ -258,15 +329,6 @@ func (s Scope) SeesChat(chatID int64) bool {
 	return s.SeesPrivate()
 }
 
-// SeesUser is whether a user is visible at all. A member will see the
-// users of its granted groups, which takes a query; until grants exist
-// it sees none. Like SeesChat, it needs no query today, and the
-// version with grants will answer from a set loaded with the scope.
-func (s Scope) SeesUser(userID int64) bool {
-	_ = userID
-	return s.SeesAllUsers()
-}
-
 // SeesPrivate is whether private chats and their messages are
 // visible: never to members (web-accounts.md section 5), and to admins
 // unless a superadmin hides them (web-admin-restrictions).
@@ -276,7 +338,8 @@ func (s Scope) SeesPrivate() bool {
 
 // SeesAllUsers is whether users are visible in full (bio, name
 // history, global counts, their other groups). A member sees users
-// only as they appear in its granted groups.
+// only as they appear in its granted groups: whether it sees one takes
+// a query (UserFilter; logdb.VisibleUsers).
 func (s Scope) SeesAllUsers() bool {
 	return s.kind == everything || s.is(Superadmin, Admin)
 }
@@ -284,14 +347,17 @@ func (s Scope) SeesAllUsers() bool {
 // Can is whether the viewer may do a. Superadmins may do everything.
 // Admins may do all but what is withheld from them: join_chat is off
 // by default and granted per admin (web-admin-restrictions), and "Look
-// up real name" is for superadmins only. Members get Forward and
-// FetchFiles when granted (web-member-access), none so far.
+// up real name" is for superadmins only. Members may do Forward and
+// FetchFiles when given them (web-member-access), and nothing else.
 func (s Scope) Can(a Ability) bool {
 	switch {
 	case s.is(Superadmin):
 		return true
 	case s.is(Admin):
 		return a != JoinChat && a != LookupName
+	case s.is(Member):
+		_, given := slices.BinarySearch(s.v.Abilities, a)
+		return given
 	}
 	return false
 }
@@ -301,6 +367,15 @@ func (s Scope) Can(a Ability) bool {
 // superadmins' and admins'. A member with Forward sees and uses only
 // the bots it owns, which the caller asks the ownership records about.
 func (s Scope) SeesAllBots() bool {
+	return s.is(Superadmin, Admin)
+}
+
+// SeesAllForwarding is whether the forwarding configurations of other
+// accounts are the viewer's to see and change (web-accounts.md section
+// 6): superadmins' and admins', within the groups they see. A member
+// with Forward sees and changes only the configurations it owns, which
+// the caller asks the ownership records about.
+func (s Scope) SeesAllForwarding() bool {
 	return s.is(Superadmin, Admin)
 }
 

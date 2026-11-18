@@ -8,12 +8,14 @@ package server
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +27,7 @@ import (
 	"tgloggerd/webapi/internal/live"
 	"tgloggerd/webapi/internal/live/livetest"
 	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/testdb"
 	"tgloggerd/webapi/internal/webdb"
 )
 
@@ -48,6 +51,10 @@ type liveOpts struct {
 	cfg     LiveConfig
 	noHello bool // leave the hub waiting for its first frame
 	noHub   bool // live updates off
+	// state, when set, is the account's session state (else a
+	// superadmin's), and ro the logger's database its scope reads.
+	state *webdb.SessionState
+	ro    *sql.DB
 }
 
 func newLiveEnv(t *testing.T, o liveOpts) *liveEnv {
@@ -62,10 +69,15 @@ func newLiveEnv(t *testing.T, o liveOpts) *liveEnv {
 		cookies: e.cookies,
 		verifier: &auth.Verifier{Cookies: e.cookies,
 			State: func(context.Context, uint64, [32]byte) (webdb.SessionState, error) {
-				return webdb.SessionState{Epoch: e.epoch.Load(),
-					Role: "superadmin", Active: true, SessionRow: 1}, nil
+				st := webdb.SessionState{Role: "superadmin", Active: true, SessionRow: 1}
+				if o.state != nil {
+					st = *o.state
+				}
+				st.Epoch = e.epoch.Load()
+				return st, nil
 			}},
 		liveCfg: o.cfg,
+		ro:      o.ro,
 	}
 	if !o.noHub {
 		e.d = livetest.New(t, testKey)
@@ -589,7 +601,7 @@ func TestEventsManyTopics(t *testing.T) {
 }
 
 // eventInScope follows the roles: a superadmin gets every chat's and
-// user's events, a member none until grants exist.
+// user's events, a member without grants none.
 func TestEventInScopeRoles(t *testing.T) {
 	t.Parallel()
 	super := scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin})
@@ -608,5 +620,34 @@ func TestEventInScopeRoles(t *testing.T) {
 		if _, ok := eventInScope(member, e); ok {
 			t.Errorf("member gets %+v", e)
 		}
+	}
+}
+
+// A member's stream carries the events of its granted groups only, and
+// of the users in them; a stats.changed keeps only their ids.
+func TestLiveMemberGrants(t *testing.T) {
+	t.Parallel()
+	lg := testdb.New(t, testdb.Logger, "sample")
+	e := newLiveEnv(t, liveOpts{ro: lg.DB, state: &webdb.SessionState{Role: "member", Active: true,
+		SessionRow: 1, GrantedGroups: []int64{kernelChat, rustChat}}})
+	// Dewi and Andi appear in the groups; Bima does not.
+	st := e.open("topics=messages,stats,user:9299000001,user:9299000002,user:9299000004," +
+		"group:-1001000000001,group:-1001000000002")
+	st.expect("100", "hello")
+	e.conn.Send(live.Event{Seq: 101, Kind: live.KindMessageNew, ChatID: gnuWeeb, MessageID: 1})
+	e.conn.Send(live.Event{Seq: 102, Kind: live.KindMessageNew, ChatID: 9299000001, MessageID: 1})
+	e.conn.Send(live.Event{Seq: 103, Kind: live.KindUserUpdated, UserID: 9299000002})
+	e.conn.Send(live.Event{Seq: 104, Kind: live.KindGroupUpdated, ChatID: gnuWeeb})
+	e.conn.Send(live.Event{Seq: 105, Kind: live.KindMessageNew, ChatID: kernelChat, MessageID: 2})
+	e.conn.Send(live.Event{Seq: 106, Kind: live.KindUserUpdated, UserID: 9299000004})
+	e.conn.Send(live.Event{Seq: 107, Kind: live.KindGroupUpdated, ChatID: kernelChat})
+	e.conn.Send(live.Event{Seq: 108, Kind: live.KindStatsChanged,
+		ChatIDs: []int64{gnuWeeb, rustChat}, UserIDs: []int64{9299000002, 9299000001}})
+	st.expect("105", "message.new")
+	st.expect("106", "user.updated")
+	st.expect("107", "group.updated")
+	ev := st.expect("108", "stats.changed")
+	if !slices.Equal(ev.ChatIDs, []int64{rustChat}) || !slices.Equal(ev.UserIDs, []int64{9299000001}) {
+		t.Errorf("stats.changed %+v", ev)
 	}
 }

@@ -59,6 +59,30 @@ func migrateAppDB(t *testing.T, db *sql.DB, upto string) {
 	}
 }
 
+// downAppDB applies the down migrations of the web migrations after
+// the one numbered downto ("000006"), newest first, as golang-migrate
+// steps down to it.
+func downAppDB(t *testing.T, db *sql.DB, downto string) {
+	t.Helper()
+	downs, err := filepath.Glob("../../../web/migrations/*.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(downs)))
+	for _, f := range downs {
+		if filepath.Base(f)[:6] <= downto {
+			continue
+		}
+		q, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(q)); err != nil {
+			t.Fatalf("%s: %v", filepath.Base(f), err)
+		}
+	}
+}
+
 // emptyAppDB is an empty database of the test's own on the test
 // server (testdb.EnvDSN), for the tests that apply the migrations
 // themselves; it is dropped when the test ends.

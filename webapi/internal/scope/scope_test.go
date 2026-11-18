@@ -8,6 +8,7 @@ package scope
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -45,13 +46,16 @@ func TestVisibility(t *testing.T) {
 	} {
 		if tc.s.SeesAllGroups() != tc.groups || tc.s.SeesGroup(-100) != tc.groups ||
 			tc.s.SeesPrivate() != tc.priv || tc.s.SeesAllUsers() != tc.user ||
-			tc.s.SeesChat(-100123) != tc.groups || tc.s.SeesChat(42) != tc.priv ||
-			tc.s.SeesUser(42) != tc.user {
+			tc.s.SeesChat(-100123) != tc.groups || tc.s.SeesChat(42) != tc.priv {
 			t.Errorf("%s: groups %v private %v users %v", tc.name,
 				tc.s.SeesAllGroups(), tc.s.SeesPrivate(), tc.s.SeesAllUsers())
 		}
 		if f, args := tc.s.GroupFilter("m.chat_id"); f != tc.filter || len(args) != 0 {
 			t.Errorf("%s: GroupFilter = %q %v", tc.name, f, args)
+		}
+		want := map[bool]string{true: "1 = 1", false: "1 = 0"}[tc.user]
+		if f, args := tc.s.UserFilter("u.id"); f != want || len(args) != 0 {
+			t.Errorf("%s: UserFilter = %q %v", tc.name, f, args)
 		}
 	}
 }
@@ -254,5 +258,67 @@ func TestHiddenGroups(t *testing.T) {
 	}
 	if s := For(Viewer{ID: 3, Role: Admin}); !s.SeesAllGroups() {
 		t.Error("an unrestricted admin")
+	}
+}
+
+// A member's grants (web-member-access): it sees exactly its granted
+// groups, the users who appear in them (by the filter's subqueries),
+// no private chat, and may do exactly the abilities it was given. The
+// grants mean nothing for the other roles.
+func TestMemberGrants(t *testing.T) {
+	t.Parallel()
+	m := For(Viewer{ID: 5, Role: Member, GrantedGroups: []int64{-12, -10, -12},
+		Abilities: []Ability{FetchFiles, JoinChat, FetchFiles}})
+	if m.SeesAllGroups() || !m.SeesGroup(-12) || !m.SeesGroup(-10) || m.SeesGroup(-11) ||
+		!m.SeesChat(-10) || m.SeesChat(-11) || m.SeesChat(42) || m.SeesPrivate() || m.SeesAllUsers() {
+		t.Error("a member's granted groups")
+	}
+	if cond, args := m.GroupFilter("m.chat_id"); cond != "m.chat_id IN (?, ?)" ||
+		!reflect.DeepEqual(args, []any{int64(-12), int64(-10)}) {
+		t.Errorf("group filter %q %v", cond, args)
+	}
+	cond, args := m.UserFilter("u.id")
+	if !strings.Contains(cond, "u.id IN (SELECT uf_m.sender_user_id FROM telegram_group_messages uf_m "+
+		"WHERE uf_m.chat_id IN (?, ?))") ||
+		!strings.Contains(cond, "u.id IN (SELECT uf_a.user_id FROM telegram_group_admins uf_a "+
+			"WHERE uf_a.group_id IN (?, ?))") ||
+		!reflect.DeepEqual(args, []any{int64(-12), int64(-10), int64(-12), int64(-10)}) {
+		t.Errorf("user filter %q %v", cond, args)
+	}
+	if !slices.Equal(m.GrantedGroups(), []int64{-12, -10}) {
+		t.Errorf("GrantedGroups = %v", m.GrantedGroups())
+	}
+	for _, a := range []Ability{JoinChat, LookupName, ManageMCP, StoreAudit, Forward} {
+		if m.Can(a) {
+			t.Errorf("member Can(%s) without it", a)
+		}
+	}
+	if !m.Can(FetchFiles) {
+		t.Error("member cannot fetch_files it was given")
+	}
+	f := For(Viewer{ID: 5, Role: Member, Abilities: []Ability{Forward}})
+	if !f.Can(Forward) || f.Can(FetchFiles) || !f.Page("platform_fwd") || f.SeesAllForwarding() ||
+		f.SeesAllBots() {
+		t.Error("a member with forward")
+	}
+	// Without grants: nothing.
+	none := For(Viewer{ID: 6, Role: Member})
+	if c, a := none.GroupFilter("g.id"); c != "1 = 0" || a != nil {
+		t.Errorf("no grants: %q", c)
+	}
+	if c, _ := none.UserFilter("u.id"); c != "1 = 0" {
+		t.Errorf("no grants: user filter %q", c)
+	}
+	// The same rows build equal scopes, in any order (the live
+	// streams' recheck).
+	if !reflect.DeepEqual(m, For(Viewer{ID: 5, Role: Member, GrantedGroups: []int64{-10, -12},
+		Abilities: []Ability{FetchFiles}})) {
+		t.Error("scopes of the same grants differ")
+	}
+	for _, r := range []Role{Superadmin, Admin} {
+		s := For(Viewer{ID: 1, Role: r, GrantedGroups: []int64{-10}, Abilities: []Ability{Forward}})
+		if s.v.GrantedGroups != nil || s.v.Abilities != nil || s.GrantedGroups() != nil {
+			t.Errorf("%s keeps a member's grants", r)
+		}
 	}
 }

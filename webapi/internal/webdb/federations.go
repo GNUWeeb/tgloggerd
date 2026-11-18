@@ -50,8 +50,8 @@ const (
 		"WHERE hg.web_user_id = u.id) "
 )
 
-// groupList reads hiddenGroupsColumn: the (negative) group ids,
-// ascending, nil for NULL.
+// groupList reads hiddenGroupsColumn or grantedGroupsColumn: the
+// (negative) group ids, ascending and each once, nil for NULL.
 func groupList(s sql.NullString) ([]int64, error) {
 	if !s.Valid {
 		return nil, nil
@@ -64,7 +64,7 @@ func groupList(s sql.NullString) ([]int64, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	return ids, nil
+	return slices.Compact(ids), nil
 }
 
 // JoinGroupIDs writes group ids for a Session ("" for none), as

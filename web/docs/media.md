@@ -178,6 +178,11 @@ headers. Where it does more, it is the standard file serving of Go's
   cookie's signature and expiry on this route. A session ended by a
   password change is anonymous on the Go service: it fetches small
   files only and writes no audit row.
+- A signed-in account fetches only with the `fetch_files` ability
+  (web-accounts.md section 5): superadmins and admins hold it, a
+  member only when given it. A member without it gets no link to an
+  unstored file (`fetchable` false, `url` null), and a link it holds
+  answers 404 "File not stored" without asking the daemon.
 - Error answers are a bare HTML page with the same heading and text,
   not the Drogon layout.
 

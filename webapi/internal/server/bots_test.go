@@ -341,9 +341,8 @@ func TestBotTransfer(t *testing.T) {
 	}
 }
 
-// A member with forward sees and uses only its own bots. Members do
-// not hold forward yet (web-member-access), so the rule is checked on
-// botAccess itself, with a member that owns one bot.
+// A member with forward sees and uses only its own bots: here a member
+// that owns one bot.
 func TestBotAccessOwnBotsOnly(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t)
@@ -364,9 +363,10 @@ func TestBotAccessOwnBotsOnly(t *testing.T) {
 	if err != nil || a.all || a.sees(discordBot) || a.sees(1) {
 		t.Errorf("member without forward %v %v", a, err)
 	}
-	// With its ownership loaded, it sees its own bot only.
-	own := botAccess{owned: map[webdb.Resource]bool{botResource(discordBot): true}}
-	if !own.sees(discordBot) || own.sees(1000000002) || own.sees(1) {
-		t.Errorf("own %v", own)
+	// Given forward, it sees its own bot only.
+	own, err := srv.botAccessOf(ctx, scope.For(scope.Viewer{ID: 5, Role: scope.Member,
+		Abilities: []scope.Ability{scope.Forward}}))
+	if err != nil || own.all || !own.sees(discordBot) || own.sees(1000000002) || own.sees(1) {
+		t.Errorf("own %v %v", own, err)
 	}
 }

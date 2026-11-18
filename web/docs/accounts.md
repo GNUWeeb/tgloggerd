@@ -36,10 +36,15 @@ pages treat them while they still serve.
   ("hide_groups <before>-><after>").
 - The `join_chat` permission comes with `web-admin-restrictions`; until
   then an admin may not join chats (it is off by default).
-- A member sees only the groups granted to it, and users only as they
-  appear there. Grants come with `web-member-access`; until then a
-  member sees no group, and every group, user, private chat and file
-  listing answers it as if empty, every id 404.
+- A member sees only the groups granted to it (the union of its
+  grants over its federations; see Member grants below), and users
+  only as they appear there: the senders of messages and the admins
+  of those groups, with name, photo and username only (no bio, name
+  history, global counts or other groups), and their message counts
+  within those groups. It sees the messages and files of those
+  groups, no private chat, and every other group, user, message or
+  file id answers 404. A member with no grants sees nothing; every
+  list answers it as if empty.
 - Federations limit what an admin manages, never what it sees (see
   Federations below): an admin manages the members filed in a
   federation it administers.
@@ -73,8 +78,9 @@ several.
   member's other federations stay as they are. A member in no
   federation is managed by superadmins alone.
 - Federations change no visibility: an admin sees every group whatever
-  its federations (restrictions come with `web-admin-restrictions`),
-  and a member's groups come from its grants (`web-member-access`).
+  its federations, but for the groups a superadmin hides from it, and
+  a member's groups come from its grants, which are groups of its
+  federations.
 - The scope reads an admin's federations from the account on every
   request, with its role, so a change applies to its next request.
 
@@ -119,7 +125,9 @@ it answers 404:
 The Go service builds one scope per request
 (`Server.requestScope`, package `webapi/internal/scope`) from the
 account as its row reads on that request: id, role, the forced
-password change and whether its address is verified. Every query over the logger's schema and every
+password change, an admin's federations and restrictions, and a
+member's granted groups and abilities. Every query over the logger's
+schema and every
 permission check takes it. Something outside it answers 404, exactly
 like something that does not exist; a forbidden action on something
 the request may see answers 403. The menu (`Viewer.nav` of the page
@@ -130,6 +138,51 @@ request: the role is read from the account, not from the cookie, and
 disabling an account or changing its role also bumps its
 session_epoch, which ends its sessions on both services.
 
+## Member grants
+
+A member's grants are stored per federation in
+`web_member_grant_groups` (web migration 000012), its abilities in
+`web_member_abilities`:
+
+- A grant is a group of the federation it is made in: one of its
+  groups, or for Default a group of the archive that no other
+  federation holds. A grant row hangs off the member's filing in the
+  federation (a foreign key to `web_federation_members`), so leaving
+  the federation, deleting it, or the account ceasing to be a member
+  drops it. A group taken out of a federation leaves the grants made
+  there, and a group added to a federation other than Default leaves
+  the Default grants, as it is no longer in Default; the scope reads
+  only grants whose group is still in its federation.
+- The scope's group filter for a member is `<chat id> IN (<granted
+  groups>)`, so its queries read only those groups' rows through the
+  chat_id indexes. Its user filter keeps the people who sent a
+  message in, or administer, one of those groups.
+- Abilities: `forward` opens the forwarding pages, where the member
+  creates configurations for its own groups only and sees and changes
+  only those it owns (any other answers 404); `fetch_files` lets it
+  have the daemon fetch files the store does not hold. Without
+  `fetch_files` a member gets no link to an unstored file, and a link
+  it holds answers 404 "File not stored" without reaching the daemon.
+  Superadmins and admins hold both, as before.
+- File links (`/files/<token>`) stay capabilities that work without a
+  session; a member only ever gets them for files it can see.
+- Exposed groups stay public: their chat page opens signed out, so it
+  opens for a member too.
+- Live updates: a member's stream carries the events of its groups,
+  and of the people of its user topics that appear in them, checked
+  when the stream opens.
+
+Every change is audited with the account's: `grants <fed>:
+<before>-><after>` per federation changed and `abilities
+<before>-><after>`.
+
+An admin is shown, in a member's row, only the granted groups of the
+federations it administers that it sees; a group hidden from it or
+granted in another federation is left out of `grants[].groups`, and
+its id reads `hidden` in the row's audit lines. A PATCH from an admin
+keeps the grants it was not shown, and naming a group hidden from it
+answers 400 with field `grants`. Superadmins see and change them all.
+
 ## The accounts API
 
 Served by the Go service and described in webapi/openapi.yaml (tag
@@ -138,7 +191,7 @@ accounts); every write carries the session's CSRF token.
     GET   /api/accounts[?role=]                 the accounts the viewer manages
     GET   /api/accounts/{id}                    one of them
     POST  /api/accounts                         create; 201 {id, invited, temporary_password?}
-    PATCH /api/accounts/{id}                    name, email, role, admin_of, grants
+    PATCH /api/accounts/{id}                    name, email, role, admin_of, restrict, grants, abilities
     POST  /api/accounts/{id}/disable            and /enable
     POST  /api/accounts/{id}/password-reset     200 {link_sent, temporary_password?}
     POST  /api/accounts/{id}/resend-invite      204, the invitation again
@@ -152,21 +205,26 @@ accounts); every write carries the session's CSRF token.
   answers 403 `forbidden`; a federation that does not exist, 400
   `bad_federation`.
 - A member's `grants` are the federations it is filed in, each
-  `{"fed": <id>, "group_ids": []}`; groups cannot be granted inside
-  them yet (400 `not_supported`, `web-member-access`). An admin must
-  file a new member in a federation it administers: without `grants`,
-  400 `grants_required`. A superadmin's member without `grants` is
-  filed in Default; `"grants": []` files it in none.
+  `{"fed": <id>, "group_ids": [...]}` with the groups granted to it
+  there (see Member grants). An admin must file a new member in a
+  federation it administers: without `grants`, 400 `grants_required`.
+  A superadmin's member without `grants` is filed in Default;
+  `"grants": []` files it in none.
 - A PATCH with `grants` replaces the member's federations among those
-  the viewer administers (all of them for a superadmin); the others
-  stay. A grant of a federation the member is already in passes even
-  when the viewer does not administer it, so the page can send the
-  member's whole list back.
+  the viewer administers (all of them for a superadmin), and the
+  groups granted in each of them; the others stay, groups included. A
+  grant of a federation the member is already in passes even when the
+  viewer does not administer it, so the page can send the member's
+  whole list back; it changes nothing there.
 - `admin_of` sets the federations an admin administers; only a
   superadmin sends it. A role change drops the federations of the old
   role: a member made admin leaves its federations, and an account
   made member is filed in Default unless the same PATCH gives
   `grants`.
+- `abilities` replaces a member's abilities (`forward`,
+  `fetch_files`); only a member has them (400 `bad_request` for
+  another role, and with field `abilities` for an unknown one). A
+  superadmin, and an admin managing the member, sets them.
 - The last active superadmin cannot be disabled or demoted (409
   `last_superadmin`). The check locks the active superadmins' rows,
   so two superadmins disabling each other at once leave one.
@@ -308,10 +366,10 @@ resource, so more relations (sharing) can be added later:
   resources keep working.
 - Bots: a member with `forward` sees and uses only its own Telegram
   and Discord bots; admins and superadmins see every bot and transfer
-  it (platform-forwarding.md, Bots). Who sees and transfers the
-  forwarding configurations is `forwarding-per-user`'s; until then the
-  pages show the owner and every viewer with the ability sees every
-  configuration.
+  it (platform-forwarding.md, Bots). Forwarding configurations: a
+  member with `forward` sees and changes only its own, in its granted
+  groups; admins and superadmins see every configuration of the chats
+  they see. Transferring them is `forwarding-per-user`'s.
 
 ### Assigning the existing resources (deployment)
 

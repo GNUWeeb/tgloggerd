@@ -36,12 +36,13 @@ type accountsEditableJSON struct {
 }
 
 // accountsEditable is AccountsProps.editable as far as the items built
-// so far: federations (admin_of, and the federations of grants) are
-// real, and so is an admin's hide_private; the groups of grants, the
-// other restrictions and abilities are not yet. Each item that builds
-// one turns its flag on here.
+// so far: federations (admin_of, and the federations of grants), the
+// groups of grants, abilities and an admin's hide_private and
+// hide_groups are real; the other restrictions (join_chat) are not
+// yet. Each item that builds one turns its flag on here.
 func accountsEditable() accountsEditableJSON {
-	return accountsEditableJSON{Federations: true, RestrictPrivate: true, RestrictGroups: true}
+	return accountsEditableJSON{Federations: true, GroupGrants: true, RestrictPrivate: true,
+		RestrictGroups: true, Abilities: true}
 }
 
 // fedJSON is the Fed schema.

@@ -187,6 +187,9 @@ func TestMigrationAddsFederations(t *testing.T) {
 		t.Fatalf("lead's accounts after the upgrade: %d %v", got.status, got.body)
 	}
 
+	// The later migrations go down first, as golang-migrate takes them:
+	// member grants refer to the federations' tables.
+	downAppDB(t, db, "000006")
 	down, err := os.ReadFile("../../../web/migrations/000006_create_federations.down.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -308,5 +311,95 @@ func TestMigrationAddsResourceRelations(t *testing.T) {
 		"WHERE table_schema = DATABASE() AND table_name = 'web_resource_relations'").Scan(&n); err != nil ||
 		n != 0 {
 		t.Fatalf("%d tables left after the down migration, %v", n, err)
+	}
+}
+
+// Web migration 000012 adds the member grants, empty: no member sees a
+// group until it is granted one. A grant hangs off the member's filing
+// in its federation, so leaving the federation, deleting the
+// federation or the account drops it. Its down migration drops the
+// tables again.
+func TestMigrationAddsMemberGrants(t *testing.T) {
+	t.Parallel()
+	db := emptyAppDB(t)
+	migrateAppDB(t, db, "000011")
+	hash, _ := auth.HashPassword("before-the-upgrade")
+	if _, err := db.Exec("INSERT INTO web_users (id, username, password_hash, role) "+
+		"VALUES (1, 'boss', ?, 'superadmin'), (2, 'peek', ?, 'member'), (3, 'look', ?, 'member')",
+		hash, hash, hash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO web_federations (id, name) VALUES (1, 'Kernel'); " +
+		"INSERT INTO web_federation_members (federation_id, web_user_id) VALUES (0, 2), (1, 2), (0, 3)"); err != nil {
+		t.Fatal(err)
+	}
+	migrateAppDB(t, db, "000012")
+	count := func(table string) int {
+		var n int
+		if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count("web_member_grant_groups") + count("web_member_abilities"); n != 0 {
+		t.Fatalf("%d grants after the upgrade", n)
+	}
+	grant := func(uid, fed int, group int64) error {
+		_, err := db.Exec("INSERT INTO web_member_grant_groups (web_user_id, federation_id, group_id) "+
+			"VALUES (?, ?, ?)", uid, fed, group)
+		return err
+	}
+	for _, g := range []struct {
+		uid, fed int
+		group    int64
+	}{{2, 0, -1001}, {2, 1, -1002}, {3, 0, -1001}} {
+		if err := grant(g.uid, g.fed, g.group); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := grant(3, 1, -1002); err == nil {
+		t.Error("a grant in a federation the member is not filed in")
+	}
+	if _, err := db.Exec("INSERT INTO web_member_abilities (web_user_id, ability) " +
+		"VALUES (2, 'forward'), (2, 'fetch_files')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO web_member_abilities (web_user_id, ability) " +
+		"VALUES (2, 'join_chat')"); err == nil {
+		t.Error("an ability members cannot have")
+	}
+	// Leaving Default drops its grant; deleting the federation drops
+	// the other; deleting the account drops its abilities.
+	if _, err := db.Exec("DELETE FROM web_federation_members WHERE federation_id = 0 AND web_user_id = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count("web_member_grant_groups"); n != 2 {
+		t.Errorf("%d grants after leaving Default, want 2", n)
+	}
+	if _, err := db.Exec("DELETE FROM web_federations WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count("web_member_grant_groups"); n != 1 {
+		t.Errorf("%d grants after deleting the federation, want 1", n)
+	}
+	if _, err := db.Exec("DELETE FROM web_users WHERE id = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count("web_member_abilities"); n != 0 {
+		t.Errorf("%d abilities after deleting the account", n)
+	}
+
+	down, err := os.ReadFile("../../../web/migrations/000012_create_member_grants.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(down)); err != nil {
+		t.Fatalf("down: %v", err)
+	}
+	var left int
+	if err := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables " +
+		"WHERE table_schema = DATABASE() AND table_name LIKE 'web_member%'").Scan(&left); err != nil ||
+		left != 0 {
+		t.Fatalf("%d tables left after the down migration, %v", left, err)
 	}
 }

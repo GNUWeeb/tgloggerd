@@ -97,7 +97,7 @@ export interface paths {
         };
         /**
          * A file's bytes
-         * @description Serves a logged file, from the store or fetched from Telegram through the daemon; web/docs/media.md has the details. The token is the encrypted file id; one that does not open answers like an unknown id. The route is public: a session only allows fetching big files and makes the request audited. HEAD is answered like GET, without the body.
+         * @description Serves a logged file, from the store or fetched from Telegram through the daemon; web/docs/media.md has the details. The token is the encrypted file id; one that does not open answers like an unknown id. The route is public: a session only allows fetching big files and makes the request audited. A signed-in account that does not hold fetch_files (a member not given it) has no unstored file fetched at all. HEAD is answered like GET, without the body.
          *
          *     Error answers are small HTML pages, not JSON, since a browser following a link or loading an image gets them.
          */
@@ -564,7 +564,7 @@ export interface paths {
          *
          *     The first password (decisions/2026-11-18-email-optional.md): the one the creator types (password, at least 8 bytes), or, with password absent or empty, a random temporary one the server generates, answered once here as temporary_password and never stored or logged in plain text. Either way the account must change it at its first sign-in (see Gates). Instead, with "invite": true, the account gets no password and a set-password link (an invitation, see Email links) goes to its address, valid for WEBAPI_INVITE_LINK_TTL; setting the password from it verifies the address, and resendInvite sends a new one. An invitation needs an address (409 no_email) and mail (409 mail_off), and takes no password (400). The address is optional otherwise.
          *
-         *     A grant files the member in a federation (fed 0 is Default); groups cannot be granted inside it yet (web-member-access), so group_ids is []. A superadmin may name any federation, and its member without grants is filed in Default (grants [] files it in none, which leaves it to superadmins). Audited as account_create, with the federations and without the password.
+         *     A grant files the member in a federation (fed 0 is Default) and grants it group_ids there, groups of that federation (checked as updateAccount checks them). A superadmin may name any federation, and its member without grants is filed in Default (grants [] files it in none, which leaves it to superadmins). Audited as account_create, with the federations and the granted groups, without the password.
          */
         post: operations["createAccount"];
         delete?: never;
@@ -589,11 +589,11 @@ export interface paths {
         head?: never;
         /**
          * Change an account
-         * @description Changes the fields given: name, email, role, an admin's federations (admin_of) and a member's (grants). A role change ends the account's sessions on both services, and drops the federations of the old role: a member made admin leaves its federations, an admin made member administers none and is filed in Default unless grants say otherwise.
+         * @description Changes the fields given: name, email, role, an admin's federations (admin_of) and restrictions, a member's grants (its federations and the groups granted in them) and abilities. A role change ends the account's sessions on both services, and drops what belonged to the old role: a member made admin leaves its federations, and its grants and abilities go; an admin made member administers none, loses its restrictions and is filed in Default, with no groups granted, unless grants say otherwise.
          *
-         *     admin_of and restrict are a superadmin's to send (403 otherwise); admin_of is for admins (an empty list for anyone). grants replace the member's federations among those the viewer administers, all of them for a superadmin; the others stay. A grant of a federation the member is in already passes as it is, so the accounts page can send the member's whole list; one that files it in a federation the viewer does not administer answers 403. restrict.hide_private hides private chats and their messages from an admin at once (every private page, chat, search and count answers 404 or leaves them out); it is for an account that is, or this change makes, an admin (400 bad_request otherwise), and it is cleared when an admin becomes another role. restrict.hide_groups (group ids) replaces the groups hidden from an admin: from its next request they are in no list, search, count or chat search, their pages and APIs answer 404, and messages elsewhere that refer to them (posted as, forwarded from, replying from one) do not name them. A non-empty list is for an admin as hide_private is, a group the archive does not have answers 400 bad_request with field hide_groups, and the list is cleared when an admin becomes another role. Exposed groups stay public. Until join_chat, the member group grants and the abilities exist, they are accepted only as what they are today (join_chat off, no groups in grants, no abilities) and anything else answers 400 not_supported.
+         *     admin_of and restrict are a superadmin's to send (403 otherwise); admin_of is for admins (an empty list for anyone). grants replace the member's federations among those the viewer administers, all of them for a superadmin; the others stay. A grant naming a federation files the member in it, and leaving a federation out unfiles the member there, which drops the groups granted there. group_ids replaces the groups granted in that federation: each must be a group of the federation (its groups; for Default, a group of the archive that no other federation holds) that the viewer sees, else 400 bad_request with field grants. A grant of a federation the member is in already and the viewer does not administer passes, so the accounts page can send the member's whole list, and changes nothing there, its group_ids included; one that files it in a federation the viewer does not administer answers 403. From the member's next request it sees exactly its granted groups, the union over its federations, and the people who appear in them (web-accounts.md section 5). A grant goes when its group leaves the federation (for Default: joins another federation), when the member leaves the federation, and when the account stops being a member. abilities (forward, fetch_files) replace a member's abilities; they are for an account that is, or this change makes, a member (400 bad_request otherwise), and an unknown one answers 400 bad_request with field abilities. A superadmin, and an admin managing the member, sets them. restrict.hide_private hides private chats and their messages from an admin at once (every private page, chat, search and count answers 404 or leaves them out); it is for an account that is, or this change makes, an admin (400 bad_request otherwise), and it is cleared when an admin becomes another role. restrict.hide_groups (group ids) replaces the groups hidden from an admin: from its next request they are in no list, search, count or chat search, their pages and APIs answer 404, and messages elsewhere that refer to them (posted as, forwarded from, replying from one) do not name them. A non-empty list is for an admin as hide_private is, a group the archive does not have answers 400 bad_request with field hide_groups, and the list is cleared when an admin becomes another role. Exposed groups stay public. Until join_chat exists, it is accepted only off, and on answers 400 not_supported.
          *
-         *     The address is an account's own to change (changeEmail); an empty one removes it. An admin may correct another account's only while that account is invited (its password not set yet), and then, with mail, the invitation goes to the new address and earlier ones stop working. A superadmin may change any account's, for one that lost its mailbox; the new address is unverified and, with mail, gets a verification link. A changed address is told to the old one if it was verified, and a changed role to the account's verified address (when mail is set up). Audited as account_update, naming the fields changed and the federations before and after.
+         *     The address is an account's own to change (changeEmail); an empty one removes it. An admin may correct another account's only while that account is invited (its password not set yet), and then, with mail, the invitation goes to the new address and earlier ones stop working. A superadmin may change any account's, for one that lost its mailbox; the new address is unverified and, with mail, gets a verification link. A changed address is told to the old one if it was verified, and a changed role to the account's verified address (when mail is set up). Audited as account_update, naming the fields changed, the federations, the granted groups of each federation changed and the abilities, before and after.
          */
         patch: operations["updateAccount"];
         trace?: never;
@@ -2024,7 +2024,7 @@ export interface components {
         ChatMedia: components["schemas"]["MediaDetail"] & components["schemas"]["ChatMediaFile"];
         ChatMediaFile: {
             stored: boolean;
-            /** @description The bytes are not stored and the viewer may have them fetched from Telegram: the daemon API is on, and a viewer without a session asks only for a file under the store's per-file cap. */
+            /** @description The bytes are not stored and the viewer may have them fetched from Telegram: the daemon API is on, a viewer without a session asks only for a file under the store's per-file cap, and a signed-in one holds fetch_files (every superadmin and admin, a member given it). */
             fetchable?: boolean;
             thumb: string | null;
             url: string | null;
@@ -2416,11 +2416,13 @@ export interface components {
             last_superadmin: boolean;
             admin_of: number[];
             restrict: components["schemas"]["Restrict"] | null;
+            /** @description A member's federations, each with the groups granted to it there, ascending by id; [] for the other roles. A group the archive no longer has is named by its id ("#-100..."). An admin is shown only the groups of federations it administers that it sees: a group hidden from it, or granted in another federation, is left out, and its id reads "hidden" in the audit lines. Such a grant is not the admin's to change: a PATCH from it keeps it. */
             grants: {
                 /** Format: int64 */
                 fed: number;
                 groups: components["schemas"]["PickItem"][];
             }[];
+            /** @description A member's abilities, as stored; [] for the other roles. */
             abilities: components["schemas"]["Ability"][];
             audit: {
                 what: string;
@@ -2443,7 +2445,7 @@ export interface components {
             password?: string | null;
             /** @description Mail a set-password link instead of giving a password; needs an address and mail set up (409 otherwise). */
             invite?: boolean;
-            /** @description A member's federations and groups. Required, with at least one federation the viewer administers, when an admin creates the member (else 400 grants_required). group_ids stays [] until web-member-access. */
+            /** @description A member's federations and groups. Required, with at least one federation the viewer administers, when an admin creates the member (else 400 grants_required). group_ids are the groups granted in the federation. */
             grants?: components["schemas"]["GrantWrite"][];
         };
         AccountCreated: {
@@ -2476,12 +2478,13 @@ export interface components {
             };
             /** @description A member's grants, replacing the federations it is filed in. An admin changes only those in its own federations; the others stay. */
             grants?: components["schemas"]["GrantWrite"][];
+            /** @description A member's abilities, replacing its list: forward (set up forwarding of its groups, seeing only its own configurations) and fetch_files (have the daemon fetch files the store does not hold). [] removes them. */
             abilities?: components["schemas"]["Ability"][];
         };
         AccountsProps: {
             /** @description Whether mail is configured. Without it, set-password links cannot be sent: creating with invite, and resending an invitation, answer 409 mail_off, so the page should not offer them. The service always sends it. */
             mail?: boolean;
-            /** @description Which parts of an account the server can change today; the page offers only those. federations (admin_of, and the federations of grants) is true. The others turn true when the item that builds them lands: group_grants (groups inside a grant) with web-member-access, restrictions with web-admin-restrictions, abilities with web-member-access. Until then PATCH accepts those fields only unchanged and answers 400 not_supported to any change. restrict_private and restrict_groups are true: of an admin's restrictions, hide_private and hide_groups can be set already, so while restrictions is false the page offers those two only. */
+            /** @description Which parts of an account the server can change today; the page offers only those. federations (admin_of, and the federations of grants), group_grants (the groups inside a grant) and abilities (a member's forward and fetch_files) are true. restrictions turns true when join_chat lands; until then PATCH accepts join_chat only off and answers 400 not_supported to on. restrict_private and restrict_groups are true: of an admin's restrictions, hide_private and hide_groups can be set already, so while restrictions is false the page offers those two only. */
             editable: {
                 federations: boolean;
                 group_grants: boolean;
@@ -3217,7 +3220,7 @@ export interface operations {
                     "text/html": string;
                 };
             };
-            /** @description No such file, a token that does not open, or not in the store while fetching from Telegram is not configured. */
+            /** @description No such file, a token that does not open, or not in the store while fetching from Telegram is not configured or the signed-in account may not fetch files (fetch_files). */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4170,7 +4173,7 @@ export interface operations {
                     "application/json": components["schemas"]["AccountCreated"];
                 };
             };
-            /** @description A malformed body or role (error bad_request), a username that is not 1 to 64 letters, digits, dots, dashes or underscores starting with a letter or digit (bad_username), a name over 128 characters or with control characters (bad_name), not an address (bad_email), a typed password under 8 bytes (weak_password), an admin's member without grants (grants_required), a federation that does not exist (bad_federation), or groups in a grant (not_supported). */
+            /** @description A malformed body or role (error bad_request), a username that is not 1 to 64 letters, digits, dots, dashes or underscores starting with a letter or digit (bad_username), a name over 128 characters or with control characters (bad_name), not an address (bad_email), a typed password under 8 bytes (weak_password), an admin's member without grants (grants_required), a federation that does not exist (bad_federation), or a group in a grant that is not one of its federation's (bad_request, field grants). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -4254,7 +4257,7 @@ export interface operations {
                     "application/json": components["schemas"]["AccountRow"];
                 };
             };
-            /** @description A malformed body or role, or admin_of or grants for an account of another role (error bad_request), bad_name, bad_email, a federation that does not exist (bad_federation), or a field that cannot be set yet (not_supported). */
+            /** @description A malformed body or role, or admin_of, grants or abilities for an account of another role (error bad_request), a group in a grant that is not its federation's (bad_request, field grants), an unknown ability (bad_request, field abilities), bad_name, bad_email, a federation that does not exist (bad_federation), or join_chat on (not_supported). */
             400: {
                 headers: {
                     [name: string]: unknown;
