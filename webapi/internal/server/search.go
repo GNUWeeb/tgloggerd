@@ -80,6 +80,11 @@ type searchAnswer struct {
 	Sort       string             `json:"sort"`
 	Order      string             `json:"order"`
 	Debug      *logdb.SearchDebug `json:"debug,omitempty"`
+	// The search engine's part (searchengine.go): present only with
+	// an engine configured.
+	Backend    *logdb.Backend `json:"backend,omitempty"`
+	Highlights [][]string     `json:"highlights,omitempty"`
+	Facets     []logdb.Facet  `json:"facets,omitempty"`
 }
 
 // searchFailed answers a search's error: hidden or unknown entities
@@ -122,6 +127,7 @@ func (s *Server) searchEntity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Conds = conds
+	s.withEngine(r, &req)
 	res, err := logdb.Search(r.Context(), s.ro, sc, e, req)
 	if err != nil {
 		s.searchFailed(w, "search "+e.Name, err)
@@ -132,5 +138,6 @@ func (s *Server) searchEntity(w http.ResponseWriter, r *http.Request) {
 		Total: res.Total, TotalExact: res.TotalExact, Limit: res.Limit,
 		Offset: res.Offset, MaxOffset: logdb.MaxOffset, Sort: res.Sort,
 		Order: res.Order, Debug: res.Debug,
+		Backend: res.Backend, Highlights: res.Highlights, Facets: res.Facets,
 	})
 }

@@ -138,7 +138,8 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		})
 		go hub.Run(ctx)
 	}
-	if err := startSearchIndexer(ctx, log, cfg, hub, dc); err != nil {
+	engine, err := startSearchEngine(ctx, log, cfg, hub, dc)
+	if err != nil {
 		return err
 	}
 
@@ -211,7 +212,8 @@ func run(log *slog.Logger, cfg *config.Config) error {
 			AllowedOrigins: cfg.MCPAllowedOrigins,
 			LogRequests:    cfg.MCPLogRequests,
 		},
-		Mail: mailer,
+		SearchEngine: engine,
+		Mail:         mailer,
 		MailCfg: server.MailConfig{
 			Site:      cfg.PublicURL,
 			InviteTTL: cfg.InviteLinkTTL,
@@ -255,36 +257,43 @@ func run(log *slog.Logger, cfg *config.Config) error {
 	return nil
 }
 
-// startSearchIndexer starts the search engine's indexer, when the
-// engine is configured and this instance is its indexer. It reads the
-// message tables through a pool of its own with one connection, so the
-// backfill never takes a connection the pages need, and takes its
-// events from the live hub, or without one from the daemon's stream
-// itself; without either, the reconcile alone keeps the index in step.
-func startSearchIndexer(ctx context.Context, log *slog.Logger, cfg *config.Config,
-	hub *live.Hub, dc *daemon.Client) error {
+// startSearchEngine returns the search engine for the searches, nil
+// when it is not configured, and starts its indexer when this instance
+// is the indexer. The indexer reads the message tables through a pool
+// of its own with one connection, so the backfill never takes a
+// connection the pages need, and takes its events from the live hub,
+// or without one from the daemon's stream itself; without either, the
+// reconcile alone keeps the index in step.
+func startSearchEngine(ctx context.Context, log *slog.Logger, cfg *config.Config,
+	hub *live.Hub, dc *daemon.Client) (server.SearchEngine, error) {
 	se := cfg.SearchEngine
 	if se.URL == "" {
-		return nil
+		log.Info("search engine: off (no WEBAPI_SEARCH_ENGINE_URL); search uses MySQL")
+		return nil, nil
 	}
 	c, err := searchengine.NewClient(se.URL)
 	if err != nil {
-		return fmt.Errorf("WEBAPI_SEARCH_ENGINE_URL: %w", err)
+		return nil, fmt.Errorf("WEBAPI_SEARCH_ENGINE_URL: %w", err)
 	}
 	x, err := c.Index(se.Index)
 	if err != nil {
-		return fmt.Errorf("WEBAPI_SEARCH_ENGINE_INDEX: %w", err)
+		return nil, fmt.Errorf("WEBAPI_SEARCH_ENGINE_INDEX: %w", err)
 	}
+	engine := searchengine.NewEngine(x, searchengine.EngineOptions{
+		Timeout: se.Timeout,
+		MaxLag:  se.MaxLag,
+		Log:     log.With("component", "search-engine"),
+	})
 	if !se.Indexer {
 		log.Info("search engine: another instance indexes (WEBAPI_SEARCH_ENGINE_INDEXER=0)",
 			"url", c.URL(), "index", x.Name())
-		return nil
+		return engine, nil
 	}
 	pc := cfg.RO
 	pc.Name, pc.Conns = "index", 1
 	pool, err := openPool(log, pc)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var src live.Source
 	switch {
@@ -307,7 +316,7 @@ func startSearchIndexer(ctx context.Context, log *slog.Logger, cfg *config.Confi
 		ix.Run(ctx)
 	}()
 	log.Info("search engine: indexing", "url", c.URL(), "index", x.Name())
-	return nil
+	return engine, nil
 }
 
 // commandTimeout bounds a one-off command.

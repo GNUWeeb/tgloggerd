@@ -534,6 +534,8 @@ pages show come with the same rule.
 
     GET /api/search/{entity}   the advanced search of the Drogon web's
                                GET /v1/search/{entity}
+    GET /api/search/capabilities  the optional search engine's options
+                               (see Search engine)
 
 The port of the Drogon web's advanced search, with the same
 parameters, field registries and answers (web/docs/search-api.md, which
@@ -652,6 +654,34 @@ idempotent:
 Only one instance indexes an index; set WEBAPI_SEARCH_ENGINE_INDEXER=0
 on any other. Renames of users and groups need nothing: a document
 holds ids, never names.
+
+## Searching
+
+    GET /api/search/capabilities   whether the engine answers, and
+                                   its options (searchengine.go)
+
+logdb.Search hands the full-text conditions of group_messages and
+private_messages to the engine (internal/logdb/search_engine.go, the
+queries in internal/searchengine/query.go); web/docs/search-api.md,
+"Search engine", is the contract. The list pages' search text goes
+the same way.
+
+  - The engine answers row ids; MySQL reads the rows, applying every
+    other condition and the scope again, so the answers keep their
+    shape. A search of only text conditions and carried columns,
+    ANDed, sorted by relevance or date, is paged and counted by the
+    engine; any other gets an id list per text condition (at most
+    10000 rows, else MySQL alone) and is counted and paged by MySQL.
+  - The request scope is a filter of every engine query
+    (searchengine.scopeFilter: a member's granted groups as terms, an
+    admin's hidden groups as must_not, private messages only for
+    SeesPrivate), so hits, totals, facets and highlights never count
+    what the viewer may not see.
+  - Fallback: an engine that fails, takes longer than
+    WEBAPI_SEARCH_ENGINE_TIMEOUT, or is behind (the backfill
+    unfinished, or not known in step for WEBAPI_SEARCH_ENGINE_MAX_LAG)
+    leaves the search to MySQL, and the answer's backend says so.
+    After a failure the engine is skipped for 30 seconds.
 
 # The request scope
 
@@ -1187,6 +1217,12 @@ and its own:
     WEBAPI_SEARCH_ENGINE_RECONCILE  seconds between two reconciles,
                          default 600 (60 while no event stream
                          delivers)
+    WEBAPI_SEARCH_ENGINE_TIMEOUT  milliseconds one engine query may
+                         take before the search uses MySQL, default
+                         1500
+    WEBAPI_SEARCH_ENGINE_MAX_LAG  seconds the index may go without
+                         being known in step before searches use
+                         MySQL, default 300
 
 An empty value counts as unset. A malformed number stops the service at
 start. Logs are structured (log/slog, key=value) on stderr, one line per

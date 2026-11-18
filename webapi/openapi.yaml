@@ -1062,6 +1062,44 @@ paths:
           schema:
             type: string
             enum: ['1']
+        - name: fuzzy
+          in: query
+          required: false
+          description: >-
+            1 matches every plain word of the full-text conditions with
+            a few typos, as word~ does for one word. Search engine only
+            (GET /api/search/capabilities); ignored without one, and
+            listed in backend.ignored when MySQL answers.
+          schema:
+            type: string
+            enum: ['1']
+        - name: highlight
+          in: query
+          required: false
+          description: >-
+            1 adds highlights, the matching fragments of each row's
+            text. Search engine only, like fuzzy.
+          schema:
+            type: string
+            enum: ['1']
+        - name: facets
+          in: query
+          required: false
+          description: >-
+            1 adds facets, the hits per chat, when the engine answers
+            the whole search. Search engine only, like fuzzy.
+          schema:
+            type: string
+            enum: ['1']
+        - name: engine
+          in: query
+          required: false
+          description: >-
+            mysql keeps the search on MySQL even with a search engine
+            (backend.fallback asked).
+          schema:
+            type: string
+            enum: [mysql]
       responses:
         '200':
           description: A page of rows.
@@ -1088,6 +1126,36 @@ paths:
           $ref: '#/components/responses/Gate'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/search/capabilities:
+    get:
+      operationId: searchCapabilities
+      tags: [search]
+      summary: What the search backend offers
+      description: >-
+        Whether a search engine answers the full-text fields of the
+        message searches, and which options it offers for them, so a
+        client offers those only when they work (web/docs/search-api.md,
+        "Search engine"). Without an engine, engine is null and
+        entities is empty: search is MySQL's, as before. Only the
+        entities the viewer may search are listed; available says
+        whether the engine answers now or searches fall back to MySQL.
+      responses:
+        '200':
+          description: The capabilities.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchCapabilities'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Gate'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
@@ -4979,6 +5047,103 @@ components:
           enum: [asc, desc]
         debug:
           $ref: '#/components/schemas/SearchDebug'
+        backend:
+          $ref: '#/components/schemas/SearchBackend'
+        highlights:
+          type: array
+          description: >-
+            With highlight=1 and the engine answering: per row, aligned
+            to rows, up to three fragments of its text with the matched
+            words in <mark>...</mark>, HTML-escaped otherwise; empty for
+            a row without a match in its text and for service messages.
+          items:
+            type: array
+            items:
+              type: string
+        facets:
+          type: array
+          description: >-
+            With facets=1 and the engine answering the whole search:
+            the chats with the most hits, busiest first, at most ten,
+            within the request scope.
+          items:
+            $ref: '#/components/schemas/SearchFacet'
+    SearchBackend:
+      type: object
+      description: >-
+        Which backend answered, present only with a search engine
+        configured.
+      required: [used]
+      properties:
+        used:
+          type: string
+          enum: [engine, mysql]
+        fallback:
+          type: string
+          description: >-
+            Why MySQL answered a search with full-text conditions:
+            asked (engine=mysql), unavailable (the engine fails or is
+            down), timeout (it took too long), behind (the index is
+            behind the archive), too_many_hits (a condition matches
+            more rows than can be listed). Absent when the engine
+            answered or there was nothing for it to answer.
+          enum: [asked, unavailable, timeout, behind, too_many_hits]
+        ignored:
+          type: array
+          description: The options asked for that the answer does not give.
+          items:
+            type: string
+            enum: [fuzzy, highlight, facets]
+    SearchFacet:
+      type: object
+      required: [chat_id, name, count]
+      properties:
+        chat_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          description: The group's title or the other side's name, HTML-escaped.
+        count:
+          type: integer
+          format: int64
+    SearchCapabilities:
+      type: object
+      required: [engine, entities]
+      properties:
+        engine:
+          type: [string, 'null']
+          description: The engine's kind (opensearch), null without one.
+        entities:
+          type: object
+          description: By entity name; empty without an engine.
+          additionalProperties:
+            $ref: '#/components/schemas/SearchEngineEntity'
+    SearchEngineEntity:
+      type: object
+      required: [fields, options, available, fallback]
+      properties:
+        fields:
+          type: array
+          description: The full-text fields the engine answers (text).
+          items:
+            type: string
+        options:
+          type: array
+          description: >-
+            What the engine offers for them: phrase ("a b"), proximity
+            ("a b" @N), prefix (word*), fuzzy (word~ and fuzzy=1),
+            highlight and facets.
+          items:
+            type: string
+            enum: [phrase, proximity, prefix, fuzzy, highlight, facets]
+        available:
+          type: boolean
+        fallback:
+          type: [string, 'null']
+          description: >-
+            Why searches go to MySQL now (unavailable, behind), null
+            while available.
     SearchDebug:
       type: object
       description: The page query, the count, their values and the plan; HTML-escaped.

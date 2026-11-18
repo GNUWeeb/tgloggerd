@@ -275,6 +275,116 @@ text, forwarded, message id, sent time and a deleted flag.
   `{kind: user|group|self|none, id, name, username, photo}` (the `photo` is a
   tokenised `/files/<token>` URL) — rendered as a linked avatar + name.
 
+## Search engine (Go service, optional)
+
+The Go service can answer the `text` field of `group_messages` and
+`private_messages` from a search engine (OpenSearch; webapi/README,
+"Search engine") instead of MySQL's FULLTEXT index. It is optional:
+without `WEBAPI_SEARCH_ENGINE_URL` everything on this page stays as it
+is, the parameters below are ignored and the answers carry none of the
+fields below. The Drogon `/v1/search` never uses it.
+
+### Capabilities
+
+```
+GET /api/search/capabilities
+```
+
+says what the backend offers, so a client offers those options only
+when they work:
+
+```json
+{"engine": "opensearch",
+ "entities": {
+   "group_messages": {"fields": ["text"],
+     "options": ["phrase", "proximity", "prefix", "fuzzy", "highlight", "facets"],
+     "available": true, "fallback": null},
+   "private_messages": { ... }}}
+```
+
+Without an engine it is `{"engine": null, "entities": {}}`. Only the
+entities the viewer may search are listed (`private_messages` not for
+a viewer who may not see private chats). `available` is false, with
+the reason in `fallback` (`unavailable`, `behind`), while searches go
+to MySQL instead.
+
+### The `matches` value
+
+With the engine, `text matches <value>` reads the value in the syntax
+of MySQL's boolean mode, so it means the same on both backends, plus
+`~` for typos:
+
+| form | meaning |
+|------|---------|
+| `word` | rows with it rank higher; with no `+word`, a row needs one of these |
+| `+word` / `-word` | a row must / must not have it |
+| `word*` | a word starting so (prefix) |
+| `"a phrase"` | the words in order, next to each other |
+| `"a b" @3` | the words within 3 positions (proximity; MySQL's syntax too) |
+| `word~`, `word~1`, `word~2` | the word or one within a few edits (fuzzy; engine only) |
+
+Words are split on Unicode word boundaries, lowercased and folded to
+ASCII (an accented letter matches the plain one). MySQL's `~ < >` before a word and
+parentheses are read as spaces; a value with nothing to look for
+matches nothing.
+
+### Parameters
+
+| parameter | meaning |
+|-----------|---------|
+| `fuzzy=1` | every plain word matches with typos, as `word~` |
+| `highlight=1` | add `highlights` |
+| `facets=1` | add `facets` |
+| `engine=mysql` | keep the search on MySQL (`fallback` `asked`) |
+
+### Answer
+
+Beside the fields of [Response](#response), with an engine configured:
+
+- `backend`: `{"used": "engine"|"mysql", "fallback"?, "ignored"?}`.
+  `fallback` says why MySQL answered a search with a `text` condition:
+  `asked`, `unavailable` (the engine fails or is down; it is then
+  skipped for half a minute), `timeout` (a query took longer than
+  `WEBAPI_SEARCH_ENGINE_TIMEOUT`), `behind` (the backfill has not
+  finished, or the index was not known in step with the archive for
+  `WEBAPI_SEARCH_ENGINE_MAX_LAG`), `too_many_hits` (see below).
+  `ignored` lists the options asked for that the answer does not give.
+- `highlights` (with `highlight=1`): per row, aligned to `rows`, up to
+  three fragments of its text with the matched words in
+  `<mark>...</mark>` and the rest HTML-escaped; `[]` for a row whose
+  text has no match, and always for service messages, whose stored
+  text may name what their rendering for the viewer leaves out.
+- `facets` (with `facets=1`, when the engine answers the whole
+  search): `[{"chat_id", "name", "count"}]`, the ten chats with the
+  most hits, busiest first; facets are cheap, since the engine counts
+  them with the page.
+
+The rows, cells, `total` and paging keep their shape: the engine says
+which rows match and MySQL reads them, with every other condition and
+the request scope applied again.
+
+- A search whose conditions are all `text` or columns the engine's
+  documents carry (`chat_id`, the sender, `date`, `content_type`,
+  `deleted`, and `is_outgoing` for private messages), joined by `AND`,
+  and sorted by relevance or `date`, is paged and counted by the
+  engine (`total_exact` true).
+- Any other search (an `OR`, another column, another sort) gets the
+  rows the engine finds for each `text` condition as an id list, and
+  MySQL counts and pages as usual. More than 10000 rows for one
+  condition cannot be listed: MySQL answers alone (`too_many_hits`).
+  `facets` are not given then (`ignored`), since the engine's per-chat
+  counts would not match MySQL's total.
+
+### The request scope
+
+The scope is a filter of every engine query, never applied to its
+answer afterwards: group messages are limited to every group, all but
+an admin's hidden groups (`must_not`) or a member's granted groups
+(`terms`), and private messages are searched only by a viewer who sees
+private chats (others get 404, as without the engine). Hits, `total`,
+`facets` and `highlights` therefore count and show only what the
+viewer may see. Signed-out visitors have no advanced search.
+
 ## Response
 
 On success the body is a single JSON object. `cols` describes the displayed

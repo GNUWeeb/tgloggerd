@@ -166,6 +166,12 @@ type SearchEngine struct {
 	Batch     int
 	Pause     time.Duration
 	Reconcile time.Duration
+	// Timeout bounds one query of a search
+	// (WEBAPI_SEARCH_ENGINE_TIMEOUT, milliseconds); MaxLag is how long
+	// the index may go without being known in step before searches
+	// use MySQL (WEBAPI_SEARCH_ENGINE_MAX_LAG, seconds).
+	Timeout time.Duration
+	MaxLag  time.Duration
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -476,5 +482,12 @@ func searchEngineFromEnv(se *SearchEngine) error {
 		return err
 	}
 	se.Reconcile = time.Duration(n) * time.Second
+	if se.Timeout, err = millis("WEBAPI_SEARCH_ENGINE_TIMEOUT", "1500"); err != nil {
+		return err
+	}
+	if n, err = positive("WEBAPI_SEARCH_ENGINE_MAX_LAG", "300"); err != nil {
+		return err
+	}
+	se.MaxLag = time.Duration(n) * time.Second
 	return nil
 }

@@ -65,6 +65,9 @@ func NewEngine(x *Index, o EngineOptions) *Engine {
 	return &Engine{x: x, o: o}
 }
 
+// Name is the engine's kind, for the search API's capabilities.
+func (e *Engine) Name() string { return "opensearch" }
+
 // failed notes a failure: the engine is skipped for the backoff. A
 // request that was cancelled by its own client is no failure.
 func (e *Engine) failed(parent context.Context, what string, err error) {
