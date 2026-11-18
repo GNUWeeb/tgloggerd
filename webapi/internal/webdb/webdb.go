@@ -75,6 +75,9 @@ type SessionState struct {
 	SessionRow   uint64
 	SessionEnded bool
 	SessionStale bool
+	// AdminOf is the federations the account is an admin of
+	// (web_federation_admins), nil for none.
+	AdminOf []uint64
 }
 
 // LoadSessionState is an account's SessionState with the record of
@@ -82,20 +85,30 @@ type SessionState struct {
 // is gone. One primary-key lookup per request, with the session's row
 // by its unique key.
 func LoadSessionState(ctx context.Context, db *sql.DB, id uint64, key [32]byte) (SessionState, error) {
-	var st SessionState
+	var (
+		st      SessionState
+		adminOf sql.NullString
+	)
 	err := db.QueryRowContext(ctx,
 		"SELECT u.session_epoch, u.role, u.is_active, u.must_change_password, "+
 			"COALESCE(s.id, 0), s.revoked_at IS NOT NULL, "+
-			"COALESCE(s.last_used_at < NOW() - INTERVAL ? SECOND, 0) "+
+			"COALESCE(s.last_used_at < NOW() - INTERVAL ? SECOND, 0), "+
+			adminOfColumn+
 			"FROM web_users u LEFT JOIN web_sessions s "+
 			"ON s.token_hash = ? AND s.web_user_id = u.id WHERE u.id = ?",
 		int(TouchInterval.Seconds()), key[:], id).
 		Scan(&st.Epoch, &st.Role, &st.Active, &st.MustChangePassword,
-			&st.SessionRow, &st.SessionEnded, &st.SessionStale)
+			&st.SessionRow, &st.SessionEnded, &st.SessionStale, &adminOf)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SessionState{}, ErrNoUser
 	}
-	return st, err
+	if err != nil {
+		return SessionState{}, err
+	}
+	if st.AdminOf, err = idList(adminOf); err != nil {
+		return SessionState{}, err
+	}
+	return st, nil
 }
 
 // Execer is a pool or a transaction.

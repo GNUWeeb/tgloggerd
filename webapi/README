@@ -149,7 +149,10 @@ The accounts administration (GET and POST /api/accounts, GET and PATCH
 sign-out-everywhere actions) is described in openapi.yaml and
 web/docs/accounts.md: who manages whom comes from the request scope,
 new accounts and resets get a temporary password shown once, and the
-last active superadmin cannot be disabled or demoted.
+last active superadmin cannot be disabled or demoted. The federations
+editor (POST /api/federations, PATCH and DELETE
+/api/federations/{id}) is the superadmins' and is described there
+too.
 
 The login throttle is in the process's memory, as in Drogon, so each
 service counts failures on its own. The address logged and throttled
@@ -463,8 +466,10 @@ they move.
 The groups the scope shows (GroupFilter) and, for a viewer who sees
 private chats, the people the logging account has private messages
 with, matched on title, name or username, busiest first, paged by an
-opaque cursor. federation=0 is Default, which holds every group until
-web-federations adds federations; any other id holds no group yet.
+opaque cursor. federation=<id> keeps the groups of that federation
+(web/docs/accounts.md, Federations), read from the web's own schema
+and passed to the logger's query as a list: 0 is Default, every group
+in no other federation; an id that is no federation holds none.
 
 # The request scope
 
@@ -477,13 +482,15 @@ it, and every permission check asks it; there is no other mechanism.
 Something outside it answers 404, a forbidden action on something
 inside it 403.
 
-So far it is built from the role alone (web/docs/accounts.md has the
-table): superadmins and admins see every group, private chat and user;
-members see no group, private chat or user until grants exist
-(web-member-access), and then the users of their groups only by name
-and photo; admins may do all but join chats and look up real
-names. Federations, restrictions, grants and the verified-address gate
-plug into the scope without changing its callers. Without a session
+So far it is built from the role and, for an admin, the federations it
+administers (web/docs/accounts.md has the table): superadmins and
+admins see every group, private chat and user; members see no group,
+private chat or user until grants exist (web-member-access), and then
+the users of their groups only by name and photo; admins may do all
+but join chats and look up real names, and manage the members of
+their federations (Scope.SeesAccount, AdministersFederation).
+Restrictions, grants and the verified-address gate plug into the scope
+without changing its callers. Without a session
 the scope sees nothing; a file token is its own authorization.
 
 # Layout

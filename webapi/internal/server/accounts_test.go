@@ -93,6 +93,12 @@ func TestAccountsRoles(t *testing.T) {
 
 	adminID, adminTemp := create(t, root, account("ann", "admin"))
 	memberID, memberTemp := create(t, root, account("max", "member"))
+	// A new admin administers no federation until a superadmin says
+	// so; a superadmin's member without grants is filed in Default.
+	if a := root.call("PATCH", fmt.Sprintf("/api/accounts/%d", adminID),
+		map[string]any{"admin_of": []int{0}}); a.status != 200 || fmt.Sprint(a.body["admin_of"]) != "[0]" {
+		t.Fatalf("make ann an admin of Default: %d %v", a.status, a.body)
+	}
 
 	// The temporary password works once, behind the gate.
 	ann := newSession(t, h, "ann", adminTemp)
@@ -223,7 +229,7 @@ func TestAccountsRoles(t *testing.T) {
 		whats = append(whats, m["what"].(string)+" by "+m["by"].(string))
 	}
 	if strings.Join(whats, "|") != "account_enable by ann|account_disable by ann|"+
-		"account_create: max role=member by root" || row.body["invited"] != false ||
+		"account_create: max role=member federations=0 by root" || row.body["invited"] != false ||
 		row.body["last_signin"] == nil || row.body["email"] != "max@example.org" {
 		t.Fatalf("member row %v", row.body)
 	}

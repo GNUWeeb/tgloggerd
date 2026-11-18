@@ -102,10 +102,10 @@ func (s *Server) mediaError(w http.ResponseWriter, what string, err error) {
 // requestScope is what the request may see and do: the one place
 // where a request's scope is built (docs/design/web-accounts.md
 // section 9). sess is the verified session, nil for a request without
-// one; its Role and MustChangePassword are the account's as read on
-// this request (auth.Verifier), not the cookie's. Later items add the
-// account's federations, restrictions, grants and verified address
-// here.
+// one; its Role, MustChangePassword and AdminOf (the federations an
+// admin administers) are the account's as read on this request
+// (auth.Verifier), not the cookie's. Later items add the account's
+// restrictions, grants and verified address here.
 func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
 	if sess == nil {
 		return scope.Anonymous()
@@ -119,6 +119,7 @@ func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
 		ID:                 sess.UID,
 		Role:               role,
 		MustChangePassword: sess.MustChangePassword,
+		AdminOf:            webdb.SplitIDs(sess.AdminOf),
 		// No address is verified before web-email; until then the
 		// email gate stays open.
 		EmailVerified: true,

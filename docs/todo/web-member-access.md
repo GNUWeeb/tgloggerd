@@ -36,7 +36,6 @@ section 5).
 
 ## Depends on
 
-- `web-federations`
 - `web-admin-restrictions`
 
 ## Done when

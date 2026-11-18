@@ -221,7 +221,7 @@ export interface paths {
         };
         /**
          * Search chats for a picker
-         * @description Groups and private chats the viewer may see whose title, name or username matches q (a leading @ is ignored, and a number also matches the chat's id exactly); an empty q lists every one. Busiest first: groups by their message count, private chats by the number of their messages. Without kind both kinds are searched. A member, or an admin restricted from private messages, gets groups only (web-accounts.md sections 4 and 5), and only the groups the request scope shows. federation limits the answer to that federation's groups (0 is Default, which holds every group until federations exist; any other id holds none yet). Paged by an opaque cursor, at most 100000 rows deep.
+         * @description Groups and private chats the viewer may see whose title, name or username matches q (a leading @ is ignored, and a number also matches the chat's id exactly); an empty q lists every one. Busiest first: groups by their message count, private chats by the number of their messages. Without kind both kinds are searched. A member, or an admin restricted from private messages, gets groups only (web-accounts.md sections 4 and 5), and only the groups the request scope shows. federation limits the answer to that federation's groups, and so to groups: 0 is Default, the groups in no other federation; an id that is no federation holds none. Paged by an opaque cursor, at most 100000 rows deep.
          */
         get: operations["searchChats"];
         put?: never;
@@ -530,7 +530,7 @@ export interface paths {
         };
         /**
          * The accounts the viewer manages
-         * @description A superadmin gets every account, an admin the members of its federations (until federations exist, every member), by username (web-accounts.md sections 2 and 3). To a member the accounts administration does not exist (404).
+         * @description A superadmin gets every account, an admin the members filed in a federation it administers, by username (web-accounts.md sections 2 and 3). To a member the accounts administration does not exist (404).
          */
         get: operations["listAccounts"];
         put?: never;
@@ -540,7 +540,7 @@ export interface paths {
          *
          *     Until set-password links exist (web-email), the new account gets a random temporary password, answered once here and never stored or logged in plain text, which it must replace at its first sign-in (decisions/2026-11-18-temporary-passwords.md; see Gates). When links arrive, creation sends one instead and temporary_password goes.
          *
-         *     Until federations exist (web-federations), Default (fed 0) is the only federation, every superadmin and admin administers it, and groups cannot be granted (web-member-access): a grant is {"fed": 0, "group_ids": []}. Audited as account_create, without the password.
+         *     A grant files the member in a federation (fed 0 is Default); groups cannot be granted inside it yet (web-member-access), so group_ids is []. A superadmin may name any federation, and its member without grants is filed in Default (grants [] files it in none, which leaves it to superadmins). Audited as account_create, with the federations and without the password.
          */
         post: operations["createAccount"];
         delete?: never;
@@ -565,7 +565,9 @@ export interface paths {
         head?: never;
         /**
          * Change an account
-         * @description Changes the fields given: name, email and role. A role change ends the account's sessions on both services. admin_of and restrict are a superadmin's to send; until federations, admin restrictions and member grants and abilities exist, they are accepted only as what they are today (admin_of [] or [0], restrictions all off, grants to fed 0 with no groups, no abilities) and anything else answers 400 not_supported, so the accounts page can send its whole form. A changed address is recorded; it is verified by a link once web-email exists. Audited as account_update, naming the fields changed.
+         * @description Changes the fields given: name, email, role, an admin's federations (admin_of) and a member's (grants). A role change ends the account's sessions on both services, and drops the federations of the old role: a member made admin leaves its federations, an admin made member administers none and is filed in Default unless grants say otherwise.
+         *
+         *     admin_of and restrict are a superadmin's to send (403 otherwise); admin_of is for admins (an empty list for anyone). grants replace the member's federations among those the viewer administers, all of them for a superadmin; the others stay. A grant of a federation the member is in already passes as it is, so the accounts page can send the member's whole list; one that files it in a federation the viewer does not administer answers 403. Until admin restrictions and member group grants and abilities exist, they are accepted only as what they are today (restrictions all off, no groups in grants, no abilities) and anything else answers 400 not_supported. A changed address is recorded; it is verified by a link once web-email exists. Audited as account_update, naming the fields changed and the federations before and after.
          */
         patch: operations["updateAccount"];
         trace?: never;
@@ -681,7 +683,7 @@ export interface paths {
         put?: never;
         /**
          * Create a federation
-         * @description Superadmins only; anyone else gets 404.
+         * @description Superadmins only; anyone else gets 404. name is required; group_ids are groups of the logger and admin_ids accounts with the admin role (superadmins administer every federation without being listed). A group may be in several federations; the groups put into one leave Default. The new id is the highest so far plus one. Audited as federation_create.
          */
         post: operations["createFederation"];
         delete?: never;
@@ -700,12 +702,16 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a federation
+         * @description Superadmins only; anyone else gets 404, as does a federation that does not exist. Its groups go back to Default unless another federation holds them, its admins stop administering it, and a member it was the only federation of is filed in Default. Default itself cannot be deleted. Audited as federation_delete.
+         */
+        delete: operations["deleteFederation"];
         options?: never;
         head?: never;
         /**
          * Change a federation
-         * @description Superadmins only; anyone else gets 404. The Default federation (id 0) is derived, the groups in no other federation, so it takes admin_ids only.
+         * @description Superadmins only; anyone else gets 404, as does a federation that does not exist. The fields given replace the federation's name, groups and admins; the others stay. A group taken out of its last federation is back in Default. The Default federation (id 0) is derived, the groups in no other federation, so it takes admin_ids only (and its own name back unchanged). Audited as federation_update, with what changed.
          */
         patch: operations["updateFederation"];
         trace?: never;
@@ -1848,7 +1854,7 @@ export interface components {
             /** Format: email */
             email: string;
             role: components["schemas"]["Role"];
-            /** @description A member's federations and groups. Required, with at least one federation the viewer administers, when an admin creates the member (else 400 grants_required). Until web-federations, only {"fed": 0, "group_ids": []}. */
+            /** @description A member's federations and groups. Required, with at least one federation the viewer administers, when an admin creates the member (else 400 grants_required). group_ids stays [] until web-member-access. */
             grants?: components["schemas"]["GrantWrite"][];
         };
         AccountCreated: {
@@ -1863,7 +1869,7 @@ export interface components {
             role?: components["schemas"]["Role"];
             /** Format: email */
             email?: string;
-            /** @description An admin's federations; superadmins only. */
+            /** @description The federations an admin administers, replacing its list; superadmins only. */
             admin_of?: number[];
             /** @description An admin's restrictions; superadmins only. */
             restrict?: {
@@ -1871,12 +1877,12 @@ export interface components {
                 hide_groups: number[];
                 join_chat: boolean;
             };
-            /** @description A member's grants. An admin changes only those in its own federations; the others stay. */
+            /** @description A member's grants, replacing the federations it is filed in. An admin changes only those in its own federations; the others stay. */
             grants?: components["schemas"]["GrantWrite"][];
             abilities?: components["schemas"]["Ability"][];
         };
         AccountsProps: {
-            /** @description Which parts of an account the server can change today; the page offers only those. Each flag turns true when the item that builds it lands: federations (admin_of, and grants of federations other than Default) with web-federations, group_grants (groups inside a grant) with web-member-access, restrictions with web-admin-restrictions, abilities with web-member-access. Until then PATCH accepts these fields only unchanged and answers 400 not_supported to any change. */
+            /** @description Which parts of an account the server can change today; the page offers only those. federations (admin_of, and the federations of grants) is true. The others turn true when the item that builds them lands: group_grants (groups inside a grant) with web-member-access, restrictions with web-admin-restrictions, abilities with web-member-access. Until then PATCH accepts those fields only unchanged and answers 400 not_supported to any change. */
             editable: {
                 federations: boolean;
                 group_grants: boolean;
@@ -1884,10 +1890,11 @@ export interface components {
                 abilities: boolean;
             };
             accounts: components["schemas"]["AccountRow"][];
-            /** @description The federations the viewer may manage, with how many groups it can see in each; the groups come from the chat search. */
+            /** @description The federations the viewer administers (every one for a superadmin), Default first and then by name, with how many groups it can see in each; the groups come from the chat search. */
             federations: (components["schemas"]["Fed"] & {
                 group_count: number;
             })[];
+            /** @description Every federation, Default first and then by name, to name a member's federations the viewer does not administer. */
             all_federations: components["schemas"]["Fed"][];
         };
         FedPerson: {
@@ -1902,16 +1909,18 @@ export interface components {
             name: string;
             default: boolean;
             created: string | null;
-            /** @description Only the groups the viewer can see; group_count counts them all. */
+            /** @description A preview: at most 12 of the federation's groups the viewer can see, busiest first; group_count counts all its groups. Default's are the groups in no other federation. */
             groups: components["schemas"]["GroupSummary"][];
             group_count: number;
             admins: components["schemas"]["FedPerson"][];
             members: components["schemas"]["FedPerson"][];
         };
         FederationsProps: {
+            /** @description Every federation for a superadmin, the ones it administers for an admin; Default first, then by name. */
             federations: components["schemas"]["FederationRow"][];
+            /** @description Whether the viewer changes federations (superadmins). */
             editable: boolean;
-            /** @description Admins that may be given a federation. */
+            /** @description The active admins a superadmin may make admins of a federation; empty for an admin. */
             admin_options: components["schemas"]["FedPerson"][];
         };
         FederationWrite: {
@@ -3275,7 +3284,7 @@ export interface operations {
                     "application/json": components["schemas"]["AccountCreated"];
                 };
             };
-            /** @description A malformed body or role (error bad_request), a username that is not 1 to 64 letters, digits, dots, dashes or underscores starting with a letter or digit (bad_username), a name over 128 characters or with control characters (bad_name), not an address (bad_email), an admin's member without grants (grants_required), or groups in a grant (not_supported). */
+            /** @description A malformed body or role (error bad_request), a username that is not 1 to 64 letters, digits, dots, dashes or underscores starting with a letter or digit (bad_username), a name over 128 characters or with control characters (bad_name), not an address (bad_email), an admin's member without grants (grants_required), a federation that does not exist (bad_federation), or groups in a grant (not_supported). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3358,7 +3367,7 @@ export interface operations {
                     "application/json": components["schemas"]["AccountRow"];
                 };
             };
-            /** @description A malformed body or role (error bad_request), bad_name, bad_email, or a field that cannot be set yet (not_supported). */
+            /** @description A malformed body or role, or admin_of or grants for an account of another role (error bad_request), bad_name, bad_email, a federation that does not exist (bad_federation), or a field that cannot be set yet (not_supported). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3531,16 +3540,68 @@ export interface operations {
             /** @description Created. */
             201: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Created"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description A malformed body or more than 50000 groups (error bad_request), a name that is empty, over 64 characters or with control characters (bad_name), an id that is no group (bad_group), or an account that is not an admin (bad_admin). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            /** @description Another federation has the name (error taken). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    deleteFederation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The Default federation (error bad_request). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     updateFederation: {
@@ -3561,16 +3622,35 @@ export interface operations {
             /** @description Changed. */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Created"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description As for createFederation, or groups or a new name for Default (error bad_request). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            /** @description Another federation has the name (error taken). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     createT2D: {

@@ -165,6 +165,20 @@ func TestFixtures(t *testing.T) {
 	if fmt.Sprint(names) != "[admin ops gw_admin sec_lead researcher mod_kernel intern2025]" {
 		t.Errorf("accounts %v", names)
 	}
+	// The rows a migration made come along with id 0 kept (the
+	// Default federation), and the fixture files its admins and
+	// members there as the migration would.
+	if n := count(t, web, "SELECT COUNT(*) FROM web_federations WHERE id = 0 AND name = 'Default'"); n != 1 {
+		t.Errorf("%d Default federations", n)
+	}
+	if n := count(t, web, "SELECT COUNT(*) FROM web_federation_admins a JOIN web_users u "+
+		"ON u.id = a.web_user_id AND u.role = 'admin' WHERE a.federation_id = 0"); n != 2 {
+		t.Errorf("%d admins of Default", n)
+	}
+	if n := count(t, web, "SELECT COUNT(*) FROM web_federation_members m JOIN web_users u "+
+		"ON u.id = m.web_user_id AND u.role = 'member' WHERE m.federation_id = 0"); n != 3 {
+		t.Errorf("%d members in Default", n)
+	}
 
 	// Load adds to a database later, and a test's own rows follow the
 	// fixture's ids.

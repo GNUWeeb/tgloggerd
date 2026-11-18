@@ -203,6 +203,9 @@ func (s *Server) routes() []route {
 		{"GET /api/account/sessions", s.RequireSession(s.listSessions)},
 		{"DELETE /api/account/sessions/{id}", s.RequireSession(s.endSession)},
 		{"POST /api/account/sessions/sign-out-others", s.RequireSession(s.endOtherSessions)},
+		{"POST /api/federations", s.RequireSession(s.createFederation)},
+		{"PATCH /api/federations/{id}", s.RequireSession(s.updateFederation)},
+		{"DELETE /api/federations/{id}", s.RequireSession(s.deleteFederation)},
 	}
 }
 

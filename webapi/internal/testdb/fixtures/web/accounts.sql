@@ -5,6 +5,11 @@
 -- sec_lead admins, the rest members; intern2025 is disabled.
 --
 -- Account ids 1 - 7; a test's own accounts get the next ids.
+--
+-- Only the Default federation exists (web migration 000006 makes it):
+-- the admins administer it and the members are filed in it, as the
+-- migration does for the accounts it finds. The "federations" fixture
+-- adds others.
 
 INSERT INTO web_users (id, username, password_hash, role, is_active, session_epoch,
 	created_at, updated_at) VALUES
@@ -36,3 +41,6 @@ INSERT INTO web_audit (web_user_id, action, ip, detail, created_at) VALUES
 	(5, 'login_ok', '192.0.2.81', 'researcher', '2026-11-17 11:00:00'),
 	(5, 'media', '192.0.2.81', 'file 880001', '2026-11-17 11:01:00'),
 	(5, 'logout', '192.0.2.81', 'researcher', '2026-11-17 11:30:00');
+
+INSERT INTO web_federation_admins (federation_id, web_user_id) VALUES (0, 3), (0, 4);
+INSERT INTO web_federation_members (federation_id, web_user_id) VALUES (0, 5), (0, 6), (0, 7);

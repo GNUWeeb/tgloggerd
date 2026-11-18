@@ -7,6 +7,7 @@ package server
 
 import (
 	"os"
+	"slices"
 	"testing"
 
 	"tgloggerd/webapi/internal/auth"
@@ -117,5 +118,86 @@ func TestMigrationAddsSettings(t *testing.T) {
 	}
 	if n := tables(); n != 0 {
 		t.Fatalf("%d tables left after the down migration", n)
+	}
+}
+
+// Web migration 000006 adds the federations and keeps today's rights:
+// every admin administers the Default federation (id 0) and every
+// member, disabled ones too, is filed in it, so an admin still manages
+// every member. Superadmins get no rows (they administer everything).
+// Its down migration drops the tables again.
+func TestMigrationAddsFederations(t *testing.T) {
+	t.Parallel()
+	db := emptyAppDB(t)
+	migrateAppDB(t, db, "000005")
+	hash, _ := auth.HashPassword("before-the-upgrade")
+	if _, err := db.Exec("INSERT INTO web_users (id, username, password_hash, role, is_active) "+
+		"VALUES (1, 'boss', ?, 'superadmin', 1), (2, 'lead', ?, 'admin', 1), "+
+		"(3, 'old_lead', ?, 'admin', 0), (4, 'peek', ?, 'member', 1), "+
+		"(5, 'gone', ?, 'member', 0)", hash, hash, hash, hash, hash); err != nil {
+		t.Fatal(err)
+	}
+	migrateAppDB(t, db, "000006")
+
+	var (
+		id      uint64
+		name    string
+		by, at  any
+		nGroups int
+	)
+	if err := db.QueryRow("SELECT id, name, created_by, created_at FROM web_federations").
+		Scan(&id, &name, &by, &at); err != nil || id != 0 || name != "Default" || by != nil || at != nil {
+		t.Fatalf("Default after the upgrade: %d %q %v %v, %v", id, name, by, at, err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM web_federation_groups").Scan(&nGroups); err != nil ||
+		nGroups != 0 {
+		t.Fatalf("%d stored groups after the upgrade, %v", nGroups, err)
+	}
+	usersIn := func(table string) []uint64 {
+		rows, err := db.Query("SELECT web_user_id FROM " + table +
+			" WHERE federation_id = 0 ORDER BY web_user_id")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []uint64
+		for rows.Next() {
+			var u uint64
+			if err := rows.Scan(&u); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, u)
+		}
+		return out
+	}
+	if got := usersIn("web_federation_admins"); !slices.Equal(got, []uint64{2, 3}) {
+		t.Errorf("admins of Default after the upgrade: %v", got)
+	}
+	if got := usersIn("web_federation_members"); !slices.Equal(got, []uint64{4, 5}) {
+		t.Errorf("members of Default after the upgrade: %v", got)
+	}
+
+	// The admin still manages both members once the service reads the
+	// federations.
+	migrateAppDB(t, db, "")
+	h := newHandler(db, 5)
+	lead := newSession(t, h, "lead", "before-the-upgrade")
+	if got := lead.call("GET", "/api/accounts", nil); got.status != 200 ||
+		!slices.Equal(ids(got), []string{"gone", "peek"}) {
+		t.Fatalf("lead's accounts after the upgrade: %d %v", got.status, got.body)
+	}
+
+	down, err := os.ReadFile("../../../web/migrations/000006_create_federations.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(down)); err != nil {
+		t.Fatalf("down: %v", err)
+	}
+	var left int
+	if err := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables " +
+		"WHERE table_schema = DATABASE() AND table_name LIKE 'web_federation%'").Scan(&left); err != nil ||
+		left != 0 {
+		t.Fatalf("%d tables left after the down migration, %v", left, err)
 	}
 }

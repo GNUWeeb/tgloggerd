@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/mail"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -78,10 +79,12 @@ type accountJSON struct {
 	Audit          []auditJSON   `json:"audit"`
 }
 
-// accountJSONOf is a row as the API shows it. Federations, admin
-// restrictions, member grants and abilities are not stored yet: an
-// admin shows the restrictions it has (none), a member its place in
-// the Default federation with no groups.
+// accountJSONOf is a row as the API shows it: an admin with the
+// federations it administers, a member with every federation it is
+// filed in (also those the viewer does not administer). Admin
+// restrictions, the groups of member grants and abilities are not
+// stored yet: an admin shows the restrictions it has (none), a member
+// no groups in its federations.
 func accountJSONOf(a webdb.Account, supers int, audits []webdb.AccountAudit) accountJSON {
 	j := accountJSON{
 		ID:            a.ID,
@@ -109,8 +112,11 @@ func accountJSONOf(a webdb.Account, supers int, audits []webdb.AccountAudit) acc
 	switch scope.Role(a.Role) {
 	case scope.Admin:
 		j.Restrict = &restrictJSON{HideGroups: []any{}}
+		j.AdminOf = append(j.AdminOf, a.AdminOf...)
 	case scope.Member:
-		j.Grants = []grantJSON{{Fed: scope.DefaultFederation, Groups: []any{}}}
+		for _, f := range a.Federations {
+			j.Grants = append(j.Grants, grantJSON{Fed: f, Groups: []any{}})
+		}
 	}
 	for _, e := range audits {
 		what := e.Action
@@ -165,11 +171,17 @@ func (s *Server) target(w http.ResponseWriter, r *http.Request, sc scope.Scope) 
 		s.internalError(w, "account lookup", err)
 		return a, false
 	}
-	if !sc.SeesAccount(scope.Account{ID: a.ID, Role: scope.Role(a.Role)}) {
+	if !sc.SeesAccount(scopeAccount(a)) {
 		notFound(w)
 		return a, false
 	}
 	return a, true
+}
+
+// scopeAccount is an account as the scope's rules of who manages whom
+// take it.
+func scopeAccount(a webdb.Account) scope.Account {
+	return scope.Account{ID: a.ID, Role: scope.Role(a.Role), Federations: a.Federations}
 }
 
 // row answers one account as the accounts page shows it.
@@ -222,7 +234,7 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 	out := []accountJSON{}
 	for _, a := range all {
 		role := scope.Role(a.Role)
-		if !sc.SeesAccount(scope.Account{ID: a.ID, Role: role}) || (only != "" && role != only) {
+		if !sc.SeesAccount(scopeAccount(a)) || (only != "" && role != only) {
 			continue
 		}
 		audits, err := webdb.AccountAudits(ctx, s.app, a.ID, accountAuditRows)
@@ -310,26 +322,46 @@ type grantWrite struct {
 	GroupIDs []int64 `json:"group_ids"`
 }
 
-// checkGrants validates a member's grants as far as they exist before
-// web-federations and web-member-access: Default (id 0) is the only
-// federation, and groups cannot be granted yet. It answers the request
-// itself when they do not pass.
-func checkGrants(w http.ResponseWriter, sc scope.Scope, grants []grantWrite) bool {
+// grantFederations reads a member's grants as far as they exist before
+// web-member-access: the federations it is filed in, without groups
+// (groups cannot be granted yet). keep is the federations the member
+// is in now (nil for a new one): a grant of one of those passes even
+// when the viewer does not administer it, as the accounts page sends
+// the member's whole list back, and the change leaves it alone anyway
+// (FederationChange.Within). Any other grant must be of a federation
+// the viewer administers, else 403. It answers the request itself when
+// the grants do not pass.
+func grantFederations(w http.ResponseWriter, sc scope.Scope, grants []grantWrite,
+	keep []uint64) ([]uint64, bool) {
+	feds := []uint64{}
 	for _, g := range grants {
 		if g.Fed == nil {
 			badRequest(w, "bad_request", "Every grant names its federation (fed).")
-			return false
+			return nil, false
 		}
-		if !sc.AdministersFederation(*g.Fed) {
+		if !sc.AdministersFederation(*g.Fed) && !slices.Contains(keep, *g.Fed) {
 			forbidden(w, "That federation is not one you administer.")
-			return false
+			return nil, false
 		}
 		if len(g.GroupIDs) != 0 {
 			badRequest(w, "not_supported", "Groups cannot be granted to members yet.")
-			return false
+			return nil, false
 		}
+		feds = append(feds, *g.Fed)
 	}
-	return true
+	return feds, true
+}
+
+// federationChange is the change a viewer makes to an account's
+// federations when it sends feds: a superadmin sets them all, an admin
+// only those it administers.
+func federationChange(sc scope.Scope, feds []uint64) *webdb.FederationChange {
+	within, all := sc.AdministeredFederations()
+	return &webdb.FederationChange{Set: feds, Within: within, WithinAll: all}
+}
+
+func (s *Server) badFederation(w http.ResponseWriter, r *http.Request) {
+	badRequest(w, "bad_federation", s.text(r, "federation.unknown"))
 }
 
 // createAccount answers POST /api/accounts. Until set-password links
@@ -393,8 +425,14 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "grants_required", "Choose at least one federation for the member.")
 		return
 	}
-	if !checkGrants(w, sc, in.Grants) {
+	feds, ok := grantFederations(w, sc, in.Grants, nil)
+	if !ok {
 		return
+	}
+	if role == scope.Member && in.Grants == nil {
+		// A superadmin's member without grants goes where today's
+		// members went (web migration 000006): into Default.
+		feds = []uint64{scope.DefaultFederation}
 	}
 
 	password, err := temporaryPassword()
@@ -414,8 +452,12 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		Role:         string(role),
 		PasswordHash: hash,
 		CreatedBy:    v.ID,
+		Federations:  feds,
 	}, clientIP(r))
 	switch {
+	case errors.Is(err, webdb.ErrNoFederation):
+		s.badFederation(w, r)
+		return
 	case errors.Is(err, webdb.ErrTaken):
 		writeError(w, http.StatusConflict, "taken",
 			map[string]any{"message": "That username is taken."})
@@ -437,6 +479,9 @@ func (s *Server) change(w http.ResponseWriter, r *http.Request, a webdb.Account,
 	c webdb.AccountChange, action string, withRow bool) {
 	_, err := webdb.UpdateAccount(r.Context(), s.app, v.ID, a.ID, c, action, clientIP(r))
 	switch {
+	case errors.Is(err, webdb.ErrNoFederation):
+		s.badFederation(w, r)
+		return
 	case errors.Is(err, webdb.ErrLastSuperadmin):
 		writeError(w, http.StatusConflict, "last_superadmin", map[string]any{
 			"message": "This is the last active superadmin; make another one first."})
@@ -460,10 +505,12 @@ func (s *Server) change(w http.ResponseWriter, r *http.Request, a webdb.Account,
 }
 
 // updateAccount answers PATCH /api/accounts/{id}. It changes the name,
-// the address and the role; federations, restrictions, grants and
-// abilities are accepted only as what they are before the items that
-// store them (none, and the Default federation for a member), so the
-// accounts page can send its whole form.
+// the address, the role, an admin's federations (admin_of, superadmins
+// only) and the federations a member is filed in (grants, each viewer
+// within the federations it administers). Restrictions, the groups of
+// grants and abilities are accepted only as what they are before the
+// items that store them (none), so the accounts page can send its
+// whole form.
 func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	if !s.checkCSRF(w, r) {
@@ -529,11 +576,20 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		forbidden(w, "Only a superadmin sets an admin's federations and restrictions.")
 		return
 	}
-	for _, f := range in.AdminOf {
-		if f != int64(scope.DefaultFederation) {
-			badRequest(w, "not_supported", "Federations other than Default do not exist yet.")
+	if in.AdminOf != nil {
+		feds := make([]uint64, 0, len(in.AdminOf))
+		for _, f := range in.AdminOf {
+			if f < 0 {
+				s.badFederation(w, r)
+				return
+			}
+			feds = append(feds, uint64(f))
+		}
+		if len(feds) != 0 && newRole != scope.Admin {
+			badRequest(w, "bad_request", s.text(r, "federation.admins_only"))
 			return
 		}
+		c.AdminOf = &webdb.FederationChange{Set: feds, WithinAll: true}
 	}
 	if in.Restrict != nil && (in.Restrict.HidePrivate || in.Restrict.JoinChat ||
 		len(in.Restrict.HideGroups) != 0) {
@@ -544,8 +600,21 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "bad_request", "Only members get grants.")
 		return
 	}
-	if !checkGrants(w, sc, in.Grants) {
+	keep := a.Federations
+	if scope.Role(a.Role) != scope.Member {
+		keep = nil
+	}
+	feds, ok := grantFederations(w, sc, in.Grants, keep)
+	if !ok {
 		return
+	}
+	switch {
+	case in.Grants != nil && newRole == scope.Member:
+		c.Federations = federationChange(sc, feds)
+	case newRole == scope.Member && scope.Role(a.Role) != scope.Member:
+		// Made a member without grants: into Default, as a new one.
+		c.Federations = &webdb.FederationChange{
+			Set: []uint64{scope.DefaultFederation}, WithinAll: true}
 	}
 	if len(in.Abilities) != 0 {
 		badRequest(w, "not_supported", "Abilities cannot be given yet.")
