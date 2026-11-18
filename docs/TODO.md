@@ -125,7 +125,6 @@ Accounts, roles and federations:
 - [`web-admin-restrictions`](todo/web-admin-restrictions.md): Let a superadmin hide private messages and specific groups from an admin, with 404 everywhere.
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
-- [`web-user-settings`](todo/web-user-settings.md): Apply every per-account setting in the list loaders and the React pages.
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
 - [`search-engine-backend`](todo/search-engine-backend.md): Add OpenSearch as an optional search backend, with extra search options in the frontend when it is on (optional).
 - [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
