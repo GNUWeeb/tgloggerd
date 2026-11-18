@@ -23,6 +23,7 @@ import (
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/live"
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/mail"
 	"tgloggerd/webapi/internal/mcp"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/scope"
@@ -67,6 +68,17 @@ type Deps struct {
 	Defaults settings.Defaults
 	// MCP is the /mcp endpoint's settings.
 	MCP MCPConfig
+	// Mail sends the account links and notices; nil turns mail off,
+	// which is allowed: nothing is sent then (email.go). MailCfg is the
+	// site's URL for the links and their lifetimes; zero lifetimes are
+	// the defaults.
+	Mail    *mail.Mailer
+	MailCfg MailConfig
+	// ForgotLimiter caps forgotten-password requests per client
+	// address, ForgotAcctLimiter the links sent per account; nil is
+	// the built-in caps.
+	ForgotLimiter     *auth.RateLimiter
+	ForgotAcctLimiter *auth.RateLimiter
 
 	// pages replaces the page table, state the database's account
 	// state behind a session, clock the time, prefs the accounts'
@@ -116,6 +128,11 @@ type Server struct {
 	mcp      *mcp.Server
 	mcpCfg   MCPConfig
 	mcpSlots chan struct{}
+	// mail, mailCfg, forgotLimiter and forgotAcct: see Deps.
+	mail          *mail.Mailer
+	mailCfg       MailConfig
+	forgotLimiter *auth.RateLimiter
+	forgotAcct    *auth.RateLimiter
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -143,6 +160,25 @@ func New(d Deps) http.Handler {
 		defaults:    d.Defaults.OrSite(),
 		pages:       d.pages,
 		clock:       time.Now,
+	}
+	// Account mail (email.go); zero lifetimes and nil limiters are the
+	// defaults.
+	s.mail, s.mailCfg = d.Mail, d.MailCfg
+	s.forgotLimiter, s.forgotAcct = d.ForgotLimiter, d.ForgotAcctLimiter
+	if s.mailCfg.InviteTTL <= 0 {
+		s.mailCfg.InviteTTL = DefaultInviteTTL
+	}
+	if s.mailCfg.ResetTTL <= 0 {
+		s.mailCfg.ResetTTL = DefaultResetTTL
+	}
+	if s.mailCfg.VerifyTTL <= 0 {
+		s.mailCfg.VerifyTTL = DefaultVerifyTTL
+	}
+	if s.forgotLimiter == nil {
+		s.forgotLimiter = auth.NewRateLimiter(forgotPerAddress, forgotWindow)
+	}
+	if s.forgotAcct == nil {
+		s.forgotAcct = auth.NewRateLimiter(forgotPerAccount, forgotWindow)
 	}
 	if s.pages == nil {
 		s.pages = defaultPages()
@@ -248,6 +284,11 @@ func (s *Server) routes() []route {
 		{"POST /mcp", s.postMCP},
 		{"GET /mcp", s.getMCP},
 		{"DELETE /mcp", s.deleteMCP},
+		{"POST /api/account/email", s.RequireSession(s.changeEmail)},
+		{"POST /api/account/email/verify", s.verifyEmail},
+		{"POST /api/password/set", s.setPassword},
+		{"POST /api/password/forgot", s.forgotPassword},
+		{"POST /api/accounts/{id}/resend-invite", s.RequireSession(s.resendInvite)},
 	}
 }
 

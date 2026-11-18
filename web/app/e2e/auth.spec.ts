@@ -31,22 +31,13 @@ test('a set-password link takes the token out of the address bar and sets the pa
 	await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 });
 
-test('an account without an address adds one, and moves on once the link is followed elsewhere', async ({ page, as, standinUrl }) => {
+test('an account without an email address is never asked for one', async ({ page, as }) => {
 	await as('noemail');
 	await page.goto('/users');
-	await expect(page.getByRole('heading', { name: 'Add your email address' })).toBeVisible();
-	await expect(page).toHaveURL(/\/users$/);
-	await page.fill('input[name=email]', 'ops@example.org');
-	await page.fill('input[name=password]', 'standin');
-	await page.click('button:has-text("Send the verification link")');
-	await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible();
-	// The link is followed in another browser.
-	await fetch(`${standinUrl}/api/account/email/verify`, { method: 'POST', body: JSON.stringify({ token: 'standin-token' }) });
-	await page.evaluate(() => dispatchEvent(new Event('focus')));
-	await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Users', level: 1 })).toBeVisible();
 });
 
-test('signing in with a temporary password asks for an own one first, then the next gate, on the page asked for', async ({ page, as }) => {
+test('signing in with a temporary password asks for an own one first, on the page asked for', async ({ page, as }) => {
 	await as('public');
 	await page.goto('/groups');
 	await page.fill('input[name=username]', 'mod_kernel');
@@ -58,9 +49,8 @@ test('signing in with a temporary password asks for an own one first, then the n
 	await page.fill('input[name=new_password]', 'my own passphrase');
 	await page.fill('input[name=confirm_password]', 'my own passphrase');
 	await page.click('button:has-text("Set my password")');
-	// mod_kernel's address is not verified yet: that gate comes next.
-	await expect(page.getByRole('heading', { name: 'Add your email address' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Groups', level: 1 })).toBeVisible();
 	await expect(page).toHaveURL(/\/groups$/);
 	await page.reload();
-	await expect(page.getByRole('heading', { name: 'Add your email address' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Groups', level: 1 })).toBeVisible();
 });

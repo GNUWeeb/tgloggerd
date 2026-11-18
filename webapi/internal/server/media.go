@@ -105,7 +105,7 @@ func (s *Server) mediaError(w http.ResponseWriter, what string, err error) {
 // one; its Role, MustChangePassword and AdminOf (the federations an
 // admin administers) are the account's as read on this request
 // (auth.Verifier), not the cookie's. Later items add the account's
-// restrictions, grants and verified address here.
+// restrictions and grants here.
 func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
 	if sess == nil {
 		return scope.Anonymous()
@@ -120,9 +120,6 @@ func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
 		Role:               role,
 		MustChangePassword: sess.MustChangePassword,
 		AdminOf:            webdb.SplitIDs(sess.AdminOf),
-		// No address is verified before web-email; until then the
-		// email gate stays open.
-		EmailVerified: true,
 	})
 }
 

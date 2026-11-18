@@ -37,13 +37,10 @@ describe('gates', () => {
 		vi.stubGlobal('fetch', vi.fn(async () => json(403, { error: 'csrf' })));
 		await api.POST('/api/logout');
 		expect(cb).not.toHaveBeenCalled();
-		vi.stubGlobal('fetch', vi.fn(async () => json(403, { error: 'email_required' })));
+		vi.stubGlobal('fetch', vi.fn(async () => json(403, { error: 'password_change_required' })));
 		const e = await ok(api.POST('/api/mcp/tokens', { body: { name: 'x' } })).catch((x: unknown) => x);
 		expect(cb).toHaveBeenCalledTimes(1);
-		expect(e).toMatchObject({ status: 403, code: 'email_required' });
-		vi.stubGlobal('fetch', vi.fn(async () => json(403, { error: 'password_change_required' })));
-		await api.POST('/api/logout');
-		expect(cb).toHaveBeenCalledTimes(2);
+		expect(e).toMatchObject({ status: 403, code: 'password_change_required' });
 		onGate(null);
 	});
 });

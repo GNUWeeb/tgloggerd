@@ -43,6 +43,26 @@ describe('sign-in', () => {
 		expect(callsTo(calls, 'POST', '/api/login')[1]!.headers.get('x-csrf-token')).toBe('pre-2');
 	});
 
+	it('goes to the account\'s landing page when no page was asked for', async () => {
+		const go = stubAssign();
+		fakeApi('public', {
+			'GET /api/login': () => ({ signed_in: false, csrf: 'pre-1' }),
+			'POST /api/login': () => ({ user: { id: 1, username: 'admin', role: 'superadmin', must_change_password: false }, csrf: 'sess', landing: '/groups' }),
+		});
+		renderPage('/login', 'public');
+		await waitFor(() => expect((screen.getByRole('button', { name: /Sign in/ }) as HTMLButtonElement).disabled).toBe(false));
+		fill('username', 'admin'); fill('password', 'standin');
+		fireEvent.submit(document.querySelector('form')!);
+		await waitFor(() => expect(go).toHaveBeenCalledWith('/groups'));
+	});
+
+	it('never follows an off-site landing page either', async () => {
+		const go = stubAssign();
+		fakeApi('public', { 'GET /api/login': () => ({ signed_in: true }), 'GET /api/session': () => ({ user: { id: 1, username: 'a', role: 'superadmin', must_change_password: false }, csrf: 's', landing: '//evil.example' }) });
+		renderPage('/login', 'public');
+		await waitFor(() => expect(go).toHaveBeenCalledWith('/'));
+	});
+
 	it('never follows an off-site `next`', async () => {
 		const go = stubAssign();
 		fakeApi('public', { 'GET /api/login': () => ({ signed_in: true }) });
@@ -79,6 +99,16 @@ describe('settings', () => {
 		expect(callsTo(calls, 'POST', '/api/account/email')[0]!.headers.get('x-csrf-token')).toBe('rotated');
 	});
 
+	it('says the address changed at once when no verification link was sent', async () => {
+		fakeApi('superadmin', { 'POST /api/account/email': () => ({ verification_sent: false }) });
+		renderPage('/settings');
+		fireEvent.click(screen.getByRole('button', { name: /^(Change|Add)$/ }));
+		const dialog = screen.getByRole('dialog');
+		fill('email', 'new@example.org', dialog); fill('password', 'standin', dialog);
+		fireEvent.submit(dialog.querySelector('form')!);
+		expect((await screen.findByRole('status')).textContent).toMatch(/now new@example.org. No verification link was sent/);
+	});
+
 	it('saves preferences, with the site default as null', async () => {
 		const calls = fakeApi('superadmin', { 'PUT /api/account/preferences': (c) => ({ prefs: c.body }) });
 		renderPage('/settings/preferences');
@@ -103,13 +133,15 @@ describe('settings', () => {
 	it('signs out one other session, or all others', async () => {
 		const p = fixture<SessionsProps>('/settings/sessions').props;
 		const other = p.sessions.find((s) => !s.current)!;
-		const calls = fakeApi('superadmin', { 'DELETE /api/account/sessions/:id': () => undefined, 'POST /api/account/sessions/sign-out-others': () => undefined });
+		const calls = fakeApi('superadmin', { 'DELETE /api/account/sessions/:id': () => undefined, 'POST /api/account/sessions/sign-out-others': () => ({ csrf: 'reissued' }) });
 		renderPage('/settings/sessions');
 		const row = screen.getByText(other.device).closest('li')!;
 		fireEvent.click(within(row).getByRole('button', { name: 'Sign out' }));
 		fireEvent.click(screen.getByRole('button', { name: /Sign out all others/ }));
 		await waitFor(() => expect(callsTo(calls, 'DELETE', `/api/account/sessions/${other.id}`)).toHaveLength(1));
 		await waitFor(() => expect(callsTo(calls, 'POST', '/api/account/sessions/sign-out-others')).toHaveLength(1));
+		// This session's cookie is reissued: later changes carry the new token.
+		await waitFor(() => expect(document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')!.content).toBe('reissued'));
 	});
 });
 
@@ -160,44 +192,6 @@ describe('email link pages', () => {
 		fireEvent.click(btn);
 		await screen.findByText('Your email address is verified.');
 		expect(callsTo(calls, 'POST', '/api/account/email/verify')[0]!.body).toEqual({ token: 'v-9' });
-	});
-});
-
-describe('add your email address', () => {
-	it('shows the gate on any page, sends the address, then waits for the link', async () => {
-		const asked = fixture('/users', 'noemail');
-		expect(asked.route).toBe('email_required');
-		const pending = { ...asked, props: { pending: 'ops@example.org', next: '/users' } };
-		const calls = fakeApi('noemail', {
-			'POST /api/account/email': () => json(202, { pending: 'ops@example.org' }),
-			'GET /api/page/users': () => pending,
-		});
-		renderPage('/users', 'noemail');
-		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Add your email address');
-		fill('email', 'ops@example.org'); fill('password', 'standin');
-		fireEvent.submit(document.querySelector('form')!);
-		await screen.findByRole('heading', { name: 'Check your inbox' });
-		expect(callsTo(calls, 'POST', '/api/account/email')[0]!.body).toEqual({ email: 'ops@example.org', password: 'standin' });
-	});
-
-	it('moves on to the page asked for once verified', async () => {
-		const pending = { ...fixture('/users', 'noemail'), props: { pending: 'ops@example.org', next: '/users' } };
-		fakeApi('noemail', { 'GET /api/page/users': () => fixture('/users', 'superadmin') });
-		renderPage('/users', 'noemail', pending);
-		fireEvent.click(screen.getByRole('button', { name: /I have verified it/ }));
-		await screen.findByRole('heading', { name: 'Users' });
-	});
-
-	it('fetches the page data again when any call answers email_required', async () => {
-		const gate = fixture('/settings', 'noemail');
-		const calls = fakeApi('superadmin', {
-			'POST /api/account/sessions/sign-out-others': () => json(403, { error: 'email_required' }),
-			'GET /api/page/settings/sessions': () => gate,
-		});
-		renderPage('/settings/sessions');
-		fireEvent.click(screen.getByRole('button', { name: /Sign out all others/ }));
-		await screen.findByRole('heading', { name: 'Add your email address' });
-		expect(callsTo(calls, 'GET', '/api/page/settings/sessions')).toHaveLength(1);
 	});
 });
 

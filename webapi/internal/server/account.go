@@ -52,8 +52,10 @@ func (s *Server) checkCSRF(w http.ResponseWriter, r *http.Request) bool {
 // changePassword answers POST /api/account/password, as the Drogon
 // settings page changes a password: the current one must match, the
 // new one must be long enough and different, every other session ends
-// (the epoch moves on) and this one gets a new cookie. It also ends a
-// forced change, which is why it passes the password gate.
+// (the epoch moves on) and this one gets a new cookie, and the account
+// is told at its verified address. It also ends a forced change, which
+// is why it passes the password gate; the scope puts that gate before
+// the email gate, so it is let through while both are up.
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	if !s.checkCSRF(w, r) {
@@ -133,5 +135,6 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "start session", err)
 		return
 	}
+	s.noticeByID(ctx, u.ID, "password")
 	writeJSON(w, http.StatusOK, map[string]any{"csrf": s.signer.SessionCSRF(raw)})
 }

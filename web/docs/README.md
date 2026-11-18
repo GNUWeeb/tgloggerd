@@ -16,6 +16,10 @@ one in the description.
 - [accounts.md](accounts.md) — the roles superadmin, admin and member, the
   request scope they give in the Go service, the accounts API, temporary
   passwords, and how the Drogon pages treat the roles.
+- [email.md](email.md) — account email in the Go service, optional per
+  account and per service: verified addresses, set-password and
+  verification links, the forgotten-password form, the security notices,
+  and the SMTP relay's settings.
 - [contact-names.md](contact-names.md) — a contact's own name versus the
   name the logging account saved them under: what each column means, what
   the pages show, and the admin action "Look up real name" with its routes.

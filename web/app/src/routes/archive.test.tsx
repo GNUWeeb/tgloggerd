@@ -49,6 +49,18 @@ describe('files', () => {
 		await waitFor(() => expect(lastPageCall(calls).query.get('file')).toBeNull());
 	});
 
+	it('shows a file seen in no visible message without links, and cannot open its message', async () => {
+		const p = fixture<FilesProps>('/files?view=list').props;
+		const orphan = { ...p.rows[0]!, id: 4242, name: 'lonely.pdf', chat: null, message: null, sender: null };
+		const props = { ...p, rows: [orphan, ...p.rows.slice(1)], preview: orphan };
+		renderPage('/files?view=list&file=4242', 'superadmin', { props });
+		const d = await screen.findByRole('dialog', { name: 'lonely.pdf' });
+		expect(within(d).getByText('no visible message')).toBeTruthy();
+		const open = within(d).getByRole('button', { name: /Open message/ }) as HTMLButtonElement;
+		expect(open.disabled).toBe(true);
+		expect(within(d).queryAllByRole('link').some((a) => /\/(groups|users|messages)\//.test(a.getAttribute('href') ?? ''))).toBe(false);
+	});
+
 	it('switches between grid and list', async () => {
 		const calls = fakeApi('superadmin');
 		renderPage('/files');
@@ -98,6 +110,14 @@ describe('group page', () => {
 		expect(put).toHaveLength(1);
 		expect(put[0]!.headers.get('x-csrf-token')).toBe('test-csrf');
 		expect(screen.getAllByRole('link', { name: 'pinned' }).length).toBe(1); // the sidebar follows
+	});
+
+	it('says why a pin is refused, such as the cap on pinned groups', async () => {
+		const id = gid();
+		fakeApi('superadmin', { 'PUT /api/account/pinned/:id': () => json(400, { error: 'too_many', message: 'You have 50 pinned groups, the most there can be. Unpin one first.' }) });
+		renderPage(`/groups/${id}`);
+		fireEvent.click(screen.getByRole('button', { name: 'Pin' }));
+		expect((await screen.findByRole('alert')).textContent).toMatch(/50 pinned groups/);
 	});
 
 	it('unpins a pinned group', async () => {

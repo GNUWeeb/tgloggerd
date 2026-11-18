@@ -201,3 +201,50 @@ func TestMigrationAddsFederations(t *testing.T) {
 		t.Fatalf("%d tables left after the down migration, %v", left, err)
 	}
 }
+
+// Web migration 000007 keeps the addresses recorded so far, unverified,
+// adds the link and device tables, and its down migration removes them
+// again with the addresses still in place.
+func TestMigrationAddsEmailVerification(t *testing.T) {
+	t.Parallel()
+	db := emptyAppDB(t)
+	migrateAppDB(t, db, "000006")
+	if _, err := db.Exec("INSERT INTO web_users (username, password_hash, role, email) " +
+		"VALUES ('boss', 'x', 'superadmin', 'boss@example.org'), ('peek', 'x', 'member', NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	tables := func() int {
+		var n int
+		if err := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables " +
+			"WHERE table_schema = DATABASE() AND table_name IN ('web_email_links', " +
+			"'web_known_devices')").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	migrateAppDB(t, db, "000007")
+	if n := tables(); n != 2 {
+		t.Fatalf("%d of the 2 tables after the upgrade", n)
+	}
+	var verified int
+	if err := db.QueryRow("SELECT COUNT(*) FROM web_users WHERE email_verified_at IS NOT NULL").
+		Scan(&verified); err != nil || verified != 0 {
+		t.Fatalf("%d verified addresses after the upgrade, %v", verified, err)
+	}
+
+	down, err := os.ReadFile("../../../web/migrations/000007_add_account_email.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(down)); err != nil {
+		t.Fatalf("down: %v", err)
+	}
+	if n := tables(); n != 0 {
+		t.Fatalf("%d tables left after the down migration", n)
+	}
+	var email string
+	if err := db.QueryRow("SELECT email FROM web_users WHERE username = 'boss'").Scan(&email); err != nil ||
+		email != "boss@example.org" {
+		t.Fatalf("address after the down migration: %q %v", email, err)
+	}
+}

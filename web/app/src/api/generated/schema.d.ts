@@ -151,13 +151,11 @@ export interface paths {
          *
          *     password_forgot, password_set and email_verify are served to signed-out and signed-in visitors alike, and their GETs change nothing: the link token travels in the URL's fragment, which never reaches the server, and is posted only when the person acts on the page.
          *
-         *     A signed-in account that must change its temporary password gets the password_change route for every page path, before the email gate, until it has chosen its own.
-         *
-         *     A signed-in account with no verified email address (web-accounts.md section 8) gets the email_required route for every page path except those three, until an address is verified; its API operations answer 403 email_required, except session, logout, the account's email operations and the three link operations.
+         *     A signed-in account that must change its password gets the password_change route for every page path except those three, until it has chosen its own (see Gates). There is no page gate on a missing email address.
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public chats of exposed groups (group_chat).
          *
-         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), and not_found; the three link pages answer {"reload": true}. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope; filters it does not take are dropped and not echoed in conds, and archive_total is there only for a viewer who sees the whole archive of that list. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
+         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope; filters it does not take are dropped and not echoed in conds, and archive_total is there only for a viewer who sees the whole archive of that list. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
         put?: never;
@@ -287,7 +285,7 @@ export interface paths {
         put?: never;
         /**
          * Change the password
-         * @description Every other session of the account ends (its session_epoch moves on), on both web services. This one is issued a new session cookie, which changes its CSRF token: the answer carries the new one. It also ends a forced change after a temporary password, and is served while that gate is up. The new password must differ from the current one. Wrong current passwords are throttled per account like sign-ins. Audited as password_change or password_change_fail.
+         * @description Every other session of the account ends (its session_epoch moves on), on both web services. This one is issued a new session cookie, which changes its CSRF token: the answer carries the new one. It also ends a forced change after a password set for the account, and is served while that gate is up. The new password must differ from the current one. Wrong current passwords are throttled per account like sign-ins. The account's verified address is told when mail is set up (a security notice). Audited as password_change or password_change_fail.
          */
         post: operations["changePassword"];
         delete?: never;
@@ -307,7 +305,7 @@ export interface paths {
         put?: never;
         /**
          * Change the email address
-         * @description Sends a verification link to the new address, which is used only once verified, and a notice to the old one (web-accounts.md section 8).
+         * @description The current password confirms it is the account's owner; wrong ones are throttled like those of changePassword. With mail set up, a verification link goes to the new address (<site>/account/email/verify#token=<token>); the account's address stays the old one until the link is used, and then both addresses are told (web-accounts.md section 8). A new link replaces any sent before. Without mail, the address is recorded at once, unverified, and nothing is sent. An empty email removes the account's address (and the old one, if verified, is told). Audited as email_change_request, email_change (recorded at once) or email_change_fail.
          */
         post: operations["changeEmail"];
         delete?: never;
@@ -327,7 +325,7 @@ export interface paths {
         put?: never;
         /**
          * Verify an email address
-         * @description Takes the token of a verification link (web-accounts.md section 8), <site>/account/email/verify#token=<token>. Links are single-use and expire. Needs no session: the link may be opened in another browser.
+         * @description Takes the token of a verification link (web-accounts.md section 8), <site>/account/email/verify#token=<token>. Links are single-use and expire. Needs no session: the link may be opened in another browser. The address the link went to becomes the account's, verified; when it replaces another, the new address and the old one (if it was verified) are told. Audited as email_verified.
          */
         post: operations["verifyEmail"];
         delete?: never;
@@ -347,7 +345,7 @@ export interface paths {
         put?: never;
         /**
          * Ask for a password reset link
-         * @description Sends a one-time reset link to the account's verified address (web-accounts.md section 8). The answer is the same whether or not such an account exists. Carries the pre-login CSRF token of GET /api/login, like a sign-in.
+         * @description Sends a one-time reset link (<site>/password/set#token=<token>) to the verified address of the active account named, by its username or, with an @, by its address (web-accounts.md section 8). The answer is the same whether or not such an account exists or has a verified address, and whether or not mail is set up (without it nothing is sent); an unverified address receives no reset. The password stays as it is until the link is used. Carries the pre-login CSRF token of GET /api/login, like a sign-in; GET /api/login sets its cookie for this path too. Throttled: a few requests per client address an hour (then 429), and a few links per account an hour, past which the account silently gets no more (a 429 would tell that it exists). Audited as password_forgot, password_forgot_ratelimited or password_forgot_unknown.
          */
         post: operations["forgotPassword"];
         delete?: never;
@@ -367,7 +365,7 @@ export interface paths {
         put?: never;
         /**
          * Set a password from a link
-         * @description Takes the token of a set-password link (a new account's invitation, or a reset), <site>/password/set#token=<token>, and the new password. Every session of the account ends.
+         * @description Takes the token of a set-password link (a new account's invitation, or a reset), <site>/password/set#token=<token>, and the new password. Needs no session. The password is checked first, so a short one leaves the link working. Every session of the account ends, a forced change ends, the address the link went to is verified (it received the link), and the account's other set-password links stop working; the account then signs in with the new password (POST /api/login). A reset is told to the verified address (a security notice); a first password is not. Audited as password_set_link.
          */
         post: operations["setPassword"];
         delete?: never;
@@ -538,7 +536,7 @@ export interface paths {
          * Create an account
          * @description A superadmin creates any role. An admin creates members only, and must file them in at least one federation it administers (grants), since it manages only the members of its federations (web-accounts.md sections 2 and 3).
          *
-         *     Until set-password links exist (web-email), the new account gets a random temporary password, answered once here and never stored or logged in plain text, which it must replace at its first sign-in (decisions/2026-11-18-temporary-passwords.md; see Gates). When links arrive, creation sends one instead and temporary_password goes.
+         *     The first password (decisions/2026-11-18-email-optional.md): the one the creator types (password, at least 8 bytes), or, with password absent or empty, a random temporary one the server generates, answered once here as temporary_password and never stored or logged in plain text. Either way the account must change it at its first sign-in (see Gates). Instead, with "invite": true, the account gets no password and a set-password link (an invitation, see Email links) goes to its address, valid for WEBAPI_INVITE_LINK_TTL; setting the password from it verifies the address, and resendInvite sends a new one. An invitation needs an address (409 no_email) and mail (409 mail_off), and takes no password (400). The address is optional otherwise.
          *
          *     A grant files the member in a federation (fed 0 is Default); groups cannot be granted inside it yet (web-member-access), so group_ids is []. A superadmin may name any federation, and its member without grants is filed in Default (grants [] files it in none, which leaves it to superadmins). Audited as account_create, with the federations and without the password.
          */
@@ -567,7 +565,9 @@ export interface paths {
          * Change an account
          * @description Changes the fields given: name, email, role, an admin's federations (admin_of) and a member's (grants). A role change ends the account's sessions on both services, and drops the federations of the old role: a member made admin leaves its federations, an admin made member administers none and is filed in Default unless grants say otherwise.
          *
-         *     admin_of and restrict are a superadmin's to send (403 otherwise); admin_of is for admins (an empty list for anyone). grants replace the member's federations among those the viewer administers, all of them for a superadmin; the others stay. A grant of a federation the member is in already passes as it is, so the accounts page can send the member's whole list; one that files it in a federation the viewer does not administer answers 403. Until admin restrictions and member group grants and abilities exist, they are accepted only as what they are today (restrictions all off, no groups in grants, no abilities) and anything else answers 400 not_supported. A changed address is recorded; it is verified by a link once web-email exists. Audited as account_update, naming the fields changed and the federations before and after.
+         *     admin_of and restrict are a superadmin's to send (403 otherwise); admin_of is for admins (an empty list for anyone). grants replace the member's federations among those the viewer administers, all of them for a superadmin; the others stay. A grant of a federation the member is in already passes as it is, so the accounts page can send the member's whole list; one that files it in a federation the viewer does not administer answers 403. Until admin restrictions and member group grants and abilities exist, they are accepted only as what they are today (restrictions all off, no groups in grants, no abilities) and anything else answers 400 not_supported.
+         *
+         *     The address is an account's own to change (changeEmail); an empty one removes it. An admin may correct another account's only while that account is invited (its password not set yet), and then, with mail, the invitation goes to the new address and earlier ones stop working. A superadmin may change any account's, for one that lost its mailbox; the new address is unverified and, with mail, gets a verification link. A changed address is told to the old one if it was verified, and a changed role to the account's verified address (when mail is set up). Audited as account_update, naming the fields changed and the federations before and after.
          */
         patch: operations["updateAccount"];
         trace?: never;
@@ -583,7 +583,7 @@ export interface paths {
         put?: never;
         /**
          * Disable an account
-         * @description Accounts are disabled, never deleted. Its sessions end on both services; it can no longer sign in. Its forwarding keeps running, flagged "owner disabled" (web-ownership). Audited as account_disable; disabling a disabled account changes nothing.
+         * @description Accounts are disabled, never deleted. Its sessions end on both services; it can no longer sign in, and its links stop working. Its forwarding keeps running, flagged "owner disabled" (web-ownership). The account's verified address is told (a security notice). Audited as account_disable; disabling a disabled account changes nothing and tells nothing.
          */
         post: operations["disableAccount"];
         delete?: never;
@@ -622,8 +622,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset an account to a temporary password
-         * @description Until reset links exist (web-email), gives the account a new random temporary password, answered once here and never stored or logged in plain text; the account must replace it at its next sign-in (decisions/2026-11-18-temporary-passwords.md). Every session of the account ends on both services. Audited as account_password_reset, without the password. When links arrive, this sends one by email instead.
+         * Reset an account's password
+         * @description Every session of the account ends on both services. Two answers (decisions/2026-11-18-email-optional.md): when the account has a verified address and mail is set up, its password is removed and a set-password link (see Email links) goes to the address, valid for WEBAPI_INVITE_LINK_TTL, and the account signs in again once it has set a new one ({"link_sent": true}); otherwise the account gets a random temporary password, answered once here and never stored or logged in plain text, which it must change at its next sign-in ({"link_sent": false, "temporary_password": "..."}). Audited as account_password_reset, without the password.
          */
         post: operations["resetAccountPassword"];
         delete?: never;
@@ -643,7 +643,7 @@ export interface paths {
         put?: never;
         /**
          * Email a new set-password link to an invited account
-         * @description Comes with set-password links (web-email); until then an invited account gets a new temporary password from password-reset.
+         * @description For an account that has not set its own password yet (invited: a new account, one whose password was reset by link, or one with a password set for it): a new set-password link to its address, valid for WEBAPI_INVITE_LINK_TTL. Earlier ones stop working. The address need not be verified: setting the password from the link verifies it. Audited as account_invite_resend.
          */
         post: operations["resendInvite"];
         delete?: never;
@@ -1076,7 +1076,7 @@ export interface components {
             id: number;
             username: string;
             role: components["schemas"]["Role"];
-            /** @description The account signed in with a temporary password and must choose its own (POST /api/account/password) before anything else; see Gates in the description. */
+            /** @description The account signed in with a password set for it (typed by its creator, or a temporary one) and must choose its own (POST /api/account/password) before anything else; see Gates in the description. */
             must_change_password: boolean;
         };
         Session: {
@@ -1162,16 +1162,11 @@ export interface components {
             props?: Record<string, never>;
         };
         /** @description The page data; `route` says which props it carries. */
-        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PageEmailRequired"] | components["schemas"]["PagePasswordChange"];
+        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PagePasswordChange"];
         PageLinkPage: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
             route: "password_forgot" | "password_set" | "email_verify";
             props: Record<string, never>;
-        };
-        PageEmailRequired: components["schemas"]["PageBase"] & {
-            /** @enum {unknown} */
-            route: "email_required";
-            props: components["schemas"]["EmailRequiredProps"];
         };
         PagePasswordChange: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
@@ -1522,15 +1517,17 @@ export interface components {
             tg_file_id: string;
             url: string | null;
             thumb: string | null;
+            /** @description The chat of the first message the viewer sees that carried the file; null when there is none (a profile or group photo, or a message the viewer may not see). */
             chat: {
                 /** Format: int64 */
                 id: number;
                 title: string;
                 /** @enum {string} */
                 kind: "group" | "user";
-            };
+            } | null;
             sender: components["schemas"]["IdName"] | null;
-            message: components["schemas"]["MessageRef"];
+            /** @description That message; null exactly when chat is null. */
+            message: components["schemas"]["MessageRef"] | null;
         };
         IdName: {
             /** Format: int64 */
@@ -1669,13 +1666,7 @@ export interface components {
              */
             archive_total?: number;
         };
-        EmailRequiredProps: {
-            /** @description An address added but not verified yet, to which a verification link was sent; null when none was added. */
-            pending: string | null;
-            /** @description The page that was asked for, to go on to once verified. */
-            next: string;
-        };
-        /** @description The forced password change after a temporary password (decisions/2026-11-18-temporary-passwords.md); the page posts to POST /api/account/password, then loads `next`. */
+        /** @description The forced password change after a password set for the account, typed by its creator or a temporary one (decisions/2026-11-18-email-optional.md); the page posts to POST /api/account/password, then loads `next`. */
         PasswordChangeProps: {
             username: string;
             /** @description The path of the page asked for. */
@@ -1882,9 +1873,9 @@ export interface components {
             username: string;
             name: string;
             email: string | null;
-            /** @description Always false until addresses are verified (web-email). */
+            /** @description The address is verified: by its verification link, or by setting the password from a link sent to it. */
             email_verified: boolean;
-            /** @description Has not chosen its own password yet (it has a temporary one, or none). */
+            /** @description Has not set its own password yet: it has none (invited, or reset by link, waiting for its link) or one set for it (typed by its creator, or a temporary one) that it must change. */
             invited: boolean;
             role: components["schemas"]["Role"];
             active: boolean;
@@ -1912,17 +1903,29 @@ export interface components {
         AccountCreate: {
             username: string;
             name: string;
-            /** Format: email */
-            email: string;
+            /** @description The address; optional (absent, null or "" for none). */
+            email?: string | null;
             role: components["schemas"]["Role"];
+            /** @description The first password, at least 8 bytes; absent, null or "" has the server generate a temporary one (temporary_password). The account changes it at its first sign-in. Not with invite. */
+            password?: string | null;
+            /** @description Mail a set-password link instead of giving a password; needs an address and mail set up (409 otherwise). */
+            invite?: boolean;
             /** @description A member's federations and groups. Required, with at least one federation the viewer administers, when an admin creates the member (else 400 grants_required). group_ids stays [] until web-member-access. */
             grants?: components["schemas"]["GrantWrite"][];
         };
         AccountCreated: {
             /** Format: int64 */
             id: number;
-            /** @description Shown once; give it to the account's owner, who must replace it at the first sign-in. Goes when set-password links arrive (web-email). */
-            temporary_password: string;
+            /** @description true: an invitation was mailed (invite was asked for); the account has no password until it sets one from the link. */
+            invited: boolean;
+            /** @description Present only when the server generated the first password: shown once; give it to the account's owner, who must change it at the first sign-in. */
+            temporary_password?: string;
+        };
+        PasswordReset: {
+            /** @description true: the password is removed and a set-password link went to the verified address. false: temporary_password is the account's new password. */
+            link_sent: boolean;
+            /** @description Present when link_sent is false: shown once; the account must change it at its next sign-in. */
+            temporary_password?: string;
         };
         /** @description The fields to change; the others stay. */
         AccountPatch: {
@@ -2236,7 +2239,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description A gate is up (see Gates in the description): error password_change_required, later email_required. */
+        /** @description A gate is up (see Gates in the description): error password_change_required. */
         Gate: {
             headers: {
                 [name: string]: unknown;
@@ -2966,21 +2969,26 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** Format: email */
+                    /** @description The new address, or "" to remove the account's. */
                     email: string;
                     password: string;
                 };
             };
         };
         responses: {
-            /** @description The verification link is on its way. */
-            202: {
+            /** @description verification_sent true: the link is on its way and the address becomes the account's once verified. false: no mail (or the address removed); the change is made, unverified. */
+            200: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        verification_sent: boolean;
+                    };
+                };
             };
-            /** @description A wrong password (error wrong_password), an address that is not one (error bad_email), or a malformed body. */
+            /** @description A wrong password (error wrong_password), an address that is not one or is the account's already (error bad_email), or a malformed body (error bad_request). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2991,6 +2999,25 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
+            /** @description Another account has the address (error email_taken). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too many wrong passwords (error rate_limited). */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["Internal"];
             503: components["responses"]["SessionUnavailable"];
         };
     };
@@ -3016,7 +3043,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The link is unknown, used or expired (error bad_link). */
+            /** @description The link is unknown, used, replaced or expired, or its account is disabled (error bad_link), or the body is malformed (error bad_request). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3025,6 +3052,16 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Another account took the address since the link was sent (error email_taken); the link is used up. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["Internal"];
         };
     };
     forgotPassword: {
@@ -3043,7 +3080,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description A link is sent if the account has a verified address. */
+            /** @description A link is sent if the account has a verified address and mail is set up. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -3051,8 +3088,16 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["BadRequest"];
-            403: components["responses"]["Csrf"];
-            /** @description Too many requests (error rate_limited). */
+            /** @description The pre-login CSRF token or its cookie is missing or wrong (error csrf). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too many requests from this client (error rate_limited). */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -3061,6 +3106,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["Internal"];
         };
     };
     setPassword: {
@@ -3086,7 +3132,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The link is unknown, used or expired (error bad_link), or the password is too short (error weak_password). */
+            /** @description The link is unknown, used, replaced or expired, or its account is disabled (error bad_link), the password is shorter than 8 bytes (error weak_password), or the body is malformed (error bad_request). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3095,6 +3141,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["Internal"];
         };
     };
     getPreferences: {
@@ -3400,7 +3447,7 @@ export interface operations {
                     "application/json": components["schemas"]["AccountCreated"];
                 };
             };
-            /** @description A malformed body or role (error bad_request), a username that is not 1 to 64 letters, digits, dots, dashes or underscores starting with a letter or digit (bad_username), a name over 128 characters or with control characters (bad_name), not an address (bad_email), an admin's member without grants (grants_required), a federation that does not exist (bad_federation), or groups in a grant (not_supported). */
+            /** @description A malformed body or role (error bad_request), a username that is not 1 to 64 letters, digits, dots, dashes or underscores starting with a letter or digit (bad_username), a name over 128 characters or with control characters (bad_name), not an address (bad_email), a typed password under 8 bytes (weak_password), an admin's member without grants (grants_required), a federation that does not exist (bad_federation), or groups in a grant (not_supported). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3420,7 +3467,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
-            /** @description The username is taken (error taken), or the address is another account's (error email_taken). */
+            /** @description The username is taken (error taken), the address is another account's (error email_taken), or an invitation was asked for without an address (error no_email) or without mail set up (error mail_off). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3429,6 +3476,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["Internal"];
             503: components["responses"]["SessionUnavailable"];
         };
     };
@@ -3493,7 +3541,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthenticated"];
-            /** @description The CSRF token is wrong (error csrf), the change is not the viewer's to make (error forbidden), or a gate is up. */
+            /** @description The CSRF token is wrong (error csrf), the change is not the viewer's to make, such as an admin changing the address of an account that is not invited (error forbidden), or a gate is up. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3575,21 +3623,20 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The temporary password, shown once. */
+            /** @description The link is on its way, or the temporary password, shown once. */
             200: {
                 headers: {
                     "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        temporary_password: string;
-                    };
+                    "application/json": components["schemas"]["PasswordReset"];
                 };
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
             503: components["responses"]["SessionUnavailable"];
         };
     };
@@ -3614,6 +3661,17 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            /** @description The account has set its own password (error not_invited; reset it instead), has no address (error no_email), or mail is not set up (error mail_off). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["Internal"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     signOutAccountEverywhere: {

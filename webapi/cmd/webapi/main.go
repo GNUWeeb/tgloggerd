@@ -27,6 +27,7 @@ import (
 	"tgloggerd/webapi/internal/config"
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/live"
+	"tgloggerd/webapi/internal/mail"
 	"tgloggerd/webapi/internal/media"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/server"
@@ -139,6 +140,22 @@ func run(log *slog.Logger, cfg *config.Config) error {
 	renderer := render.NewClient(cfg.RenderSocket, cfg.RenderTimeout, cfg.RenderBackoff)
 	log.Info("render service", "socket", renderer.Socket(), "build", assets.Build)
 
+	// Account mail: links and notices go out from a queue of their own,
+	// so no request waits for the relay. Messages still queued at
+	// shutdown are lost (internal/mail says why).
+	var mailer *mail.Mailer
+	if cfg.Mail == nil {
+		log.Warn("mail is off (no WEBAPI_SMTP_HOST): no links or notices are sent, " +
+			"new accounts and resets cannot be made, and the email gate stays open")
+	} else {
+		if mailer, err = mail.New(*cfg.Mail, log.With("component", "mail")); err != nil {
+			return err
+		}
+		go mailer.Run(ctx)
+		log.Info("mail", "relay", net.JoinHostPort(cfg.Mail.Host, strconv.Itoa(cfg.Mail.Port)),
+			"security", cfg.Mail.Security, "site", cfg.PublicURL)
+	}
+
 	signer := auth.NewSigner(cfg.AppKey)
 	var acctLimiter *auth.RateLimiter
 	if cfg.LoginMaxPerAccount > 0 {
@@ -176,6 +193,13 @@ func run(log *slog.Logger, cfg *config.Config) error {
 			Threads:        cfg.MCPThreads,
 			AllowedOrigins: cfg.MCPAllowedOrigins,
 			LogRequests:    cfg.MCPLogRequests,
+		},
+		Mail: mailer,
+		MailCfg: server.MailConfig{
+			Site:      cfg.PublicURL,
+			InviteTTL: cfg.InviteLinkTTL,
+			ResetTTL:  cfg.ResetLinkTTL,
+			VerifyTTL: cfg.VerifyLinkTTL,
 		},
 	})
 

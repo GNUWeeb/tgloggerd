@@ -44,8 +44,9 @@ type pageRoute struct {
 	// public pages are served to signed-out visitors as well; every
 	// other page sends them to the sign-in page.
 	public bool
-	// link pages are the email link pages, exempt from the missing
-	// email address gate.
+	// link pages are the email link pages and the forgotten-password
+	// page, exempt from the gates: a link may be opened while signed
+	// in.
 	link bool
 	load pageLoader
 }
@@ -110,10 +111,10 @@ func defaultPages() []pageRoute {
 		{id: "mcp_groups", pattern: "/mcp-admin/groups", load: loadMcpGroups},
 		{id: "mcp_tokens", pattern: "/mcp-admin/tokens", load: loadMcpTokens},
 		// The link pages change nothing on GET (the token is in the
-		// URL's fragment); their actions are not served here yet.
-		{id: "password_forgot", pattern: "/password/forgot", public: true, link: true},
-		{id: "password_set", pattern: "/password/set", public: true, link: true},
-		{id: "email_verify", pattern: "/account/email/verify", public: true, link: true},
+		// URL's fragment); the page posts it when the person acts.
+		{id: "password_forgot", pattern: "/password/forgot", public: true, link: true, load: loadLinkPage},
+		{id: "password_set", pattern: "/password/set", public: true, link: true, load: loadLinkPage},
+		{id: "email_verify", pattern: "/account/email/verify", public: true, link: true, load: loadLinkPage},
 	}
 }
 
@@ -211,7 +212,7 @@ const (
 type pageNotFoundProps struct{}
 
 // buildPage runs the page request for path: the sign-in rule, the
-// email address gate, the route's loader with the request's scope.
+// gates, the route's loader with the request's scope.
 func (s *Server) buildPage(r *http.Request, sess *auth.Session, path string) (render.Page, *pageRoute, pageOutcome, error) {
 	rt, params := s.matchPage(path)
 	pageURL := path
@@ -235,19 +236,15 @@ func (s *Server) buildPage(r *http.Request, sess *auth.Session, path string) (re
 		Viewer: viewer,
 	}
 
-	// A signed-in account without a verified email address gets the
-	// email_required page at the URL it asked for, without a redirect,
-	// for every page but the link pages (web-accounts.md section 8).
-	if sess != nil && (rt == nil || !rt.link) {
-		pending, required, err := s.emailRequired(r.Context(), sess)
-		if err != nil {
-			return render.Page{}, rt, pageServed, err
-		}
-		if required {
-			page.Route = "email_required"
-			page.Props = emailRequiredProps{Pending: pending, Next: pageURL}
-			return page, rt, pageServed, nil
-		}
+	// A signed-in account that must change its temporary password gets
+	// the password_change page at the URL it asked for, without a
+	// redirect, for every page but the link pages. There is no gate on
+	// a missing or unverified email address
+	// (decisions/2026-11-18-email-optional.md).
+	if sess != nil && (rt == nil || !rt.link) && sc.Gate() == scope.PasswordChange {
+		page.Route = "password_change"
+		page.Props = passwordChangeProps{Username: sess.Username, Next: pageURL}
+		return page, rt, pageServed, nil
 	}
 
 	if rt != nil && rt.load == nil {
@@ -273,22 +270,12 @@ func (s *Server) buildPage(r *http.Request, sess *auth.Session, path string) (re
 	return page, rt, pageServed, nil
 }
 
-// emailRequiredProps are the email_required page's
-// (EmailRequiredProps).
-type emailRequiredProps struct {
-	// Pending is an address added but not verified yet.
-	Pending *string `json:"pending"`
-	// Next is the page asked for, to go on to once verified.
+// passwordChangeProps are the password_change page's
+// (PasswordChangeProps).
+type passwordChangeProps struct {
+	Username string `json:"username"`
+	// Next is the page asked for, to go on to once changed.
 	Next string `json:"next"`
-}
-
-// emailRequired is the hook of the missing email address gate: whether
-// the account must verify an address before anything else, and the
-// address waiting for verification, if any. Accounts have no addresses
-// until web-email adds them, so nothing is required yet; web-email
-// fills this in.
-func (s *Server) emailRequired(_ context.Context, _ *auth.Session) (*string, bool, error) {
-	return nil, false, nil
 }
 
 func (s *Server) notFoundPage(p render.Page) render.Page {

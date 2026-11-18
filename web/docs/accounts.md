@@ -89,8 +89,8 @@ superadmins'; to anyone else it answers 404:
 
 The Go service builds one scope per request
 (`Server.requestScope`, package `webapi/internal/scope`) from the
-account as its row reads on that request: id, role, and the forced
-password change. Every query over the logger's schema and every
+account as its row reads on that request: id, role, the forced
+password change and whether its address is verified. Every query over the logger's schema and every
 permission check takes it. Something outside it answers 404, exactly
 like something that does not exist; a forbidden action on something
 the request may see answers 403. The menu (`Viewer.nav` of the page
@@ -108,10 +108,11 @@ accounts); every write carries the session's CSRF token.
 
     GET   /api/accounts[?role=]                 the accounts the viewer manages
     GET   /api/accounts/{id}                    one of them
-    POST  /api/accounts                         create; 201 {id, temporary_password}
+    POST  /api/accounts                         create; 201 {id, invited, temporary_password?}
     PATCH /api/accounts/{id}                    name, email, role, admin_of, grants
     POST  /api/accounts/{id}/disable            and /enable
-    POST  /api/accounts/{id}/password-reset     200 {temporary_password}
+    POST  /api/accounts/{id}/password-reset     200 {link_sent, temporary_password?}
+    POST  /api/accounts/{id}/resend-invite      204, the invitation again
     POST  /api/accounts/{id}/sign-out-everywhere
 
 - Who manages whom is the request scope's: a superadmin every
@@ -148,11 +149,17 @@ accounts); every write carries the session's CSRF token.
   `account_create`, `account_update` (naming the fields, the role
   change as `role old->new`, and federation changes as
   `admin_of 1->1,2` or `federations 0->none`), `account_disable`,
-  `account_enable`,
-  `account_password_reset`, `account_signout_everywhere`. The
-  account's row in the API carries its newest 20.
-- The address given at creation is recorded only; it is verified,
-  and used, once `web-email` exists.
+  `account_enable`, `account_password_reset`, `account_invite_resend`,
+  `account_signout_everywhere`. The account's row in the API carries
+  its newest 20.
+- The first password and resets, and the address
+  ([../../docs/design/decisions/2026-11-18-email-optional.md](../../docs/design/decisions/2026-11-18-email-optional.md),
+  [email.md](email.md)): see First passwords below. The address is
+  optional. It is the account's own to change; an admin may correct
+  it only while the account is invited, a superadmin may change any
+  account's (it is then unverified and, with mail, gets a
+  verification link). The old address is told when it was verified
+  and mail is set up.
 
 ## The accounts and federations pages
 
@@ -165,18 +172,29 @@ account are `editable` yet, come from the federation helpers
 (`webapi/internal/server/federationprops.go`), the same ones the
 federations operations use.
 
-## Temporary passwords
+## First passwords and resets
 
-Until set-password links exist (`web-email`), a new account gets its
-first password like this
-([../../docs/design/decisions/2026-11-18-temporary-passwords.md](../../docs/design/decisions/2026-11-18-temporary-passwords.md)):
-the creating superadmin or admin gets a random 20-character temporary
-password in the create answer, shown once, and hands it to the
-account's owner. Only its Argon2id hash is stored; it is never logged
-or audited. The account is flagged `must_change_password` and must
-choose its own password at its first sign-in. `password-reset` does
-the same for an existing account. When links arrive, creation and
-reset send one instead and this path goes.
+Email is optional, for each account and for the service
+([../../docs/design/decisions/2026-11-18-email-optional.md](../../docs/design/decisions/2026-11-18-email-optional.md)).
+An account needs a username and a password:
+
+- `POST /api/accounts` takes the first password the creator typed
+  (`password`, at least 8 bytes, else 400 `weak_password`), or, with
+  none, the server generates a random 20-character temporary one,
+  answered once as `temporary_password`. Either way the account is
+  flagged `must_change_password` and chooses its own at its first
+  sign-in. Only the Argon2id hash is stored; no password is logged or
+  audited.
+- With `"invite": true` the account gets no password; a set-password
+  link goes to its address instead ([email.md](email.md)). That needs
+  an address (409 `no_email`) and mail set up (409 `mail_off`), and
+  takes no password (400). `resend-invite` sends a new one (409
+  `not_invited` once the account has set its own password).
+- `password-reset` ends every session of the account. With a verified
+  address and mail set up, it removes the password and mails a link
+  (`{"link_sent": true}`); otherwise it gives a temporary password,
+  answered once (`{"link_sent": false, "temporary_password": ...}`),
+  which the account must change at its next sign-in.
 
 ## Changing a password, and the forced change
 
@@ -187,13 +205,15 @@ limit below the body cap, and differ from the current one; it is
 hashed with Argon2id. Every other session of the account ends on both
 services, and this one gets a new cookie and CSRF token.
 
-An account flagged `must_change_password` (one that signed in with a
-temporary password) passes a gate first: until it has chosen its own
-password, every API operation behind a session answers 403
+An account flagged `must_change_password` (one whose password was set
+for it: typed by its creator, or a temporary one) passes a gate
+first: until it has chosen its own password, every API operation
+behind a session answers 403
 `password_change_required`, except the session, logout and the
 password change, and page data answers the `password_change` route.
 The gate is one check in the request scope (`Scope.Gate`), applied by
-`RequireSession`; the email gate will be the next one there.
+`RequireSession`. There is no gate on a missing or unverified email
+address.
 
 ## The Drogon pages
 

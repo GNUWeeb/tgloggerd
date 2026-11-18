@@ -54,14 +54,33 @@ info:
     may see answers 403 forbidden.
 
 
-    Gates: an account that signed in with a temporary password
-    (SessionUser.must_change_password) must choose its own first
-    (decisions/2026-11-18-temporary-passwords.md). Until it does,
-    every operation that needs a session answers 403
+    Gates: an account with a password set for it (typed by its
+    creator, or a generated temporary one;
+    SessionUser.must_change_password) must choose its own first
+    (decisions/2026-11-18-temporary-passwords.md and
+    2026-11-18-email-optional.md). Until it does, every
+    operation that needs a session answers 403
     password_change_required, except GET /api/session, POST
     /api/logout and POST /api/account/password; page data answers the
-    password_change route. The email gate (email_required) works the
-    same way once accounts have verified addresses.
+    password_change route, except for the three link pages. The link
+    operations (setPassword, verifyEmail, forgotPassword) need no
+    session. An email address is optional, for each account and for
+    the service: there is no gate on a missing or unverified one.
+
+
+    Email links: a set-password link (an invitation, or a reset) is
+    <site>/password/set#token=<token>, a verification link
+    <site>/account/email/verify#token=<token>. The token is in the
+    fragment, so it reaches no server log and no Referer header; the
+    page posts it to setPassword or verifyEmail only when the person
+    acts, so a mail scanner opening the link uses nothing up. Links
+    work once, expire, and stop working when a newer link of the same
+    kind is sent to the account. Links and security notices go out only
+    when the account has an address (verified, except for an
+    invitation and a verification) and mail is set up (an SMTP relay
+    and the site's URL); otherwise nothing is sent and nothing waits
+    for mail. Only an invitation asked for explicitly answers 409
+    mail_off then.
 servers:
   - url: /
 security:
@@ -622,17 +641,10 @@ paths:
         acts on the page.
 
 
-        A signed-in account that must change its temporary password
-        gets the password_change route for every page path, before the
-        email gate, until it has chosen its own.
-
-
-        A signed-in account with no verified email address
-        (web-accounts.md section 8) gets the email_required route for
-        every page path except those three, until an address is
-        verified; its API operations answer 403 email_required, except
-        session, logout, the account's email operations and the three
-        link operations.
+        A signed-in account that must change its password gets the
+        password_change route for every page path except those three,
+        until it has chosen its own (see Gates). There is no page gate
+        on a missing email address.
 
 
         A path the service does not serve as a React page yet answers
@@ -651,8 +663,8 @@ paths:
         pages, of the administration pages accounts, federations,
         platform_fwd, fwd_telegram_discord, fwd_discord_telegram,
         join_chat, mcp, mcp_groups and mcp_tokens (each only for a
-        viewer whose menu has it, not_found otherwise), and not_found;
-        the three link pages answer {"reload": true}. A signed-out
+        viewer whose menu has it, not_found otherwise), of the three
+        link pages (whose props are empty), and not_found. A signed-out
         visitor asking for the group_chat of a group that is not
         exposed is asked to sign in (401 here, the redirect for the
         document), whether or not the group exists. A list page reads
@@ -1094,10 +1106,12 @@ paths:
         moves on), on both web services. This one is issued a new
         session cookie, which changes its CSRF token: the answer
         carries the new one. It also ends a forced change after a
-        temporary password, and is served while that gate is up. The
-        new password must differ from the current one. Wrong current
-        passwords are throttled per account like sign-ins. Audited as
-        password_change or password_change_fail.
+        password set for the account, and is served while that gate is
+        up. The new password must differ from the current one. Wrong
+        current passwords are throttled per account like sign-ins. The
+        account's verified address is told when mail is set up (a
+        security notice). Audited as password_change or
+        password_change_fail.
       security:
         - session: []
           csrf: []
@@ -1152,14 +1166,21 @@ paths:
 
   /api/account/email:
     post:
-      x-tgd-status: planned
       operationId: changeEmail
       tags: [account]
       summary: Change the email address
       description: >-
-        Sends a verification link to the new address, which is used
-        only once verified, and a notice to the old one
-        (web-accounts.md section 8).
+        The current password confirms it is the account's owner; wrong
+        ones are throttled like those of changePassword. With mail set
+        up, a verification link goes to the new address
+        (<site>/account/email/verify#token=<token>); the account's
+        address stays the old one until the link is used, and then both
+        addresses are told (web-accounts.md section 8). A new link
+        replaces any sent before. Without mail, the address is recorded
+        at once, unverified, and nothing is sent. An empty email removes
+        the account's address (and the old one, if verified, is told).
+        Audited as email_change_request, email_change (recorded at
+        once) or email_change_fail.
       security:
         - session: []
           csrf: []
@@ -1173,16 +1194,31 @@ paths:
               properties:
                 email:
                   type: string
-                  format: email
+                  description: The new address, or "" to remove the account's.
                 password:
                   type: string
       responses:
-        '202':
-          description: The verification link is on its way.
+        '200':
+          description: >-
+            verification_sent true: the link is on its way and the
+            address becomes the account's once verified. false: no mail
+            (or the address removed); the change is made, unverified.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [verification_sent]
+                properties:
+                  verification_sent:
+                    type: boolean
         '400':
           description: >-
             A wrong password (error wrong_password), an address that is
-            not one (error bad_email), or a malformed body.
+            not one or is the account's already (error bad_email), or a
+            malformed body (error bad_request).
           content:
             application/json:
               schema:
@@ -1191,12 +1227,25 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Csrf'
+        '409':
+          description: Another account has the address (error email_taken).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many wrong passwords (error rate_limited).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Internal'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
   /api/account/email/verify:
     post:
-      x-tgd-status: planned
       operationId: verifyEmail
       tags: [account]
       summary: Verify an email address
@@ -1204,7 +1253,10 @@ paths:
         Takes the token of a verification link (web-accounts.md
         section 8), <site>/account/email/verify#token=<token>. Links
         are single-use and expire. Needs no session: the link may be
-        opened in another browser.
+        opened in another browser. The address the link went to
+        becomes the account's, verified; when it replaces another, the
+        new address and the old one (if it was verified) are told.
+        Audited as email_verified.
       security: []
       requestBody:
         required: true
@@ -1220,23 +1272,45 @@ paths:
         '204':
           description: The address is verified.
         '400':
-          description: The link is unknown, used or expired (error bad_link).
+          description: >-
+            The link is unknown, used, replaced or expired, or its
+            account is disabled (error bad_link), or the body is
+            malformed (error bad_request).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: >-
+            Another account took the address since the link was sent
+            (error email_taken); the link is used up.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Internal'
 
   /api/password/forgot:
     post:
-      x-tgd-status: planned
       operationId: forgotPassword
       tags: [account]
       summary: Ask for a password reset link
       description: >-
-        Sends a one-time reset link to the account's verified address
-        (web-accounts.md section 8). The answer is the same whether or
-        not such an account exists. Carries the pre-login CSRF token of
-        GET /api/login, like a sign-in.
+        Sends a one-time reset link (<site>/password/set#token=<token>)
+        to the verified address of the active account named, by its
+        username or, with an @, by its address (web-accounts.md section
+        8). The answer is the same whether or not such an account
+        exists or has a verified address, and whether or not mail is
+        set up (without it nothing is sent); an unverified address
+        receives no reset. The password stays as it is until the link
+        is used. Carries the pre-login CSRF token of GET /api/login,
+        like a sign-in; GET /api/login sets its cookie for this path
+        too. Throttled: a few requests per client address an hour
+        (then 429), and a few links per account an hour, past which
+        the account silently gets no more (a 429 would tell that it
+        exists). Audited as password_forgot,
+        password_forgot_ratelimited or password_forgot_unknown.
       security:
         - loginCsrf: []
           loginCookie: []
@@ -1253,28 +1327,40 @@ paths:
                   description: The account's username or email address.
       responses:
         '202':
-          description: A link is sent if the account has a verified address.
+          description: A link is sent if the account has a verified address and mail is set up.
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
-          $ref: '#/components/responses/Csrf'
-        '429':
-          description: Too many requests (error rate_limited).
+          description: The pre-login CSRF token or its cookie is missing or wrong (error csrf).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many requests from this client (error rate_limited).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Internal'
 
   /api/password/set:
     post:
-      x-tgd-status: planned
       operationId: setPassword
       tags: [account]
       summary: Set a password from a link
       description: >-
         Takes the token of a set-password link (a new account's
         invitation, or a reset), <site>/password/set#token=<token>, and
-        the new password. Every session of the account ends.
+        the new password. Needs no session. The password is checked
+        first, so a short one leaves the link working. Every session of
+        the account ends, a forced change ends, the address the link
+        went to is verified (it received the link), and the account's
+        other set-password links stop working; the account then signs
+        in with the new password (POST /api/login). A reset is told to
+        the verified address (a security notice); a first password is
+        not. Audited as password_set_link.
       security: []
       requestBody:
         required: true
@@ -1293,12 +1379,16 @@ paths:
           description: The password is set; the account can sign in with it.
         '400':
           description: >-
-            The link is unknown, used or expired (error bad_link), or
-            the password is too short (error weak_password).
+            The link is unknown, used, replaced or expired, or its
+            account is disabled (error bad_link), the password is
+            shorter than 8 bytes (error weak_password), or the body is
+            malformed (error bad_request).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Internal'
 
   /api/account/preferences:
     get:
@@ -1625,12 +1715,19 @@ paths:
         (web-accounts.md sections 2 and 3).
 
 
-        Until set-password links exist (web-email), the new account
-        gets a random temporary password, answered once here and never
-        stored or logged in plain text, which it must replace at its
-        first sign-in (decisions/2026-11-18-temporary-passwords.md;
-        see Gates). When links arrive, creation sends one instead and
-        temporary_password goes.
+        The first password (decisions/2026-11-18-email-optional.md):
+        the one the creator types (password, at least 8 bytes), or,
+        with password absent or empty, a random temporary one the
+        server generates, answered once here as temporary_password and
+        never stored or logged in plain text. Either way the account
+        must change it at its first sign-in (see Gates). Instead, with
+        "invite": true, the account gets no password and a
+        set-password link (an invitation, see Email links) goes to its
+        address, valid for WEBAPI_INVITE_LINK_TTL; setting the password
+        from it verifies the address, and resendInvite sends a new one.
+        An invitation needs an address (409 no_email) and mail (409
+        mail_off), and takes no password (400). The address is
+        optional otherwise.
 
 
         A grant files the member in a federation (fed 0 is Default);
@@ -1664,7 +1761,8 @@ paths:
             that is not 1 to 64 letters, digits, dots, dashes or
             underscores starting with a letter or digit (bad_username),
             a name over 128 characters or with control characters
-            (bad_name), not an address (bad_email), an admin's member
+            (bad_name), not an address (bad_email), a typed password
+            under 8 bytes (weak_password), an admin's member
             without grants (grants_required), a federation that does
             not exist (bad_federation), or groups in a grant
             (not_supported).
@@ -1687,12 +1785,16 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           description: >-
-            The username is taken (error taken), or the address is
-            another account's (error email_taken).
+            The username is taken (error taken), the address is
+            another account's (error email_taken), or an invitation was
+            asked for without an address (error no_email) or without
+            mail set up (error mail_off).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Internal'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
@@ -1744,10 +1846,20 @@ paths:
         answers 403. Until admin restrictions and member group grants
         and abilities exist, they are accepted only as what they are
         today (restrictions all off, no groups in grants, no
-        abilities) and anything else answers 400 not_supported. A
-        changed address is recorded; it is verified by a link once
-        web-email exists. Audited as account_update, naming the fields
-        changed and the federations before and after.
+        abilities) and anything else answers 400 not_supported.
+
+
+        The address is an account's own to change (changeEmail); an
+        empty one removes it. An admin may correct another account's
+        only while that account is invited (its password not set yet),
+        and then, with mail, the invitation goes to the new address and
+        earlier ones stop working. A superadmin may change any
+        account's, for one that lost its mailbox; the new address is
+        unverified and, with mail, gets a verification link. A changed
+        address is told to the old one if it was verified, and a
+        changed role to the account's verified address (when mail is
+        set up). Audited as account_update, naming the fields changed
+        and the federations before and after.
       security:
         - session: []
           csrf: []
@@ -1782,7 +1894,9 @@ paths:
         '403':
           description: >-
             The CSRF token is wrong (error csrf), the change is not
-            the viewer's to make (error forbidden), or a gate is up.
+            the viewer's to make, such as an admin changing the address
+            of an account that is not invited (error forbidden), or a
+            gate is up.
           content:
             application/json:
               schema:
@@ -1808,9 +1922,11 @@ paths:
       summary: Disable an account
       description: >-
         Accounts are disabled, never deleted. Its sessions end on both
-        services; it can no longer sign in. Its forwarding keeps
-        running, flagged "owner disabled" (web-ownership). Audited as
-        account_disable; disabling a disabled account changes nothing.
+        services; it can no longer sign in, and its links stop working.
+        Its forwarding keeps running, flagged "owner disabled"
+        (web-ownership). The account's verified address is told (a
+        security notice). Audited as account_disable; disabling a
+        disabled account changes nothing and tells nothing.
       security:
         - session: []
           csrf: []
@@ -1857,15 +1973,19 @@ paths:
     post:
       operationId: resetAccountPassword
       tags: [accounts]
-      summary: Reset an account to a temporary password
+      summary: Reset an account's password
       description: >-
-        Until reset links exist (web-email), gives the account a new
-        random temporary password, answered once here and never stored
-        or logged in plain text; the account must replace it at its
-        next sign-in (decisions/2026-11-18-temporary-passwords.md).
-        Every session of the account ends on both services. Audited as
-        account_password_reset, without the password. When links
-        arrive, this sends one by email instead.
+        Every session of the account ends on both services. Two answers
+        (decisions/2026-11-18-email-optional.md): when the account has
+        a verified address and mail is set up, its password is removed
+        and a set-password link (see Email links) goes to the address,
+        valid for WEBAPI_INVITE_LINK_TTL, and the account signs in
+        again once it has set a new one ({"link_sent": true});
+        otherwise the account gets a random temporary password,
+        answered once here and never stored or logged in plain text,
+        which it must change at its next sign-in ({"link_sent": false,
+        "temporary_password": "..."}). Audited as
+        account_password_reset, without the password.
       security:
         - session: []
           csrf: []
@@ -1873,37 +1993,37 @@ paths:
         - $ref: '#/components/parameters/Id'
       responses:
         '200':
-          description: The temporary password, shown once.
+          description: The link is on its way, or the temporary password, shown once.
           headers:
             Cache-Control:
               $ref: '#/components/headers/NoStore'
           content:
             application/json:
               schema:
-                type: object
-                required: [temporary_password]
-                properties:
-                  temporary_password:
-                    type: string
+                $ref: '#/components/schemas/PasswordReset'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
   /api/accounts/{id}/resend-invite:
     post:
-      x-tgd-status: planned
       operationId: resendInvite
       tags: [accounts]
       summary: Email a new set-password link to an invited account
       description: >-
-        Comes with set-password links (web-email); until then an
-        invited account gets a new temporary password from
-        password-reset.
+        For an account that has not set its own password yet (invited:
+        a new account, one whose password was reset by link, or one
+        with a password set for it): a new set-password link to its
+        address, valid for WEBAPI_INVITE_LINK_TTL. Earlier ones stop
+        working. The address need not be verified: setting the password
+        from the link verifies it. Audited as account_invite_resend.
       security:
         - session: []
           csrf: []
@@ -1918,6 +2038,19 @@ paths:
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: >-
+            The account has set its own password (error not_invited;
+            reset it instead), has no address (error no_email), or mail
+            is not set up (error mail_off).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
 
   /api/accounts/{id}/sign-out-everywhere:
     post:
@@ -3021,7 +3154,7 @@ components:
     Gate:
       description: >-
         A gate is up (see Gates in the description): error
-        password_change_required, later email_required.
+        password_change_required.
       content:
         application/json:
           schema:
@@ -3145,9 +3278,10 @@ components:
         must_change_password:
           type: boolean
           description: >-
-            The account signed in with a temporary password and must
-            choose its own (POST /api/account/password) before anything
-            else; see Gates in the description.
+            The account signed in with a password set for it (typed by
+            its creator, or a temporary one) and must choose its own
+            (POST /api/account/password) before anything else; see
+            Gates in the description.
     Session:
       type: object
       required: [user, csrf]
@@ -3322,7 +3456,6 @@ components:
         - $ref: '#/components/schemas/PageMcpGroups'
         - $ref: '#/components/schemas/PageMcpTokens'
         - $ref: '#/components/schemas/PageLinkPage'
-        - $ref: '#/components/schemas/PageEmailRequired'
         - $ref: '#/components/schemas/PagePasswordChange'
     PageLinkPage:
       allOf:
@@ -3335,16 +3468,6 @@ components:
             props:
               type: object
               additionalProperties: false
-    PageEmailRequired:
-      allOf:
-        - $ref: '#/components/schemas/PageBase'
-        - type: object
-          required: [route, props]
-          properties:
-            route:
-              enum: [email_required]
-            props:
-              $ref: '#/components/schemas/EmailRequiredProps'
     PagePasswordChange:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -4032,23 +4155,32 @@ components:
         thumb:
           type: [string, 'null']
         chat:
-          type: object
-          required: [id, title, kind]
-          properties:
-            id:
-              type: integer
-              format: int64
-            title:
-              type: string
-            kind:
-              type: string
-              enum: [group, user]
+          description: >-
+            The chat of the first message the viewer sees that carried
+            the file; null when there is none (a profile or group
+            photo, or a message the viewer may not see).
+          oneOf:
+            - type: object
+              required: [id, title, kind]
+              properties:
+                id:
+                  type: integer
+                  format: int64
+                title:
+                  type: string
+                kind:
+                  type: string
+                  enum: [group, user]
+            - type: 'null'
         sender:
           oneOf:
             - $ref: '#/components/schemas/IdName'
             - type: 'null'
         message:
-          $ref: '#/components/schemas/MessageRef'
+          description: That message; null exactly when chat is null.
+          oneOf:
+            - $ref: '#/components/schemas/MessageRef'
+            - type: 'null'
     IdName:
       type: object
       required: [id, name]
@@ -4336,23 +4468,12 @@ components:
           description: Everything in the archive; full-access viewers only.
 
     # Page props, one per route (web/app/src/routes/).
-    EmailRequiredProps:
-      type: object
-      required: [pending, next]
-      properties:
-        pending:
-          type: [string, 'null']
-          description: >-
-            An address added but not verified yet, to which a
-            verification link was sent; null when none was added.
-        next:
-          type: string
-          description: The page that was asked for, to go on to once verified.
     PasswordChangeProps:
       type: object
       description: >-
-        The forced password change after a temporary password
-        (decisions/2026-11-18-temporary-passwords.md); the page posts
+        The forced password change after a password set for the
+        account, typed by its creator or a temporary one
+        (decisions/2026-11-18-email-optional.md); the page posts
         to POST /api/account/password, then loads `next`.
       required: [username, next]
       properties:
@@ -4804,12 +4925,15 @@ components:
           type: [string, 'null']
         email_verified:
           type: boolean
-          description: Always false until addresses are verified (web-email).
+          description: >-
+            The address is verified: by its verification link, or by
+            setting the password from a link sent to it.
         invited:
           type: boolean
           description: >-
-            Has not chosen its own password yet (it has a temporary
-            one, or none).
+            Has not set its own password yet: it has none (invited, or
+            reset by link, waiting for its link) or one set for it (typed
+            by its creator, or a temporary one) that it must change.
         role:
           $ref: '#/components/schemas/Role'
         active:
@@ -4870,17 +4994,29 @@ components:
             format: int64
     AccountCreate:
       type: object
-      required: [username, name, email, role]
+      required: [username, name, role]
       properties:
         username:
           type: string
         name:
           type: string
         email:
-          type: string
-          format: email
+          type: [string, 'null']
+          description: The address; optional (absent, null or "" for none).
         role:
           $ref: '#/components/schemas/Role'
+        password:
+          type: [string, 'null']
+          description: >-
+            The first password, at least 8 bytes; absent, null or ""
+            has the server generate a temporary one (temporary_password).
+            The account changes it at its first sign-in. Not with
+            invite.
+        invite:
+          type: boolean
+          description: >-
+            Mail a set-password link instead of giving a password;
+            needs an address and mail set up (409 otherwise).
         grants:
           type: array
           description: >-
@@ -4892,17 +5028,37 @@ components:
             $ref: '#/components/schemas/GrantWrite'
     AccountCreated:
       type: object
-      required: [id, temporary_password]
+      required: [id, invited]
       properties:
         id:
           type: integer
           format: int64
+        invited:
+          type: boolean
+          description: >-
+            true: an invitation was mailed (invite was asked for); the
+            account has no password until it sets one from the link.
         temporary_password:
           type: string
           description: >-
-            Shown once; give it to the account's owner, who must
-            replace it at the first sign-in. Goes when set-password
-            links arrive (web-email).
+            Present only when the server generated the first password:
+            shown once; give it to the account's owner, who must change
+            it at the first sign-in.
+    PasswordReset:
+      type: object
+      required: [link_sent]
+      properties:
+        link_sent:
+          type: boolean
+          description: >-
+            true: the password is removed and a set-password link went
+            to the verified address. false: temporary_password is the
+            account's new password.
+        temporary_password:
+          type: string
+          description: >-
+            Present when link_sent is false: shown once; the account
+            must change it at its next sign-in.
     AccountPatch:
       type: object
       description: The fields to change; the others stay.

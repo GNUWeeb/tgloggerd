@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { LogIn, TriangleAlert } from 'lucide-react';
 import { ThemeButton } from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
-import { login, loginToken } from '../api/auth.ts';
+import { landing, login, loginToken } from '../api/auth.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
@@ -21,17 +21,19 @@ const MESSAGES: Record<string, string> = {
 };
 
 function Login({ page }: { page: PageData<LoginProps> }) {
-	const next = safeNext(page.props.next);
+	// Where to go after signing in: the page asked for, else the
+	// account's landing page.
+	const asked = page.props.next ? safeNext(page.props.next) : null;
 	const [csrf, setCsrf] = useState('');
 	const [busy, setBusy] = useState(false);
 	const [err, setErr] = useState('');
 
 	useEffect(() => {
 		void loginToken().then((r) => {
-			if (r.signed_in) location.assign(next);
+			if (r.signed_in) void landing().catch(() => undefined).then((l) => location.assign(asked ?? safeNext(l ?? null)));
 			else setCsrf(r.csrf ?? '');
 		}).catch(() => setErr('The server could not be reached.'));
-	}, [next]);
+	}, [asked]);
 
 	const submit = async (e: React.FormEvent<HTMLFormElement>) => {
 		e.preventDefault();
@@ -42,7 +44,7 @@ function Login({ page }: { page: PageData<LoginProps> }) {
 		setBusy(false);
 		if (!r) { setErr('The server could not be reached.'); return; }
 		// A full load: the new session changes the whole viewer.
-		if (r.ok) { location.assign(next); return; }
+		if (r.ok) { location.assign(asked ?? safeNext(r.landing ?? null)); return; }
 		if (r.csrf) setCsrf(r.csrf);
 		setErr(r.message || MESSAGES[r.error] || 'Signing in failed.');
 	};

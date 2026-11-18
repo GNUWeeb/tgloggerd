@@ -20,13 +20,15 @@ import (
 	"unicode/utf8"
 
 	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/i18n"
 	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/webdb"
 )
 
 // The accounts administration (docs/design/web-accounts.md sections 2
-// and 3): list, create, change, disable, enable, reset to a temporary
-// password and sign out everywhere. Who may manage whom is the request
+// and 3): list, create, change, disable, enable, reset the password,
+// send the invitation again and sign out everywhere. New accounts and
+// resets get a set-password link by email (email.go). Who may manage whom is the request
 // scope's (Scope.ManagesAccounts, SeesAccount, MayGiveRole,
 // AdministersFederation): an account the viewer may not manage answers
 // 404 like a missing one, and a change it may not make to one it
@@ -91,9 +93,9 @@ func accountJSONOf(a webdb.Account, supers int, audits []webdb.AccountAudit) acc
 		ID:            a.ID,
 		Username:      a.Username,
 		Name:          a.DisplayName,
-		EmailVerified: false, // no address is verified before web-email
+		EmailVerified: a.EmailVerified,
 		// Has not chosen its own password yet.
-		Invited:        a.MustChangePassword || !a.HasPassword,
+		Invited:        invited(a),
 		Role:           a.Role,
 		Active:         a.Active,
 		LastSuperadmin: a.Role == string(scope.Superadmin) && a.Active && supers == 1,
@@ -127,6 +129,13 @@ func accountJSONOf(a webdb.Account, supers int, audits []webdb.AccountAudit) acc
 		j.Audit = append(j.Audit, auditJSON{what, e.By, e.At.Format(time.RFC3339)})
 	}
 	return j
+}
+
+// invited is whether an account has no password of its own yet: none
+// (an invitation or a reset waits for its link), or a temporary one
+// from before set-password links.
+func invited(a webdb.Account) bool {
+	return !a.HasPassword || a.MustChangePassword
 }
 
 func notFound(w http.ResponseWriter) {
@@ -295,6 +304,34 @@ func temporaryPassword() (string, error) {
 	return string(out), nil
 }
 
+// newPassword is the hash of a password an account must change at its
+// next sign-in: the one typed, which must be long enough, or a
+// generated temporary one, returned to be answered once. It answers
+// the request itself and reports false when it cannot.
+func (s *Server) newPassword(w http.ResponseWriter, typed *string, lang string) (hash, temp string, ok bool) {
+	pw := ""
+	if typed != nil {
+		pw = *typed
+	}
+	if pw == "" {
+		var err error
+		if temp, err = temporaryPassword(); err != nil {
+			s.internalError(w, "temporary password", err)
+			return "", "", false
+		}
+		pw = temp
+	} else if len(pw) < MinPasswordLen {
+		badRequest(w, "weak_password", i18n.T(lang, "password.weak"))
+		return "", "", false
+	}
+	hash, err := auth.HashPassword(pw)
+	if err != nil {
+		s.internalError(w, "hash", err)
+		return "", "", false
+	}
+	return hash, temp, true
+}
+
 // cleanName checks a display name: valid UTF-8, no control
 // characters, at most maxDisplayName characters; spaces around it go.
 func cleanName(s string) (string, bool) {
@@ -372,10 +409,13 @@ func (s *Server) badFederation(w http.ResponseWriter, r *http.Request) {
 	badRequest(w, "bad_federation", s.text(r, "federation.unknown"))
 }
 
-// createAccount answers POST /api/accounts. Until set-password links
-// exist (web-email), the account gets a random temporary password,
-// answered once, which it must change at its first sign-in
-// (decisions/2026-11-18-temporary-passwords.md).
+// createAccount answers POST /api/accounts
+// (decisions/2026-11-18-email-optional.md). The account gets the first
+// password its creator typed, or a generated temporary one answered
+// once (temporary_password), and must change it at its first sign-in.
+// With "invite": true it gets no password; a set-password link goes to
+// its address instead, which needs an address and mail (409 otherwise).
+// The address is optional.
 func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	if !s.checkCSRF(w, r) {
@@ -391,12 +431,14 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		Email    *string      `json:"email"`
 		Role     *string      `json:"role"`
 		Grants   []grantWrite `json:"grants"`
+		Password *string      `json:"password"`
+		Invite   bool         `json:"invite"`
 	}
 	if !decodeBody(w, r, &in) {
 		return
 	}
-	if in.Username == nil || in.Name == nil || in.Email == nil || in.Role == nil {
-		badRequest(w, "bad_request", "username, name, email and role are required.")
+	if in.Username == nil || in.Name == nil || in.Role == nil {
+		badRequest(w, "bad_request", "username, name and role are required.")
 		return
 	}
 	if !usernameRe.MatchString(*in.Username) {
@@ -409,10 +451,12 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "bad_name", "A name is at most 128 characters, without control characters.")
 		return
 	}
-	email, ok := cleanEmail(*in.Email)
-	if !ok {
-		badRequest(w, "bad_email", "That is not an email address.")
-		return
+	email := ""
+	if in.Email != nil && strings.TrimSpace(*in.Email) != "" {
+		if email, ok = cleanEmail(*in.Email); !ok {
+			badRequest(w, "bad_email", "That is not an email address.")
+			return
+		}
 	}
 	role, ok := scope.ParseRole(*in.Role)
 	if !ok {
@@ -443,17 +487,26 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		feds = []uint64{scope.DefaultFederation}
 	}
 
-	password, err := temporaryPassword()
-	if err != nil {
-		s.internalError(w, "temporary password", err)
+	ctx := r.Context()
+	lang := s.textLang(ctx, v.ID)
+	var hash, temp string
+	switch {
+	case in.Invite && in.Password != nil && *in.Password != "":
+		badRequest(w, "bad_request", i18n.T(lang, "account.invite_or_password"))
 		return
-	}
-	hash, err := auth.HashPassword(password)
-	if err != nil {
-		s.internalError(w, "hash", err)
+	case in.Invite && email == "":
+		writeError(w, http.StatusConflict, "no_email",
+			map[string]any{"message": i18n.T(lang, "account.invite_no_email")})
 		return
+	case in.Invite && !s.mailOn():
+		s.mailOff(w, lang)
+		return
+	case !in.Invite:
+		if hash, temp, ok = s.newPassword(w, in.Password, lang); !ok {
+			return
+		}
 	}
-	id, err := webdb.CreateAccount(r.Context(), s.app, webdb.NewAccount{
+	id, err := webdb.CreateAccount(ctx, s.app, webdb.NewAccount{
 		Username:     *in.Username,
 		DisplayName:  name,
 		Email:        email,
@@ -478,14 +531,31 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "create account", err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "temporary_password": password})
+	out := map[string]any{"id": id, "invited": in.Invite}
+	if in.Invite {
+		a, err := webdb.GetAccount(ctx, s.app, id)
+		if err == nil {
+			err = s.sendLink(ctx, recipientOf(a, email), webdb.LinkPassword, "invite", s.mailCfg.InviteTTL)
+		}
+		if err != nil {
+			// The account exists; resend-invite sends the link again.
+			s.internalError(w, "invitation link", err)
+			return
+		}
+	}
+	if temp != "" {
+		out["temporary_password"] = temp
+	}
+	writeJSON(w, http.StatusCreated, out)
 }
 
 // change applies one change to the account in the path and answers
 // 204, or the account row when withRow. ErrLastSuperadmin answers 409.
+// after, when not nil, runs once the change is made, if it changed
+// anything, before the answer (the notices).
 func (s *Server) change(w http.ResponseWriter, r *http.Request, a webdb.Account, v scope.Viewer,
-	c webdb.AccountChange, action string, withRow bool) {
-	_, err := webdb.UpdateAccount(r.Context(), s.app, v.ID, a.ID, c, action, clientIP(r))
+	c webdb.AccountChange, action string, withRow bool, after func()) {
+	changed, err := webdb.UpdateAccount(r.Context(), s.app, v.ID, a.ID, c, action, clientIP(r))
 	switch {
 	case errors.Is(err, webdb.ErrNoFederation):
 		s.badFederation(w, r)
@@ -504,6 +574,9 @@ func (s *Server) change(w http.ResponseWriter, r *http.Request, a webdb.Account,
 	case err != nil:
 		s.internalError(w, "update account", err)
 		return
+	}
+	if changed && after != nil {
+		after()
 	}
 	if withRow {
 		s.row(w, r, a.ID, http.StatusOK)
@@ -558,11 +631,23 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		}
 		c.DisplayName = &name
 	}
+	emailChanged := false
 	if in.Email != nil {
 		email, ok := cleanEmail(*in.Email)
 		if !ok {
 			badRequest(w, "bad_email", "That is not an email address.")
 			return
+		}
+		// An account's address is its own to change (POST
+		// /api/account/email). An admin may correct it only while the
+		// account is invited; a superadmin may change any, for an
+		// account that lost its mailbox (decisions/2026-11-18-web-email.md).
+		if email != a.Email {
+			if v.Role != scope.Superadmin && !invited(a) {
+				forbidden(w, i18n.T(s.textLang(r.Context(), v.ID), "account.email_admin"))
+				return
+			}
+			emailChanged = true
 		}
 		c.Email = &email
 	}
@@ -628,15 +713,44 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "not_supported", "Abilities cannot be given yet.")
 		return
 	}
-	s.change(w, r, a, v, c, "account_update", true)
+	s.change(w, r, a, v, c, "account_update", true, func() {
+		s.afterUpdate(r.Context(), a, c, emailChanged)
+	})
+}
+
+// afterUpdate tells an account what an update changed, at the address
+// it had verified (web-accounts.md section 8): a new role, and a new
+// address (also told to the old one). The new address gets the link
+// that verifies it: the invitation again for an invited account, else
+// a verification link.
+func (s *Server) afterUpdate(ctx context.Context, a webdb.Account, c webdb.AccountChange, emailChanged bool) {
+	if c.Role != nil && *c.Role != a.Role {
+		s.notice(ctx, a, "role", "old", a.Role, "new", *c.Role)
+	}
+	if !emailChanged {
+		return
+	}
+	s.notice(ctx, a, "email_old", "email", *c.Email)
+	if *c.Email == "" || !s.mailOn() {
+		return
+	}
+	p, kind, ttl := webdb.LinkVerify, "verify", s.mailCfg.VerifyTTL
+	if invited(a) {
+		p, kind, ttl = webdb.LinkPassword, "invite", s.mailCfg.InviteTTL
+	}
+	if err := s.sendLink(ctx, recipientOf(a, *c.Email), p, kind, ttl); err != nil {
+		s.log.Warn("link to the new address not sent", "uid", a.ID, "err", err)
+	}
 }
 
 // disableAccount answers POST /api/accounts/{id}/disable. Its sessions
-// end on both services.
+// end on both services, and the account is told.
 func (s *Server) disableAccount(w http.ResponseWriter, r *http.Request) {
 	s.simpleChange(w, r, "account_disable", func(c *webdb.AccountChange) {
 		f := false
 		c.Active = &f
+	}, func(a webdb.Account) {
+		s.notice(r.Context(), a, "disabled")
 	})
 }
 
@@ -645,7 +759,7 @@ func (s *Server) enableAccount(w http.ResponseWriter, r *http.Request) {
 	s.simpleChange(w, r, "account_enable", func(c *webdb.AccountChange) {
 		t := true
 		c.Active = &t
-	})
+	}, nil)
 }
 
 // signOutAccountEverywhere answers POST
@@ -655,11 +769,13 @@ func (s *Server) enableAccount(w http.ResponseWriter, r *http.Request) {
 func (s *Server) signOutAccountEverywhere(w http.ResponseWriter, r *http.Request) {
 	s.simpleChange(w, r, "account_signout_everywhere", func(c *webdb.AccountChange) {
 		c.EndSessions = true
-	})
+	}, nil)
 }
 
+// simpleChange makes the change set and answers 204; after, when not
+// nil, runs with the account as it was if anything changed.
 func (s *Server) simpleChange(w http.ResponseWriter, r *http.Request, action string,
-	set func(*webdb.AccountChange)) {
+	set func(*webdb.AccountChange), after func(webdb.Account)) {
 	noStore(w)
 	if !s.checkCSRF(w, r) {
 		return
@@ -674,13 +790,20 @@ func (s *Server) simpleChange(w http.ResponseWriter, r *http.Request, action str
 	}
 	var c webdb.AccountChange
 	set(&c)
-	s.change(w, r, a, v, c, action, false)
+	var done func()
+	if after != nil {
+		done = func() { after(a) }
+	}
+	s.change(w, r, a, v, c, action, false, done)
 }
 
-// resetAccountPassword answers POST /api/accounts/{id}/password-reset:
-// until reset links exist (web-email), it gives the account a new
-// random temporary password, answered once, which the account must
-// change at its next sign-in. Every session of the account ends.
+// resetAccountPassword answers POST /api/accounts/{id}/password-reset
+// (decisions/2026-11-18-email-optional.md). Every session of the
+// account ends. When the account has a verified address and mail is
+// set up, the password is removed and a set-password link goes to the
+// address ({"link_sent": true}); otherwise the account gets a random
+// temporary password, answered once, which it must change at its next
+// sign-in ({"link_sent": false, "temporary_password": ...}).
 func (s *Server) resetAccountPassword(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	if !s.checkCSRF(w, r) {
@@ -694,21 +817,30 @@ func (s *Server) resetAccountPassword(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	password, err := temporaryPassword()
-	if err != nil {
-		s.internalError(w, "temporary password", err)
+	ctx := r.Context()
+	if a.EmailVerified && a.Email != "" && s.mailOn() {
+		_, err := webdb.UpdateAccount(ctx, s.app, v.ID, a.ID,
+			webdb.AccountChange{ClearPassword: true}, "account_password_reset", clientIP(r))
+		if err != nil {
+			s.internalError(w, "reset password", err)
+			return
+		}
+		if err := s.sendLink(ctx, recipientOf(a, a.Email), webdb.LinkPassword, "admin_reset", s.mailCfg.InviteTTL); err != nil {
+			s.internalError(w, "reset link", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"link_sent": true})
 		return
 	}
-	hash, err := auth.HashPassword(password)
-	if err != nil {
-		s.internalError(w, "hash", err)
+	hash, temp, ok := s.newPassword(w, nil, "")
+	if !ok {
 		return
 	}
-	_, err = webdb.UpdateAccount(r.Context(), s.app, v.ID, a.ID,
+	_, err := webdb.UpdateAccount(ctx, s.app, v.ID, a.ID,
 		webdb.AccountChange{PasswordHash: &hash}, "account_password_reset", clientIP(r))
 	if err != nil {
 		s.internalError(w, "reset password", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"temporary_password": password})
+	writeJSON(w, http.StatusOK, map[string]any{"link_sent": false, "temporary_password": temp})
 }

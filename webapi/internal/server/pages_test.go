@@ -171,9 +171,9 @@ func TestPagePathDecoding(t *testing.T) {
 	}{
 		{"/api/page/login", 200, "login"},
 		{"/api/page/login%2F", 200, "login"},
-		{"/api/page/password%2Fforgot", 200, ""},    // %2F decoded
-		{"/api/page/account/email/verify", 200, ""}, // plain slashes too
-		{"/api/page/password%2Fset%2F", 200, ""},
+		{"/api/page/password%2Fforgot", 200, "password_forgot"}, // %2F decoded
+		{"/api/page/account/email/verify", 200, "email_verify"}, // plain slashes too
+		{"/api/page/password%2Fset%2F", 200, "password_set"},
 		{"/api/page/messages%2Fother%2F7", 404, "not_found"},
 		{"/api/page/users%2Fabc", 404, "not_found"},
 		{"/api/page/users%2F..%2Flogin", 404, "not_found"},
@@ -209,7 +209,7 @@ func TestPageNotFoundShape(t *testing.T) {
 		"viewer": map[string]any{
 			"signed_in": true, "now": "",
 			"account": map[string]any{"id": 1.0, "username": "admin", "name": "admin", "role": "superadmin"},
-			"nav":     toAny(scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin, EmailVerified: true}).Nav()),
+			"nav":     toAny(scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin}).Nav()),
 			// The site defaults, as the account set nothing.
 			"timezone": "Asia/Jakarta", "date_format": "24h", "lang": "en", "theme": "system",
 			"rows_per_page": 25.0,
@@ -260,7 +260,7 @@ func TestPageSignedOut(t *testing.T) {
 		"/api/page/users":                    401,
 		"/api/page/nothing":                  401, // existing or not
 		"/api/page/login":                    200,
-		"/api/page/password%2Fforgot":        200, // reload for now
+		"/api/page/password%2Fforgot":        200,
 		"/api/page/account%2Femail%2Fverify": 200,
 		"/api/page/password%2Fset":           200,
 	} {
@@ -468,9 +468,11 @@ func TestPageDocumentsRegistered(t *testing.T) {
 	t.Parallel()
 	e := newPagesEnv(t, pagesOpts{})
 	ck := e.session(1, "admin", "admin")
+	// Every page has its loader now, the link pages included, so each
+	// document is served here.
 	for _, p := range []string{"/password/forgot", "/password/set", "/account/email/verify"} {
-		if g := e.get(p, ck); g.status != 404 || strings.Contains(g.body, "__tgd") {
-			t.Errorf("%s served here: %d", p, g.status)
+		if g := e.get(p, ck); g.status != 200 || !strings.Contains(g.body, "__tgd") {
+			t.Errorf("%s not served here: %d", p, g.status)
 		}
 	}
 }

@@ -592,8 +592,8 @@ func TestEventsManyTopics(t *testing.T) {
 // user's events, a member none until grants exist.
 func TestEventInScopeRoles(t *testing.T) {
 	t.Parallel()
-	super := scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin, EmailVerified: true})
-	member := scope.For(scope.Viewer{ID: 2, Role: scope.Member, EmailVerified: true})
+	super := scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin})
+	member := scope.For(scope.Viewer{ID: 2, Role: scope.Member})
 	events := []live.Event{
 		{Kind: live.KindMessageNew, ChatID: -1001, MessageID: 5},
 		{Kind: live.KindMessageNew, ChatID: 4242, MessageID: 6},

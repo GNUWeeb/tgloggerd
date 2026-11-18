@@ -184,7 +184,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 			send(res, 401, { error: 'invalid_credentials', message: 'Wrong username or password.', csrf: 'standin-login' });
 			return;
 		}
-		send(res, 200, { user: { id: 1, username: body.username, role: as }, csrf: 'standin-csrf' }, [`tgd_as=${as}; Path=/; SameSite=Lax`]);
+		send(res, 200, { user: { id: 1, username: body.username, role: as, must_change_password: fx.needsPasswordChange(as) }, csrf: 'standin-csrf', landing: fx.landingOf(as) }, [`tgd_as=${as}; Path=/; SameSite=Lax`]);
 		return;
 	}
 	if (url.pathname === '/api/logout' && req.method === 'POST') {
@@ -193,22 +193,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		res.end();
 		return;
 	}
-	// Without a verified address only these calls work; the page data
-	// answers email_required instead (web-accounts.md section 8).
-	// A temporary password first: only these calls work until the account
-	// chose its own (the spec's Gates); the page data answers
-	// password_change.
+	// A temporary password: only these calls work until the account chose
+	// its own (the spec's Gates); the page data answers password_change.
 	if (url.pathname.startsWith('/api/') && fx.needsPasswordChange(who) && !/^\/api\/(session|logout|login|page(\/.*)?|account\/password|account\/email\/verify|password\/(forgot|set)|_standin\/.*)$/.test(url.pathname)) {
 		send(res, 403, { error: 'password_change_required', message: 'Choose your own password first.' }); return;
 	}
-	// The email gate comes after the password one: while both are up,
-	// only the password change works.
-	if (url.pathname.startsWith('/api/') && fx.needsEmail(who) && !fx.needsPasswordChange(who) && !/^\/api\/(session|logout|login|page(\/.*)?|account\/email(\/verify)?|password\/(forgot|set)|_standin\/.*)$/.test(url.pathname)) {
-		send(res, 403, { error: 'email_required', message: 'Add and verify an email address first.' }); return;
-	}
 	if (url.pathname === '/api/session') {
 		if (who === 'public') send(res, 401, { error: 'unauthenticated' });
-		else send(res, 200, { user: fx.viewerOf(who).account, csrf: 'standin-csrf' });
+		else send(res, 200, { user: { ...fx.viewerOf(who).account, must_change_password: fx.needsPasswordChange(who) }, csrf: 'standin-csrf', landing: fx.landingOf(who) });
 		return;
 	}
 	// The account endpoints proposed for the Go service (settings pages).
@@ -230,20 +222,24 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		}
 		if (p === 'email' && req.method === 'POST') {
 			if (body.password !== 'standin') { send(res, 400, { error: 'wrong_password', message: 'The current password is wrong.' }); return; }
-			fx.setPendingEmail(who, String(body.email));
-			send(res, 202, { pending: body.email }); return;
+			// The stand-in has mail set up: a new address waits for its link;
+			// an empty one removes the address at once.
+			const sent = fx.changeEmail(who, String(body.email ?? ''));
+			send(res, 200, { verification_sent: sent }); return;
 		}
 		if (p === 'preferences' && req.method === 'PUT') {
 			st.prefs = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== null));
 			send(res, 200, { prefs: st.prefs }); return;
 		}
 		if ((am = p.match(/^pinned\/(-?\d+)$/)) && req.method === 'DELETE') { st.pinned = st.pinned.filter((g: { id: number }) => String(g.id) !== am![1]); res.writeHead(204); res.end(); return; }
+		if (/^pinned\/-?\d+$/.test(p) && req.method === 'PUT' && st.pinned.length >= 50 && !st.pinned.some((x: { id: number }) => `pinned/${x.id}` === p)) { send(res, 400, { error: 'too_many', message: 'You have 50 pinned groups, the most there can be. Unpin one first.' }); return; }
 		if ((am = p.match(/^pinned\/(-?\d+)$/)) && req.method === 'PUT') {
 			const g = fx.groupFor(who, am[1]);
 			if (!g) { send(res, 404, { error: 'not_found' }); return; }
 			if (!st.pinned.some((x: { id: number }) => x.id === g.id)) st.pinned.push(g);
 			res.writeHead(204); res.end(); return;
 		}
+		if (p === 'saved-searches' && req.method === 'POST' && st.saved.length >= 100) { send(res, 400, { error: 'too_many', message: 'You have 100 saved searches, the most there can be. Delete one first.' }); return; }
 		if (p === 'saved-searches' && req.method === 'POST') {
 			if (!body.title || typeof body.url !== 'string' || !body.url.startsWith('/')) { send(res, 400, { error: 'bad_request', message: 'A title and a search path are required.' }); return; }
 			const id = Math.max(0, ...st.saved.map((x: { id: number }) => x.id)) + 1;
@@ -252,7 +248,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		}
 		if ((am = p.match(/^saved-searches\/(\d+)$/)) && req.method === 'DELETE') { st.saved = st.saved.filter((x: { id: number }) => String(x.id) !== am![1]); res.writeHead(204); res.end(); return; }
 		if ((am = p.match(/^sessions\/(\w+)$/)) && req.method === 'DELETE') { st.sessions = st.sessions.filter((x: { id: string; current: boolean }) => x.current || x.id !== am![1]); res.writeHead(204); res.end(); return; }
-		if (p === 'sessions/sign-out-others' && req.method === 'POST') { st.sessions = st.sessions.filter((x: { current: boolean }) => x.current); res.writeHead(204); res.end(); return; }
+		if (p === 'sessions/sign-out-others' && req.method === 'POST') {
+			st.sessions = st.sessions.filter((x: { current: boolean }) => x.current);
+			// This session's cookie is reissued, as the Go service does.
+			const csrf = `standin-csrf-${csrfTokens.size}`;
+			csrfTokens.add(csrf);
+			send(res, 200, { csrf }); return;
+		}
 		send(res, 404, { error: 'not_found' }); return;
 	}
 	if (url.pathname === '/api/events' && req.method === 'GET') { await openStream(req, res, url, who); return; }

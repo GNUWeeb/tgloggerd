@@ -19,7 +19,7 @@ const fill = (root: HTMLElement, sel: string, value: string) => fireEvent.change
 
 describe('accounts', () => {
 	it('lets an admin create a member only with a federation granted, and sends the grant', async () => {
-		const calls = fakeApi('admin', { 'POST /api/accounts': () => json(201, { id: 99, temporary_password: 'tmp-Zx81' }) });
+		const calls = fakeApi('admin', { 'POST /api/accounts': () => json(201, { id: 99, invited: false, temporary_password: 'tmp-Zx81' }) });
 		renderPage('/settings/accounts', 'admin');
 		fireEvent.click(screen.getByRole('button', { name: /New member/ }));
 		const d = dialog();
@@ -44,7 +44,7 @@ describe('accounts', () => {
 	it('copies the temporary password, and forgets it once the dialog closes', async () => {
 		const write = vi.fn(async () => {});
 		vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: write } });
-		fakeApi('superadmin', { 'POST /api/accounts': () => json(201, { id: 99, temporary_password: 'tmp-Q2' }) });
+		fakeApi('superadmin', { 'POST /api/accounts': () => json(201, { id: 99, invited: false, temporary_password: 'tmp-Q2' }) });
 		renderPage('/settings/accounts');
 		fireEvent.click(screen.getByRole('button', { name: /New account/ }));
 		const d = dialog();
@@ -66,14 +66,91 @@ describe('accounts', () => {
 		const a = p.accounts.find((x) => x.role === 'member' && x.active)!;
 		const ask = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
 		vi.stubGlobal('confirm', ask);
-		const calls = fakeApi('superadmin', { 'POST /api/accounts/:id/password-reset': () => ({ temporary_password: 'tmp-R3' }) });
+		const calls = fakeApi('superadmin', { 'POST /api/accounts/:id/password-reset': () => ({ link_sent: false, temporary_password: 'tmp-R3' }) });
 		renderPage('/settings/accounts');
 		fireEvent.click(screen.getByRole('button', { name: `Edit ${a.username}` }));
-		fireEvent.click(within(dialog()).getByRole('button', { name: /Reset to a temporary password/ }));
+		fireEvent.click(within(dialog()).getByRole('button', { name: /Reset password/ }));
 		expect(callsTo(calls, 'POST', `/api/accounts/${a.id}/password-reset`)).toHaveLength(0);
-		fireEvent.click(within(dialog()).getByRole('button', { name: /Reset to a temporary password/ }));
+		fireEvent.click(within(dialog()).getByRole('button', { name: /Reset password/ }));
 		expect(await screen.findByLabelText('Temporary password')).toHaveProperty('textContent', 'tmp-R3');
 		expect(callsTo(calls, 'POST', `/api/accounts/${a.id}/password-reset`)).toHaveLength(1);
+	});
+
+	describe('a new account\'s first password', () => {
+		const open = (name: string, email: string) => {
+			renderPage('/settings/accounts');
+			fireEvent.click(screen.getByRole('button', { name: /New account/ }));
+			const d = dialog();
+			const inputs = d.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=password])');
+			fireEvent.change(inputs[0]!, { target: { value: name } });
+			fireEvent.change(inputs[1]!, { target: { value: name } });
+			fill(d, 'input[type=email]', email);
+			return d;
+		};
+		const created = (c: ReturnType<typeof fakeApi>) => callsTo(c, 'POST', '/api/accounts')[0]!.body as Record<string, unknown>;
+
+		it('sends a typed one, and says it must be changed', async () => {
+			const calls = fakeApi('superadmin', { 'POST /api/accounts': () => json(201, { id: 9, invited: false }) });
+			const d = open('typed1', '');
+			fill(d, 'input[type=password]', 'a typed passphrase');
+			fireEvent.click(within(d).getByRole('button', { name: 'Create account' }));
+			await screen.findByText(/has the password you typed/);
+			expect(created(calls)).toMatchObject({ username: 'typed1', email: null, password: 'a typed passphrase' });
+			expect(created(calls)).not.toHaveProperty('invite');
+		});
+
+		it('refuses a short one before asking the server', () => {
+			const calls = fakeApi('superadmin');
+			const d = open('short1', '');
+			fill(d, 'input[type=password]', 'short');
+			fireEvent.click(within(d).getByRole('button', { name: 'Create account' }));
+			expect(within(d).getByRole('alert').textContent).toMatch(/at least 8 characters/);
+			expect(callsTo(calls, 'POST', '/api/accounts')).toHaveLength(0);
+		});
+
+		it('asks for none when left empty, and shows the generated one', async () => {
+			const calls = fakeApi('superadmin', { 'POST /api/accounts': () => json(201, { id: 9, invited: false, temporary_password: 'gen-77' }) });
+			const d = open('gen1', 'gen1@example.org');
+			fireEvent.click(within(d).getByRole('button', { name: 'Create account' }));
+			expect(await screen.findByLabelText('Temporary password')).toHaveProperty('textContent', 'gen-77');
+			expect(created(calls)).toMatchObject({ email: 'gen1@example.org', password: null });
+		});
+
+		it('sends a set-password link instead, which needs an address', async () => {
+			const calls = fakeApi('superadmin', { 'POST /api/accounts': () => json(201, { id: 9, invited: true }) });
+			const d = open('inv1', '');
+			const sw = within(d).getByRole('checkbox', { name: /Email a set-password link instead/ }) as HTMLInputElement;
+			expect(sw.disabled).toBe(true);
+			fill(d, 'input[type=email]', 'inv1@example.org');
+			fireEvent.click(sw);
+			expect(d.querySelector('input[type=password]')).toBeNull();
+			fireEvent.click(within(d).getByRole('button', { name: 'Create account' }));
+			await screen.findByText(/went to inv1@example.org/);
+			expect(created(calls)).toMatchObject({ email: 'inv1@example.org', invite: true });
+			expect(created(calls)).not.toHaveProperty('password');
+		});
+	});
+
+	it('says a reset link went out when the server mailed one', async () => {
+		const p = fixture<AccountsProps>('/settings/accounts').props;
+		const a = p.accounts.find((x) => x.role === 'member' && x.active)!;
+		vi.stubGlobal('confirm', () => true);
+		fakeApi('superadmin', { 'POST /api/accounts/:id/password-reset': () => ({ link_sent: true }) });
+		renderPage('/settings/accounts');
+		fireEvent.click(screen.getByRole('button', { name: `Edit ${a.username}` }));
+		fireEvent.click(within(dialog()).getByRole('button', { name: /Reset password/ }));
+		await within(dialog()).findByText(/went to the account's address/);
+		expect(screen.queryByLabelText('Temporary password')).toBeNull();
+	});
+
+	it('resends an invitation, and shows why one cannot be', async () => {
+		const p = fixture<AccountsProps>('/settings/accounts').props;
+		const a = p.accounts.find((x) => x.invited && x.email)!;
+		fakeApi('superadmin', { 'POST /api/accounts/:id/resend-invite': () => json(409, { error: 'mail_off', message: 'Mail is not set up on this server.' }) });
+		renderPage('/settings/accounts');
+		fireEvent.click(screen.getByRole('button', { name: `Edit ${a.username}` }));
+		fireEvent.click(within(dialog()).getByRole('button', { name: /Resend set-password link/ }));
+		await within(dialog()).findByText('Mail is not set up on this server.');
 	});
 
 	it('shows and sends only what the server lets it change yet', async () => {

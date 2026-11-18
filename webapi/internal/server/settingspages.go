@@ -59,7 +59,7 @@ func loadSettings(ctx context.Context, pr *pageRequest) (any, error) {
 	if a.Email != "" {
 		e := a.Email
 		p.Account.Email = &e
-		// No address is verified before web-email.
+		p.Account.EmailVerified = a.EmailVerified
 	}
 	for _, k := range noticeKeys {
 		p.Notices = append(p.Notices, i18n.T(lang, k))

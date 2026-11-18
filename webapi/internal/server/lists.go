@@ -612,20 +612,20 @@ type listMsgRef struct {
 
 // listFile is a row of the files page (FileRow).
 type listFile struct {
-	ID        uint64       `json:"id"`
-	FileType  string       `json:"file_type"`
-	Name      string       `json:"name"`
-	Ext       string       `json:"ext"`
-	Size      uint64       `json:"size"`
-	Hits      int64        `json:"hits"`
-	Stored    bool         `json:"stored"`
-	CreatedAt string       `json:"created_at"`
-	TgFileID  string       `json:"tg_file_id"`
-	URL       *string      `json:"url"`
-	Thumb     *string      `json:"thumb"`
-	Chat      listChatName `json:"chat"`
-	Sender    *listIDName  `json:"sender"`
-	Message   listMsgRef   `json:"message"`
+	ID        uint64        `json:"id"`
+	FileType  string        `json:"file_type"`
+	Name      string        `json:"name"`
+	Ext       string        `json:"ext"`
+	Size      uint64        `json:"size"`
+	Hits      int64         `json:"hits"`
+	Stored    bool          `json:"stored"`
+	CreatedAt string        `json:"created_at"`
+	TgFileID  string        `json:"tg_file_id"`
+	URL       *string       `json:"url"`
+	Thumb     *string       `json:"thumb"`
+	Chat      *listChatName `json:"chat"`
+	Sender    *listIDName   `json:"sender"`
+	Message   *listMsgRef   `json:"message"`
 }
 
 // filesProps are the files page's (FilesProps).
@@ -657,8 +657,8 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, rows []logdb.
 			Size: r.Uint("file_size"), Hits: r.Int("hit_count"), Stored: r.Bool("on_disk"),
 			CreatedAt: dbTime(r.Str("created_at")), TgFileID: r.Str("tg_file_id"),
 			// A file sent in no message the viewer sees (a profile
-			// or group photo) has no chat: id 0.
-			Chat: listChatName{Kind: "group"}, Message: listMsgRef{Scope: "group"}}
+			// or group photo) has no chat and no message: null.
+		}
 		if f.Name == "" {
 			f.Name = strconv.FormatUint(f.ID, 10)
 			if f.Ext != "" {
@@ -672,8 +672,8 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, rows []logdb.
 			}
 		}
 		if o, ok := origins[f.ID]; ok {
-			f.Chat = listChatName{ID: o.ChatID, Title: o.ChatTitle, Kind: o.ChatKind}
-			f.Message = listMsgRef{Scope: o.Scope, ID: o.MessageID}
+			f.Chat = &listChatName{ID: o.ChatID, Title: o.ChatTitle, Kind: o.ChatKind}
+			f.Message = &listMsgRef{Scope: o.Scope, ID: o.MessageID}
 			if o.SenderID != 0 {
 				f.Sender = &listIDName{ID: o.SenderID, Name: o.Sender}
 			}

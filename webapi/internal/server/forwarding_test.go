@@ -124,7 +124,7 @@ func TestForwardingListsScope(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t)
 	ctx := context.Background()
-	member := scope.For(scope.Viewer{ID: 5, Role: scope.Member, EmailVerified: true})
+	member := scope.For(scope.Viewer{ID: 5, Role: scope.Member})
 	ws, err := logdb.ListT2D(ctx, e.ro, member)
 	if err != nil || len(ws) != 0 {
 		t.Errorf("member webhooks %v %v", ws, err)
@@ -142,7 +142,7 @@ func TestForwardingListsScope(t *testing.T) {
 	if _, ok, _ := logdb.ResolveChat(ctx, e.ro, member, 9299000001); ok {
 		t.Error("member resolves a private chat")
 	}
-	admin := scope.For(scope.Viewer{ID: 3, Role: scope.Admin, EmailVerified: true})
+	admin := scope.For(scope.Viewer{ID: 3, Role: scope.Admin})
 	if c, ok, _ := logdb.ResolveChat(ctx, e.ro, admin, 9299000001); !ok || c.Title != "Dewi Kusuma" {
 		t.Errorf("admin resolves %v %v", c, ok)
 	}

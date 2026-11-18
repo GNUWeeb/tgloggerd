@@ -146,3 +146,4 @@
 	.app .c-tobottom { bottom: 64px; right: 12px; }
 }
 .app .c-unseen { position: absolute; top: -6px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--accent, #5b5bd6); color: #fff; font: 600 11px/20px Roboto, system-ui, sans-serif; text-align: center; }
+.app .c-reveal { border: 0; cursor: pointer; font: inherit; color: var(--fg-2); }

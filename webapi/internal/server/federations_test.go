@@ -591,7 +591,7 @@ func fedScope(name string) scope.Scope {
 	role := map[string]scope.Role{"fed_root": scope.Superadmin, "kern_admin": scope.Admin,
 		"sec_admin": scope.Admin, "idle_admin": scope.Admin}[name]
 	adminOf := map[string][]uint64{"kern_admin": {1}, "sec_admin": {0, 2}}[name]
-	return scope.For(scope.Viewer{ID: fedAccountID(name), Role: role, EmailVerified: true,
+	return scope.For(scope.Viewer{ID: fedAccountID(name), Role: role,
 		AdminOf: adminOf})
 }
 

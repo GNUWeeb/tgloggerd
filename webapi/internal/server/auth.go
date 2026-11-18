@@ -96,7 +96,7 @@ func writeError(w http.ResponseWriter, status int, code string, extra map[string
 //
 // It puts the session and the request scope in the request's context
 // (SessionFrom, ScopeFrom). While the scope has a gate (a forced
-// password change, later a missing address), the request answers 403
+// password change), the request answers 403
 // with the gate as its error code, unless the route passes that gate:
 // the operations that take the step, and the session itself.
 func (s *Server) RequireSession(next http.HandlerFunc, passes ...scope.Gate) http.HandlerFunc {
@@ -133,11 +133,10 @@ func (s *Server) RequireSession(next http.HandlerFunc, passes ...scope.Gate) htt
 // gateMessages are the sentences of the gates' 403 answers.
 var gateMessages = map[scope.Gate]string{
 	scope.PasswordChange: "Choose a new password before going on.",
-	scope.EmailRequired:  "Add and verify an email address before going on.",
 }
 
 // allGates is what a route that every signed-in account may use passes.
-var allGates = []scope.Gate{scope.PasswordChange, scope.EmailRequired}
+var allGates = []scope.Gate{scope.PasswordChange}
 
 // session answers who is signed in and the CSRF token to send.
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
@@ -151,10 +150,13 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 }
 
 // newLoginToken sets a fresh pre-login CSRF cookie and returns the
-// token to echo, as the Drogon login page does on every render.
+// token to echo, as the Drogon login page does on every render. The
+// forgotten-password form sends the same token, so the cookie is set
+// for its path too.
 func (s *Server) newLoginToken(w http.ResponseWriter) string {
 	tok := s.signer.NewLoginToken()
 	s.cookies.SetLoginCookie(w, tok, loginPath)
+	s.cookies.SetLoginCookie(w, tok, forgotPath)
 	return tok
 }
 
@@ -275,6 +277,7 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "start session", err)
 		return
 	}
+	s.noteDevice(r, u.ID)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":    userJSON{u.ID, u.Username, u.Role, u.MustChangePassword},
 		"csrf":    s.signer.SessionCSRF(raw),

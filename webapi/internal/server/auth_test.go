@@ -32,9 +32,12 @@ func testDB(t *testing.T) *sql.DB {
 	return testdb.New(t, testdb.Web).DB
 }
 
+// addUser adds an account with the verified address <name>@example.org,
+// so the email gate does not stop it.
 func addUser(t *testing.T, db *sql.DB, name, hash, role string, active bool) uint64 {
-	res, err := db.Exec("INSERT INTO web_users (username, password_hash, role, is_active) "+
-		"VALUES (?, ?, ?, ?)", name, hash, role, active)
+	res, err := db.Exec("INSERT INTO web_users (username, password_hash, role, is_active, "+
+		"email, email_verified_at) VALUES (?, ?, ?, ?, ?, NOW())",
+		name, hash, role, active, name+"@example.org")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,9 +153,15 @@ func TestLoginSessionLogout(t *testing.T) {
 	if a.status != 200 || tok == "" || a.body["signed_in"] != false {
 		t.Fatalf("GET /api/login: %d %v", a.status, a.body)
 	}
-	if len(a.set) != 1 || a.set[0].Name != "tgw_csrf" || a.set[0].Path != "/api/login" ||
-		!a.set[0].HttpOnly || !a.set[0].Secure || a.set[0].MaxAge != 1800 {
-		t.Fatalf("login cookie %+v", a.set)
+	// The same token for the login and the forgotten-password form.
+	if len(a.set) != 2 || a.set[0].Path != "/api/login" || a.set[1].Path != "/api/password/forgot" {
+		t.Fatalf("login cookies %+v", a.set)
+	}
+	for _, ck := range a.set {
+		if ck.Name != "tgw_csrf" || ck.Value != a.set[0].Value || !ck.HttpOnly || !ck.Secure ||
+			ck.MaxAge != 1800 {
+			t.Fatalf("login cookie %+v", ck)
+		}
 	}
 
 	creds := map[string]string{"username": "alice", "password": "s3cret"}

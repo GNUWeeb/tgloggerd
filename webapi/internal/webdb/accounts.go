@@ -27,6 +27,7 @@ type Account struct {
 	Username           string
 	DisplayName        string
 	Email              string // "" when none
+	EmailVerified      bool   // Email is verified (web-accounts.md section 8)
 	Role               string
 	Active             bool
 	HasPassword        bool
@@ -60,7 +61,7 @@ var (
 // Times are read as Unix seconds, so the session time zone the
 // DATETIME columns were written in is converted by the server.
 const accountColumns = "SELECT u.id, u.username, u.display_name, " +
-	"COALESCE(u.email, ''), u.role, u.is_active, u.password_hash <> '', " +
+	"COALESCE(u.email, ''), u.email_verified_at IS NOT NULL, u.role, u.is_active, u.password_hash <> '', " +
 	"u.must_change_password, COALESCE(u.created_by, 0), " +
 	"UNIX_TIMESTAMP(u.created_at), " +
 	"(SELECT UNIX_TIMESTAMP(MAX(a.created_at)) FROM web_audit a " +
@@ -79,7 +80,7 @@ func scanAccount(row scanner) (Account, error) {
 		signin            sql.NullFloat64
 		adminOf, memberOf sql.NullString
 	)
-	err := row.Scan(&a.ID, &a.Username, &a.DisplayName, &a.Email, &a.Role,
+	err := row.Scan(&a.ID, &a.Username, &a.DisplayName, &a.Email, &a.EmailVerified, &a.Role,
 		&a.Active, &a.HasPassword, &a.MustChangePassword, &a.CreatedBy,
 		&created, &signin, &adminOf, &memberOf)
 	if err != nil {
@@ -161,11 +162,15 @@ func AccountAudits(ctx context.Context, db *sql.DB, id uint64, limit int) ([]Acc
 
 // NewAccount is what CreateAccount stores.
 type NewAccount struct {
-	Username     string
-	DisplayName  string
-	Email        string
-	Role         string
-	PasswordHash string // a temporary password's; must be changed
+	Username    string
+	DisplayName string
+	Email       string // "" for none
+	Role        string
+	// PasswordHash is the first password's, typed by the creator or
+	// generated; the account must change it at its first sign-in. ""
+	// creates it without a password, to be set from the invitation
+	// mailed to Email.
+	PasswordHash string
 	CreatedBy    uint64
 	// Federations files a member in these federations; they must
 	// exist (else ErrNoFederation).
@@ -192,8 +197,9 @@ func nullable(s string) any {
 	return s
 }
 
-// CreateAccount inserts an account flagged to change its password at
-// its first sign-in, and audits it in the same transaction.
+// CreateAccount inserts an account, flagged to change its first
+// password at its first sign-in, or without a password for an
+// invitation, and audits it in the same transaction.
 func CreateAccount(ctx context.Context, db *sql.DB, n NewAccount, ip string) (uint64, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -203,8 +209,9 @@ func CreateAccount(ctx context.Context, db *sql.DB, n NewAccount, ip string) (ui
 	res, err := tx.ExecContext(ctx,
 		"INSERT INTO web_users (username, display_name, email, password_hash, "+
 			"role, is_active, must_change_password, created_by) "+
-			"VALUES (?, ?, ?, ?, ?, 1, 1, ?)",
-		n.Username, n.DisplayName, nullable(n.Email), n.PasswordHash, n.Role, n.CreatedBy)
+			"VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+		n.Username, n.DisplayName, nullable(n.Email), n.PasswordHash, n.Role,
+		n.PasswordHash != "", n.CreatedBy)
 	if err != nil {
 		return 0, duplicate(err)
 	}
@@ -230,12 +237,16 @@ func CreateAccount(ctx context.Context, db *sql.DB, n NewAccount, ip string) (ui
 // AccountChange is a change to one account; nil fields stay.
 type AccountChange struct {
 	DisplayName *string
-	Email       *string // "" removes the address
-	Role        *string
-	Active      *bool
+	// Email changes the address, unverified; "" removes it.
+	Email  *string
+	Role   *string
+	Active *bool
 	// PasswordHash sets a temporary password, which the account must
 	// change at its next sign-in.
 	PasswordHash *string
+	// ClearPassword removes the password, so the account signs in
+	// again only once it has set a new one from a link.
+	ClearPassword bool
 	// EndSessions bumps session_epoch, ending every session of the
 	// account on both services. A role change, a disable and a new
 	// password do it as well.
@@ -314,7 +325,8 @@ func UpdateAccount(ctx context.Context, db *sql.DB, actor, id uint64, c AccountC
 		detail = append(detail, "name")
 	}
 	if c.Email != nil && *c.Email != cur.email {
-		sets, args = append(sets, "email = ?"), append(args, nullable(*c.Email))
+		sets = append(sets, "email = ?", "email_verified_at = NULL")
+		args = append(args, nullable(*c.Email))
 		detail = append(detail, "email")
 	}
 	if c.Role != nil && *c.Role != cur.role {
@@ -329,6 +341,9 @@ func UpdateAccount(ctx context.Context, db *sql.DB, actor, id uint64, c AccountC
 	if c.PasswordHash != nil {
 		sets, args = append(sets, "password_hash = ?", "must_change_password = 1"),
 			append(args, *c.PasswordHash)
+		bump = true
+	} else if c.ClearPassword {
+		sets = append(sets, "password_hash = ''", "must_change_password = 0")
 		bump = true
 	}
 	if bump {

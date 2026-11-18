@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
 import type { ChatProps } from './chat.tsx';
 import type { GroupsProps } from './groups.tsx';
@@ -74,5 +74,47 @@ describe('chat', () => {
 		expect(screen.queryByRole('button', { name: /Live/ })).toBeNull();
 		expect(screen.getByRole('link', { name: /Sign in/ }).getAttribute('href')).toContain('/login?next=');
 		expect(screen.getByText(/Public archive of/)).toBeTruthy();
+	});
+
+	describe('the viewer\'s chat preferences', () => {
+		const withPrefs = (chat: Record<string, unknown>) => {
+			const page = fixture<ChatProps>(chatUrl());
+			return { ...page, viewer: { ...page.viewer, chat: { ...page.viewer.chat, ...chat } } };
+		};
+
+		it('hide deleted and service messages and edit markers when turned off', () => {
+			const page = withPrefs({ show_deleted: false, show_service: false, show_edited: false });
+			const p = page.props;
+			const msgs = [...p.messages];
+			msgs[0] = { ...msgs[0]!, content_type: 'service', text: 'joined the group' };
+			msgs[1] = { ...msgs[1]!, content_type: 'text', deleted_at: '2026-11-17T10:00:00Z', text: 'gone message' };
+			msgs[2] = { ...msgs[2]!, content_type: 'text', edits: [{ at: '2026-11-17T09:00:00Z', text: 'before' }], edited_at: '2026-11-17T09:05:00Z', deleted_at: null };
+			renderPage(chatUrl(), 'superadmin', { viewer: page.viewer, props: { ...p, messages: msgs } });
+			expect(screen.queryByText(/joined the group/)).toBeNull();
+			expect(screen.queryByText('gone message')).toBeNull();
+			expect(document.querySelector(`#m${msgs[2]!.message_id} .c-edited`)).toBeNull();
+		});
+
+		it('load media only on click when asked to', () => {
+			const page = withPrefs({ media: 'click' });
+			const photo = page.props.messages.find((m) => m.content_type === 'photo' && m.media?.stored)!;
+			renderPage(chatUrl(), 'superadmin', { viewer: page.viewer });
+			const row = document.querySelector(`#m${photo.message_id}`)!;
+			const show = within(row as HTMLElement).getAllByRole('button', { name: /Show/ })[0]!;
+			fireEvent.click(show);
+			expect(row.querySelector('a.c-media')).not.toBeNull();
+		});
+
+		it('load older messages on a button instead of on scrolling', async () => {
+			const page = withPrefs({ auto_load: false });
+			const calls = fakeApi('superadmin', { 'GET /api/chats/group/:id/messages': () => ({ messages: [], has_older: false, has_newer: false }) });
+			renderPage(chatUrl(), 'superadmin', { viewer: page.viewer });
+			const scroller = document.querySelector('.c-scroll') as HTMLElement;
+			scroller.scrollTop = 0;
+			fireEvent.scroll(scroller);
+			expect(windowCalls(calls).filter((c) => c.query.get('before'))).toHaveLength(0);
+			fireEvent.click(screen.getByRole('button', { name: 'Load older messages' }));
+			await waitFor(() => expect(windowCalls(calls).filter((c) => c.query.get('before'))).toHaveLength(1));
+		});
 	});
 });

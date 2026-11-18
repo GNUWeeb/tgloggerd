@@ -140,16 +140,24 @@ Later: TOTP two-factor sign-in, per-user MCP tokens.
 
 ## 8. Email
 
-Every account has an email address.
+An email address is optional, for each account and for the whole
+service (decisions/2026-11-18-email-optional.md); an account needs at
+least a username and a password. What follows applies whenever an
+account has an address and mail is configured; without them nothing
+is sent and nothing waits for mail.
 
-- A new account gets a one-time set-password link by email (it expires
-  after a configured time); no password is ever sent by email, and the
-  administrator never sees it. The same link mechanism resets a
-  forgotten password.
+- A new account's first password is typed by its creator, or
+  generated and shown once; either way the account changes it at its
+  first sign-in. With an address and mail, the creator may send a
+  one-time set-password link instead (it expires after a configured
+  time); no password is ever sent by email. The same link mechanism
+  resets a forgotten password.
+- A password reset sends a link to a verified address when mail is
+  configured, and otherwise gives a one-time temporary password, shown
+  once.
 - Addresses are verified by a link before they are used for resets or
   notices. Changing an address notifies the old one.
-- Accounts that have no address yet (today's) must add and verify one
-  right after their next sign-in, before using the dashboard.
+- Accounts without an address are never asked to add one.
 - Security notices, always sent: password changed or reset, address
   changed (also to the old address), sign-in from a new device, account
   disabled, role changed.
