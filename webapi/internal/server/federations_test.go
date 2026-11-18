@@ -6,11 +6,17 @@
 package server
 
 import (
+	"database/sql"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/testdb"
 )
 
@@ -260,5 +266,100 @@ func TestFederationsAdminOf(t *testing.T) {
 	if err := db.QueryRow("SELECT detail FROM web_audit WHERE action = 'account_update' " +
 		"AND target_user_id = 102 ORDER BY id LIMIT 1").Scan(&detail); err != nil || detail != "admin_of 1->2" {
 		t.Fatalf("audit of kern_admin's change: %q %v", detail, err)
+	}
+}
+
+// newFedHandler is a service over the logger's "sample" fixture and
+// the web's "federations" one, with the web database for checks.
+func newFedHandler(t *testing.T) (http.Handler, *sql.DB) {
+	t.Helper()
+	ro := interpolating(t, testdb.New(t, testdb.Logger, "sample"))
+	app := testdb.New(t, testdb.Web, "federations").DB
+	signer := auth.NewSigner(testKey)
+	return New(Deps{
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		RO:      ro,
+		App:     app,
+		Signer:  signer,
+		Cookies: &auth.Cookies{Signer: signer, Timeout: 3600, Secure: true},
+		Limiter: auth.NewRateLimiter(50, time.Hour),
+		Tokens:  auth.NewFileTokens(testKey),
+	}), app
+}
+
+func pickIDs(b map[string]any) string {
+	var out []string
+	for _, it := range b["items"].([]any) {
+		out = append(out, fmt.Sprint(int64(it.(map[string]any)["id"].(float64))))
+	}
+	slices.Sort(out)
+	return strings.Join(out, ",")
+}
+
+// The chat search of a federation lists its groups; Default's are
+// derived, the groups in no other federation, and follow as groups
+// move in and out of the others.
+func TestFederationsChatSearch(t *testing.T) {
+	t.Parallel()
+	h, app := newFedHandler(t)
+	root := newSession(t, h, "fed_root", "password")
+	kern := newSession(t, h, "kern_admin", "password")
+	search := func(s session, fed string) string {
+		t.Helper()
+		a := s.call("GET", "/api/chats/search?limit=200&federation="+fed, nil)
+		if a.status != 200 {
+			t.Fatalf("federation %s: %d %v", fed, a.status, a.body)
+		}
+		if a.body["next_cursor"] != nil {
+			t.Fatalf("federation %s: more than a page", fed)
+		}
+		return pickIDs(a.body)
+	}
+	g := func(n ...int) string {
+		var out []string
+		for _, i := range n {
+			out = append(out, fmt.Sprint(-1001000000000-int64(i)))
+		}
+		slices.Sort(out)
+		return strings.Join(out, ",")
+	}
+	check := func(step string, want map[string]string) {
+		t.Helper()
+		for fed, w := range want {
+			// Federations change no visibility: an admin of none of
+			// them gets the same lists.
+			for _, s := range []session{root, kern} {
+				if got := search(s, fed); got != w {
+					t.Errorf("%s: federation %s: %s, want %s", step, fed, got, w)
+				}
+			}
+		}
+	}
+	check("fixture", map[string]string{
+		"1": g(1, 2), "2": g(2, 3), "0": g(4, 5, 10), "99": ""})
+
+	move := func(q string, args ...any) {
+		t.Helper()
+		if _, err := app.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Out of Security, -1001000000003 is in no federation: Default.
+	move("DELETE FROM web_federation_groups WHERE federation_id = 2 AND group_id = ?", -1001000000003)
+	check("3 out of Security", map[string]string{"2": g(2), "0": g(3, 4, 5, 10)})
+	// Out of Kernel only, -1001000000002 stays out of Default.
+	move("DELETE FROM web_federation_groups WHERE federation_id = 1 AND group_id = ?", -1001000000002)
+	check("2 out of Kernel", map[string]string{"1": g(1), "2": g(2), "0": g(3, 4, 5, 10)})
+	// Into a federation, a Default group leaves Default.
+	move("INSERT INTO web_federation_groups (federation_id, group_id) VALUES (1, ?), (1, ?)",
+		-1001000000004, -1001000000010)
+	check("4 and 10 into Kernel", map[string]string{"1": g(1, 4, 10), "0": g(3, 5)})
+	// A federation filters with the scope and the text as before.
+	if a := root.call("GET", "/api/chats/search?federation=1&q=ctf", nil); pickIDs(a.body) != g(10) {
+		t.Errorf("federation 1, q=ctf: %v", a.body)
+	}
+	// A federation lists groups only.
+	if a := root.call("GET", "/api/chats/search?federation=0&kind=user", nil); pickIDs(a.body) != "" {
+		t.Errorf("Default's users: %v", a.body)
 	}
 }

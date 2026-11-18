@@ -64,6 +64,44 @@ func idList(s sql.NullString) ([]uint64, error) {
 	return slices.Compact(ids), nil
 }
 
+// FederatedGroups is every group stored in a federation (each once,
+// ascending): the groups that are not in Default.
+func FederatedGroups(ctx context.Context, db Querier) ([]int64, error) {
+	return int64s(ctx, db, "SELECT DISTINCT group_id FROM web_federation_groups ORDER BY group_id")
+}
+
+// FederationGroups is the stored groups of one federation, ascending,
+// or ErrNoFederation. Default has none stored (see FederatedGroups).
+func FederationGroups(ctx context.Context, db Querier, id uint64) ([]int64, error) {
+	var n int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM web_federations WHERE id = ?", id).
+		Scan(&n); err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, ErrNoFederation
+	}
+	return int64s(ctx, db, "SELECT group_id FROM web_federation_groups "+
+		"WHERE federation_id = ? ORDER BY group_id", id)
+}
+
+func int64s(ctx context.Context, db Querier, q string, args ...any) ([]int64, error) {
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var v int64
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 // JoinIDs writes ids as a comma-separated list, "" for none.
 func JoinIDs(ids []uint64) string {
 	parts := make([]string, len(ids))

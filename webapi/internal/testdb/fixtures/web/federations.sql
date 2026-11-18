@@ -9,8 +9,8 @@
 --                migration); a test's own get the next ids
 --
 -- Kernel holds -1001000000001 and -1001000000002, Security
--- -1001000000002 and -1001000000003, so Default holds the other seven
--- groups of the sample (-1001000000004 - -1001000000010).
+-- -1001000000002 and -1001000000003, so Default holds the sample's
+-- other groups: -1001000000004, -1001000000005 and -1001000000010.
 --
 --   fed_root        superadmin
 --   kern_admin      admin of Kernel

@@ -28,30 +28,56 @@ type ChatPick struct {
 
 // ChatSearch is a chat search: q matched against titles, names and
 // usernames (and an exact id), kinds "group", "user" or both (""),
-// Federation the groups of one federation only (nil for all).
+// Groups the groups of one federation only (nil for all).
 type ChatSearch struct {
-	Q          string
-	Kind       string
-	Federation *uint64
-	Limit      int
-	Offset     int
+	Q      string
+	Kind   string
+	Groups *GroupSet
+	Limit  int
+	Offset int
+}
+
+// GroupSet is a set of groups by chat id, as the web's own schema
+// gives it (the logger's schema knows no federations): the groups
+// listed, or with Not every group but those, which is how the Default
+// federation's derived groups are named (every group in no other
+// federation).
+type GroupSet struct {
+	IDs []int64
+	Not bool
+}
+
+// Cond is the condition, with its arguments, that keeps the rows of
+// the set's groups; column is the query's own name for the group's
+// chat id, a constant of the caller's.
+func (g GroupSet) Cond(column string) (string, []any) {
+	if len(g.IDs) == 0 {
+		if g.Not {
+			return "1 = 1", nil
+		}
+		return "1 = 0", nil
+	}
+	args := make([]any, len(g.IDs))
+	for i, id := range g.IDs {
+		args[i] = id
+	}
+	op := " IN ("
+	if g.Not {
+		op = " NOT IN ("
+	}
+	return column + op + placeholders(len(g.IDs)) + ")", args
 }
 
 // SearchChats lists the groups and private chats the scope sees that
 // match, busiest first: groups by their message count, private chats
 // by theirs. It returns one row more than Limit when more follow.
 //
-// Private chats are only for a scope that sees them. Federation 0 is
-// Default, which holds every group until web-federations adds others;
-// any other federation holds none yet. A federation limits the answer
-// to groups.
+// Private chats are only for a scope that sees them. Groups limits the
+// answer to those groups (a federation's), and so to groups only.
 func SearchChats(ctx context.Context, db *sql.DB, sc scope.Scope, s ChatSearch) ([]ChatPick, error) {
 	q := strings.TrimPrefix(strings.TrimSpace(s.Q), "@")
 	wantGroups := s.Kind == "" || s.Kind == "group"
-	wantUsers := (s.Kind == "" || s.Kind == "user") && sc.SeesPrivate() && s.Federation == nil
-	if s.Federation != nil && *s.Federation != scope.DefaultFederation {
-		wantGroups = false
-	}
+	wantUsers := (s.Kind == "" || s.Kind == "user") && sc.SeesPrivate() && s.Groups == nil
 	var (
 		parts []string
 		args  []any
@@ -63,6 +89,11 @@ func SearchChats(ctx context.Context, db *sql.DB, sc scope.Scope, s ChatSearch) 
 			"WHERE gu.group_id = g.id AND gu.kind='active' ORDER BY gu.position LIMIT 1) " +
 			"AS username FROM `telegram_groups` g WHERE " + gf
 		args = append(args, ga...)
+		if s.Groups != nil {
+			fc, fa := s.Groups.Cond("g.id")
+			part += " AND " + fc
+			args = append(args, fa...)
+		}
 		if q != "" {
 			part += " AND (g.title LIKE ? OR EXISTS (SELECT 1 FROM telegram_group_usernames x " +
 				"WHERE x.group_id = g.id AND x.kind='active' AND x.username LIKE ?)"

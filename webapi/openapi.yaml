@@ -859,9 +859,10 @@ paths:
         are searched. A member, or an admin restricted from private
         messages, gets groups only (web-accounts.md sections 4 and 5),
         and only the groups the request scope shows. federation limits
-        the answer to that federation's groups (0 is Default, which
-        holds every group until federations exist; any other id holds
-        none yet). Paged by an opaque cursor, at most 100000 rows deep.
+        the answer to that federation's groups, and so to groups: 0 is
+        Default, the groups in no other federation; an id that is no
+        federation holds none. Paged by an opaque cursor, at most
+        100000 rows deep.
       parameters:
         - name: q
           in: query

@@ -463,8 +463,10 @@ they move.
 The groups the scope shows (GroupFilter) and, for a viewer who sees
 private chats, the people the logging account has private messages
 with, matched on title, name or username, busiest first, paged by an
-opaque cursor. federation=0 is Default, which holds every group until
-web-federations adds federations; any other id holds no group yet.
+opaque cursor. federation=<id> keeps the groups of that federation
+(web/docs/accounts.md, Federations), read from the web's own schema
+and passed to the logger's query as a list: 0 is Default, every group
+in no other federation; an id that is no federation holds none.
 
 # The request scope
 

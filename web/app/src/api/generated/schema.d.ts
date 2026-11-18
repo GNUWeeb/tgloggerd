@@ -221,7 +221,7 @@ export interface paths {
         };
         /**
          * Search chats for a picker
-         * @description Groups and private chats the viewer may see whose title, name or username matches q (a leading @ is ignored, and a number also matches the chat's id exactly); an empty q lists every one. Busiest first: groups by their message count, private chats by the number of their messages. Without kind both kinds are searched. A member, or an admin restricted from private messages, gets groups only (web-accounts.md sections 4 and 5), and only the groups the request scope shows. federation limits the answer to that federation's groups (0 is Default, which holds every group until federations exist; any other id holds none yet). Paged by an opaque cursor, at most 100000 rows deep.
+         * @description Groups and private chats the viewer may see whose title, name or username matches q (a leading @ is ignored, and a number also matches the chat's id exactly); an empty q lists every one. Busiest first: groups by their message count, private chats by the number of their messages. Without kind both kinds are searched. A member, or an admin restricted from private messages, gets groups only (web-accounts.md sections 4 and 5), and only the groups the request scope shows. federation limits the answer to that federation's groups, and so to groups: 0 is Default, the groups in no other federation; an id that is no federation holds none. Paged by an opaque cursor, at most 100000 rows deep.
          */
         get: operations["searchChats"];
         put?: never;

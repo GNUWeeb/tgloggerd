@@ -6,11 +6,15 @@
 package server
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/webdb"
 )
 
 // The chat search of the pickers, GET /api/chats/search: the groups
@@ -93,7 +97,12 @@ func (s *Server) searchChats(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, "bad_request", "federation is a federation id.")
 			return
 		}
-		cs.Federation = &id
+		g, err := s.federationGroups(r.Context(), id)
+		if err != nil {
+			s.internalError(w, "federation groups", err)
+			return
+		}
+		cs.Groups = &g
 	}
 	if v := q.Get("cursor"); v != "" {
 		off, ok := parseChatCursor(v)
@@ -133,4 +142,21 @@ func (s *Server) searchChats(w http.ResponseWriter, r *http.Request) {
 		page.Items = append(page.Items, it)
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+// federationGroups is the groups of a federation as a set for the
+// logger's queries: Default's are every group in no other federation,
+// another's its stored groups; a federation that does not exist holds
+// none. The groups are read from the web's own schema; the scope still
+// decides which of them a viewer sees.
+func (s *Server) federationGroups(ctx context.Context, id uint64) (logdb.GroupSet, error) {
+	if id == scope.DefaultFederation {
+		ids, err := webdb.FederatedGroups(ctx, s.app)
+		return logdb.GroupSet{IDs: ids, Not: true}, err
+	}
+	ids, err := webdb.FederationGroups(ctx, s.app, id)
+	if errors.Is(err, webdb.ErrNoFederation) {
+		return logdb.GroupSet{}, nil
+	}
+	return logdb.GroupSet{IDs: ids}, err
 }
