@@ -2512,4 +2512,269 @@ forum_topic_from_created(const td_api::message &message)
 	return t;
 }
 
+namespace {
+
+/* A forward or reply origin (messageOrigin*) as an object. */
+nlohmann::json origin_json(const td_api::MessageOrigin *o)
+{
+	if (!o)
+		return nullptr;
+	nlohmann::json j = nlohmann::json::object();
+	switch (o->get_id()) {
+	case td_api::messageOriginUser::ID:
+		j["kind"] = "user";
+		j["user_id"] = static_cast<const td_api::messageOriginUser &>(*o)
+			.sender_user_id_;
+		break;
+	case td_api::messageOriginHiddenUser::ID:
+		j["kind"] = "hidden_user";
+		put_str(j, "sender_name",
+			static_cast<const td_api::messageOriginHiddenUser &>(*o)
+				.sender_name_);
+		break;
+	case td_api::messageOriginChat::ID: {
+		auto &x = static_cast<const td_api::messageOriginChat &>(*o);
+		j["kind"] = "chat";
+		j["chat_id"] = x.sender_chat_id_;
+		put_str(j, "author_signature", x.author_signature_);
+		break;
+	}
+	case td_api::messageOriginChannel::ID: {
+		auto &x = static_cast<const td_api::messageOriginChannel &>(*o);
+		j["kind"] = "channel";
+		j["chat_id"] = x.chat_id_;
+		put_msg_id(j, "message_id", x.message_id_);
+		put_str(j, "author_signature", x.author_signature_);
+		break;
+	}
+	default:
+		return nullptr;
+	}
+	return j;
+}
+
+/*
+ * A keyboard: the kind, and for a keyboard with buttons each row's buttons
+ * with their text, type and what a reader needs of their target (a URL, a
+ * user, a query). Callback data is the bot's own opaque payload and is not
+ * kept.
+ */
+nlohmann::json reply_markup_json(const td_api::ReplyMarkup *rm)
+{
+	if (!rm)
+		return nullptr;
+	nlohmann::json j = nlohmann::json::object();
+	switch (rm->get_id()) {
+	case td_api::replyMarkupRemoveKeyboard::ID:
+		j["kind"] = "remove_keyboard";
+		break;
+	case td_api::replyMarkupForceReply::ID:
+		j["kind"] = "force_reply";
+		put_str(j, "placeholder",
+			static_cast<const td_api::replyMarkupForceReply &>(*rm)
+				.input_field_placeholder_);
+		break;
+	case td_api::replyMarkupShowKeyboard::ID: {
+		auto &k = static_cast<const td_api::replyMarkupShowKeyboard &>(*rm);
+		j["kind"] = "keyboard";
+		nlohmann::json rows = nlohmann::json::array();
+		for (const auto &row : k.rows_) {
+			nlohmann::json r = nlohmann::json::array();
+			for (const auto &btn : row) {
+				if (!btn)
+					continue;
+				nlohmann::json e = { { "text", btn->text_ } };
+				put_str(e, "type", tl_variant(btn->type_.get(),
+							      "keyboardButtonType"));
+				if (btn->type_ && btn->type_->get_id() ==
+					td_api::keyboardButtonTypeWebApp::ID)
+					put_str(e, "url",
+						static_cast<const td_api::keyboardButtonTypeWebApp &>(
+							*btn->type_).url_);
+				r.push_back(e);
+			}
+			rows.push_back(r);
+		}
+		j["rows"] = rows;
+		put_flag(j, "one_time", k.one_time_);
+		put_flag(j, "persistent", k.is_persistent_);
+		put_str(j, "placeholder", k.input_field_placeholder_);
+		break;
+	}
+	case td_api::replyMarkupInlineKeyboard::ID: {
+		auto &k = static_cast<const td_api::replyMarkupInlineKeyboard &>(*rm);
+		j["kind"] = "inline_keyboard";
+		nlohmann::json rows = nlohmann::json::array();
+		for (const auto &row : k.rows_) {
+			nlohmann::json r = nlohmann::json::array();
+			for (const auto &btn : row) {
+				if (!btn)
+					continue;
+				nlohmann::json e = { { "text", btn->text_ } };
+				const td_api::InlineKeyboardButtonType *t = btn->type_.get();
+				put_str(e, "type", tl_variant(t, "inlineKeyboardButtonType"));
+				if (t) {
+					switch (t->get_id()) {
+					case td_api::inlineKeyboardButtonTypeUrl::ID:
+						put_str(e, "url", static_cast<const td_api::inlineKeyboardButtonTypeUrl &>(*t).url_);
+						break;
+					case td_api::inlineKeyboardButtonTypeLoginUrl::ID:
+						put_str(e, "url", static_cast<const td_api::inlineKeyboardButtonTypeLoginUrl &>(*t).url_);
+						break;
+					case td_api::inlineKeyboardButtonTypeWebApp::ID:
+						put_str(e, "url", static_cast<const td_api::inlineKeyboardButtonTypeWebApp &>(*t).url_);
+						break;
+					case td_api::inlineKeyboardButtonTypeSwitchInline::ID:
+						put_str(e, "query", static_cast<const td_api::inlineKeyboardButtonTypeSwitchInline &>(*t).query_);
+						break;
+					case td_api::inlineKeyboardButtonTypeUser::ID:
+						put_num(e, "user_id", static_cast<const td_api::inlineKeyboardButtonTypeUser &>(*t).user_id_);
+						break;
+					case td_api::inlineKeyboardButtonTypeCopyText::ID:
+						put_str(e, "copy_text", static_cast<const td_api::inlineKeyboardButtonTypeCopyText &>(*t).text_);
+						break;
+					default:
+						break;
+					}
+				}
+				r.push_back(e);
+			}
+			rows.push_back(r);
+		}
+		j["rows"] = rows;
+		break;
+	}
+	default:
+		return nullptr;
+	}
+	return j;
+}
+
+} /* namespace */
+
+std::optional<std::string> fact_check_json(const td_api::factCheck *fc)
+{
+	if (!fc || !fc->text_ || fc->text_->text_.empty())
+		return std::nullopt;
+	nlohmann::json j = { { "text", fc->text_->text_ } };
+	if (auto e = format_entities_json(*fc->text_))
+		j["entities"] = nlohmann::json::parse(*e);
+	put_str(j, "country_code", fc->country_code_);
+	return j.dump();
+}
+
+std::optional<std::string> message_meta_json(const td_api::message &m)
+{
+	nlohmann::json j = nlohmann::json::object();
+
+	put_num(j, "via_bot_user_id", m.via_bot_user_id_);
+	put_num(j, "business_bot_user_id", m.sender_business_bot_user_id_);
+	put_json(j, "guest_bot_caller", sender_json(m.guest_bot_caller_id_.get()));
+
+	if (m.reply_to_) {
+		if (m.reply_to_->get_id() == td_api::messageReplyToMessage::ID) {
+			auto &r = static_cast<const td_api::messageReplyToMessage &>(
+				*m.reply_to_);
+			nlohmann::json reply = nlohmann::json::object();
+			if (r.quote_ && r.quote_->text_ &&
+			    !r.quote_->text_->text_.empty()) {
+				nlohmann::json q = { { "text", r.quote_->text_->text_ } };
+				if (auto e = format_entities_json(*r.quote_->text_))
+					q["entities"] = nlohmann::json::parse(*e);
+				put_num(q, "position", r.quote_->position_);
+				put_flag(q, "manual", r.quote_->is_manual_);
+				reply["quote"] = q;
+			}
+			put_num(reply, "checklist_task_id", r.checklist_task_id_);
+			put_str(reply, "poll_option_id", r.poll_option_id_);
+			/* A reply into a chat not logged: what the message
+			 * replied to was, as far as this copy says. */
+			put_json(reply, "origin", origin_json(r.origin_.get()));
+			put_num(reply, "origin_send_date", r.origin_send_date_);
+			if (r.content_) {
+				models::MessageContent rc;
+				extract_message_content(*r.content_, rc);
+				nlohmann::json content = nlohmann::json::object();
+				put_str(content, "tdlib_type", rc.tdlib_type.value_or(""));
+				put_str(content, "text", rc.text.value_or(""));
+				reply["content"] = content;
+			}
+			if (!reply.empty())
+				j["reply"] = reply;
+		} else if (m.reply_to_->get_id() == td_api::messageReplyToStory::ID) {
+			auto &r = static_cast<const td_api::messageReplyToStory &>(
+				*m.reply_to_);
+			j["reply_to_story"] = {
+				{ "poster_chat_id", r.story_poster_chat_id_ },
+				{ "story_id", r.story_id_ },
+			};
+		}
+	}
+
+	if (m.forward_info_) {
+		auto &fi = *m.forward_info_;
+		if (fi.source_) {
+			auto &src = *fi.source_;
+			nlohmann::json fs = nlohmann::json::object();
+			put_num(fs, "chat_id", src.chat_id_);
+			put_msg_id(fs, "message_id", src.message_id_);
+			put_json(fs, "sender", sender_json(src.sender_id_.get()));
+			put_str(fs, "sender_name", src.sender_name_);
+			put_num(fs, "date", src.date_);
+			if (!fs.empty())
+				j["forward_source"] = fs;
+		}
+		put_str(j, "psa_type", fi.public_service_announcement_type_);
+	}
+
+	if (m.import_info_) {
+		nlohmann::json im = nlohmann::json::object();
+		put_str(im, "sender_name", m.import_info_->sender_name_);
+		put_num(im, "date", m.import_info_->date_);
+		j["import"] = im;
+	}
+
+	put_json(j, "reply_markup", reply_markup_json(m.reply_markup_.get()));
+	put_id(j, "effect_id", m.effect_id_);
+
+	if (m.self_destruct_type_) {
+		if (m.self_destruct_type_->get_id() ==
+		    td_api::messageSelfDestructTypeTimer::ID)
+			put_num(j, "self_destruct_time",
+				static_cast<const td_api::messageSelfDestructTypeTimer &>(
+					*m.self_destruct_type_).self_destruct_time_);
+		else
+			j["self_destruct_immediately"] = true;
+	}
+
+	put_num(j, "paid_message_star_count", m.paid_message_star_count_);
+	put_num(j, "sender_boost_count", m.sender_boost_count_);
+	put_str(j, "sender_tag", m.sender_tag_);
+
+	if (auto fc = fact_check_json(m.fact_check_.get()))
+		j["fact_check"] = nlohmann::json::parse(*fc);
+
+	if (m.restriction_info_ &&
+	    (!m.restriction_info_->restriction_reason_.empty() ||
+	     m.restriction_info_->has_sensitive_content_)) {
+		nlohmann::json ri = nlohmann::json::object();
+		put_str(ri, "reason", m.restriction_info_->restriction_reason_);
+		put_flag(ri, "sensitive", m.restriction_info_->has_sensitive_content_);
+		j["restriction"] = ri;
+	}
+
+	if (m.suggested_post_info_) {
+		auto &sp = *m.suggested_post_info_;
+		nlohmann::json p = nlohmann::json::object();
+		put_json(p, "price", price_json(sp.price_.get()));
+		put_num(p, "send_date", sp.send_date_);
+		put_str(p, "state", tl_variant(sp.state_.get(), "suggestedPostState"));
+		j["suggested_post"] = p;
+	}
+
+	if (j.empty())
+		return std::nullopt;
+	return j.dump();
+}
+
 } /* namespace tgloggerd */

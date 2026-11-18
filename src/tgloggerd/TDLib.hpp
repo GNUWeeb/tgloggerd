@@ -289,6 +289,19 @@ public:
 	void setPollHandler(std::function<void(const models::Poll &)> cb);
 
 	/*
+	 * Set the callbacks for changes to a message outside its content:
+	 * @pinned (updateMessageIsPinned) and @fact_check
+	 * (updateMessageFactCheck, with the "fact_check" JSON or nullopt when
+	 * removed). Message ids are server ids.
+	 */
+	void setMessageMetaHandlers(
+		std::function<void(int64_t chat_id, int64_t message_id,
+				   bool is_group, bool pinned)> pinned,
+		std::function<void(int64_t chat_id, int64_t message_id,
+				   bool is_group,
+				   const std::optional<std::string> &)> fact_check);
+
+	/*
 	 * Set the callbacks for forum topics: @info with a topic and whether
 	 * it only fills in a missing one (read from its "created" message)
 	 * rather than describing it now; @pinned when a topic is pinned or

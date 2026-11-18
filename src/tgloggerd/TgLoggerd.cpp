@@ -515,6 +515,37 @@ int TgLoggerd::start(void)
 				}
 			});
 		});
+	tdlib_->setMessageMetaHandlers(
+		[this](int64_t chat_id, int64_t message_id, bool is_group,
+		       bool pinned) {
+			serial_->post([this, chat_id, message_id, is_group, pinned] {
+				try {
+					db_->setMessagePinned(chat_id, message_id,
+							      is_group, pinned);
+					events_->messageEdited(chat_id, message_id);
+				} catch (const std::exception &e) {
+					pr_error(l_, "Failed to record pinned message"
+						 " chat_id=%lld msg_id=%lld: %s",
+						 (long long)chat_id,
+						 (long long)message_id, e.what());
+				}
+			});
+		},
+		[this](int64_t chat_id, int64_t message_id, bool is_group,
+		       const std::optional<std::string> &fc) {
+			serial_->post([this, chat_id, message_id, is_group, fc] {
+				try {
+					db_->setMessageFactCheck(chat_id, message_id,
+								 is_group, fc);
+					events_->messageEdited(chat_id, message_id);
+				} catch (const std::exception &e) {
+					pr_error(l_, "Failed to record fact check"
+						 " chat_id=%lld msg_id=%lld: %s",
+						 (long long)chat_id,
+						 (long long)message_id, e.what());
+				}
+			});
+		});
 	tdlib_->setPollHandler([this](const models::Poll &p) {
 		/* Serialised with the message writes, like everything that
 		 * belongs to a message. */

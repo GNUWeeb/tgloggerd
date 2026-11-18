@@ -787,6 +787,8 @@ struct TDLib::Impl {
 	std::function<void(const models::GroupMessage &)> group_msg_handler_;
 	std::function<void(const models::LinkPreview &, bool)> link_preview_handler_;
 	std::function<void(const models::Poll &)>	poll_handler_;
+	std::function<void(int64_t, int64_t, bool, bool)> message_pinned_handler_;
+	std::function<void(int64_t, int64_t, bool, const std::optional<std::string> &)> fact_check_handler_;
 	std::function<void(const models::ForumTopic &, bool)> forum_topic_handler_;
 	std::function<void(int64_t, int32_t, bool)>	forum_topic_pinned_handler_;
 	/* Forums whose topic list was read in this run (getForumTopics). */
@@ -1460,6 +1462,23 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 					return;
 				refetch_edited_message(u.chat_id_, u.message_id_,
 						       true);
+			},
+			[this](td_api::updateMessageIsPinned &u) {
+				if (!message_pinned_handler_ ||
+				    !is_server_msg_id(u.message_id_))
+					return;
+				message_pinned_handler_(u.chat_id_,
+					to_server_msg_id(u.message_id_),
+					!is_private_chat(u.chat_id_), u.is_pinned_);
+			},
+			[this](td_api::updateMessageFactCheck &u) {
+				if (!fact_check_handler_ ||
+				    !is_server_msg_id(u.message_id_))
+					return;
+				fact_check_handler_(u.chat_id_,
+					to_server_msg_id(u.message_id_),
+					!is_private_chat(u.chat_id_),
+					fact_check_json(u.fact_check_.get()));
 			},
 			[this](td_api::updateForumTopicInfo &u) {
 				if (forum_topic_handler_ && u.info_)
@@ -2166,6 +2185,8 @@ void TDLib::Impl::build_private_message(const td_api::message &message,
 
 	extract_message_content(message, out.content);
 	out.forward_info = extract_forward_info(message);
+	out.meta = message_meta_json(message);
+	out.is_pinned = message.is_pinned_;
 }
 
 void TDLib::Impl::build_group_message(const td_api::message &message,
@@ -2206,6 +2227,8 @@ void TDLib::Impl::build_group_message(const td_api::message &message,
 
 	extract_message_content(message, out.content);
 	out.forward_info = extract_forward_info(message);
+	out.meta = message_meta_json(message);
+	out.is_pinned = message.is_pinned_;
 
 	std::string topic_kind;
 	int64_t topic_id = 0;
@@ -3734,6 +3757,15 @@ void TDLib::setForumTopicHandlers(
 {
 	impl_->forum_topic_handler_ = std::move(info);
 	impl_->forum_topic_pinned_handler_ = std::move(pinned);
+}
+
+void TDLib::setMessageMetaHandlers(
+	std::function<void(int64_t, int64_t, bool, bool)> pinned,
+	std::function<void(int64_t, int64_t, bool,
+			   const std::optional<std::string> &)> fact_check)
+{
+	impl_->message_pinned_handler_ = std::move(pinned);
+	impl_->fact_check_handler_ = std::move(fact_check);
 }
 
 void TDLib::setPollHandler(std::function<void(const models::Poll &)> cb)
