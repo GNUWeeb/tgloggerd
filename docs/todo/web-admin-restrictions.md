@@ -18,8 +18,8 @@ A superadmin needs to keep some data from some admins
   audit entries. Hidden things answer 404.
 - An admin cannot grant what it cannot see.
 - Not in scope: members (web-member-access).
-- Turn AccountsProps.editable.`restrictions` true in the accounts page's
-  loader, so the page offers what now works.
+- Turn on the `restrictions` flag of AccountsProps.editable in
+  the accounts page's loader, so the page offers what now works.
 
 ## Design notes
 

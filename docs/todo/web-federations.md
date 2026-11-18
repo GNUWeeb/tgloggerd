@@ -25,8 +25,8 @@ Different people administer different groups
   webapi/internal/scope): an admin manages every member. The
   migration that adds the tables must keep that: make today's admins
   admins of Default and file today's members in it.
-- Turn AccountsProps.editable.`federations` true in the accounts page's
-  loader, so the page offers what now works.
+- Turn on the `federations` flag of AccountsProps.editable in
+  the accounts page's loader, so the page offers what now works.
 
 ## Design notes
 
