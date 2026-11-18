@@ -84,7 +84,7 @@ func TestImportDiscordBotRefuses(t *testing.T) {
 	for _, c := range []struct{ user, token string }{
 		{"admin", ""},
 		{"admin", "not-a-token"},
-		{"admin", "7000000001:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"},
+		{"admin", "7000000001:AA" + strings.Repeat("x", 33)},
 		{"gw_admin", importToken},
 		{"intern2025", importToken},
 		{"nobody", importToken},

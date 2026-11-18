@@ -26,33 +26,37 @@ const (
 	otherDiscordToken = "MTAwMDAwMDAwMDAwMDAwMDA5OA.GtestB.testSecretDiscordOther"
 )
 
+// fakeTelegramToken has a Telegram bot token's shape and is plainly not
+// a real one, so secret scanners leave it alone.
+var fakeTelegramToken = "7000000001:AA" + strings.Repeat("x", 33)
+
 func TestBotTokenShapes(t *testing.T) {
 	t.Parallel()
 	for tok, want := range map[string]bool{
-		"7000000001:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw":   true,
-		"1:" + strings.Repeat("a", 30):                    true,
-		"1:" + strings.Repeat("a", 29):                    false,
-		"12ab:" + strings.Repeat("a", 30):                 false,
-		":" + strings.Repeat("a", 30):                     false,
-		"1:" + strings.Repeat("a", 29) + "!":              false,
-		"1:" + strings.Repeat("a", 29) + " ":              false,
-		"1:" + strings.Repeat("a", 300):                   false,
-		"7000000001:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw:x": false,
+		fakeTelegramToken:                    true,
+		"1:" + strings.Repeat("a", 30):       true,
+		"1:" + strings.Repeat("a", 29):       false,
+		"12ab:" + strings.Repeat("a", 30):    false,
+		":" + strings.Repeat("a", 30):        false,
+		"1:" + strings.Repeat("a", 29) + "!": false,
+		"1:" + strings.Repeat("a", 29) + " ": false,
+		"1:" + strings.Repeat("a", 300):      false,
+		fakeTelegramToken + ":x":             false,
 	} {
 		if got := logdb.ValidTelegramToken(tok); got != want {
 			t.Errorf("telegram %q: %v, want %v", tok, got, want)
 		}
 	}
 	for tok, want := range map[string]bool{
-		newDiscordToken:                                 true,
-		"MTAwMDAwMDAwMDAwMDAwMDA5OQ.a.b":                true,
-		"MTAwMDAwMDAwMDAwMDAwMDA5OQ.a":                  false,
-		"MTAwMDAwMDAwMDAwMDAwMDA5OQ..b":                 false,
-		"MTAwMDAwMDAwMDAwMDAwMDA5OQ.a.b.c":              false,
-		"aGVsbG8.a.b":                                   false, // "hello", not an id
-		"MA.a.b":                                        false, // "0"
-		"MTAwMDAwMDAwMDAwMDAwMDA5OQ.a+.b":               false,
-		"7000000001:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw": false,
+		newDiscordToken:                    true,
+		"MTAwMDAwMDAwMDAwMDAwMDA5OQ.a.b":   true,
+		"MTAwMDAwMDAwMDAwMDAwMDA5OQ.a":     false,
+		"MTAwMDAwMDAwMDAwMDAwMDA5OQ..b":    false,
+		"MTAwMDAwMDAwMDAwMDAwMDA5OQ.a.b.c": false,
+		"aGVsbG8.a.b":                      false, // "hello", not an id
+		"MA.a.b":                           false, // "0"
+		"MTAwMDAwMDAwMDAwMDAwMDA5OQ.a+.b":  false,
+		fakeTelegramToken:                  false,
 	} {
 		if got := logdb.ValidDiscordToken(tok); got != want {
 			t.Errorf("discord %q: %v, want %v", tok, got, want)
