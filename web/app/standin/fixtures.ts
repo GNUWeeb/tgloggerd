@@ -333,6 +333,8 @@ export function load(url: string, persona: Persona): Loaded {
 				// Everything the full design has; Go turns these on as the
 				// federation, restriction and grant items land.
 				editable: { federations: true, group_grants: true, restrictions: true, abilities: true },
+				// The stand-in has mail set up.
+				mail: true,
 			},
 		};
 	}

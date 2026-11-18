@@ -111,6 +111,8 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 	const grantOf = (fid: number) => a.grants.find((g) => g.fed === fid);
 	// What the server lets this page change yet (AccountsProps.editable).
 	const E = props.editable;
+	// Whether set-password links can be mailed at all (AccountsProps.mail).
+	const mail = props.mail !== false;
 	const feds = E.federations ? props.federations : props.federations.filter((f) => f.default);
 	const call = async (fn: () => Promise<unknown>, after: 'close' | string) => {
 		setErr('');
@@ -230,8 +232,8 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 						)}
 						{isNew ? (
 							<>
-								<Switch checked={invite && !!email} disabled={!email} onChange={setInvite} label="Email a set-password link instead" />
-								{invite && email
+								{mail && <Switch checked={invite && !!email} disabled={!email} onChange={setInvite} label="Email a set-password link instead" />}
+								{mail && invite && email
 									? <p className="a-muted sm">The account chooses its password from the link. Needs mail set up on the server.</p>
 									: <Field label="First password" hint="Optional: leave it empty to have one generated and shown to you once. At least 8 characters. Either way, it must be changed at the first sign-in.">
 										<input type="password" value={firstPw} onChange={(e) => setFirstPw(e.target.value)} autoComplete="new-password" />
@@ -240,7 +242,7 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 						) : (
 							<div className="a-btnrow">
 								<Btn ghost icon={KeyRound} onClick={() => void reset()}>Reset password</Btn>
-								{a.invited && a.email && <Btn ghost icon={Send} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/resend-invite', { params: { path: { id: a.id } } })), 'A new set-password link is on its way; earlier ones stop working.')}>Resend set-password link</Btn>}
+								{mail && a.invited && a.email && <Btn ghost icon={Send} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/resend-invite', { params: { path: { id: a.id } } })), 'A new set-password link is on its way; earlier ones stop working.')}>Resend set-password link</Btn>}
 								<Btn ghost icon={LogOut} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/sign-out-everywhere', { params: { path: { id: a.id } } })), 'Every session of this account has been signed out.')}>Sign out everywhere</Btn>
 							</div>
 						)}

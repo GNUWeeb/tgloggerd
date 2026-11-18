@@ -131,6 +131,21 @@ describe('accounts', () => {
 		});
 	});
 
+	it('offers no set-password links when mail is not set up', () => {
+		const page = fixture<AccountsProps>('/settings/accounts');
+		const props = { ...page.props, mail: false };
+		const invited = props.accounts.find((x) => x.invited && x.email)!;
+		renderPage('/settings/accounts', 'superadmin', { props });
+		fireEvent.click(screen.getByRole('button', { name: /New account/ }));
+		fill(dialog(), 'input[type=email]', 'someone@example.org');
+		expect(within(dialog()).queryByRole('checkbox', { name: /Email a set-password link instead/ })).toBeNull();
+		expect(dialog().querySelector('input[type=password]')).not.toBeNull();
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+		fireEvent.click(screen.getByRole('button', { name: `Edit ${invited.username}` }));
+		expect(within(dialog()).queryByRole('button', { name: /Resend set-password link/ })).toBeNull();
+		expect(within(dialog()).getByRole('button', { name: /Reset password/ })).toBeTruthy();
+	});
+
 	it('says a reset link went out when the server mailed one', async () => {
 		const p = fixture<AccountsProps>('/settings/accounts').props;
 		const a = p.accounts.find((x) => x.role === 'member' && x.active)!;
