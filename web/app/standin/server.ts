@@ -232,12 +232,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 			send(res, 200, { prefs: st.prefs }); return;
 		}
 		if ((am = p.match(/^pinned\/(-?\d+)$/)) && req.method === 'DELETE') { st.pinned = st.pinned.filter((g: { id: number }) => String(g.id) !== am![1]); res.writeHead(204); res.end(); return; }
+		if (/^pinned\/-?\d+$/.test(p) && req.method === 'PUT' && st.pinned.length >= 50 && !st.pinned.some((x: { id: number }) => `pinned/${x.id}` === p)) { send(res, 400, { error: 'too_many', message: 'You have 50 pinned groups, the most there can be. Unpin one first.' }); return; }
 		if ((am = p.match(/^pinned\/(-?\d+)$/)) && req.method === 'PUT') {
 			const g = fx.groupFor(who, am[1]);
 			if (!g) { send(res, 404, { error: 'not_found' }); return; }
 			if (!st.pinned.some((x: { id: number }) => x.id === g.id)) st.pinned.push(g);
 			res.writeHead(204); res.end(); return;
 		}
+		if (p === 'saved-searches' && req.method === 'POST' && st.saved.length >= 100) { send(res, 400, { error: 'too_many', message: 'You have 100 saved searches, the most there can be. Delete one first.' }); return; }
 		if (p === 'saved-searches' && req.method === 'POST') {
 			if (!body.title || typeof body.url !== 'string' || !body.url.startsWith('/')) { send(res, 400, { error: 'bad_request', message: 'A title and a search path are required.' }); return; }
 			const id = Math.max(0, ...st.saved.map((x: { id: number }) => x.id)) + 1;

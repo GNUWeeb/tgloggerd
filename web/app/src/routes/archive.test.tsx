@@ -112,6 +112,14 @@ describe('group page', () => {
 		expect(screen.getAllByRole('link', { name: 'pinned' }).length).toBe(1); // the sidebar follows
 	});
 
+	it('says why a pin is refused, such as the cap on pinned groups', async () => {
+		const id = gid();
+		fakeApi('superadmin', { 'PUT /api/account/pinned/:id': () => json(400, { error: 'too_many', message: 'You have 50 pinned groups, the most there can be. Unpin one first.' }) });
+		renderPage(`/groups/${id}`);
+		fireEvent.click(screen.getByRole('button', { name: 'Pin' }));
+		expect((await screen.findByRole('alert')).textContent).toMatch(/50 pinned groups/);
+	});
+
 	it('unpins a pinned group', async () => {
 		const pinnedId = fixture('/').viewer.pinned![0]!.id;
 		const calls = fakeApi('superadmin', { 'DELETE /api/account/pinned/:id': () => undefined });

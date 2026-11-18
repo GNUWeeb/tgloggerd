@@ -37,9 +37,13 @@ function PinButton({ id, title }: { id: number; title: string }) {
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); } finally { setBusy(false); }
 	};
 	return (
-		<Btn ghost icon={server ? PinOff : Pin} disabled={busy} aria-pressed={server} title={err || (server ? `Unpin ${title} from the sidebar` : `Pin ${title} to the sidebar`)} onClick={() => void toggle()}>
-			{server ? 'Unpin' : 'Pin'}
-		</Btn>
+		<>
+			<Btn ghost icon={server ? PinOff : Pin} disabled={busy} aria-pressed={server} title={server ? `Unpin ${title} from the sidebar` : `Pin ${title} to the sidebar`} onClick={() => void toggle()}>
+				{server ? 'Unpin' : 'Pin'}
+			</Btn>
+			{/* For example the cap on pinned groups (too_many). */}
+			{err && <span className="a-pinerr" role="alert">{err}</span>}
+		</>
 	);
 }
 
