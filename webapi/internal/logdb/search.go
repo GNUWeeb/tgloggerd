@@ -660,8 +660,8 @@ func Search(ctx context.Context, db *sql.DB, sc scope.Scope, e *Entity, req Sear
 	// The count only feeds the pager, so it never fails the request:
 	// when it fails or runs out of time, the total is estimated below.
 	if b.filtered || !e.estimateBrowse {
-		if err := db.QueryRowContext(ctx, b.countSQL, b.where...).Scan(&res.Total); err == nil {
-			res.TotalExact = true
+		if n, err := countInt(ctx, db, b.countSQL, b.where...); err == nil {
+			res.Total, res.TotalExact = n, true
 		} else if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -760,6 +760,14 @@ func explain(ctx context.Context, db *sql.DB, b *built) (*SearchDebug, error) {
 		d.Explain.Rows = append(d.Explain.Rows, row)
 	}
 	return d, nil
+}
+
+// countFromOrFrom is the FROM of the entity's count.
+func (e *Entity) countFromOrFrom() string {
+	if e.countFrom != "" {
+		return e.countFrom
+	}
+	return e.from
 }
 
 // countTable is the table an entity counts: the first word of its

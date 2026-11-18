@@ -1020,6 +1020,10 @@ and its own:
                          default 4096
     WEBAPI_LIVE_RECHECK  seconds between two session checks of an open
                          stream, default 30
+    WEBAPI_COUNT_CACHE_SECS  seconds whole-table and list counts are
+                         kept (logdb.CountCache: per exact query, so the
+                         same for every viewer that runs it), default
+                         60; 0 counts on every request
     WEBAPI_APP_DIST      the client bundle, default web/app/dist/client
     WEBAPI_APP_BUILD     its build id; default the one in its
                          build.json, or dev when it has none

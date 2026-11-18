@@ -58,6 +58,10 @@ type Deps struct {
 	// Render is the render service's client; nil renders every page
 	// in the browser (the fallback).
 	Render *render.Client
+	// Counts keeps whole-table and list counts for a short time
+	// (logdb.CountCache, WEBAPI_COUNT_CACHE_SECS); nil counts on every
+	// request.
+	Counts *logdb.CountCache
 	// Assets are the client bundle's files pages link, and its build.
 	Assets render.Assets
 	// AssetFiles is the bundle's assets/ directory, served under
@@ -231,7 +235,7 @@ func New(d Deps) http.Handler {
 	}
 	s.registerPages(mux)
 
-	return s.withClient(s.logRequests(mux))
+	return s.withClient(s.logRequests(withCounts(d.Counts, mux)))
 }
 
 // route is one entry of the route table.
@@ -388,5 +392,16 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 			"duration", time.Since(start),
 			"client", clientIP(r),
 			"remote", r.RemoteAddr)
+	})
+}
+
+// withCounts gives every request the count cache, for the logdb
+// queries it serves.
+func withCounts(c *logdb.CountCache, next http.Handler) http.Handler {
+	if c == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(logdb.WithCountCache(r.Context(), c)))
 	})
 }
