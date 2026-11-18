@@ -56,6 +56,24 @@ struct BotReport {
 	std::string	username;
 };
 
+/*
+ * The id the environment's Discord bot runs under during the transition to
+ * the bots table: no row has it, so nothing is written back for it, and the
+ * routes it serves are those that name no Discord bot.
+ */
+constexpr uint64_t LEGACY_BOT_ID = 0;
+
+/*
+ * The Discord bots to run: the enabled rows. While there are none -- the
+ * table is missing (the migration is not applied yet) or holds no enabled bot
+ * (the import has not run) -- the token of DISCORD_BOT_TOKEN, if set and not
+ * refused, runs as the legacy bot, as discordd did before the table. As soon
+ * as an enabled bot exists the token is ignored.
+ */
+std::vector<DiscordBotRow> bots_to_run(const std::vector<DiscordBotRow> &enabled,
+				       const std::string &legacy_token,
+				       bool legacy_refused);
+
 /* The report for a gateway that stopped by itself, from why it stopped. */
 BotReport report_for_stop(const DiscordBotRow &row, gwdiscord::StopReason why,
 			  const gwdiscord::CloseInfo &close);

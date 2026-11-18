@@ -16,8 +16,12 @@ namespace discordd {
 struct Config {
 	/*
 	 * The Discord bots, and the Telegram bots, are rows of the database
-	 * (discord_bots, telegram_bots), not settings.
+	 * (discord_bots, telegram_bots), not settings. DEPRECATED, for the
+	 * transition only: while the table is missing or holds no enabled
+	 * bot, the token of DISCORD_BOT_TOKEN runs as before and serves the
+	 * routes that name no Discord bot.
 	 */
+	std::string	legacy_discord_bot_token;
 
 	/* Telegram side: TDLib needs these even for a bot session. */
 	int32_t		api_id = 0;

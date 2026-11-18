@@ -51,7 +51,7 @@ void DB::ping(void)
 	db_->query("SELECT 1");
 }
 
-std::vector<Route> DB::loadRoutes(void)
+std::vector<Route> DB::loadRoutes(bool bots_table)
 {
 	static const char *SQL =
 		"SELECT r.id, r.discord_channel_id, r.telegram_chat_id, "
@@ -60,15 +60,25 @@ std::vector<Route> DB::loadRoutes(void)
 		"       r.fwd_document, r.discord_bot_id "
 		"FROM discord_telegram_routes r "
 		"JOIN telegram_bots b ON b.id = r.telegram_bot_id "
-		"JOIN discord_bots d ON d.id = r.discord_bot_id "
-		"WHERE r.enabled = 1 AND b.enabled = 1 AND d.enabled = 1";
+		"LEFT JOIN discord_bots d ON d.id = r.discord_bot_id "
+		"WHERE r.enabled = 1 AND b.enabled = 1 "
+		"  AND (r.discord_bot_id IS NULL OR d.enabled = 1)";
+	/* Before migration 000040: no Discord bot column, no table. */
+	static const char *SQL_BEFORE =
+		"SELECT r.id, r.discord_channel_id, r.telegram_chat_id, "
+		"       r.telegram_bot_id, b.token, b.bot_user_id, b.username, "
+		"       r.fwd_sticker, r.fwd_text, r.fwd_photo, r.fwd_video, "
+		"       r.fwd_document, NULL "
+		"FROM discord_telegram_routes r "
+		"JOIN telegram_bots b ON b.id = r.telegram_bot_id "
+		"WHERE r.enabled = 1 AND b.enabled = 1";
 
 	/* Column order of the fwd_* flags above, from column 7 on. */
 	static const unsigned bits[] = { FWD_STICKER, FWD_TEXT, FWD_PHOTO,
 					 FWD_VIDEO, FWD_DOCUMENT };
 
 	std::vector<Route> out;
-	for (const auto &r : db_->query(SQL)) {
+	for (const auto &r : db_->query(bots_table ? SQL : SQL_BEFORE)) {
 		Route rt;
 		rt.id = row_u64(r, 0);
 		rt.discord_channel_id = row_u64(r, 1);
@@ -85,6 +95,14 @@ std::vector<Route> DB::loadRoutes(void)
 		out.push_back(std::move(rt));
 	}
 	return out;
+}
+
+bool DB::hasBotsTable(void)
+{
+	auto rows = db_->query("SELECT COUNT(*) FROM information_schema.tables "
+			       "WHERE table_schema = DATABASE() "
+			       "AND table_name = 'discord_bots'");
+	return !rows.empty() && row_u64(rows[0], 0) > 0;
 }
 
 uint64_t DB::countRoutesWithoutDiscordBot(void)

@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -65,6 +66,17 @@ struct DiscordD::Impl {
 	std::set<uint64_t>		tg_known;
 	uint64_t			unbound_routes = 0;
 
+	/*
+	 * The transition from DISCORD_BOT_TOKEN to the bots table, read by
+	 * the refresh thread: whether the table exists (migration 000040),
+	 * and whether the environment's bot runs. legacy_refused is set from
+	 * that bot's gateway thread when Discord refuses it; it stays set,
+	 * since the environment cannot change while discordd runs.
+	 */
+	bool				bots_table = false;
+	bool				legacy_running = false;
+	std::atomic<bool>		legacy_refused{false};
+
 	std::thread			refresh_thr;
 	std::atomic<bool>		stopping{false};
 	std::mutex			wake_mtx;
@@ -108,6 +120,15 @@ struct DiscordD::Impl {
 
 bool DiscordD::Impl::report_discord(const BotReport &r)
 {
+	if (r.id == LEGACY_BOT_ID) {
+		/* No row to write to; a refusal stops it for good. */
+		if (r.disable) {
+			legacy_refused = true;
+			log(LOG_ERROR, "DISCORD_BOT_TOKEN: " + r.detail +
+					       " Not retried.");
+		}
+		return true;
+	}
 	try {
 		db->reportDiscordBot(r);
 		return true;
@@ -127,6 +148,8 @@ void DiscordD::Impl::report_telegram(const TelegramBotRow &row, BotStatus st,
 	if (it != tg_written.end() && it->second.token == row.token &&
 	    it->second.status == st && it->second.detail == detail)
 		return;
+	if (!bots_table)
+		return; /* before migration 000040: no status columns */
 	BotReport r;
 	r.id = row.id;
 	r.token = row.token;
@@ -148,13 +171,31 @@ void DiscordD::Impl::reload_discord_bots(void)
 	const auto loaded_at = DiscordBots::Clock::now();
 	std::vector<DiscordBotRow> rows;
 	try {
-		rows = db->loadDiscordBots();
+		bots_table = db->hasBotsTable();
+		if (bots_table)
+			rows = db->loadDiscordBots();
 	} catch (const std::exception &e) {
 		log(LOG_WARN, std::string("discord bot reload failed: ") +
 				      e.what());
 		return;
 	}
-	bots->sync(rows, loaded_at);
+	const auto run = bots_to_run(rows, cfg.legacy_discord_bot_token,
+				     legacy_refused.load());
+	const bool legacy = !run.empty() && run[0].id == LEGACY_BOT_ID;
+	if (legacy && !legacy_running) {
+		log(LOG_WARN, std::string("DEPRECATED: running the Discord bot of "
+					  "DISCORD_BOT_TOKEN for the routes that "
+					  "name no Discord bot, because ") +
+				      (bots_table ? "discord_bots holds no enabled bot"
+						  : "discord_bots does not exist yet") +
+				      ". Run webapi import-discord-bot, then "
+				      "remove the variable.");
+	} else if (!legacy && legacy_running) {
+		log(LOG_INFO, "a Discord bot is stored: DISCORD_BOT_TOKEN is "
+			      "ignored from now on");
+	}
+	legacy_running = legacy;
+	bots->sync(run, loaded_at);
 }
 
 /*
@@ -177,7 +218,7 @@ bool DiscordD::Impl::reload_telegram_bots(std::set<uint64_t> &live,
 	}
 
 	/* Refusals a database error kept from being stored, first. */
-	for (auto it = tg_refused.begin(); it != tg_refused.end();) {
+	for (auto it = tg_refused.begin(); bots_table && it != tg_refused.end();) {
 		try {
 			db->reportTelegramBot(it->second);
 			it = tg_refused.erase(it);
@@ -219,8 +260,12 @@ bool DiscordD::Impl::reload_telegram_bots(std::set<uint64_t> &live,
 			tg_known.erase(row.id);
 			tg_written.erase(row.id);
 			try {
+				if (!bots_table)
+					throw std::runtime_error("no status columns");
 				db->reportTelegramBot(r);
 			} catch (const std::exception &) {
+				/* Stays stopped until stored, or until restart
+				 * before migration 000040. */
 				tg_refused[row.id] = r;
 			}
 			continue;
@@ -272,9 +317,10 @@ void DiscordD::Impl::reload_routes(const std::set<uint64_t> &live,
 {
 	std::vector<Route> rows;
 	try {
-		rows = db->loadRoutes();
-		const uint64_t unbound = db->countRoutesWithoutDiscordBot();
-		if (unbound != unbound_routes && unbound) {
+		rows = db->loadRoutes(bots_table);
+		const uint64_t unbound =
+			bots_table ? db->countRoutesWithoutDiscordBot() : 0;
+		if (unbound != unbound_routes && unbound && !legacy_running) {
 			log(LOG_WARN, std::to_string(unbound) +
 					      " enabled route(s) name no Discord "
 					      "bot and are not served; run the "

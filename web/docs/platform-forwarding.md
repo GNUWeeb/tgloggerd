@@ -155,9 +155,19 @@ routes use each.
 ### Moving the environment's Discord bot into the database
 
 discordd used to read one Discord bot token from `DISCORD_BOT_TOKEN`.
-Now it runs every enabled row of `discord_bots` and no longer reads the
-variable. At the deployment that brings this, once the daemon has
-applied migration `000040`, run once in the webapi container (whose
+Now it runs every enabled row of `discord_bots`. The variable is
+deprecated and read only for the transition: while `discord_bots` does
+not exist yet (tgloggerd has not applied migration `000040`) or holds
+no enabled bot (the import has not run), discordd runs the bot of
+`DISCORD_BOT_TOKEN` as before, for the routes that name no Discord bot,
+and logs a deprecation warning saying so. Its state is not written
+anywhere, since it has no row; a refusal stops it until discordd
+restarts. As soon as an enabled bot is stored the variable is ignored,
+so a restart of discordd at any point of the deployment keeps
+forwarding.
+
+At the deployment that brings this, once the daemon has applied
+migration `000040`, run once in the webapi container (whose
 environment still holds the variable):
 
     docker compose exec webapi webapi/build/webapi import-discord-bot superadmin
@@ -165,8 +175,10 @@ environment still holds the variable):
 It stores the bot of the token, named "Discord bot", owned by the
 account named (an active superadmin), points every route that names no
 Discord bot at it, and prints what it did; the token is never printed.
-A second run changes nothing. Then remove `DISCORD_BOT_TOKEN` from
-`.env` and recreate discordd. Routes made on the Drogon page get the
+A second run changes nothing. discordd switches to the imported bot on
+its next reload by itself; then remove `DISCORD_BOT_TOKEN` from `.env`
+and recreate discordd, so the variable is gone from its environment.
+`.env.example` no longer lists it. Routes made on the Drogon page get the
 oldest Discord bot, the imported one, since that page has no Discord
 bot picker.
 

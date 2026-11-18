@@ -346,12 +346,77 @@ static void test_unstored_report_blocks_restart(void)
 	CHECK(d.connects(BAD) == 1, "a load after it sees the bot disabled");
 }
 
+static void test_legacy_transition(void)
+{
+	printf("test: DISCORD_BOT_TOKEN runs until a bot is stored\n");
+	const std::string LEGACY = GOOD_A, IMPORTED = GOOD_B;
+	FakeDiscord d;
+	d.good(LEGACY, 9001, "legacy");
+	d.good(IMPORTED, 9002, "imported");
+	FakeStore st;
+	std::mutex mm;
+	std::vector<uint64_t> from;
+	DiscordBots::Handlers h;
+	h.message = [&](uint64_t bot, const gwdiscord::Message &, bool) {
+		std::lock_guard<std::mutex> lk(mm);
+		from.push_back(bot);
+	};
+	DiscordBots bots(base_cfg(), d.transports(), st.reporter(), h, quiet());
+
+	/* The table missing and the table empty load the same: no rows. */
+	auto run = bots_to_run({}, LEGACY, false);
+	CHECK(run.size() == 1 && run[0].id == LEGACY_BOT_ID &&
+		      run[0].token == LEGACY,
+	      "no stored bot: the environment's token runs as the legacy bot");
+	CHECK(bots_to_run({}, "", false).empty(),
+	      "no stored bot and no token: nothing runs");
+	bots.sync(run, Clock::now());
+	CHECK(wait_for([&] {
+		std::lock_guard<std::mutex> lk(mm);
+		return from.size() == 1 && from[0] == LEGACY_BOT_ID;
+	}), "its messages are tagged with the legacy id (unbound routes)");
+	CHECK(wait_for([&] { return st.has(LEGACY_BOT_ID, BotStatus::Connected); }),
+	      "the legacy bot reports under its id, which no row has");
+
+	/* After the import: the stored bot runs, the token is ignored. */
+	run = bots_to_run({{1000000000, IMPORTED}}, LEGACY, false);
+	CHECK(run.size() == 1 && run[0].id == 1000000000,
+	      "a stored bot replaces the legacy one");
+	bots.sync(run, Clock::now());
+	CHECK(wait_for([&] { return st.has(1000000000, BotStatus::Connected); }),
+	      "the imported bot connects");
+	auto r = bots.running();
+	CHECK(r.size() == 1 && r[0] == 1000000000, "the legacy gateway is stopped");
+	CHECK(d.connects(LEGACY) == 1, "and not started again");
+
+	/* A refused legacy token is not retried either. */
+	FakeDiscord bad;
+	bad.closes(BAD, 4004, "Authentication failed.");
+	FakeStore st2;
+	bool refused = false;
+	DiscordBots::Reporter rep = [&](const BotReport &rp) {
+		if (rp.id == LEGACY_BOT_ID && rp.disable)
+			refused = true;
+		return st2.reporter()(rp);
+	};
+	DiscordBots b2(base_cfg(), bad.transports(), rep, {}, quiet());
+	b2.sync(bots_to_run({}, BAD, false), Clock::now());
+	CHECK(wait_for([&] { return st2.has(LEGACY_BOT_ID, BotStatus::TokenRefused); }),
+	      "a refused legacy token is reported");
+	for (int i = 0; i < 3; i++)
+		b2.sync(bots_to_run({}, BAD, refused), Clock::now());
+	CHECK(refused && bots_to_run({}, BAD, refused).empty() &&
+		      bad.connects(BAD) == 1,
+	      "and is not started again");
+}
+
 int main(void)
 {
 	test_runs_each_enabled_bot();
 	test_reload_follows_rows();
 	test_refusals_disable();
 	test_unstored_report_blocks_restart();
+	test_legacy_transition();
 
 	if (g_failures) {
 		printf("\n%d check(s) FAILED\n", g_failures);

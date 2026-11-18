@@ -83,9 +83,19 @@ public:
 
 	/*
 	 * Every route that is enabled, as are both its bots, joined to the
-	 * Telegram bot's credentials.
+	 * Telegram bot's credentials. A route that names no Discord bot comes
+	 * with discord_bot_id 0 (LEGACY_BOT_ID), for the environment's bot of
+	 * the transition; so does every route before migration 000040, when
+	 * bots_table is false.
 	 */
-	std::vector<Route> loadRoutes(void);
+	std::vector<Route> loadRoutes(bool bots_table);
+
+	/*
+	 * Whether discord_bots exists, i.e. whether tgloggerd has applied
+	 * migration 000040. Before it, routes name no Discord bot and the
+	 * bots have no status columns.
+	 */
+	bool hasBotsTable(void);
 
 	/* Enabled routes that name no Discord bot yet (made before 000040). */
 	uint64_t countRoutesWithoutDiscordBot(void);

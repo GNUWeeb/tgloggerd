@@ -54,15 +54,14 @@ int main(void)
 	std::string api_id;
 
 	/*
-	 * The Discord bots are rows of discord_bots now. A token still in the
-	 * environment is not read: say so, so it is imported and removed
-	 * rather than left behind believed to be in use.
+	 * The Discord bots are rows of discord_bots now. DISCORD_BOT_TOKEN is
+	 * deprecated and read only for the transition: while that table is
+	 * missing or holds no enabled bot, its bot runs as before (DiscordD
+	 * says so in its log), so a restart between the deployment and the
+	 * import does not stop forwarding. As soon as a bot is stored it is
+	 * ignored.
 	 */
-	if (getenv("DISCORD_BOT_TOKEN") && *getenv("DISCORD_BOT_TOKEN"))
-		fprintf(stderr, "[discordd/warn] DISCORD_BOT_TOKEN is no longer "
-				"read: the Discord bots are in the database. "
-				"Import it (webapi import-discord-bot) and "
-				"remove it from the environment.\n");
+	cfg.legacy_discord_bot_token = env_or("DISCORD_BOT_TOKEN", "");
 	/*
 	 * TDLib needs an api_id/api_hash pair even for a bot session, so
 	 * discordd reuses the daemon's rather than asking for a second one.

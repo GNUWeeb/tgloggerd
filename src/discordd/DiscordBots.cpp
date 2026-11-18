@@ -24,6 +24,18 @@ const char *bot_status_name(BotStatus st)
 	return "connecting";
 }
 
+std::vector<DiscordBotRow> bots_to_run(const std::vector<DiscordBotRow> &enabled,
+				       const std::string &legacy_token,
+				       bool legacy_refused)
+{
+	if (!enabled.empty() || legacy_token.empty() || legacy_refused)
+		return enabled;
+	DiscordBotRow legacy;
+	legacy.id = LEGACY_BOT_ID;
+	legacy.token = legacy_token;
+	return {legacy};
+}
+
 BotReport report_for_stop(const DiscordBotRow &row, gwdiscord::StopReason why,
 			  const gwdiscord::CloseInfo &close)
 {
