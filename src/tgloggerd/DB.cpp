@@ -182,9 +182,11 @@ void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
 	const char *sql = is_group
 		? "INSERT INTO telegram_link_previews "
 		  "  (group_message_id, url, display_url, site_name, title, "
-		  "   description, author, type, instant_view_version, "
-		  "   has_large_media, show_large_media, show_above_text) "
-		  "SELECT m.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
+		  "   description, description_entities, author, type, "
+		  "   instant_view_version, has_large_media, show_large_media, "
+		  "   show_above_text, show_media_above_description, "
+		  "   skip_confirmation) "
+		  "SELECT m.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
 		  "  FROM telegram_group_messages m "
 		  " WHERE m.chat_id = ? AND m.message_id = ? "
 		  "ON DUPLICATE KEY UPDATE "
@@ -195,12 +197,18 @@ void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
 		  "  instant_view_version = VALUES(instant_view_version), "
 		  "  has_large_media = VALUES(has_large_media), "
 		  "  show_large_media = VALUES(show_large_media), "
-		  "  show_above_text = VALUES(show_above_text)"
+		  "  show_above_text = VALUES(show_above_text), "
+		  "  description_entities = VALUES(description_entities), "
+		  "  show_media_above_description = "
+		  "    VALUES(show_media_above_description), "
+		  "  skip_confirmation = VALUES(skip_confirmation)"
 		: "INSERT INTO telegram_link_previews "
 		  "  (private_message_id, url, display_url, site_name, title, "
-		  "   description, author, type, instant_view_version, "
-		  "   has_large_media, show_large_media, show_above_text) "
-		  "SELECT m.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
+		  "   description, description_entities, author, type, "
+		  "   instant_view_version, has_large_media, show_large_media, "
+		  "   show_above_text, show_media_above_description, "
+		  "   skip_confirmation) "
+		  "SELECT m.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
 		  "  FROM telegram_private_messages m "
 		  " WHERE m.chat_id = ? AND m.message_id = ? "
 		  "ON DUPLICATE KEY UPDATE "
@@ -211,7 +219,15 @@ void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
 		  "  instant_view_version = VALUES(instant_view_version), "
 		  "  has_large_media = VALUES(has_large_media), "
 		  "  show_large_media = VALUES(show_large_media), "
-		  "  show_above_text = VALUES(show_above_text)";
+		  "  show_above_text = VALUES(show_above_text), "
+		  "  description_entities = VALUES(description_entities), "
+		  "  show_media_above_description = "
+		  "    VALUES(show_media_above_description), "
+		  "  skip_confirmation = VALUES(skip_confirmation)";
+
+	mysql::Param entities = std::monostate{};
+	if (lp.description_entities.has_value())
+		entities = *lp.description_entities;
 
 	/*
 	 * url/display_url are TEXT (migration 000028) and stored whole. The
@@ -222,12 +238,14 @@ void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
 	db_.execute(sql, { lp.url, lp.display_url,
 			   utf8_truncate_chars(lp.site_name, 255),
 			   utf8_truncate_chars(lp.title, 512),
-			   lp.description,
+			   lp.description, entities,
 			   utf8_truncate_chars(lp.author, 255), lp.type,
 			   (int64_t)lp.instant_view_version,
 			   (int64_t)(lp.has_large_media ? 1 : 0),
 			   (int64_t)(lp.show_large_media ? 1 : 0),
 			   (int64_t)(lp.show_above_text ? 1 : 0),
+			   (int64_t)(lp.show_media_above_description ? 1 : 0),
+			   (int64_t)(lp.skip_confirmation ? 1 : 0),
 			   lp.chat_id, lp.message_id });
 }
 

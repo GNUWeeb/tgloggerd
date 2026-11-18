@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <string>
+#include <optional>
 
 namespace tgloggerd {
 namespace models {
@@ -41,6 +42,12 @@ struct LinkPreview {
 	bool		has_large_media = false;
 	bool		show_large_media = false;
 	bool		show_above_text = false;
+
+	/* Formatting of `description` as JSON (UTF-16 offsets); nullopt if
+	 * none. */
+	std::optional<std::string>	description_entities;
+	bool		show_media_above_description = false;
+	bool		skip_confirmation = false;
 };
 
 } /* namespace models */

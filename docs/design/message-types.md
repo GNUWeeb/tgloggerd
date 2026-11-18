@@ -590,6 +590,7 @@ set the same way and kept current by `updateMessageIsPinned`;
 | `forward_source` | where a forward was saved from: `{chat_id, message_id, sender, sender_name, date}` |
 | `psa_type` | public service announcement type of a forward |
 | `import` | `{sender_name, date}` of an imported message |
+| `link_preview_options` | `{disabled, url, force_small_media, force_large_media, show_above_text}`, when not the defaults |
 | `reply_markup` | `{kind}`: `inline_keyboard` or `keyboard` with `rows` of `{text, type, url, query, user_id, copy_text}`, `force_reply`, `remove_keyboard` |
 | `effect_id` | the message effect |
 | `self_destruct_time`, `self_destruct_immediately` | the self-destruct timer |
@@ -622,9 +623,12 @@ The coalescing interval is set after measuring the update rate.
 ### 4.8 Link previews
 
 `telegram_link_previews` gains `description_entities JSON`,
-`show_media_above_description`, and `options JSON` (the message's
-`link_preview_options`: disabled, url, force small or large media,
-above text).
+`show_media_above_description` and `skip_confirmation` (migration
+000041; instant, as the table has no FULLTEXT index). The message's
+`link_preview_options` (turned off, another URL, small or large media,
+above the text) go into its `meta` as `link_preview_options`, not onto
+the card: a message with previews turned off has no card (decision
+[2026-11-18-msg-link-preview-options-in-meta](decisions/2026-11-18-msg-link-preview-options-in-meta.md)).
 
 ### 4.9 Repairing old rows
 

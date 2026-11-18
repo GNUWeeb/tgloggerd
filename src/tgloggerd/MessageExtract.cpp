@@ -2652,6 +2652,12 @@ nlohmann::json reply_markup_json(const td_api::ReplyMarkup *rm)
 
 } /* namespace */
 
+std::optional<std::string>
+formatted_text_entities_json(const td_api::formattedText &ft)
+{
+	return format_entities_json(ft);
+}
+
 std::optional<std::string> fact_check_json(const td_api::factCheck *fc)
 {
 	if (!fc || !fc->text_ || fc->text_->text_.empty())
@@ -2735,6 +2741,26 @@ std::optional<std::string> message_meta_json(const td_api::message &m)
 	}
 
 	put_json(j, "reply_markup", reply_markup_json(m.reply_markup_.get()));
+
+	/*
+	 * The link preview options the sender chose (turned off, another URL,
+	 * small or large media, above the text). They belong to the message,
+	 * not to the card: a message with previews turned off has no card.
+	 * TDLib leaves them out when they are the defaults.
+	 */
+	if (m.content_ && m.content_->get_id() == td_api::messageText::ID) {
+		auto &t = static_cast<const td_api::messageText &>(*m.content_);
+		if (auto *o = t.link_preview_options_.get()) {
+			nlohmann::json lo = nlohmann::json::object();
+			put_flag(lo, "disabled", o->is_disabled_);
+			put_str(lo, "url", o->url_);
+			put_flag(lo, "force_small_media", o->force_small_media_);
+			put_flag(lo, "force_large_media", o->force_large_media_);
+			put_flag(lo, "show_above_text", o->show_above_text_);
+			if (!lo.empty())
+				j["link_preview_options"] = lo;
+		}
+	}
 	put_id(j, "effect_id", m.effect_id_);
 
 	if (m.self_destruct_type_) {
