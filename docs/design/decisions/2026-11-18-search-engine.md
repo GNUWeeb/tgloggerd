@@ -1,7 +1,8 @@
 # Decision log: 2026-11-18, Optional search engine
 
 Decided with the project owner on 2026-11-18, for the item
-[../../todo/search-engine-backend.md](../../todo/search-engine-backend.md):
+search-engine-backend (built; bios and descriptions are left to
+[../../todo/search-engine-profiles.md](../../todo/search-engine-profiles.md)):
 
 - MySQL stays the source of truth and the default search. A search
   engine is an optional second backend for full-text fields; the

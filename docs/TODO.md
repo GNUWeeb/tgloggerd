@@ -125,7 +125,7 @@ Accounts, roles and federations:
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
-- [`search-engine-backend`](todo/search-engine-backend.md): Offer the optional search engine's options in the React message searches when the API says it is on (optional).
+- [`search-engine-profiles`](todo/search-engine-profiles.md): Index users' bios and groups' descriptions in the optional search engine (optional).
 - [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
 
 ## Operations
