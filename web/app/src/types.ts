@@ -26,4 +26,5 @@ export type Op = Cond['op'];
 export type ListProps<T> = S['ListState'] & { rows: T[] };
 
 export type FieldType = 'number' | 'text' | 'enum' | 'bool' | 'date';
-export interface FieldDef { key: string; label: string; type: FieldType; values?: string[] }
+// ops, when given, replaces the operators of the field's type.
+export interface FieldDef { key: string; label: string; type: FieldType; values?: string[]; ops?: Op[] }
