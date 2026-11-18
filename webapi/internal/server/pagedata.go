@@ -74,12 +74,19 @@ type dashboardProps struct {
 	PerDayStart string             `json:"per_day_start"`
 	Busiest     []groupCountedJSON `json:"busiest"`
 	Deleted     []deletedJSON      `json:"deleted"`
+	// Status is the logger status card, only for a viewer that sees
+	// every group and private chat (status.go).
+	Status *statusJSON `json:"status,omitempty"`
 }
 
 func loadDashboard(ctx context.Context, pr *pageRequest) (any, error) {
 	loc, err := pr.viewerLocation(ctx)
 	if err != nil {
 		return nil, err
+	}
+	var probe *daemonProbe
+	if seesStatus(pr.scope) {
+		probe = pr.s.probeDaemon(ctx)
 	}
 	d, err := logdb.LoadDashboard(ctx, pr.s.ro, pr.scope, pr.now(), loc)
 	if err != nil {
@@ -110,6 +117,11 @@ func loadDashboard(ctx context.Context, pr *pageRequest) (any, error) {
 		p.Deleted = append(p.Deleted, deletedJSON{ID: m.RowID, Scope: "group", Chat: v.group(g),
 			Sender: *s, Snippet: snippetOf(m.Text, m.ContentType), DeletedAt: iso(m.DeletedAt),
 			MessageID: m.MessageID})
+	}
+	if probe != nil {
+		if p.Status, err = pr.s.loggerStatus(ctx, pr.scope, probe); err != nil {
+			return nil, err
+		}
 	}
 	return p, nil
 }

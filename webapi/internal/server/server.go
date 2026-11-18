@@ -94,6 +94,8 @@ type Deps struct {
 	pins  func(ctx context.Context, uid uint64, sc scope.Scope) ([]logdb.PinnedGroup, error)
 	// discord replaces the client that sends webhook test messages.
 	discord *http.Client
+	// statfs replaces fsSize, the size of the store's file system.
+	statfs func(path string) (uint64, error)
 	// search replaces the list pages' search (logdb.Search), for
 	// tests of a search that runs out of time.
 	search searchFunc
@@ -135,6 +137,8 @@ type Server struct {
 	search      searchFunc
 	// discord sends the webhook test messages.
 	discord *http.Client
+	// statfs is the size of the file system holding a path (fsSize).
+	statfs func(path string) (uint64, error)
 	// mcp answers /mcp; mcpSlots holds one token per tool call that
 	// may run at once (MCP_THREADS).
 	mcp      *mcp.Server
@@ -217,6 +221,10 @@ func New(d Deps) http.Handler {
 	s.viewerPins = s.pinnedGroups
 	if d.pins != nil {
 		s.viewerPins = d.pins
+	}
+	s.statfs = d.statfs
+	if s.statfs == nil {
+		s.statfs = fsSize
 	}
 	s.discord = d.discord
 	if s.discord == nil {

@@ -420,6 +420,15 @@ paths that are no page and for things the scope hides, 404 either way.
     (groups too), and the photo's file id. can_lookup_name and
     lookup_pending drive "Look up real name". A member gets the
     narrow variant only (name and photo, web-accounts.md section 5).
+  - The dashboard's status (the logger status card) is only for a
+    viewer who sees every group and private chat (superadmins and
+    unrestricted admins). It asks the daemon for GET /v1/status and
+    GET /v1/storage side by side with the dashboard's queries, with a
+    one-second timeout each; a daemon that is off or does not answer
+    shows the session as disconnected and the store's size as the sum
+    over telegram_files (through the count cache). The store's total
+    is the daemon's cap, or, with no cap, the size of the file system
+    holding WEB_STORAGE_DIR (internal/server/status.go).
 
   - /api/page/<path> takes the page path without its leading slash,
     its slashes plain or encoded as %2F, and the page's query string

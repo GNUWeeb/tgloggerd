@@ -2141,13 +2141,22 @@ export interface components {
                 /** Format: int64 */
                 message_id: number;
             }[];
+            /** @description The logger status card. Only for a viewer who sees every group and private chat (a superadmin, or an admin with no hidden groups and private chats not hidden); absent for everyone else, since it describes the whole archive. */
             status?: {
-                /** @enum {string} */
+                /**
+                 * @description connected while the daemon reports its TDLib client ready (daemon GET /v1/status); disconnected in any other state, and when the daemon API is off or does not answer within a second.
+                 * @enum {string}
+                 */
                 session: "connected" | "disconnected";
+                /** @description When the newest stored message (group or private) was logged, RFC 3339 in UTC; empty when no message is stored. */
                 last_message_at: string;
+                /** @description The forwarding configurations that forward now, as the forwarding index counts active ones: enabled Telegram-to-Discord webhooks, and enabled Discord-to-Telegram routes whose Telegram and Discord bots are both enabled. */
                 forwarding_active: number;
+                /** @description The stored files' size in binary units with one decimal, KiB to TiB ("349.2 GiB"): the daemon's count (GET /v1/storage), or the sum over the stored files when the daemon does not answer. */
                 store_used: string;
+                /** @description The store's cap (TG_STORAGE_MAX_BYTES) in the same units, or, with no cap or no answer from the daemon, the size of the file system holding the store; "0.0 KiB" when neither is known. */
                 store_total: string;
+                /** @description store_used over store_total, clamped to 0..1; 0 when store_total is 0. */
                 store_ratio: number;
             };
         };
