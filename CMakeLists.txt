@@ -149,7 +149,7 @@ if(NOT Boost_FOUND)
 	endif()
 endif()
 find_package(nlohmann_json 3 REQUIRED)
-target_link_libraries(tgloggerd PRIVATE Td::TdStatic connector-jdbc OpenSSL::Crypto CURL::libcurl ${SODIUM_LIBRARIES} Threads::Threads nlohmann_json::nlohmann_json)
+target_link_libraries(tgloggerd PRIVATE Td::TdStatic tdjson_private connector-jdbc OpenSSL::Crypto CURL::libcurl ${SODIUM_LIBRARIES} Threads::Threads nlohmann_json::nlohmann_json)
 target_include_directories(tgloggerd PRIVATE ${SODIUM_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 
 # discordd -- the Discord daemon (logs Discord messages, forwards them to

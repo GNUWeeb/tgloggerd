@@ -28,7 +28,7 @@ Decision
 
 ## Depends on
 
-`msg-classify`
+Nothing.
 
 ## Done when
 

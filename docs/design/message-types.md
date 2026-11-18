@@ -314,14 +314,24 @@ the columns (server message ids). File references are not in the JSON
 but in the message-files table (section 4.3), so the foreign keys keep
 working.
 
-For a class with no curated mapping yet (rare or bot-only ones, rich
-messages, widgets), `content_extra` holds `{"tdlib": <the content as
-TDLib's own JSON>}` with local file paths removed, produced by the
-JSON serializer TDLib already builds (`tdjson_private`). A later
-version can turn it into a curated object from the row alone.
+For a class with no curated mapping yet, `content_extra` holds
+`{"tdlib": <the content as TDLib's own JSON>}`, produced by the JSON
+serializer TDLib already builds (`tdjson_private`), with local state
+removed (file paths and download state, the account's viewed and
+listened marks). Until the curated items land that is every class but
+`messageText` (fully kept by the text, entities and link preview),
+`messageAnimatedEmoji` (stored as its text) and the expired classes
+(nothing left); for good it is the rare and bot-only ones, rich
+messages and widgets. Encrypted passport data is never stored, and a
+content whose JSON exceeds 256 KiB keeps only its class and size
+(`tdlib_omitted_bytes`). A later version can turn the JSON into a
+curated object from the row alone.
 
-`content_extra` is part of the edit snapshot: an edit that changes only
-it (a live location moving, a poll description edited) is a version.
+`content_extra` is part of the edit snapshot: an edit that changes a
+curated key (a live location moving, say) is a version. The `tdlib`
+part does not count when deciding whether an edit changed anything,
+since it also changes with nobody editing (refreshed file references),
+and a row with no curated keys yet matches any.
 See decision
 [2026-11-18-msg-content-extra](decisions/2026-11-18-msg-content-extra.md).
 

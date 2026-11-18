@@ -8,6 +8,13 @@
  */
 #include <tgloggerd/MessageExtract.hpp>
 
+#include <td/telegram/td_api.hpp>
+#include <td/telegram/td_api_json.h>
+#include <td/utils/JsonBuilder.h>
+
+#include <nlohmann/json.hpp>
+
+#include <exception>
 #include <string>
 #include <optional>
 #include <cstdint>
@@ -159,21 +166,22 @@ void set_formatted_text(const td_api::formattedText *ft,
  * ...). On a recognized service content, sets @service_type to a stable
  * action id and returns a human-readable description (from the account's
  * point of view; specific names are resolved later by the web UI). Returns
- * nullopt when @content is not a service message, so the caller records it
- * as ordinary/unknown content instead.
+ * nullopt for a service class described generically by the caller.
+ *
+ * @sender_uid is the user who sent the message, 0 if unknown or not a user;
+ * it tells a self-action (joined, left) from one done to someone else.
  */
 std::optional<std::string>
-describe_service_message(const td_api::message &message,
-			 std::string &service_type)
+describe_service_message(const td_api::MessageContent &content,
+			 int64_t sender_uid, std::string &service_type)
 {
-	const auto &content = *message.content_;
 	switch (content.get_id()) {
 	case td_api::messageChatAddMembers::ID: {
 		auto &c = static_cast<const td_api::messageChatAddMembers &>(content);
 		service_type = "chat_add_members";
 		/* Exactly one added member, equal to the sender: a self-join. */
 		if (c.member_user_ids_.size() == 1 &&
-		    c.member_user_ids_[0] == sender_user_id(message))
+		    c.member_user_ids_[0] == sender_uid)
 			return "joined the group";
 		if (c.member_user_ids_.size() == 1)
 			return "added a member to the group";
@@ -189,7 +197,7 @@ describe_service_message(const td_api::message &message,
 	case td_api::messageChatDeleteMember::ID: {
 		auto &c = static_cast<const td_api::messageChatDeleteMember &>(content);
 		service_type = "chat_delete_member";
-		if (c.user_id_ == sender_user_id(message))
+		if (c.user_id_ == sender_uid)
 			return "left the group";
 		return "removed a member from the group";
 	}
@@ -272,8 +280,10 @@ describe_service_message(const td_api::message &message,
 		service_type = "gifted_premium";
 		return "gifted a Telegram Premium subscription";
 	case td_api::messagePaymentSuccessful::ID:
-	case td_api::messagePaymentSuccessfulBot::ID:
 		service_type = "payment_successful";
+		return "made a payment";
+	case td_api::messagePaymentSuccessfulBot::ID:
+		service_type = "payment_successful_bot";
 		return "made a payment";
 	case td_api::messageCustomServiceAction::ID: {
 		auto &c = static_cast<const td_api::messageCustomServiceAction &>(content);
@@ -285,7 +295,177 @@ describe_service_message(const td_api::message &message,
 	}
 }
 
+
+/*
+ * The text a content class carries as its message text or caption, with
+ * its entities, or nullptr. Service classes that carry a text of their own
+ * (a gift's message) keep it in content_extra instead: the text column of a
+ * service message is its description.
+ */
+const td_api::formattedText *
+content_formatted_text(const td_api::MessageContent &c)
+{
+	switch (c.get_id()) {
+	case td_api::messageText::ID:
+		return static_cast<const td_api::messageText &>(c).text_.get();
+	case td_api::messagePhoto::ID:
+		return static_cast<const td_api::messagePhoto &>(c).caption_.get();
+	case td_api::messageVideo::ID:
+		return static_cast<const td_api::messageVideo &>(c).caption_.get();
+	case td_api::messageDocument::ID:
+		return static_cast<const td_api::messageDocument &>(c).caption_.get();
+	case td_api::messageAudio::ID:
+		return static_cast<const td_api::messageAudio &>(c).caption_.get();
+	case td_api::messageVoiceNote::ID:
+		return static_cast<const td_api::messageVoiceNote &>(c).caption_.get();
+	case td_api::messageAnimation::ID:
+		return static_cast<const td_api::messageAnimation &>(c).caption_.get();
+	case td_api::messagePaidMedia::ID:
+		return static_cast<const td_api::messagePaidMedia &>(c).caption_.get();
+	case td_api::messageWidget::ID:
+		return static_cast<const td_api::messageWidget &>(c).caption_.get();
+	case td_api::messagePoll::ID:
+		return static_cast<const td_api::messagePoll &>(c).description_.get();
+	case td_api::messageInvoice::ID:
+		return static_cast<const td_api::messageInvoice &>(c)
+			.paid_media_caption_.get();
+	case td_api::messageGame::ID: {
+		auto &g = static_cast<const td_api::messageGame &>(c);
+		return g.game_ ? g.game_->text_.get() : nullptr;
+	}
+	case td_api::messageChecklist::ID: {
+		auto &l = static_cast<const td_api::messageChecklist &>(c);
+		return l.list_ ? l.list_->title_.get() : nullptr;
+	}
+	default:
+		return nullptr;
+	}
+}
+
+models::MessageContentType content_kind(int32_t id)
+{
+	switch (id) {
+#define TGLOGGERD_KIND_CASE(cls, kind) \
+	case td_api::cls::ID: return models::MessageContentType::kind;
+	TGLOGGERD_MESSAGE_CONTENT_CLASSES(TGLOGGERD_KIND_CASE)
+#undef TGLOGGERD_KIND_CASE
+	default:
+		return models::MessageContentType::Unknown;
+	}
+}
+
+/*
+ * "messageChatOwnerChanged" -> "chat_owner_changed": the service_type of a
+ * service class without a name of its own (decision
+ * 2026-11-18-msg-service-type-names).
+ */
+std::string service_type_name(const std::string &cls)
+{
+	std::string s = cls.rfind("message", 0) == 0 ? cls.substr(7) : cls;
+	std::string out;
+	for (char ch : s) {
+		if (ch >= 'A' && ch <= 'Z') {
+			if (!out.empty())
+				out += '_';
+			out += (char)(ch - 'A' + 'a');
+		} else {
+			out += ch;
+		}
+	}
+	return out.empty() ? std::string("unknown") : out;
+}
+
+/* "chat_owner_changed" -> "chat owner changed": a description for a service
+ * message the describer does not know yet; msg-service-detail replaces it. */
+std::string generic_service_description(const std::string &service_type)
+{
+	std::string out = service_type;
+	for (char &ch : out)
+		if (ch == '_')
+			ch = ' ';
+	return out;
+}
+
+/* Remove what only makes sense to this TDLib session: local file state
+ * (paths, download progress) and the account's own viewed/listened marks. */
+void strip_local_state(nlohmann::json &j)
+{
+	if (j.is_object()) {
+		auto t = j.find("@type");
+		if (t != j.end() && t->is_string() && *t == "file")
+			j.erase("local");
+		j.erase("is_viewed");
+		j.erase("is_listened");
+		for (auto &kv : j.items())
+			strip_local_state(kv.value());
+	} else if (j.is_array()) {
+		for (auto &v : j)
+			strip_local_state(v);
+	}
+}
+
+/* Bigger contents (a rich message or a widget with a large page) keep only
+ * their class, so one message cannot fill a JSON column with megabytes. */
+constexpr size_t kMaxTdlibJson = 256 * 1024;
+
+std::optional<nlohmann::json> tdlib_json(const td_api::MessageContent &c)
+{
+	try {
+		std::string raw = td::json_encode<std::string>(td::ToJson(c));
+		return nlohmann::json::parse(raw);
+	} catch (const std::exception &) {
+		return std::nullopt;
+	}
+}
+
+std::optional<std::string>
+tdlib_class_from_json(const td_api::MessageContent &c)
+{
+	auto j = tdlib_json(c);
+	if (j && j->is_object() && j->contains("@type") &&
+	    (*j)["@type"].is_string())
+		return (*j)["@type"].get<std::string>();
+	return std::nullopt;
+}
+
+/* {"tdlib": <the content as TDLib's JSON, local state removed>}, or nullopt
+ * when the content carries nothing beyond its class. */
+std::optional<std::string>
+tdlib_extra_json(const td_api::MessageContent &c)
+{
+	auto j = tdlib_json(c);
+	if (!j || !j->is_object())
+		return std::nullopt;
+	strip_local_state(*j);
+	if (j->size() <= 1)
+		return std::nullopt;
+	std::string body = j->dump();
+	if (body.size() > kMaxTdlibJson) {
+		nlohmann::json small = {
+			{ "@type", (*j)["@type"] },
+		};
+		nlohmann::json out = {
+			{ "tdlib", small },
+			{ "tdlib_omitted_bytes", body.size() },
+		};
+		return out.dump();
+	}
+	return std::string("{\"tdlib\":") + body + "}";
+}
+
 } /* namespace */
+
+const char *message_content_class_name(std::int32_t id)
+{
+	switch (id) {
+#define TGLOGGERD_NAME_CASE(cls, kind) \
+	case td_api::cls::ID: return #cls;
+	TGLOGGERD_MESSAGE_CONTENT_CLASSES(TGLOGGERD_NAME_CASE)
+#undef TGLOGGERD_NAME_CASE
+	default:
+		return nullptr;
+	}
+}
 
 /* The user id of a message's sender, or 0 if the sender is a chat/channel
  * or absent. Used to tell a self-action (joined/left) from one done to
@@ -315,85 +495,64 @@ void extract_message_content(const td_api::MessageContent &content,
 			     models::MessageContent &out,
 			     const td_api::message *msg)
 {
-	switch (content.get_id()) {
-	case td_api::messageText::ID: {
-		auto &c = static_cast<const td_api::messageText &>(
+	const int32_t id = content.get_id();
+	const char *cls = message_content_class_name(id);
+
+	out.content_type = content_kind(id);
+	out.tdlib_type = cls ? std::string(cls) : tdlib_class_from_json(content);
+
+	switch (id) {
+	case td_api::messageAnimatedEmoji::ID: {
+		/*
+		 * A text message of one emoji, which TDLib presents with an
+		 * animation: store it as the text it is (decision
+		 * 2026-11-18-msg-animated-emoji-text). The animation adds
+		 * nothing worth keeping.
+		 */
+		auto &c = static_cast<const td_api::messageAnimatedEmoji &>(
 			content);
-		out.content_type = models::MessageContentType::Text;
-		set_formatted_text(c.text_.get(), out);
-		break;
+		if (!c.emoji_.empty())
+			out.text = c.emoji_;
+		return;
 	}
-	case td_api::messagePhoto::ID: {
-		auto &c = static_cast<const td_api::messagePhoto &>(content);
-		out.content_type = models::MessageContentType::Photo;
-		set_formatted_text(c.caption_.get(), out);
-		break;
-	}
-	case td_api::messageVideo::ID: {
-		auto &c = static_cast<const td_api::messageVideo &>(content);
-		out.content_type = models::MessageContentType::Video;
-		set_formatted_text(c.caption_.get(), out);
-		break;
-	}
-	case td_api::messageDocument::ID: {
-		auto &c = static_cast<const td_api::messageDocument &>(content);
-		out.content_type = models::MessageContentType::Document;
-		set_formatted_text(c.caption_.get(), out);
-		break;
-	}
-	case td_api::messageAudio::ID: {
-		auto &c = static_cast<const td_api::messageAudio &>(content);
-		out.content_type = models::MessageContentType::Audio;
-		set_formatted_text(c.caption_.get(), out);
-		break;
-	}
-	case td_api::messageVoiceNote::ID: {
-		auto &c = static_cast<const td_api::messageVoiceNote &>(content);
-		out.content_type = models::MessageContentType::Voice;
-		set_formatted_text(c.caption_.get(), out);
-		break;
-	}
-	case td_api::messageAnimation::ID: {
-		auto &c = static_cast<const td_api::messageAnimation &>(content);
-		out.content_type = models::MessageContentType::Animation;
-		set_formatted_text(c.caption_.get(), out);
-		break;
-	}
-	case td_api::messageSticker::ID:
-		out.content_type = models::MessageContentType::Sticker;
-		break;
 	case td_api::messageExpiredPhoto::ID:
 	case td_api::messageExpiredVideo::ID:
 	case td_api::messageExpiredVideoNote::ID:
 	case td_api::messageExpiredVoiceNote::ID:
-		out.content_type = models::MessageContentType::Unknown;
+		/* Nothing is left to keep but the class. */
 		out.is_expired = true;
+		return;
+	default:
 		break;
-	default: {
-		/* A system/service message (member joined, title changed, ...)
-		 * is a real, replyable message; record it as such. Anything
-		 * else is genuinely unknown content. */
-		/*
-		 * Describing a service message needs the message, not just its
-		 * content -- it reports who acted. updateMessageContent has no
-		 * message to give, but service messages are not edited, so the
-		 * only caller without one is also the one that never sees them.
-		 */
+	}
+
+	set_formatted_text(content_formatted_text(content), out);
+
+	if (out.content_type == models::MessageContentType::Service) {
 		std::string service_type;
-		std::optional<std::string> text;
-		if (msg)
-			text = describe_service_message(*msg, service_type);
-		if (text.has_value()) {
-			out.content_type = models::MessageContentType::Service;
-			out.service_type = std::move(service_type);
-			if (!text->empty())
-				out.text = std::move(*text);
-		} else {
-			out.content_type = models::MessageContentType::Unknown;
+		std::optional<std::string> text =
+			describe_service_message(content,
+						 msg ? sender_user_id(*msg) : 0,
+						 service_type);
+		if (!text.has_value()) {
+			service_type = service_type_name(
+				out.tdlib_type.value_or(""));
+			text = generic_service_description(service_type);
 		}
-		break;
+		out.service_type = std::move(service_type);
+		if (!text->empty())
+			out.text = std::move(*text);
 	}
-	}
+
+	/*
+	 * messageText is stored in full by the text, entities and link
+	 * preview; every other class keeps what it carries as TDLib's JSON
+	 * until a curated mapping replaces it (message-types.md section
+	 * 4.2). Encrypted passport data is never stored.
+	 */
+	if (id != td_api::messageText::ID &&
+	    id != td_api::messagePassportDataReceived::ID)
+		out.content_extra = tdlib_extra_json(content);
 }
 
 /* The message's text/caption formattedText (carrying its entities), or nullptr
@@ -403,31 +562,7 @@ message_formatted_text(const td_api::message &message)
 {
 	if (!message.content_)
 		return nullptr;
-	switch (message.content_->get_id()) {
-	case td_api::messageText::ID:
-		return static_cast<const td_api::messageText &>(
-			*message.content_).text_.get();
-	case td_api::messagePhoto::ID:
-		return static_cast<const td_api::messagePhoto &>(
-			*message.content_).caption_.get();
-	case td_api::messageVideo::ID:
-		return static_cast<const td_api::messageVideo &>(
-			*message.content_).caption_.get();
-	case td_api::messageDocument::ID:
-		return static_cast<const td_api::messageDocument &>(
-			*message.content_).caption_.get();
-	case td_api::messageAudio::ID:
-		return static_cast<const td_api::messageAudio &>(
-			*message.content_).caption_.get();
-	case td_api::messageVoiceNote::ID:
-		return static_cast<const td_api::messageVoiceNote &>(
-			*message.content_).caption_.get();
-	case td_api::messageAnimation::ID:
-		return static_cast<const td_api::messageAnimation &>(
-			*message.content_).caption_.get();
-	default:
-		return nullptr;
-	}
+	return content_formatted_text(*message.content_);
 }
 
 } /* namespace tgloggerd */

@@ -26,7 +26,7 @@ message-types.md sections 3.3-3.5 and 4.2.
 
 ## Depends on
 
-`msg-classify`
+Nothing.
 
 ## Done when
 

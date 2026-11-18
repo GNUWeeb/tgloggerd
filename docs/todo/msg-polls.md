@@ -22,7 +22,7 @@ Decision [2026-11-18-msg-polls](../design/decisions/2026-11-18-msg-polls.md).
 
 ## Depends on
 
-`msg-classify`, `msg-message-files`
+`msg-message-files`
 
 ## Done when
 

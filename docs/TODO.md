@@ -108,7 +108,6 @@ The file store as a capped cache in front of Telegram:
 Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
-- [`msg-classify`](todo/msg-classify.md): Give every ingested message its exact TDLib class and a content kind, keeping unmapped classes as TDLib JSON.
 - [`msg-media-detail`](todo/msg-media-detail.md): Store the detail of media messages: size, duration, MIME type, spoiler, sticker emoji and set, audio tags.
 - [`msg-structured-content`](todo/msg-structured-content.md): Store locations, venues, contacts, dice, games, shared stories, invoices, checklists, giveaways and calls.
 - [`msg-service-detail`](todo/msg-service-detail.md): Recognise every service message class and store its action's fields.
