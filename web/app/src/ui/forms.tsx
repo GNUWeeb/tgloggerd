@@ -29,16 +29,22 @@ export type { PickItem };
 
 // Search results for a picker, fetched while it is open: debounced, the
 // previous request aborted, `exclude` dropped from the list.
-function useChatResults(query: ChatQuery | undefined, q: string, open: boolean, exclude: ReadonlySet<number>) {
+// Where a picker's choices come from: the chat search, or another
+// search of the server's, named by `key` (a new key searches again).
+export interface Finder { key: string; find: (q: string, signal: AbortSignal) => Promise<PickItem[]> }
+export type PickSource = ChatQuery | Finder;
+const isFinder = (x: PickSource): x is Finder => typeof (x as Finder).find === 'function';
+
+function useChatResults(query: PickSource | undefined, q: string, open: boolean, exclude: ReadonlySet<number>) {
 	const [state, setState] = useState<{ items: PickItem[]; loading: boolean; failed: boolean }>({ items: [], loading: false, failed: false });
-	const key = query ? `${query.kind ?? ''}|${query.federation ?? ''}` : '';
+	const key = !query ? '' : isFinder(query) ? `find|${query.key}` : `${query.kind ?? ''}|${query.federation ?? ''}`;
 	useEffect(() => {
 		if (!query || !open) return;
 		const ac = new AbortController();
 		setState((s) => ({ ...s, loading: true, failed: false }));
 		const t = setTimeout(() => {
-			track(searchChats({ ...query, q: q.trim(), limit: 20 }, ac.signal))
-				.then((page) => setState({ items: page.items, loading: false, failed: false }))
+			track(isFinder(query) ? query.find(q.trim(), ac.signal) : searchChats({ ...query, q: q.trim(), limit: 20 }, ac.signal).then((page) => page.items))
+				.then((items) => setState({ items, loading: false, failed: false }))
 				.catch(() => { if (!ac.signal.aborted) setState({ items: [], loading: false, failed: true }); });
 		}, q ? 200 : 0);
 		return () => { clearTimeout(t); ac.abort(); };
@@ -89,7 +95,7 @@ export function ChatPicker({ value, onChange, search, exclude = NO_IDS, placehol
 
 // Several items as removable chips: chats searched on the server
 // (`search`), or a short list the page already holds (`options`).
-export function MultiPicker({ value, onChange, options, search, placeholder = 'Add...' }: { value: PickItem[]; onChange: (v: PickItem[]) => void; options?: PickItem[]; search?: ChatQuery; placeholder?: string }) {
+export function MultiPicker({ value, onChange, options, search, placeholder = 'Add...' }: { value: PickItem[]; onChange: (v: PickItem[]) => void; options?: PickItem[]; search?: PickSource; placeholder?: string }) {
 	const [q, setQ] = useState('');
 	const [open, setOpen] = useState(false);
 	const ids = new Set(value.map((v) => v.id));

@@ -819,6 +819,22 @@ function fedRow(f, s) {
 		created_by: creator ? fedPerson(creator) : null, group_count: fedGroups(f).filter(s.group).length,
 	};
 }
+// What is wrong with a member's grants as written, as Go answers it: a
+// federation that does not exist, or a group outside its federation
+// (400, field grants); a federation the viewer does not administer
+// (403).
+function badGrants(grants: { fed: number; group_ids?: number[] }[], s: ReturnType<typeof scopeOf>): [number, unknown] | null {
+	for (const g of grants) {
+		const f = fedById(g.fed);
+		if (!f) return [400, { error: 'bad_request', message: `There is no federation ${g.fed}.`, field: 'grants' }];
+		if (s.role !== 'superadmin' && !s.manageableFeds.some((x) => x.id === g.fed)) return [403, { error: 'forbidden', message: `You do not administer ${f.name}.` }];
+		const inFed = new Set(fedGroups(f).map((x) => x.id));
+		const out = (g.group_ids || []).find((id) => !inFed.has(id));
+		if (out !== undefined) return [400, { error: 'bad_request', message: `Group ${out} is not in ${f.name}.`, field: 'grants' }];
+	}
+	return null;
+}
+
 export function federationGroups(id: number, q: URLSearchParams, persona: Persona): [number, unknown] {
 	const v = visibleFed(id, persona);
 	if (!v) return [404, { error: 'not_found' }];
@@ -865,6 +881,8 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		if (accounts.some((a) => a.username === body.username)) return [409, { error: 'taken', message: 'That username is taken.' }];
 		if (s.role !== 'superadmin' && body.role !== 'member') return [403, { error: 'forbidden', message: 'Admins create members only.' }];
 		const grants = (body.grants || []).map((g) => ({ fed: g.fed, groupIds: g.group_ids || [] }));
+		const badG = badGrants(body.grants || [], s);
+		if (badG) return badG;
 		// An admin's new member must land in a federation that admin manages.
 		if (s.role !== 'superadmin' && !grants.some((g) => s.manageableFeds.some((f) => f.id === g.fed))) return [400, { error: 'grants_required', message: 'Grant at least one federation you administer.' }];
 		const id = Math.max(...accounts.map((a) => a.id)) + 1;
@@ -890,6 +908,11 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 				const unknown = ids.find((id) => !getGroup(id));
 				if (unknown !== undefined) return [400, { error: 'bad_request', message: `There is no group ${unknown}.`, field: 'hide_groups' }];
 			}
+			if (body.grants) {
+				const badG = badGrants(body.grants, s);
+				if (badG) return badG;
+			}
+			if (body.abilities && (!Array.isArray(body.abilities) || body.abilities.some((k) => k !== 'forward' && k !== 'fetch_files'))) return [400, { error: 'bad_request', message: 'An ability is forward or fetch_files.', field: 'abilities' }];
 			if (body.name) a.name = body.name;
 			if (body.role) a.role = body.role;
 			if (body.email !== undefined) { a.email = body.email; a.verified = false; }
@@ -898,7 +921,13 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 			if (body.restrict) a.restrict = { hide_private: !!body.restrict.hide_private, hide_groups: [...new Set<number>(body.restrict.hide_groups || [])], join_chat: false };
 			// A restriction ends with the admin role.
 			if (roleAfter !== 'admin' && a.restrict) a.restrict = { hide_private: false, hide_groups: [], join_chat: false };
-			if (body.grants) a.grants = body.grants.map((g) => ({ fed: g.fed, groupIds: g.group_ids }));
+			// Grants replace the federations the member is filed in among
+			// those the viewer administers (all, for a superadmin); the
+			// others stay. A federation left out takes its groups with it.
+			if (body.grants) {
+				const mine = (fed: number) => s.role === 'superadmin' || s.manageableFeds.some((f) => f.id === fed);
+				a.grants = [...a.grants.filter((g) => !mine(g.fed)), ...body.grants.map((g) => ({ fed: g.fed, groupIds: [...new Set<number>(g.group_ids || [])] }))];
+			}
 			if (body.abilities) a.abilities = body.abilities;
 			return [200, accountRow(a)];
 		}

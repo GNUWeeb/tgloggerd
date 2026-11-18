@@ -1,7 +1,7 @@
 
 import Shell from '../ui/Shell.tsx';
 import { Avatar, PageHead } from '../ui/primitives.tsx';
-import { DataTable, FilterBar, LongText, useListNav, type Col } from '../ui/list.tsx';
+import { DataTable, emptyText, FilterBar, LongText, useListNav, type Col } from '../ui/list.tsx';
 import { useFreshRows } from '../live/useEntities.tsx';
 import { Bar, Flags, UserCell, userFlags } from '../ui/bits.tsx';
 import { ago, compact, fmt } from '../format.ts';
@@ -57,7 +57,7 @@ function Users({ page }: { page: PageData<UsersProps> }) {
 			<PageHead title="Users" sub={full && page.props.archive_total ? `${fmt(page.props.archive_total)} users seen across all logged chats` : `${fmt(L.total)} people in your groups`} />
 			<FilterBar L={L} fields={full ? FIELDS : FIELDS.filter((f) => ['id', 'name', 'username'].includes(f.key))} placeholder="Name, @username or ID" name="Users" quick={full ? QUICK : undefined} />
 			<DataTable
-				L={L} cols={cols} noun="users" empty="No users match these filters."
+				L={L} cols={cols} noun="users" empty={emptyText(L, !full, 'users', 'No users match these filters.')}
 				href={(u) => `/users/${u.id}`}
 				mobile={(u) => ({
 					lead: <Avatar id={u.id} name={u.name} photo={u.photo} size={36} deleted={u.type === 'deleted'} />,

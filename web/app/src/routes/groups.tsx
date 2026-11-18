@@ -1,7 +1,7 @@
 import { Globe } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Avatar, PageHead, Pill } from '../ui/primitives.tsx';
-import { DataTable, FilterBar, LongText, useListNav, type Col } from '../ui/list.tsx';
+import { DataTable, emptyText, FilterBar, LongText, useListNav, type Col } from '../ui/list.tsx';
 import { useFreshRows } from '../live/useEntities.tsx';
 import { Bar, GroupCell } from '../ui/bits.tsx';
 import { ago, compact, fmt } from '../format.ts';
@@ -52,7 +52,7 @@ function Groups({ page }: { page: PageData<GroupsProps> }) {
 			<PageHead title="Groups" sub={member ? `${L.total} groups granted to you` : `${fmt(page.props.archive_total ?? L.total)} groups and channels the logger has seen`} />
 			<FilterBar L={L} fields={FIELDS} placeholder="Title, @username or ID" name="Groups" quick={QUICK} />
 			<DataTable
-				L={L} cols={cols} noun="groups" empty="No groups match these filters."
+				L={L} cols={cols} noun="groups" empty={emptyText(L, member, 'groups', 'No groups match these filters.')}
 				href={(g) => `/groups/${g.id}`}
 				mobile={(g) => ({
 					lead: <Avatar id={g.id} name={g.title} photo={g.photo} size={36} square />,

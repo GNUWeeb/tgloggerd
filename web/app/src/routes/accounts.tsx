@@ -6,7 +6,8 @@ import { Ban, Check, Copy, Crown, History, Info, KeyRound, LogOut, MailCheck, Ma
 import Shell from '../ui/Shell.tsx';
 import { useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
-import { Field, MultiPicker, Seg, Switch, type PickItem } from '../ui/forms.tsx';
+import { Field, MultiPicker, Seg, Switch, type Finder, type PickItem } from '../ui/forms.tsx';
+import { federationGroups } from '../api/federations.ts';
 import { Modal } from '../ui/Modal.tsx';
 import { ApiError, api, ok } from '../api/client.ts';
 import { ago } from '../format.ts';
@@ -90,6 +91,13 @@ function NotYet({ editable: e }: { editable: AccountsProps['editable'] }) {
 	return <div className="a-banner" role="note"><Info size={15} /><span>{list[0]!.toUpperCase() + list.slice(1)} {plural ? 'are' : 'is'} not available yet.</span></div>;
 }
 
+// A federation's groups to choose from: its own group list, searched on
+// the server, so nothing outside the federation can be granted.
+const fedFinder = (fed: number): Finder => ({
+	key: `fed:${fed}`,
+	find: (q, signal) => federationGroups(fed, { q, limit: 20 }, signal).then((p) => p.items.map((g): PickItem => ({ id: g.id, title: g.title, kind: 'group', photo: g.photo, ...(g.username ? { sub: `@${g.username}` } : {}) }))),
+});
+
 type Draft = AccountRow & { isNew?: boolean };
 
 function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; props: AccountsProps; viewerRole: Role; onClose: () => void; onSaved: () => void }) {
@@ -117,6 +125,10 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 	// Whether set-password links can be mailed at all (AccountsProps.mail).
 	const mail = props.mail !== false;
 	const feds = E.federations ? props.federations : props.federations.filter((f) => f.default);
+	const mine = (fed: number) => props.federations.some((f) => f.id === fed);
+	// The member's federations another admin manages: shown, not changed.
+	const others = a.grants.filter((g) => !mine(g.fed));
+	const fedName = (id: number) => props.all_federations.find((f) => f.id === id)?.name ?? `Federation ${id}`;
 	const call = async (fn: () => Promise<unknown>, after: 'close' | string) => {
 		setErr('');
 		try {
@@ -158,7 +170,9 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 			// groups; not Join chat): a superadmin's save sends them for an
 			// admin, including one this save makes admin.
 			...(a.role === 'admin' && partial ? { restrict: { hide_private: E.restrict_private ? restrict.hide_private : false, hide_groups: E.restrict_groups ? restrict.hide_groups.map((g) => g.id) : [], join_chat: false } } : {}),
-			...(a.role === 'member' ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: E.group_grants ? g.groups.map((x) => x.id) : [] })) } : {}),
+			// Only the federations the viewer administers: naming another
+			// is refused, and the member's others stay as they are.
+			...(a.role === 'member' ? { grants: a.grants.filter((g) => mine(g.fed)).map((g) => ({ fed: g.fed, group_ids: E.group_grants ? g.groups.map((x) => x.id) : [] })) } : {}),
 			...(a.role === 'member' && E.abilities ? { abilities: a.abilities } : {}),
 		} })), 'close'));
 	const restrict = a.restrict ?? { hide_private: false, hide_groups: [], join_chat: false };
@@ -178,10 +192,14 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 							<Switch checked={!!g} onChange={() => set({ grants: g ? a.grants.filter((x) => x.fed !== f.id) : [...a.grants, { fed: f.id, groups: [] }] })} label={<><Network size={14} /> {f.name}</>} />
 							{g && E.group_grants && <span className="a-muted sm">{g.groups.length} of {f.group_count} groups</span>}
 						</header>
-						{g && E.group_grants && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={{ kind: 'group', federation: f.id }} placeholder={`Add a group of ${f.name}...`} />}
+						{g && E.group_grants && <MultiPicker value={g.groups} onChange={(gs) => set({ grants: a.grants.map((x) => (x.fed !== f.id ? x : { ...x, groups: gs })) })} search={fedFinder(f.id)} placeholder={`Add a group of ${f.name}...`} />}
+						{g && E.group_grants && !g.groups.length && <p className="a-muted sm">No group granted yet: the member sees nothing of {f.name}.</p>}
 					</section>
 				);
 			})}
+			{others.length > 0 && (
+				<p className="a-muted sm" role="note"><Info size={13} /> Also filed in {others.map((g, i) => <span key={g.fed}>{i ? ', ' : ''}<b>{fedName(g.fed)}</b>{E.group_grants ? ` (${g.groups.length} group${g.groups.length === 1 ? '' : 's'})` : ''}</span>)}, which you do not administer; those stay as they are.</p>
+			)}
 		</>
 	);
 	const grantRequired = isNew && !isSuper && a.role === 'member' && a.grants.length === 0;
