@@ -315,6 +315,16 @@ describe('forwarding', () => {
 	});
 });
 
+describe('people with access', () => {
+	it('shows the owner and offers no transfer while the service has none', () => {
+		renderPage('/platform-fwd/telegram-discord');
+		fireEvent.click(screen.getAllByRole('button', { name: 'People with access' })[0]!);
+		expect(within(dialog()).getByText('Owner')).toBeTruthy();
+		expect(within(dialog()).queryByRole('button', { name: 'Transfer ownership' })).toBeNull();
+		expect(within(dialog()).queryByText('Transfer ownership to')).toBeNull();
+	});
+});
+
 describe('Discord to Telegram', () => {
 	const ref = (id: number, kind: 'discord' | 'telegram', name: string, enabled = true) => ({ id, kind, name, identity: null, status: enabled ? 'connected' as const : 'disabled' as const, enabled });
 	const BOTS = [ref(2, 'discord', 'Discord reader'), ref(1, 'telegram', 'Logger relay'), ref(4, 'telegram', 'Research bot', false)];
