@@ -311,6 +311,41 @@ func Save(ctx context.Context, db *sql.DB, uid uint64, p Prefs) error {
 	return tx.Commit()
 }
 
+// SaveKeys stores only the given keys of p, which the caller has
+// checked: a key set in p is written, one null in p removed, and every
+// other preference stays as stored. Two partial saves of different
+// keys at once both keep their change.
+func SaveKeys(ctx context.Context, db *sql.DB, uid uint64, p Prefs, keys []string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, f := range p.fields() {
+		if !slices.Contains(keys, f.key) {
+			continue
+		}
+		b, err := json.Marshal(f.ptr)
+		if err != nil {
+			return err
+		}
+		if string(b) == "null" {
+			_, err = tx.ExecContext(ctx,
+				"DELETE FROM web_user_settings WHERE web_user_id = ? AND name = ?",
+				uid, f.key)
+		} else {
+			_, err = tx.ExecContext(ctx,
+				"INSERT INTO web_user_settings (web_user_id, name, value) VALUES (?, ?, ?) "+
+					"AS new ON DUPLICATE KEY UPDATE value = new.value",
+				uid, f.key, string(b))
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // Chat is the chat view's settings in effect.
 type Chat struct {
 	AutoLoad    bool   `json:"auto_load"`

@@ -1491,6 +1491,50 @@ paths:
           $ref: '#/components/responses/Csrf'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
+    patch:
+      operationId: patchPreferences
+      tags: [account]
+      summary: Change some of the account's preferences
+      description: >-
+        Changes only the preferences the body names, each as PUT takes
+        it (null is the site default again); the others stay as stored,
+        so a control saving one key (the theme toggle, the menu's
+        collapse) cannot undo a save of other keys made at the same
+        time. The same refusals as PUT, for the keys given. Answers
+        every preference as now stored.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Prefs'
+      responses:
+        '200':
+          description: Every preference, as now stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [prefs]
+                properties:
+                  prefs:
+                    $ref: '#/components/schemas/Prefs'
+        '400':
+          description: A malformed body, an unknown key or a refused value (error bad_request).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
   /api/account/pinned/{group_id}:
     put:
       operationId: pinGroup

@@ -25,6 +25,7 @@ loader (`/api/page/settings...`):
 
     GET /api/account/preferences    the preferences page's data
     PUT /api/account/preferences    replace every preference; 200 {prefs}
+    PATCH /api/account/preferences  change only the keys given; 200 {prefs}
 
 | Key | Values | Site default |
 |---|---|---|
@@ -45,6 +46,11 @@ loader (`/api/page/settings...`):
   JSON value.
 - A key that is not in the table, or a value it does not take, refuses
   the whole body: 400 bad_request with the key in `field`.
+- PATCH changes only the keys its body names (null puts one back to
+  the site default) and keeps the others as stored, so a control that
+  saves one key, such as the theme toggle or the menu's collapse,
+  cannot undo another page's save made at the same time. It refuses
+  what PUT refuses and answers every preference as now stored.
 - The site defaults of the first four keys are configuration
   (decisions/2026-11-18-web-rollout.md), checked at start; the others
   are fixed.

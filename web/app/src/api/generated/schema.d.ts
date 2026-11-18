@@ -397,7 +397,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Change some of the account's preferences
+         * @description Changes only the preferences the body names, each as PUT takes it (null is the site default again); the others stay as stored, so a control saving one key (the theme toggle, the menu's collapse) cannot undo a save of other keys made at the same time. The same refusals as PUT, for the keys given. Answers every preference as now stored.
+         */
+        patch: operations["patchPreferences"];
         trace?: never;
     };
     "/api/account/pinned/{group_id}": {
@@ -3627,6 +3631,44 @@ export interface operations {
         };
         responses: {
             /** @description The saved preferences. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        prefs: components["schemas"]["Prefs"];
+                    };
+                };
+            };
+            /** @description A malformed body, an unknown key or a refused value (error bad_request). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldError"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    patchPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Prefs"];
+            };
+        };
+        responses: {
+            /** @description Every preference, as now stored. */
             200: {
                 headers: {
                     [name: string]: unknown;
