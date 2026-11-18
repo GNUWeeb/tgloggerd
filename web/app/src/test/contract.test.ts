@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { adminApi, badPref, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { adminApi, federationGroups, badPref, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 
 const spec = loadSpec();
@@ -48,7 +48,7 @@ const PAGES: [Persona, string][] = [
 		[a, '/group_messages'], [a, '/group_messages?q=rust&f=' + encodeURIComponent('[{"field":"is_deleted","op":"is","value":"yes"}]')],
 		[a, '/settings'], [a, '/settings/preferences'], [a, '/settings/sessions'],
 		[a, '/platform-fwd'], [a, '/platform-fwd/telegram-discord'], [a, '/platform-fwd/discord-telegram'],
-		[a, '/platform-fwd/bots'], 		[a, '/settings/accounts'], [a, '/settings/federations'], [a, '/join-chat'], [a, '/mcp-admin'], [a, '/mcp-admin/groups'], [a, '/mcp-admin/tokens'],
+		[a, '/platform-fwd/bots'], 		[a, '/settings/accounts'], [a, '/settings/federations'], [a, '/settings/federations/1'], [a, '/settings/federations/0'], [a, '/join-chat'], [a, '/mcp-admin'], [a, '/mcp-admin/groups'], [a, '/mcp-admin/tokens'],
 		[a, '/no/such/page'],
 	]),
 	['superadmin', `/files?view=list&file=${orphanId}`], ['admin', `/files?view=list&file=${orphanId}`],
@@ -193,6 +193,12 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		} finally {
 			if (was === undefined) delete prefs.timezone; else prefs.timezone = was;
 		}
+	});
+
+	it('a federation, its groups and a change of it', () => {
+		ok(...adminApi('GET', 'federations/1', {}, 'superadmin'), '/api/federations/{id}');
+		for (const q of ['', 'limit=3', 'limit=3&cursor=3', 'q=dev']) ok(...federationGroups(0, new URLSearchParams(q), 'superadmin'), '/api/federations/{id}/groups');
+		ok(...adminApi('PATCH', 'federations/1', { description: 'For the contract' }, 'superadmin'), '/api/federations/{id}', 'patch');
 	});
 
 	it('a name lookup', () => {
