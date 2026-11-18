@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { chatFor, chatWindow, entities, pageData, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { adminApi, chatFor, chatWindow, entities, pageData, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 
 const spec = loadSpec();
@@ -47,6 +47,7 @@ const PAGES: [Persona, string][] = [
 	['public', `/groups/${exposedId}/chat`], ['public', '/login'], ['public', '/login?next=%2Fusers'],
 	['public', '/password/forgot'], ['public', '/password/set'], ['public', '/account/email/verify'], ['superadmin', '/password/forgot'],
 	['noemail', '/users'], ['noemail', '/'],
+	['newpw', '/users'], ['newpw', '/settings'], ['newpw', '/password/forgot'],
 ];
 
 describe('stand-in page data against webapi/openapi.yaml', () => {
@@ -74,6 +75,14 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 			const [status, body] = searchChats(p, new URLSearchParams(q));
 			ok(status, body, '/api/chats/search');
 		}
+	});
+
+	it('account creation and a password reset', () => {
+		const [cs, created] = adminApi('POST', 'accounts', { username: 'contract1', name: 'C', email: 'c@example.org', role: 'member', grants: [{ fed: 0, group_ids: [] }] }, 'superadmin');
+		expect(cs).toBe(201);
+		expect(validate(spec, responseSchema(spec, '/api/accounts', 'post', '201'), wire(created))).toEqual([]);
+		const [rs, reset] = adminApi('POST', `accounts/${(created as { id: number }).id}/password-reset`, {}, 'superadmin');
+		ok(rs, reset, '/api/accounts/{id}/password-reset', 'post');
 	});
 
 	it.each(['superadmin', 'member'] as Persona[])('the entity lookup, as %s', (p) => {

@@ -40,8 +40,8 @@ const vite = await createVite({
 	appType: 'custom',
 });
 
-type Persona = 'superadmin' | 'admin' | 'member' | 'noemail' | 'public';
-const PERSONAS: Persona[] = ['superadmin', 'admin', 'member', 'noemail', 'public'];
+type Persona = 'superadmin' | 'admin' | 'member' | 'noemail' | 'newpw' | 'public';
+const PERSONAS: Persona[] = ['superadmin', 'admin', 'member', 'noemail', 'newpw', 'public'];
 function persona(req: IncomingMessage, url: URL): Persona {
 	const q = url.searchParams.get('as') as Persona | null;
 	if (q && PERSONAS.includes(q)) return q;
@@ -179,7 +179,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 	if (url.pathname === '/api/login' && req.method === 'POST') {
 		if (req.headers['x-csrf-token'] !== 'standin-login') { send(res, 403, { error: 'csrf' }); return; }
 		const body = JSON.parse((await readBody(req)) || '{}') as { username?: string; password?: string };
-		const as = ({ admin: 'superadmin', gw_admin: 'admin', researcher: 'member', ops: 'noemail' } as Record<string, Persona>)[body.username ?? ''];
+		const as = ({ admin: 'superadmin', gw_admin: 'admin', researcher: 'member', ops: 'noemail', mod_kernel: 'newpw' } as Record<string, Persona>)[body.username ?? ''];
 		if (!as || body.password !== 'standin') {
 			send(res, 401, { error: 'invalid_credentials', message: 'Wrong username or password.', csrf: 'standin-login' });
 			return;
@@ -195,7 +195,15 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 	}
 	// Without a verified address only these calls work; the page data
 	// answers email_required instead (web-accounts.md section 8).
-	if (url.pathname.startsWith('/api/') && fx.needsEmail(who) && !/^\/api\/(session|logout|login|page(\/.*)?|account\/email(\/verify)?|password\/(forgot|set)|_standin\/.*)$/.test(url.pathname)) {
+	// A temporary password first: only these calls work until the account
+	// chose its own (the spec's Gates); the page data answers
+	// password_change.
+	if (url.pathname.startsWith('/api/') && fx.needsPasswordChange(who) && !/^\/api\/(session|logout|login|page(\/.*)?|account\/password|account\/email\/verify|password\/(forgot|set)|_standin\/.*)$/.test(url.pathname)) {
+		send(res, 403, { error: 'password_change_required', message: 'Choose your own password first.' }); return;
+	}
+	// The email gate comes after the password one: while both are up,
+	// only the password change works.
+	if (url.pathname.startsWith('/api/') && fx.needsEmail(who) && !fx.needsPasswordChange(who) && !/^\/api\/(session|logout|login|page(\/.*)?|account\/email(\/verify)?|password\/(forgot|set)|_standin\/.*)$/.test(url.pathname)) {
 		send(res, 403, { error: 'email_required', message: 'Add and verify an email address first.' }); return;
 	}
 	if (url.pathname === '/api/session') {
@@ -217,6 +225,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 			st.sessions = st.sessions.filter((x: { current: boolean }) => x.current);
 			const csrf = `standin-csrf-${csrfTokens.size}`;
 			csrfTokens.add(csrf);
+			fx.passwordChanged(who);
 			send(res, 200, { csrf }); return;
 		}
 		if (p === 'email' && req.method === 'POST') {

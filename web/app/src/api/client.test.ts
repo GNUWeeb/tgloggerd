@@ -29,11 +29,11 @@ describe('api client', () => {
 	});
 });
 
-describe('email_required', () => {
-	it('calls back on a 403 email_required, and not on other 403s', async () => {
-		const { onEmailRequired } = await import('./client.ts');
+describe('gates', () => {
+	it('calls back on a 403 for a gate, and not on other 403s', async () => {
+		const { onGate } = await import('./client.ts');
 		const cb = vi.fn();
-		onEmailRequired(cb);
+		onGate(cb);
 		vi.stubGlobal('fetch', vi.fn(async () => json(403, { error: 'csrf' })));
 		await api.POST('/api/logout');
 		expect(cb).not.toHaveBeenCalled();
@@ -41,6 +41,9 @@ describe('email_required', () => {
 		const e = await ok(api.POST('/api/mcp/tokens', { body: { name: 'x' } })).catch((x: unknown) => x);
 		expect(cb).toHaveBeenCalledTimes(1);
 		expect(e).toMatchObject({ status: 403, code: 'email_required' });
-		onEmailRequired(null);
+		vi.stubGlobal('fetch', vi.fn(async () => json(403, { error: 'password_change_required' })));
+		await api.POST('/api/logout');
+		expect(cb).toHaveBeenCalledTimes(2);
+		onGate(null);
 	});
 });

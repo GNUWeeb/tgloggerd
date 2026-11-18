@@ -200,3 +200,42 @@ describe('add your email address', () => {
 		expect(callsTo(calls, 'GET', '/api/page/settings/sessions')).toHaveLength(1);
 	});
 });
+
+describe('choose your own password', () => {
+	it('comes up on any page for an account with a temporary password, and goes on once changed', async () => {
+		expect(fixture('/groups', 'newpw').route).toBe('password_change');
+		const calls = fakeApi('newpw', {
+			'POST /api/account/password': () => ({ csrf: 'after-change' }),
+			'GET /api/page/groups': () => fixture('/groups', 'member'),
+		});
+		renderPage('/groups', 'newpw');
+		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Choose your own password');
+		fill('current_password', 'tmp-1'); fill('new_password', 'tmp-1'); fill('confirm_password', 'tmp-1');
+		fireEvent.submit(document.querySelector('form')!);
+		await screen.findByText('Choose a password of your own, not the temporary one.');
+		fill('new_password', 'my own passphrase'); fill('confirm_password', 'my own passphrase');
+		fireEvent.submit(document.querySelector('form')!);
+		await screen.findByRole('heading', { name: 'Groups', level: 1 });
+		expect(callsTo(calls, 'POST', '/api/account/password')[0]!.body).toEqual({ current_password: 'tmp-1', new_password: 'my own passphrase' });
+		expect(document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')!.content).toBe('after-change');
+	});
+
+	it('says when the temporary password is wrong', async () => {
+		fakeApi('newpw', { 'POST /api/account/password': () => json(400, { error: 'wrong_password', message: 'x' }) });
+		renderPage('/', 'newpw');
+		fill('current_password', 'nope'); fill('new_password', 'my own passphrase'); fill('confirm_password', 'my own passphrase');
+		fireEvent.submit(document.querySelector('form')!);
+		await screen.findByText('The temporary password is not right.');
+	});
+
+	it('comes up when any call answers password_change_required', async () => {
+		const gate = fixture('/settings/sessions', 'newpw');
+		fakeApi('superadmin', {
+			'POST /api/account/sessions/sign-out-others': () => json(403, { error: 'password_change_required' }),
+			'GET /api/page/settings/sessions': () => gate,
+		});
+		renderPage('/settings/sessions');
+		fireEvent.click(screen.getByRole('button', { name: /Sign out all others/ }));
+		await screen.findByRole('heading', { name: 'Choose your own password' });
+	});
+});

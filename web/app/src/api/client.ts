@@ -46,18 +46,21 @@ export const api = createClient<paths>({
 });
 api.use(csrf);
 
-// An account without a verified email address may only add one: every
-// other call answers 403 email_required. The application then fetches
-// the page data again, which brings up the add-your-email page.
-let emailRequired: (() => void) | null = null;
-export function onEmailRequired(fn: (() => void) | null): void {
-	emailRequired = fn;
+// A gate (the spec's Gates): an account that must first choose its own
+// password, or add an email address, may only do that, and every other
+// call answers 403 password_change_required or email_required. The
+// application then fetches the page data again, which brings up the
+// page for the gate.
+const GATES = new Set(['password_change_required', 'email_required']);
+let onGateHit: (() => void) | null = null;
+export function onGate(fn: (() => void) | null): void {
+	onGateHit = fn;
 }
 api.use({
 	async onResponse({ response }) {
-		if (response.status === 403 && emailRequired) {
+		if (response.status === 403 && onGateHit) {
 			const body = (await response.clone().json().catch(() => null)) as { error?: string } | null;
-			if (body?.error === 'email_required') emailRequired();
+			if (body?.error && GATES.has(body.error)) onGateHit();
 		}
 		return response;
 	},

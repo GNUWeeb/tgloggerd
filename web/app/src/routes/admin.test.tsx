@@ -19,7 +19,7 @@ const fill = (root: HTMLElement, sel: string, value: string) => fireEvent.change
 
 describe('accounts', () => {
 	it('lets an admin create a member only with a federation granted, and sends the grant', async () => {
-		const calls = fakeApi('admin', { 'POST /api/accounts': () => json(201, { id: 99 }) });
+		const calls = fakeApi('admin', { 'POST /api/accounts': () => json(201, { id: 99, temporary_password: 'tmp-Zx81' }) });
 		renderPage('/settings/accounts', 'admin');
 		fireEvent.click(screen.getByRole('button', { name: /New member/ }));
 		const d = dialog();
@@ -27,7 +27,7 @@ describe('accounts', () => {
 		fireEvent.change(inputs[0]!, { target: { value: 'newmember' } });
 		fireEvent.change(inputs[1]!, { target: { value: 'New member' } });
 		fill(d, 'input[type=email]', 'n@example.org');
-		const create = within(d).getByRole('button', { name: 'Create and email link' }) as HTMLButtonElement;
+		const create = within(d).getByRole('button', { name: 'Create account' }) as HTMLButtonElement;
 		expect(create.disabled).toBe(true);
 		fireEvent.click(d.querySelector('.a-fedgrant input.a-switch')!);
 		expect(create.disabled).toBe(false);
@@ -36,6 +36,44 @@ describe('accounts', () => {
 		const body = callsTo(calls, 'POST', '/api/accounts')[0]!.body as { role: string; grants: { fed: number; group_ids: number[] }[] };
 		expect(body).toMatchObject({ username: 'newmember', name: 'New member', email: 'n@example.org', role: 'member' });
 		expect(body.grants).toHaveLength(1);
+		// The temporary password, shown once.
+		expect(await screen.findByLabelText('Temporary password')).toHaveProperty('textContent', 'tmp-Zx81');
+		expect(screen.getByText(/Shown only now/)).toBeTruthy();
+	});
+
+	it('copies the temporary password, and forgets it once the dialog closes', async () => {
+		const write = vi.fn(async () => {});
+		vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: write } });
+		fakeApi('superadmin', { 'POST /api/accounts': () => json(201, { id: 99, temporary_password: 'tmp-Q2' }) });
+		renderPage('/settings/accounts');
+		fireEvent.click(screen.getByRole('button', { name: /New account/ }));
+		const d = dialog();
+		const inputs = d.querySelectorAll('input:not([type=checkbox]):not([type=radio])');
+		fireEvent.change(inputs[0]!, { target: { value: 'x1' } });
+		fireEvent.change(inputs[1]!, { target: { value: 'X' } });
+		fill(d, 'input[type=email]', 'x1@example.org');
+		fireEvent.click(within(d).getByRole('button', { name: 'Create account' }));
+		fireEvent.click(await screen.findByRole('button', { name: 'Copy' }));
+		await screen.findByRole('button', { name: 'Copied' });
+		expect(write).toHaveBeenCalledWith('tmp-Q2');
+		fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+		expect(screen.queryByText('tmp-Q2')).toBeNull();
+		expect(document.body.innerHTML).not.toContain('tmp-Q2');
+	});
+
+	it('resets an account to a temporary password, only after confirming', async () => {
+		const p = fixture<AccountsProps>('/settings/accounts').props;
+		const a = p.accounts.find((x) => x.role === 'member' && x.active)!;
+		const ask = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+		vi.stubGlobal('confirm', ask);
+		const calls = fakeApi('superadmin', { 'POST /api/accounts/:id/password-reset': () => ({ temporary_password: 'tmp-R3' }) });
+		renderPage('/settings/accounts');
+		fireEvent.click(screen.getByRole('button', { name: `Edit ${a.username}` }));
+		fireEvent.click(within(dialog()).getByRole('button', { name: /Reset to a temporary password/ }));
+		expect(callsTo(calls, 'POST', `/api/accounts/${a.id}/password-reset`)).toHaveLength(0);
+		fireEvent.click(within(dialog()).getByRole('button', { name: /Reset to a temporary password/ }));
+		expect(await screen.findByLabelText('Temporary password')).toHaveProperty('textContent', 'tmp-R3');
+		expect(callsTo(calls, 'POST', `/api/accounts/${a.id}/password-reset`)).toHaveLength(1);
 	});
 
 	it('shows and sends only what the server lets it change yet', async () => {

@@ -10,6 +10,7 @@ import { accounts, federations, mySessions, SECURITY_NOTICES, allFeds, fedGroups
 import { buildScope, allowed } from '../../mockup/src/data/scope.js';
 import { TOTALS } from '../../mockup/src/data/totals.js';
 import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/data/admin.js';
+import { randomBytes } from 'node:crypto';
 import type { PageData, Viewer } from '../src/page.ts';
 
 const NOW = '2026-11-17T16:00:00Z';
@@ -17,7 +18,9 @@ const iso = (s: string) => s.replace(' ', 'T') + 'Z';
 
 // noemail is the sample superadmin "ops", which has no email address
 // yet, so every page asks for one first.
-export const PERSONAS = { superadmin: 1, admin: 3, member: 5, noemail: 2 } as const;
+// newpw is the sample member "mod_kernel", which signed in with a
+// temporary password and must choose its own first.
+export const PERSONAS = { superadmin: 1, admin: 3, member: 5, noemail: 2, newpw: 6 } as const;
 // 'public' is a signed-out visitor: only exposed groups' chats exist.
 export type Persona = keyof typeof PERSONAS | 'public';
 
@@ -155,6 +158,7 @@ export function load(url: string, persona: Persona): Loaded {
 	if (path === '/password/set') return { route: 'password_set', status: 200, props: {} };
 	if (path === '/account/email/verify') return { route: 'email_verify', status: 200, props: {} };
 	const acct = persona === 'public' ? null : accounts.find((a) => a.id === PERSONAS[persona]);
+	if (acct && mustChange.has(acct.id)) return { route: 'password_change', status: 200, props: { username: acct.username, next: path + u.search } };
 	if (acct && !(acct.email && acct.verified)) return { route: 'email_required', status: 200, props: { pending: acct.pendingEmail ?? null, next: path + u.search } };
 	if (persona === 'public' && !/^\/groups\/-?\d+\/chat$/.test(path)) return notFound;
 	if (path === '/') {
@@ -399,7 +403,8 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		if (s.role !== 'superadmin' && !grants.some((g) => s.manageableFeds.some((f) => f.id === g.fed))) return [400, { error: 'grants_required', message: 'Grant at least one federation you administer.' }];
 		const id = Math.max(...accounts.map((a) => a.id)) + 1;
 		accounts.push({ id, username: body.username, name: body.name || body.username, email: body.email, verified: false, invited: true, role: body.role, active: true, last: '', created: '2026-11-17 16:00:00', hue: 200, adminOf: [], restrict: { hide_private: false, hide_groups: [], join_chat: false }, grants, abilities: [] });
-		return [201, { id }];
+		mustChange.add(id);
+		return [201, { id, temporary_password: temporaryPassword() }];
 	}
 	if ((m = p.match(/^accounts\/(\d+)(?:\/([\w-]+))?$/))) {
 		const a = accounts.find((x) => String(x.id) === m[1]);
@@ -420,7 +425,11 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 			a.active = false; return [204, null];
 		}
 		if (m[2] === 'enable') { a.active = true; return [204, null]; }
-		if (['password-reset', 'resend-invite', 'sign-out-everywhere'].includes(m[2]) && method === 'POST') return [204, null];
+		if (m[2] === 'password-reset' && method === 'POST') {
+			mustChange.add(a.id); a.invited = true;
+			return [200, { temporary_password: temporaryPassword() }];
+		}
+		if (m[2] === 'sign-out-everywhere' && method === 'POST') return [204, null];
 	}
 	// Forwarding: /api/forwarding/<telegram-discord|discord-telegram>[/<id>[/transfer]|/test]
 	if ((m = p.match(/^forwarding\/(telegram-discord|discord-telegram)(?:\/(\d+|test))?(?:\/(transfer))?$/))) {
@@ -602,6 +611,21 @@ export function liveVisible(persona: Persona, e: { kind: string; chat_id?: numbe
 export function groupFor(persona: Persona, id: string) {
 	const g = getGroup(id);
 	return g && scopeOf(persona).group(g) ? g : null;
+}
+
+// Temporary passwords (until set-password links exist): accounts
+// created or reset get one, answered once, and must choose their own
+// at the next sign-in; mod_kernel starts that way.
+const mustChange = new Set<number>([6]);
+const temporaryPassword = () => randomBytes(12).toString('base64url');
+export function needsPasswordChange(persona: Persona): boolean {
+	return persona !== 'public' && mustChange.has(PERSONAS[persona]);
+}
+export function passwordChanged(persona: Persona): void {
+	if (persona === 'public') return;
+	mustChange.delete(PERSONAS[persona]);
+	const a = accounts.find((x) => x.id === PERSONAS[persona]);
+	if (a) a.invited = false;
 }
 
 // The add-your-email step: whether a persona must add an address first,
