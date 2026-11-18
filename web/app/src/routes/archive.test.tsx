@@ -49,6 +49,18 @@ describe('files', () => {
 		await waitFor(() => expect(lastPageCall(calls).query.get('file')).toBeNull());
 	});
 
+	it('shows a file seen in no visible message without links, and cannot open its message', async () => {
+		const p = fixture<FilesProps>('/files?view=list').props;
+		const orphan = { ...p.rows[0]!, id: 4242, name: 'lonely.pdf', chat: null, message: null, sender: null };
+		const props = { ...p, rows: [orphan, ...p.rows.slice(1)], preview: orphan };
+		renderPage('/files?view=list&file=4242', 'superadmin', { props });
+		const d = await screen.findByRole('dialog', { name: 'lonely.pdf' });
+		expect(within(d).getByText('no visible message')).toBeTruthy();
+		const open = within(d).getByRole('button', { name: /Open message/ }) as HTMLButtonElement;
+		expect(open.disabled).toBe(true);
+		expect(within(d).queryAllByRole('link').some((a) => /\/(groups|users|messages)\//.test(a.getAttribute('href') ?? ''))).toBe(false);
+	});
+
 	it('switches between grid and list', async () => {
 		const calls = fakeApi('superadmin');
 		renderPage('/files');

@@ -124,7 +124,20 @@ export function chatFor(scope: string, id: string, persona: Persona) {
 	return getUser(id) || null;
 }
 
+// Some stored files belong to no message the viewer can see (the spec's
+// FileRow: chat and message null together). The stand-in models a fixed
+// few that way; members, who see only their groups' files, never get
+// them.
+const orphan = (f) => f.id % 23 === 0;
+
 function fileRow(f) {
+	if (orphan(f)) {
+		return {
+			id: f.id, file_type: f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored,
+			created_at: iso(f.created_at), duration: f.duration, tg_file_id: f.tg_file_id, url: f.stored ? `/files/standin-${f.id}` : null, thumb: null,
+			chat: null, sender: null, message: null,
+		};
+	}
 	return {
 		id: f.id, file_type: f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored,
 		created_at: iso(f.created_at), duration: f.duration, tg_file_id: f.tg_file_id, url: f.stored ? `/files/standin-${f.id}` : null, thumb: null,
@@ -221,7 +234,7 @@ export function load(url: string, persona: Persona): Loaded {
 	}
 	if (path === '/files') {
 		const st = listState(u.searchParams, 'created_at');
-		const canSee = (f) => (f.msg.scope === 'group' ? s.group(f.msg.chat) : allowed(s, 'private_messages'));
+		const canSee = (f) => (orphan(f) ? s.role !== 'member' : f.msg.scope === 'group' ? s.group(f.msg.chat) : allowed(s, 'private_messages'));
 		const r = queryFiles({ ...st, per: Number(u.searchParams.get('per')) || 50 }, canSee);
 		const want = u.searchParams.get('file');
 		const pv = want ? files().find((f) => String(f.id) === want && canSee(f)) : null;

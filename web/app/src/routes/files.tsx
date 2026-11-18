@@ -30,14 +30,19 @@ const QUICK: [string, Cond[]][] = [
 	['Not stored', [{ field: 'stored', op: 'is', value: 'no' }]],
 ];
 
-const chatHref = (f: FileRow) => (f.chat.kind === 'group' ? `/groups/${f.chat.id}` : `/users/${f.chat.id}`);
+// A file the archive saw only in messages the viewer cannot see has no
+// chat and no message (both null); it is shown, without links.
+const NO_MESSAGE = 'no visible message';
+const chatHref = (c: NonNullable<FileRow['chat']>) => (c.kind === 'group' ? `/groups/${c.id}` : `/users/${c.id}`);
 
 function Preview({ f, canFetch, v, onClose }: { f: FileRow; canFetch: boolean; v: Viewer; onClose: () => void }) {
 	const big = f.file_type === 'photo' || f.file_type === 'video' || f.file_type === 'animation' || f.file_type === 'sticker';
 	return (
 		<Modal wide title={f.name} icon={<TypeIcon type={f.file_type} />} onClose={onClose}
 			footer={<>
-				<Btn to={`/messages/${f.message.scope}/${f.message.id}`} ghost icon={MessageSquare}>Open message</Btn>
+				{f.message
+					? <Btn to={`/messages/${f.message.scope}/${f.message.id}`} ghost icon={MessageSquare}>Open message</Btn>
+					: <Btn ghost icon={MessageSquare} disabled title={`Sent in ${NO_MESSAGE}`}>Open message</Btn>}
 				<span className="a-grow" />
 				{f.stored && f.url ? <a className="a-btn a-btn-primary" href={f.url} download><Download size={14} />Download</a>
 					: canFetch && <Btn primary icon={CloudDownload}>Fetch from Telegram</Btn>}
@@ -53,7 +58,7 @@ function Preview({ f, canFetch, v, onClose }: { f: FileRow; canFetch: boolean; v
 					f.duration ? [null, 'Duration', duration(f.duration)] : null,
 					[null, 'Hits', fmt(f.hits)],
 					[null, 'Stored', f.stored ? 'yes' : 'no'],
-					[null, 'Sent in', <Link to={chatHref(f)} className="a-rowlink">{f.chat.title}</Link>],
+					[null, 'Sent in', f.chat ? <Link to={chatHref(f.chat)} className="a-rowlink">{f.chat.title}</Link> : <span className="a-muted">{NO_MESSAGE}</span>],
 					[null, 'Sender', f.sender ? <Link to={`/users/${f.sender.id}`} className="a-rowlink">{f.sender.name}</Link> : ''],
 					[null, 'File ID', f.id, true],
 					[null, 'Telegram ID', <span className="a-break">{f.tg_file_id} <button type="button" className="a-icon-btn sm" aria-label="Copy" onClick={() => void navigator.clipboard?.writeText(f.tg_file_id)}><Copy size={12} /></button></span>, true],
@@ -76,7 +81,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 		{ key: 'name', label: 'File', sort: true, cls: 'c-name', render: (f) => (
 			<button type="button" className="a-usercell a-plain" onClick={() => show(f)}>
 				<Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} size={30} radius={6} />
-				<span><span className="a-uname a-clip">{f.name}</span><span className="a-handle">{f.chat.title}</span></span>
+				<span><span className="a-uname a-clip">{f.name}</span><span className="a-handle">{f.chat?.title ?? NO_MESSAGE}</span></span>
 			</button>
 		) },
 		{ key: 'file_type', label: 'Type', sort: true, render: (f) => <span className="a-typecell"><TypeIcon type={f.file_type} />{f.file_type}</span> },
@@ -112,7 +117,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 			) : (
 				<DataTable L={L} cols={cols} noun="files" empty="No files match these filters."
 					href={(f) => setQuery(page.url, { file: f.id })}
-					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat.title}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
+					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
 			)}
 			{page.props.preview && <Preview f={page.props.preview} canFetch={page.props.can_fetch} v={v} onClose={() => show(null)} />}
 		</Shell>

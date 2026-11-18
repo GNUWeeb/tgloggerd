@@ -29,6 +29,16 @@ const exposedId = first('/groups', 'superadmin', (p: { rows: { id: number; expos
 const groupMsg = first('/group_messages', 'superadmin', (p: { rows: { id: number }[] }) => p.rows[0]!.id);
 const privateMsg = first('/private_messages', 'superadmin', (p: { rows: { id: number }[] }) => p.rows[0]!.id);
 const fileId = first('/files?view=list', 'superadmin', (p: { rows: { id: number }[] }) => p.rows[0]!.id);
+// A file seen in no visible message (chat null), found page by page.
+const orphanId = (() => {
+	for (let page = 1; page < 100; page++) {
+		const rows = (pageData(`/files?view=list&per=200&page=${page}`, 'superadmin').props as { rows: { id: number; chat: unknown }[] }).rows;
+		const hit = rows.find((r) => r.chat === null);
+		if (hit) return hit.id;
+		if (!rows.length) break;
+	}
+	throw new Error('the stand-in has no file without a visible message');
+})();
 
 const PAGES: [Persona, string][] = [
 	...(['superadmin', 'admin', 'member'] as Persona[]).flatMap((a): [Persona, string][] => [
@@ -41,6 +51,7 @@ const PAGES: [Persona, string][] = [
 		[a, '/settings/accounts'], [a, '/settings/federations'], [a, '/join-chat'], [a, '/mcp-admin'], [a, '/mcp-admin/groups'], [a, '/mcp-admin/tokens'],
 		[a, '/no/such/page'],
 	]),
+	['superadmin', `/files?view=list&file=${orphanId}`], ['admin', `/files?view=list&file=${orphanId}`],
 	['superadmin', `/users/${userId}`], ['superadmin', `/users/${userId}/history`], ['superadmin', `/users/${userId}/chat`],
 	['member', `/users/${userId}`], ['superadmin', '/private_messages'], ['superadmin', `/messages/group/${groupMsg}`],
 	['superadmin', `/messages/private/${privateMsg}`], ['superadmin', `/groups/${groupId}/chat?at=1`],
