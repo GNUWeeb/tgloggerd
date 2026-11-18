@@ -104,7 +104,8 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 				      int64_t old_edit_date,
 				      const models::MessageContent &new_content,
 				      int64_t new_edit_date,
-				      bool entities_same)
+				      bool entities_same,
+				      bool extra_same)
 {
 	/*
 	 * Only a genuine edit (edit_date advanced) that actually changed the
@@ -137,10 +138,16 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 	 * pushed into SQL would inherit the column's utf8mb4_0900_ai_ci
 	 * collation and quietly treat an edit that only changed case or
 	 * accents as no edit at all.
+	 *
+	 * content_extra is answered by the server like entities, and only on
+	 * its curated keys (DB::kCuratedExtraSame); tdlib_type counts only
+	 * where both sides have one, since rows stored before it existed
+	 * have none.
 	 */
 	if (old_content.content_type == new_content.content_type &&
 	    old_content.text == new_content.text &&
-	    entities_same)
+	    entities_same && extra_same &&
+	    sameTdlibType(old_content.tdlib_type, new_content.tdlib_type))
 		return false;
 
 	appendMessageVersion(tx, edits_table, fk_column, message_row_id,
@@ -176,6 +183,14 @@ void DB::appendMessageVersion(mysql::Transaction &tx, const char *edits_table,
 	if (content.entities.has_value())
 		entities_param = *content.entities;
 
+	mysql::Param tdlib_type_param = std::monostate{};
+	if (content.tdlib_type.has_value())
+		tdlib_type_param = *content.tdlib_type;
+
+	mysql::Param extra_param = std::monostate{};
+	if (content.content_extra.has_value())
+		extra_param = *content.content_extra;
+
 	/*
 	 * Refuse to append a version identical to the newest one already
 	 * recorded. Two paths can observe the same superseded version -- the
@@ -189,10 +204,11 @@ void DB::appendMessageVersion(mysql::Transaction &tx, const char *edits_table,
 	 */
 	auto newest = tx.query(
 		std::string("SELECT content_type, text, file_id, edit_date,"
-			    " (entities <=> CAST(? AS JSON)) FROM ") +
+			    " (entities <=> CAST(? AS JSON)), tdlib_type, ") +
+		kCuratedExtraSame + " FROM " +
 		edits_table + " WHERE " + fk_column + " = ?"
 		" ORDER BY id DESC LIMIT 1",
-		{ entities_param, (int64_t)message_row_id });
+		{ entities_param, extra_param, (int64_t)message_row_id });
 	if (!newest.empty()) {
 		auto &n = newest[0];
 		std::optional<std::string> n_text;
@@ -202,13 +218,18 @@ void DB::appendMessageVersion(mysql::Transaction &tx, const char *edits_table,
 		if (n[2].has_value())
 			n_file = std::stoull(*n[2]);
 		int64_t n_edit = n[3].has_value() ? std::stoll(*n[3]) : 0;
+		std::optional<std::string> n_tdlib_type;
+		if (n[5].has_value())
+			n_tdlib_type = *n[5];
 
 		if (n[0].value_or("unknown") ==
 			    models::to_string(content.content_type) &&
 		    n_text == content.text &&
 		    n_file == content.file_id &&
 		    n_edit == edit_date &&
-		    n[4].value_or("0") == "1")
+		    n[4].value_or("0") == "1" &&
+		    sameTdlibType(n_tdlib_type, content.tdlib_type) &&
+		    n[6].value_or("0") == "1")
 			return;
 	}
 
@@ -217,8 +238,9 @@ void DB::appendMessageVersion(mysql::Transaction &tx, const char *edits_table,
 		file_param = (int64_t)*content.file_id;
 
 	std::string sql = std::string("INSERT INTO ") + edits_table + " (" +
-		fk_column + ", content_type, text, entities, file_id, edit_date)"
-		" VALUES (?, ?, ?, ?, ?, ?)";
+		fk_column + ", content_type, text, entities, file_id, edit_date,"
+		" tdlib_type, content_extra)"
+		" VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
 	tx.execute(sql, {
 		(int64_t)message_row_id,
@@ -227,6 +249,8 @@ void DB::appendMessageVersion(mysql::Transaction &tx, const char *edits_table,
 		entities_param,
 		file_param,
 		(int64_t)edit_date,
+		tdlib_type_param,
+		extra_param,
 	});
 }
 
@@ -289,13 +313,22 @@ bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
 		if (content.entities.has_value())
 			entities_param = *content.entities;
 
+		mysql::Param tdlib_type_param = std::monostate{};
+		if (content.tdlib_type.has_value())
+			tdlib_type_param = *content.tdlib_type;
+
+		mysql::Param extra_param = std::monostate{};
+		if (content.content_extra.has_value())
+			extra_param = *content.content_extra;
+
 		auto rows = tx.query(
 			std::string("SELECT id, edit_date, content_type, text,"
 				    " file_id, entities, deleted_at,"
-				    " (entities <=> CAST(? AS JSON))"
-				    " FROM ") + tbl +
+				    " (entities <=> CAST(? AS JSON)),"
+				    " tdlib_type, content_extra, ") +
+			kCuratedExtraSame + " FROM " + tbl +
 			" WHERE chat_id = ? AND message_id = ?",
-			{ entities_param, (int64_t)chat_id,
+			{ entities_param, extra_param, (int64_t)chat_id,
 			  (int64_t)message_id });
 
 		/*
@@ -322,12 +355,18 @@ bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
 			prev.entities = *old[5];
 		if (old[4].has_value())
 			prev.file_id = std::stoull(*old[4]);
+		if (old[8].has_value())
+			prev.tdlib_type = *old[8];
+		if (old[9].has_value())
+			prev.content_extra = *old[9];
 
 		/* Same comparison the edit path makes; see the note there on
 		 * why entities is answered by the server and text is not. */
 		if (prev.content_type == content.content_type &&
 		    prev.text == content.text &&
-		    old[7].value_or("0") == "1")
+		    old[7].value_or("0") == "1" &&
+		    old[10].value_or("0") == "1" &&
+		    sameTdlibType(prev.tdlib_type, content.tdlib_type))
 			return;
 
 		uint64_t row_id = std::stoull(*old[0]);
@@ -354,7 +393,7 @@ bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
 		 */
 		std::string sql = std::string("UPDATE ") + tbl +
 			" SET content_type = ?, text = ?, entities = ?,"
-			" service_type = ?";
+			" service_type = ?, tdlib_type = ?, content_extra = ?";
 		if (!is_media_content_type(content.content_type))
 			sql += ", file_id = NULL";
 		sql += " WHERE id = ?";
@@ -364,6 +403,8 @@ bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
 			text_param,
 			entities_param,
 			service_param,
+			tdlib_type_param,
+			extra_param,
 			(int64_t)row_id,
 		});
 		recorded = true;

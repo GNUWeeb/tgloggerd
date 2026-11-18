@@ -23,7 +23,7 @@ design file as they are added.
 
 ## Depends on
 
-`msg-classify`
+Nothing.
 
 ## Done when
 

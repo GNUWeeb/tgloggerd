@@ -40,9 +40,10 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		" chat_id, message_id, sender_user_id, sender_chat_id,"
 		" is_channel_post, author_signature, date,"
 		" edit_date, content_type, text, entities, service_type,"
+		" tdlib_type, content_extra,"
 		" is_forwarded, media_album_id"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_user_id = new.sender_user_id,"
 		" sender_chat_id = new.sender_chat_id,"
@@ -74,6 +75,8 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		" text = IF(new.edit_date >= telegram_group_messages.edit_date, new.text, telegram_group_messages.text),"
 		" entities = IF(new.edit_date >= telegram_group_messages.edit_date, new.entities, telegram_group_messages.entities),"
 		" service_type = IF(new.edit_date >= telegram_group_messages.edit_date, new.service_type, telegram_group_messages.service_type),"
+		" tdlib_type = IF(new.edit_date >= telegram_group_messages.edit_date, new.tdlib_type, telegram_group_messages.tdlib_type),"
+		" content_extra = IF(new.edit_date >= telegram_group_messages.edit_date, new.content_extra, telegram_group_messages.content_extra),"
 		" edit_date = IF(new.edit_date >= telegram_group_messages.edit_date, new.edit_date, telegram_group_messages.edit_date)";
 		/* deleted_at is deliberately not upserted here: a re-ingested
 		 * message (e.g. fetched to resolve a reply) must not clear an
@@ -83,6 +86,14 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		mysql::Param entities_param = std::monostate{};
 		if (msg.content.entities.has_value())
 			entities_param = *msg.content.entities;
+
+		mysql::Param tdlib_type_param = std::monostate{};
+		if (msg.content.tdlib_type.has_value())
+			tdlib_type_param = *msg.content.tdlib_type;
+
+		mysql::Param extra_param = std::monostate{};
+		if (msg.content.content_extra.has_value())
+			extra_param = *msg.content.content_extra;
 
 		/*
 		 * The trailing expression asks MySQL whether the stored entities
@@ -95,10 +106,12 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		auto old_rows = tx.query(
 			"SELECT id, edit_date, content_type, text, file_id,"
 			"       deleted_at, entities,"
-			"       (entities <=> CAST(? AS JSON))"
+			"       (entities <=> CAST(? AS JSON)),"
+			"       tdlib_type, content_extra, " +
+			std::string(kCuratedExtraSame) +
 			" FROM telegram_group_messages"
 			" WHERE chat_id = ? AND message_id = ?",
-			{ entities_param, (int64_t)msg.chat_id,
+			{ entities_param, extra_param, (int64_t)msg.chat_id,
 			  (int64_t)msg.message_id });
 
 		mysql::Param sender_user_param = std::monostate{};
@@ -141,6 +154,8 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 				text_param,
 				entities_param,
 				service_param,
+				tdlib_type_param,
+				extra_param,
 				b(msg.forward_info.has_value()),
 				album_param,
 			};
@@ -239,6 +254,10 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 			old_content.entities = *old[6];
 		if (old[4].has_value())
 			old_content.file_id = std::stoull(*old[4]);
+		if (old[8].has_value())
+			old_content.tdlib_type = *old[8];
+		if (old[9].has_value())
+			old_content.content_extra = *old[9];
 
 		/*
 		 * A copy with a later edit_date: the guarded upsert below
@@ -251,7 +270,8 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 					     "group_message_id", gm_id,
 					     old_content, old_edit_date,
 					     msg.content, msg.edit_date,
-					     old[7].value_or("0") == "1");
+					     old[7].value_or("0") == "1",
+					     old[10].value_or("0") == "1");
 
 		tx.execute(upsert_sql, bind_all());
 

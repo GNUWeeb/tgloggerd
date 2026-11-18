@@ -13,7 +13,11 @@ Rows written before the change say nothing about what they were.
   such row, re-ingested through the normal path; rows TDLib cannot
   return keep what they have.
 - Progress is resumable across restarts and reported in the log.
-- Media rows are left out (decision
+- Rows written since classification whose `content_extra` holds only
+  TDLib's JSON (`{"tdlib": ...}`) for a class that has a curated mapping
+  by then are re-mapped from that JSON, without asking TDLib; media
+  rows too, since this costs no requests.
+- Media rows are not re-read from TDLib (decision
   [2026-11-18-msg-repair-scope](../design/decisions/2026-11-18-msg-repair-scope.md)).
 
 ## Design notes
