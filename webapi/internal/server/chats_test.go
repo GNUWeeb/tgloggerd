@@ -6,6 +6,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/settings"
 	"tgloggerd/webapi/internal/testdb"
 )
 
@@ -54,7 +56,15 @@ type chatEnv struct {
 
 func newChatEnv(t *testing.T, withDaemon bool) *chatEnv {
 	t.Helper()
-	ro := testdb.New(t, testdb.Logger, "sample", "chats").DB
+	return newChatEnvFor(t, withDaemon, nil, "sample", "chats")
+}
+
+// newChatEnvFor is newChatEnv over other logger fixtures, with the
+// accounts' preferences from prefs when it is not nil.
+func newChatEnvFor(t *testing.T, withDaemon bool, prefs func(context.Context, uint64) (settings.Prefs, error),
+	fixtures ...string) *chatEnv {
+	t.Helper()
+	ro := testdb.New(t, testdb.Logger, fixtures...).DB
 	app := testdb.New(t, testdb.Web, "accounts").DB
 	signer := auth.NewSigner(testKey)
 	e := &chatEnv{t: t, ro: ro, cookies: &auth.Cookies{Signer: signer, Timeout: 3600, Secure: true},
@@ -78,6 +88,7 @@ func newChatEnv(t *testing.T, withDaemon bool) *chatEnv {
 		Tokens:  e.tokens,
 		Media:   MediaConfig{StoreFileCap: 1 << 30},
 		clock:   func() time.Time { return chatNow },
+		prefs:   prefs,
 	})
 	return e
 }

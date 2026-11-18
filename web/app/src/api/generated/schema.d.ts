@@ -1642,11 +1642,80 @@ export interface components {
             edited: boolean;
             deleted_at: string | null;
         };
+        /** @description A version of a message before an edit, from `at` until the next version (or the message as it is). */
         Edit: {
             at: string;
             text: string;
+            content_type?: components["schemas"]["ContentType"];
+            /** @description The version's media, when it had a file. */
+            media?: components["schemas"]["ChatMedia"];
         };
-        MessageFull: components["schemas"]["MessageRow"] & {
+        /** @description Where a forwarded message came from (the fwd_info row). name is the sender's or chat's name as `forward` shows it; the ids are present when recorded, for links to /users/{user_id} and /groups/{chat_id}. */
+        ForwardOrigin: {
+            /** @enum {string} */
+            type: "user" | "hidden_user" | "chat" | "channel";
+            name: string;
+            /** Format: int64 */
+            user_id?: number;
+            /** Format: int64 */
+            chat_id?: number;
+            /**
+             * Format: int64
+             * @description The original message's id in chat_id (a channel post).
+             */
+            message_id?: number;
+            /** @description When the original was sent. */
+            date?: string;
+        };
+        /** @description Fields ChatMessage and MessageFull share. Absent when they do not apply. */
+        MessageExtra: {
+            /** @description The chat the message was posted as (a channel, a group's anonymous admin), which `sender` also shows like a user with the chat's id; link it to /groups/{id}. */
+            sender_chat?: components["schemas"]["GroupSummary"];
+            forward_from?: components["schemas"]["ForwardOrigin"];
+            /** @description The author's signature of a channel post. */
+            author_signature?: string;
+            /** @description Present (true) for a channel post. */
+            is_channel_post?: boolean;
+            /** @description A service message's action (chat_add_members, pin_message, ...; docs/design/message-types.md section 4.2.3), shown when its text is empty, as the Drogon chat view does. */
+            service_type?: string;
+            /** @description The exact TDLib class (messageVideoNote, ...), recorded for rows logged since daemon migration 000034. The kinds that migration added to content_type are shown as unknown until the chat view renders them, so this says what they are. */
+            tdlib_type?: string;
+        };
+        /** @description What a message's media is beyond its file. Rows logged since daemon migration 000034 carry it in content_extra (docs/design/message-types.md section 4.2.1); older rows have render, ext and a sticker's format from the content type and the file, as the Drogon chat view reads them, and none of the others. Each key is absent when unknown. */
+        MediaDetail: {
+            /**
+             * @description How it renders (Drogon's mediaRender): an image (photos, .webp stickers), a video (videos, round video notes), an animation that loops muted without controls (GIFs, .webm stickers), a Lottie animation (.tgs stickers), audio (music and voice notes), or a file link.
+             * @enum {string}
+             */
+            render?: "image" | "video" | "animation" | "lottie" | "audio" | "file";
+            /** @description The file's extension, without the dot. */
+            ext?: string;
+            /**
+             * @description A sticker's format: content_extra's, else the file's extension. Stickers only.
+             * @enum {string}
+             */
+            format?: "webp" | "webm" | "tgs";
+            mime?: string;
+            /** @description Width in pixels (a video note's diameter). */
+            w?: number;
+            /** @description Height in pixels. */
+            h?: number;
+            /** @description Length in seconds (video, animation, audio, voice). */
+            duration?: number;
+            /** @description A sticker's emoji. */
+            emoji?: string;
+            /** @description A voice note's (or video note's) waveform as Telegram encodes it, decoded: one 5-bit value per bar, usually 100 bars. */
+            wave?: number[];
+            /** @description An audio file's title. */
+            title?: string;
+            /** @description An audio file's performer. */
+            performer?: string;
+            /** @description TDLib's tiny blurred preview as a data: URL (a JPEG), shown even when the file is not stored. */
+            minithumb?: string;
+            /** @description A video's cover photo (telegram_message_files, role cover), its /files/<token> URL, when it is stored or may be fetched. */
+            poster?: string;
+        };
+        MessageFull: components["schemas"]["MessageRow"] & components["schemas"]["MessageExtra"] & {
             text: string;
             reply_to: {
                 scope: components["schemas"]["MessageScope"];
@@ -1657,36 +1726,41 @@ export interface components {
             } | null;
             edits: components["schemas"]["Edit"][];
             edited_at: string | null;
-            media: {
+            media: (components["schemas"]["MediaDetail"] & {
                 /** Format: int64 */
                 file_id: number;
                 name: string;
                 /** Format: int64 */
                 size: number;
-                duration?: number;
                 stored: boolean;
+                /** @description As ChatMedia's thumb. */
                 thumb: string | null;
                 url: string | null;
-            } | null;
+            }) | null;
         };
-        /** @description A message's file (web/docs/media.md). url is the /files/<token> URL when the bytes are stored or may be fetched from Telegram, else null; thumb is the same URL for a picture. */
-        ChatMedia: {
+        /** @description A message's file (web/docs/media.md) and its detail. url is the /files/<token> URL when the bytes are stored or may be fetched from Telegram, else null; thumb is the same URL for media that render as an image, and for other media its poster, else its minithumb (a blurred preview), when known; else null. */
+        ChatMedia: components["schemas"]["MediaDetail"] & components["schemas"]["ChatMediaFile"];
+        ChatMediaFile: {
             stored: boolean;
             /** @description The bytes are not stored and the viewer may have them fetched from Telegram: the daemon API is on, and a viewer without a session asks only for a file under the store's per-file cap. */
             fetchable?: boolean;
             thumb: string | null;
             url: string | null;
-            w?: number;
-            h?: number;
-            duration?: number;
             name?: string;
             /** Format: int64 */
             size?: number;
-            emoji?: string;
-            /** @description A voice note's waveform as Telegram encodes it, decoded: one 5-bit value per bar, usually 100 bars. Absent when the archive does not record it. */
-            wave?: number[];
+            /**
+             * Format: int64
+             * @description An album item's own message id (the album message's media and album items only), for #msg links and replies to it.
+             */
+            message_id?: number;
+            /** @description An album item's own content type (photo, video, document, audio, animation): an album may mix them. Album items only. */
+            kind?: components["schemas"]["ContentType"];
+            /** @description When an album item was deleted; absent while it is not. Album items only. */
+            deleted_at?: string;
         };
-        ChatMessage: {
+        ChatMessage: components["schemas"]["MessageExtra"] & components["schemas"]["ChatMessageBase"];
+        ChatMessageBase: {
             /** Format: int64 */
             id: number;
             /** Format: int64 */
@@ -1708,9 +1782,13 @@ export interface components {
                 snippet: string;
                 /**
                  * Format: int64
-                 * @description The chat of a target in another chat; absent for a target in this one.
+                 * @description The chat of a target in another chat; absent for a target in this one. A negative id is a group (/groups/{chat_id}/chat?at=<message_id>), a positive one a private chat.
                  */
                 chat_id?: number;
+                /** @description The target is logged and sender and snippet describe it; false: only its id is known, shown as "message #<message_id>". */
+                resolved?: boolean;
+                /** @description The target was deleted. */
+                deleted?: boolean;
             } | null;
             forward: string | null;
             edits: components["schemas"]["Edit"][];

@@ -381,6 +381,7 @@ type messageMediaJSON struct {
 	Stored bool    `json:"stored"`
 	Thumb  *string `json:"thumb"`
 	URL    *string `json:"url"`
+	mediaDetailJSON
 }
 
 type messageFullJSON struct {
@@ -400,6 +401,7 @@ type messageFullJSON struct {
 	Edits       []editJSON        `json:"edits"`
 	EditedAt    *string           `json:"edited_at"`
 	Media       *messageMediaJSON `json:"media"`
+	messageExtraJSON
 }
 
 type messageProps struct {
@@ -436,9 +438,9 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	m := d.Message
 	j := messageFullJSON{
 		ID: m.RowID, Scope: scopeName(group), MessageID: m.MessageID, Date: iso(m.Date),
-		Sender: v.sender(n, m), ContentType: m.ContentType, Snippet: snippet(m),
+		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Snippet: snippet(m),
 		Forwarded: n.forward(m), Edited: m.EditDate > 0, DeletedAt: isoPtr(m.DeletedAt),
-		Text: m.Text, Edits: v.edits(m),
+		Text: m.Text, Edits: v.edits(m), messageExtraJSON: v.messageExtra(n, m),
 	}
 	if m.EditDate > 0 {
 		j.EditedAt = isoPtr(m.EditDate)
@@ -456,9 +458,10 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 			SenderName: rep.SenderName, Snippet: rep.Snippet}
 	}
 	if m.File.ID != 0 {
-		md := v.media(m.ContentType, m.File)
+		md := v.media(m.ContentType, m.File, m.Extra)
+		v.poster(md, m)
 		j.Media = &messageMediaJSON{FileID: m.File.ID, Name: md.Name, Size: md.Size,
-			Stored: md.Stored, Thumb: md.Thumb, URL: md.URL}
+			Stored: md.Stored, Thumb: md.Thumb, URL: md.URL, mediaDetailJSON: md.mediaDetailJSON}
 	}
 	return messageProps{Message: j}, nil
 }

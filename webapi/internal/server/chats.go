@@ -150,29 +150,42 @@ type chatMediaJSON struct {
 	URL       *string `json:"url"`
 	Name      string  `json:"name,omitempty"`
 	Size      uint64  `json:"size,omitempty"`
+	mediaDetailJSON
+	// The item's own message, for the items of an album (the album
+	// message's media and album), which may differ in kind and in
+	// whether they were deleted.
+	MessageID int64   `json:"message_id,omitempty"`
+	Kind      string  `json:"kind,omitempty"`
+	DeletedAt *string `json:"deleted_at,omitempty"`
 }
 
-// isPicture is whether a message's media shows as an image, so its URL
-// is also its thumbnail.
-func isPicture(ctype string, f logdb.FileRef) bool {
-	switch ctype {
-	case "photo":
-		return true
-	case "sticker":
-		// Video (.webm) and Lottie (.tgs) stickers are not images.
-		return f.Ext != "webm" && f.Ext != "tgs"
+// poster adds a video's cover photo to its media, which is then also
+// its thumb.
+func (v view) poster(md *chatMediaJSON, m logdb.Message) {
+	if md == nil || m.Cover.ID == 0 {
+		return
 	}
-	return f.Type == "photo"
+	if u := v.photo(m.Cover); u != nil {
+		md.Poster, md.Thumb = u, u
+	}
 }
 
-func (v view) media(ctype string, f logdb.FileRef) *chatMediaJSON {
+// media is a message's media: its file and its detail. thumb is the
+// file's own URL for media that render as an image, and otherwise its
+// blurred preview (minithumb) when the row records one.
+func (v view) media(ctype string, f logdb.FileRef, extra []byte) *chatMediaJSON {
 	if f.ID == 0 {
 		return nil
 	}
 	url, stored, fetchable := v.file(f)
-	m := &chatMediaJSON{Stored: stored, Fetchable: fetchable, URL: url, Name: f.Name, Size: f.Size}
-	if url != nil && isPicture(ctype, f) {
+	m := &chatMediaJSON{Stored: stored, Fetchable: fetchable, URL: url, Name: f.Name, Size: f.Size,
+		mediaDetailJSON: mediaDetail(ctype, f, extra)}
+	switch {
+	case m.Render == "image":
 		m.Thumb = url
+	case m.Minithumb != "":
+		t := m.Minithumb
+		m.Thumb = &t
 	}
 	return m
 }
@@ -184,11 +197,28 @@ type chatReplyJSON struct {
 	Snippet    string `json:"snippet"`
 	// ChatID is set when the target is in another chat.
 	ChatID *int64 `json:"chat_id,omitempty"`
+	// Resolved: the target is logged and the fields above describe
+	// it; otherwise only its id is known ("message #N").
+	Resolved bool `json:"resolved"`
+	Deleted  bool `json:"deleted"`
 }
 
 type editJSON struct {
-	At   string `json:"at"`
-	Text string `json:"text"`
+	At          string         `json:"at"`
+	Text        string         `json:"text"`
+	ContentType string         `json:"content_type,omitempty"`
+	Media       *chatMediaJSON `json:"media,omitempty"`
+}
+
+// forwardJSON is a forwarded message's origin (ForwardOrigin), with
+// the ids a client links to.
+type forwardJSON struct {
+	Type      string  `json:"type"`
+	Name      string  `json:"name"`
+	UserID    *int64  `json:"user_id,omitempty"`
+	ChatID    *int64  `json:"chat_id,omitempty"`
+	MessageID *int64  `json:"message_id,omitempty"`
+	Date      *string `json:"date,omitempty"`
 }
 
 type linkPreviewJSON struct {
@@ -215,6 +245,35 @@ type chatMessageJSON struct {
 	EditedAt    *string          `json:"edited_at"`
 	DeletedAt   *string          `json:"deleted_at"`
 	LinkPreview *linkPreviewJSON `json:"link_preview"`
+	messageExtraJSON
+}
+
+// messageExtraJSON are the fields ChatMessage and MessageFull share
+// beyond their own.
+type messageExtraJSON struct {
+	// SenderChat is the chat a message was posted as (a channel, an
+	// anonymous admin's group), which sender shows like a user.
+	SenderChat      *groupSummaryJSON `json:"sender_chat,omitempty"`
+	ForwardFrom     *forwardJSON      `json:"forward_from,omitempty"`
+	AuthorSignature string            `json:"author_signature,omitempty"`
+	IsChannelPost   bool              `json:"is_channel_post,omitempty"`
+	ServiceType     string            `json:"service_type,omitempty"`
+	TdlibType       string            `json:"tdlib_type,omitempty"`
+}
+
+func (v view) messageExtra(n names, m logdb.Message) messageExtraJSON {
+	j := messageExtraJSON{ForwardFrom: n.forwardFrom(m), AuthorSignature: m.AuthorSignature,
+		IsChannelPost: m.IsChannelPost, ServiceType: m.ServiceType, TdlibType: m.TdlibType}
+	if m.SenderChat != 0 && !m.Outgoing {
+		g, ok := n.groups[m.SenderChat]
+		if !ok {
+			g = logdb.Group{ID: m.SenderChat, Title: "#" + strconv.FormatInt(m.SenderChat, 10),
+				Type: "unknown"}
+		}
+		gj := v.group(g)
+		j.SenderChat = &gj
+	}
+	return j
 }
 
 type chatWindowJSON struct {
@@ -293,6 +352,28 @@ func (n names) forward(m logdb.Message) *string {
 	return &name
 }
 
+// forwardFrom is the origin with its ids, named as forward names it.
+func (n names) forwardFrom(m logdb.Message) *forwardJSON {
+	f := m.Forward
+	if f == nil {
+		return nil
+	}
+	j := &forwardJSON{Type: f.Type, Name: *n.forward(m), Date: isoPtr(f.Date)}
+	if f.UserID != 0 {
+		id := f.UserID
+		j.UserID = &id
+	}
+	if f.ChatID != 0 {
+		id := f.ChatID
+		j.ChatID = &id
+	}
+	if f.MessageID != 0 {
+		id := f.MessageID
+		j.MessageID = &id
+	}
+	return j
+}
+
 func snippetOf(text, ctype string) string {
 	if text == "" && ctype != "" && ctype != "text" {
 		return "[" + ctype + "]"
@@ -319,6 +400,7 @@ func (v view) reply(n names, chatID int64, m logdb.Message) *chatReplyJSON {
 	if !r.Resolved {
 		return j
 	}
+	j.Resolved, j.Deleted = true, r.Deleted
 	switch {
 	case r.SenderChat != 0:
 		j.SenderID, j.SenderName = r.SenderChat, n.nameOf(0, r.SenderChat)
@@ -334,7 +416,8 @@ func (v view) reply(n names, chatID int64, m logdb.Message) *chatReplyJSON {
 func (v view) edits(m logdb.Message) []editJSON {
 	out := []editJSON{}
 	for _, e := range m.Edits {
-		out = append(out, editJSON{At: iso(e.At), Text: e.Text})
+		out = append(out, editJSON{At: iso(e.At), Text: e.Text, ContentType: chatType(e.ContentType),
+			Media: v.media(e.ContentType, e.File, e.Extra)})
 	}
 	return out
 }
@@ -342,17 +425,18 @@ func (v view) edits(m logdb.Message) []editJSON {
 func (v view) chatMessage(n names, group bool, chatID int64, m logdb.Message) chatMessageJSON {
 	j := chatMessageJSON{
 		ID: m.RowID, MessageID: m.MessageID, Date: iso(m.Date), Scope: scopeName(group),
-		Sender: v.sender(n, m), ContentType: m.ContentType, Text: m.Text,
-		Media: v.media(m.ContentType, m.File), Album: []chatMediaJSON{},
+		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Text: m.Text,
+		Media: v.media(m.ContentType, m.File, m.Extra), Album: []chatMediaJSON{},
 		ReplyTo: v.reply(n, chatID, m), Forward: n.forward(m), Edits: v.edits(m),
-		DeletedAt: isoPtr(m.DeletedAt),
+		DeletedAt: isoPtr(m.DeletedAt), messageExtraJSON: v.messageExtra(n, m),
 	}
+	v.poster(j.Media, m)
 	if m.EditDate > 0 {
 		j.EditedAt = isoPtr(m.EditDate)
 	}
 	if p := m.Preview; p != nil {
 		j.LinkPreview = &linkPreviewJSON{Site: p.Site, Title: p.Title, Desc: p.Description,
-			URL: p.URL, Media: v.media("photo", p.Photo)}
+			URL: p.URL, Media: v.media("photo", p.Photo, nil)}
 	}
 	return j
 }
@@ -362,7 +446,9 @@ func (v view) chatMessage(n names, group bool, chatID int64, m logdb.Message) ch
 // Browse.cpp's chatHistory does: the first item's ids, date and sender,
 // its media and the others' as the album, the caption (and its edits)
 // of the item that has one, the first reply and forward found. Such a
-// message is deleted only when all its items are.
+// message is deleted only when all its items are; each item's media
+// says its own message, kind and deletion, since an album may mix
+// photos and videos (or documents, or audio) and lose items one by one.
 func (v view) chatMessages(n names, group bool, chatID int64, ms []logdb.Message) []chatMessageJSON {
 	out := []chatMessageJSON{}
 	for i := 0; i < len(ms); {
@@ -378,8 +464,14 @@ func (v view) chatMessages(n names, group bool, chatID int64, ms []logdb.Message
 			allDeleted := true
 			for x := i; x < k; x++ {
 				item := v.chatMessage(n, group, chatID, ms[x])
-				if x > i && item.Media != nil {
-					j.Album = append(j.Album, *item.Media)
+				if md := item.Media; md != nil {
+					md.MessageID, md.Kind, md.DeletedAt = ms[x].MessageID, item.ContentType,
+						item.DeletedAt
+					if x == i {
+						j.Media = md
+					} else {
+						j.Album = append(j.Album, *md)
+					}
 				}
 				if j.Text == "" && item.Text != "" {
 					j.Text, j.Edits, j.EditedAt = item.Text, item.Edits, item.EditedAt
@@ -388,7 +480,7 @@ func (v view) chatMessages(n names, group bool, chatID int64, ms []logdb.Message
 					j.ReplyTo = item.ReplyTo
 				}
 				if j.Forward == nil {
-					j.Forward = item.Forward
+					j.Forward, j.ForwardFrom = item.Forward, item.ForwardFrom
 				}
 				if ms[x].DeletedAt == 0 {
 					allDeleted = false
