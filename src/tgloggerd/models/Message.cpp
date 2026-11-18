@@ -24,6 +24,23 @@ const char *to_string(MessageContentType t)
 	case MessageContentType::Animation:	return "animation";
 	case MessageContentType::Service:	return "service";
 	case MessageContentType::Unknown:	return "unknown";
+	case MessageContentType::VideoNote:	return "video_note";
+	case MessageContentType::Location:	return "location";
+	case MessageContentType::Venue:		return "venue";
+	case MessageContentType::Contact:	return "contact";
+	case MessageContentType::Dice:		return "dice";
+	case MessageContentType::Game:		return "game";
+	case MessageContentType::Poll:		return "poll";
+	case MessageContentType::Checklist:	return "checklist";
+	case MessageContentType::Story:		return "story";
+	case MessageContentType::PaidMedia:	return "paid_media";
+	case MessageContentType::Invoice:	return "invoice";
+	case MessageContentType::Giveaway:	return "giveaway";
+	case MessageContentType::Call:		return "call";
+	case MessageContentType::Rich:		return "rich";
+	case MessageContentType::Widget:	return "widget";
+	case MessageContentType::Expired:	return "expired";
+	case MessageContentType::Unsupported:	return "unsupported";
 	}
 	return "unknown";
 }
@@ -50,6 +67,23 @@ MessageContentType message_content_type_from_string(const std::string &s)
 	if (s == "sticker")	return MessageContentType::Sticker;
 	if (s == "animation")	return MessageContentType::Animation;
 	if (s == "service")	return MessageContentType::Service;
+	if (s == "video_note")	return MessageContentType::VideoNote;
+	if (s == "location")	return MessageContentType::Location;
+	if (s == "venue")	return MessageContentType::Venue;
+	if (s == "contact")	return MessageContentType::Contact;
+	if (s == "dice")	return MessageContentType::Dice;
+	if (s == "game")	return MessageContentType::Game;
+	if (s == "poll")	return MessageContentType::Poll;
+	if (s == "checklist")	return MessageContentType::Checklist;
+	if (s == "story")	return MessageContentType::Story;
+	if (s == "paid_media")	return MessageContentType::PaidMedia;
+	if (s == "invoice")	return MessageContentType::Invoice;
+	if (s == "giveaway")	return MessageContentType::Giveaway;
+	if (s == "call")	return MessageContentType::Call;
+	if (s == "rich")	return MessageContentType::Rich;
+	if (s == "widget")	return MessageContentType::Widget;
+	if (s == "expired")	return MessageContentType::Expired;
+	if (s == "unsupported")	return MessageContentType::Unsupported;
 	return MessageContentType::Unknown;
 }
 

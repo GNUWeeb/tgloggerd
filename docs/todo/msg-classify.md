@@ -34,7 +34,7 @@ the Discord forwarder working (new kinds map to `fwd_other`).
 
 ## Depends on
 
-`msg-schema-kinds`
+Nothing (the columns exist since migration 000034).
 
 ## Done when
 
