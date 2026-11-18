@@ -113,6 +113,8 @@ add_executable(tgloggerd
 	src/tgloggerd/StorageJanitor.hpp
 	src/tgloggerd/StorageApi.cpp
 	src/tgloggerd/StorageApi.hpp
+	src/tgloggerd/StatusApi.cpp
+	src/tgloggerd/StatusApi.hpp
 	src/tgloggerd/StoreHolds.hpp
 	src/tgloggerd/tgloggerd_extern.cpp
 	src/tgloggerd/tgloggerd_extern.h
@@ -167,6 +169,21 @@ add_executable(bot_watch_test EXCLUDE_FROM_ALL
 target_include_directories(bot_watch_test PRIVATE src)
 target_link_libraries(bot_watch_test PRIVATE connector-jdbc
 	nlohmann_json::nlohmann_json Threads::Threads)
+
+# GET /v1/status over a real InternalApi on loopback with a fake TDLib
+# state; not part of the default build:
+#   cmake --build build --target status_api_test && build/status_api_test
+add_executable(status_api_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/status_api_test.cpp
+	src/tgloggerd/StatusApi.cpp
+	src/tgloggerd/InternalApi.cpp
+	src/tgloggerd/ThreadPool.cpp
+	src/tgloggerd/helpers/log.c)
+target_include_directories(status_api_test PRIVATE src
+	${SODIUM_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
+target_compile_options(status_api_test PRIVATE -Wall -Wextra)
+target_link_libraries(status_api_test PRIVATE connector-jdbc
+	${SODIUM_LIBRARIES} nlohmann_json::nlohmann_json Threads::Threads)
 
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
 # Telegram). Added last: it links Td::TdStatic and connector-jdbc from the

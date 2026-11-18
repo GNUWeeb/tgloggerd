@@ -507,6 +507,36 @@ public:
 	bool isStopped(void) const;
 
 	/*
+	 * The client's state as GET /v1/status reports it: Ready while it is
+	 * authorized and not closing (exactly when request() sends), Waiting
+	 * before that (connecting, or not logged in), Closing once it is
+	 * logging out, closing or closed; Closing never changes back.
+	 */
+	enum class State { Waiting, Ready, Closing };
+
+	struct Status {
+		State	state;
+		/* Unix seconds of the last change of state (or of startup). */
+		int64_t	since;
+	};
+
+	/* Any thread; cheap (no TDLib call). */
+	Status status(void) const;
+
+	static const char *stateName(State s)
+	{
+		switch (s) {
+		case State::Ready:
+			return "ready";
+		case State::Closing:
+			return "closing";
+		case State::Waiting:
+			break;
+		}
+		return "waiting";
+	}
+
+	/*
 	 * Request a graceful shutdown of the TDLib client.
 	 */
 	void close(void);
