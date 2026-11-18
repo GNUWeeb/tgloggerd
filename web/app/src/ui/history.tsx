@@ -9,13 +9,13 @@ import type { S } from '../api/schema.ts';
 
 export type HistoryPage<T> = { entries: T[]; next: string | null };
 
-export function useHistoryPages<T>(first: T[], next: string | null | undefined, load: (before: string) => Promise<HistoryPage<T>>) {
+export function useHistoryPages<T>(first: T[], next: string | null, load: (before: string) => Promise<HistoryPage<T>>) {
 	const [entries, setEntries] = useState(first);
-	const [cursor, setCursor] = useState<string | null>(next ?? null);
+	const [cursor, setCursor] = useState<string | null>(next);
 	const [busy, setBusy] = useState(false);
 	const [err, setErr] = useState('');
 	// New page data (a live refresh, another user) starts over.
-	useEffect(() => { setEntries(first); setCursor(next ?? null); setErr(''); }, [first, next]);
+	useEffect(() => { setEntries(first); setCursor(next); setErr(''); }, [first, next]);
 	const more = useCallback(async () => {
 		if (!cursor || busy) return;
 		setBusy(true); setErr('');
@@ -46,7 +46,7 @@ type Username = S['Username'];
 // A username as a pill: active ones stand out, disabled ones are
 // muted, bought (collectible) ones carry a gem.
 export function UsernamePill({ n }: { n: Username }) {
-	const off = n.kind ? n.kind === 'disabled' : !n.active;
+	const off = n.kind === 'disabled';
 	return (
 		<Pill tone={off ? 'muted' : 'accent'}>
 			{n.collectible && <Gem size={11} aria-label="collectible" />}@{n.username}{off ? ' (off)' : ''}

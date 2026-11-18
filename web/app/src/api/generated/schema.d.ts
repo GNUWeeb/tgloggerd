@@ -1481,9 +1481,9 @@ export interface components {
              * Format: int64
              * @description The profile photo's file id (photo is its /files/<token> URL, the full file), for the files page's preview (/files?file=<id>); null without a photo.
              */
-            photo_file_id?: number | null;
+            photo_file_id: number | null;
             /** @description Null when not shared. */
-            birthday?: null | {
+            birthday: null | {
                 day: number;
                 month: number;
                 /** @description Null when the year is hidden. */
@@ -1493,41 +1493,41 @@ export interface components {
              * Format: int64
              * @description The channel shown on the profile; null for none.
              */
-            personal_chat_id?: number | null;
+            personal_chat_id: number | null;
             /** @description That channel, when the logger knows it and the viewer sees it (its page is /groups/{id}); null otherwise. */
-            personal_chat?: null | components["schemas"]["GroupSummary"];
+            personal_chat: null | components["schemas"]["GroupSummary"];
             /**
              * Format: int64
              * @description Telegram Stars a message to the user costs; 0 for none.
              */
-            paid_message_star_count?: number;
+            paid_message_star_count: number;
             /** @description Null for none. */
-            emoji_status?: null | {
+            emoji_status: null | {
                 /** @description A 64-bit id, as a string. */
                 custom_emoji_id: string;
                 /** @description Null when it does not expire. */
                 expires_at: string | null;
             };
             /** @description The name's accent colour (Telegram's id; 0 is the default). */
-            accent_color_id?: number;
+            accent_color_id: number;
             /** @description The profile's accent colour; null for none. */
-            profile_accent_color_id?: number | null;
+            profile_accent_color_id: number | null;
             /** @description The name background's custom emoji (64-bit id as a string); null for none. */
-            background_custom_emoji_id?: string | null;
+            background_custom_emoji_id: string | null;
             /** @description The profile background's custom emoji; null for none. */
-            profile_background_custom_emoji_id?: string | null;
+            profile_background_custom_emoji_id: string | null;
             /** @description Why Telegram restricts the user; empty for none. */
-            restriction_reason?: string;
-            has_sensitive_content?: boolean;
+            restriction_reason: string;
+            has_sensitive_content: boolean;
             /** @description Only contacts and Premium users may start a chat. */
-            restricts_new_chats?: boolean;
+            restricts_new_chats: boolean;
             /** @description A contact of the logging account (contact_name is the name it saved). */
-            is_contact?: boolean;
-            is_mutual_contact?: boolean;
+            is_contact: boolean;
+            is_mutual_contact: boolean;
             /** @description False when no own name was ever seen and name is the contact name standing in for it. */
-            own_name_known?: boolean;
+            own_name_known: boolean;
             /** @description When "Look up real name" last read the own name (RFC 3339); null for never. */
-            own_name_checked_at?: string | null;
+            own_name_checked_at: string | null;
         };
         Username: {
             username: string;
@@ -1536,9 +1536,9 @@ export interface components {
              * @description Always sent by the service; active is kind active.
              * @enum {string}
              */
-            kind?: "active" | "disabled";
+            kind: "active" | "disabled";
             /** @description Bought on fragment.com; always sent by the service. */
-            collectible?: boolean;
+            collectible: boolean;
         };
         GroupSummary: {
             /** Format: int64 */
@@ -1556,12 +1556,12 @@ export interface components {
         };
         GroupFull: components["schemas"]["GroupSummary"] & {
             /** @description Every current username, active ones first, with kind and collectible (username is the first active one). Always sent by the service. */
-            usernames?: components["schemas"]["Username"][];
+            usernames: components["schemas"]["Username"][];
             /**
              * Format: int64
              * @description The photo's file id, for the files page's preview; null without a photo. Always sent by the service.
              */
-            photo_file_id?: number | null;
+            photo_file_id: number | null;
             description: string;
             /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators, as in the chat page's header. The logger does not record Telegram's own member count. */
             members: number;
@@ -1983,7 +1983,7 @@ export interface components {
              */
             archive_total?: number;
             /** @description False when total is an estimate (a count that ran out of time, or the table's row estimate, as group_messages without conditions): show it as "about". Always sent by the service. */
-            total_exact?: boolean;
+            total_exact: boolean;
             error?: components["schemas"]["ListError"];
             /** @description The users, groups and message lists: the search fields the viewer may filter by, with their operators and whether they sort (a member's users only by id, name, username, type and photo). Absent on the files list. */
             fields?: components["schemas"]["SearchField"][];
@@ -2056,7 +2056,7 @@ export interface components {
         /** @description A full-access viewer gets the profile; a member only the groups it shares with the person (limited), web-accounts.md section 5. */
         UserProps: {
             /** @constant */
-            limited?: false;
+            limited: false;
             user: components["schemas"]["UserFull"];
             groups: (components["schemas"]["GroupSummary"] & {
                 msgs: number;
@@ -2064,17 +2064,17 @@ export interface components {
             /** @description The newest page of the timeline (UserHistoryPage). */
             history: components["schemas"]["HistoryEntry"][];
             /** @description The cursor of the timeline's next page, for GET /api/users/{id}/history?before= (or the history page's own ?before=); null when this is all of it. Always sent by the service. */
-            history_next?: string | null;
+            history_next: string | null;
             activity: number[];
             can_private: boolean;
             /** @description The page offers "Look up real name" (POST /api/users/{id}/lookup-name): the user is a contact, the viewer may (superadmins), and the daemon's API is set up. Always sent by the service. */
-            can_lookup_name?: boolean;
+            can_lookup_name: boolean;
             /** @description A "Look up real name" removed the contact and has not added it back yet (a telegram_contact_lookups row is left for the user; the daemon keeps retrying). Always sent by the service. */
-            lookup_pending?: boolean;
+            lookup_pending: boolean;
             /** @description When that lookup started; null when none is pending. */
-            lookup_pending_since?: string | null;
+            lookup_pending_since: string | null;
             /** @description Its last error adding the contact back ("" for none yet); null when none is pending. */
-            lookup_pending_error?: string | null;
+            lookup_pending_error: string | null;
         } | {
             /** @constant */
             limited: true;
@@ -2088,7 +2088,7 @@ export interface components {
                 description: string;
                 created_at: string;
                 /** @description Always sent by the service. */
-                updated_at?: string;
+                updated_at: string;
             })[];
         };
         GroupProps: {
@@ -2097,7 +2097,7 @@ export interface components {
             /** @description The newest page of the timeline (GroupHistoryPage). */
             history: components["schemas"]["GroupHistoryEntry"][];
             /** @description The cursor of the timeline's next page, for GET /api/groups/{id}/history?before= (or the page's own ?before=); null when this is all of it. Always sent by the service. */
-            history_next?: string | null;
+            history_next: string | null;
             top_posters: {
                 user: components["schemas"]["UserSummary"];
                 msgs: number;

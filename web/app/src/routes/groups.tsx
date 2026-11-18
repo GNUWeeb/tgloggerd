@@ -45,7 +45,7 @@ function Groups({ page }: { page: PageData<GroupsProps> }) {
 		{ key: 'description', label: 'Description', cls: 'a-hide-md', render: (g) => (g.description ? <LongText text={g.description} title={`Description of ${g.title}`} /> : <span className="a-muted">-</span>) },
 		{ key: 'exposed', label: '', render: (g) => g.exposed && <span className="a-public" title="Exposed through MCP: readable without signing in"><Globe size={13} />public</span> },
 		{ key: 'created_at', label: 'First seen', sort: true, render: (g) => <span title={g.created_at}>{ago(g.created_at, v)}</span> },
-		{ key: 'updated_at', label: 'Updated', sort: true, cls: 'a-hide-md', render: (g) => (g.updated_at ? <span title={g.updated_at}>{ago(g.updated_at, v)}</span> : null) },
+		{ key: 'updated_at', label: 'Updated', sort: true, cls: 'a-hide-md', render: (g) => <span title={g.updated_at}>{ago(g.updated_at, v)}</span> },
 	];
 	return (
 		<Shell crumbs={[['Groups', null]]}>

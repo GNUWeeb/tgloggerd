@@ -144,7 +144,7 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 							<Card title="Details">
 								<KV rows={[
 									[Type, 'Title', g.title],
-									[AtSign, g.usernames && g.usernames.length > 1 ? 'Usernames' : 'Username', g.usernames?.length ? g.usernames.map((n) => <UsernamePill key={n.username} n={n} />) : g.username ? '@' + g.username : ''],
+									[AtSign, g.usernames.length > 1 ? 'Usernames' : 'Username', g.usernames.length ? g.usernames.map((n) => <UsernamePill key={n.username} n={n} />) : ''],
 									[Quote, 'Description', g.description],
 									[UsersIcon, 'Type', TYPE_LABEL[g.type]],
 									[ShieldCheck, 'Admins', <Link to={`${base}/admins`} className="a-rowlink">{g.admin_count} admins</Link>],

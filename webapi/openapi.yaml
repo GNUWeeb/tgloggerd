@@ -4143,7 +4143,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/UserSummary'
         - type: object
-          required: [first_name, last_name, bio, phone, usernames]
+          required: [first_name, last_name, bio, phone, usernames, photo_file_id, birthday, personal_chat_id, personal_chat, paid_message_star_count, emoji_status, accent_color_id, profile_accent_color_id, background_custom_emoji_id, profile_background_custom_emoji_id, restriction_reason, has_sensitive_content, restricts_new_chats, is_contact, is_mutual_contact, own_name_known, own_name_checked_at]
           properties:
             first_name:
               type: string
@@ -4247,7 +4247,7 @@ components:
                 3339); null for never.
     Username:
       type: object
-      required: [username, active]
+      required: [username, active, kind, collectible]
       properties:
         username:
           type: string
@@ -4292,7 +4292,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/GroupSummary'
         - type: object
-          required: [description, members, msg_count, admin_count, created_at, updated_at]
+          required: [description, members, msg_count, admin_count, created_at, updated_at, usernames, photo_file_id]
           properties:
             usernames:
               type: array
@@ -5140,7 +5140,7 @@ components:
             list, whose filters are all ANDed.
     ListState:
       type: object
-      required: [total, page, pages, per, sort, dir, q, conds]
+      required: [total, page, pages, per, sort, dir, q, conds, total_exact]
       properties:
         total:
           type: integer
@@ -5333,7 +5333,7 @@ components:
         it shares with the person (limited), web-accounts.md section 5.
       oneOf:
         - type: object
-          required: [user, groups, history, activity, can_private]
+          required: [user, groups, history, activity, can_private, limited, history_next, can_lookup_name, lookup_pending, lookup_pending_since, lookup_pending_error]
           properties:
             limited:
               type: boolean
@@ -5414,7 +5414,7 @@ components:
                 allOf:
                   - $ref: '#/components/schemas/GroupSummary'
                   - type: object
-                    required: [msg_count, admin_count, description, created_at]
+                    required: [msg_count, admin_count, description, created_at, updated_at]
                     properties:
                       msg_count:
                         type: integer
@@ -5429,7 +5429,7 @@ components:
                         description: Always sent by the service.
     GroupProps:
       type: object
-      required: [group, admins, history, top_posters, activity]
+      required: [group, admins, history, top_posters, activity, history_next]
       properties:
         group:
           $ref: '#/components/schemas/GroupFull'

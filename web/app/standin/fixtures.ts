@@ -384,6 +384,7 @@ export function load(url: string, persona: Persona): Loaded {
 		}
 		return {
 			route: m[2] ? 'user_history' : 'user', status: 200, props: {
+				limited: false,
 				user: {
 					...userSummary(usr, true), first_name: usr.first_name, last_name: usr.last_name, bio: usr.bio, phone: usr.phone,
 					usernames: getUsernames(usr).map((n) => ({ username: n.username, active: n.kind === 'active', kind: n.kind === 'active' ? 'active' : 'disabled', collectible: /\d$/.test(n.username) })),
@@ -427,7 +428,7 @@ export function load(url: string, persona: Persona): Loaded {
 		const r = queryRows(allFiles().filter(canSee), { ...st, conds, per: Number(u.searchParams.get('per')) || 50 }, (f) => `${f.name} ${f.id}`);
 		const want = u.searchParams.get('file');
 		const pv = want ? allFiles().find((f) => String(f.id) === want && canSee(f)) : null;
-		return { route: 'files', status: 200, props: { ...st, ...r, per: Number(u.searchParams.get('per')) || 50, rows: r.rows.map((f) => fileRow(f, s.canFetch)), preview: pv ? fileRow(pv, s.canFetch) : null, can_fetch: s.canFetch, archive_total: s.role === 'member' ? undefined : TOTALS.files, stored_bytes: s.role === 'member' ? undefined : Math.round(5.3 * 2 ** 40) } };
+		return { route: 'files', status: 200, props: { ...st, ...r, total_exact: true, per: Number(u.searchParams.get('per')) || 50, rows: r.rows.map((f) => fileRow(f, s.canFetch)), preview: pv ? fileRow(pv, s.canFetch) : null, can_fetch: s.canFetch, archive_total: s.role === 'member' ? undefined : TOTALS.files, stored_bytes: s.role === 'member' ? undefined : Math.round(5.3 * 2 ** 40) } };
 	}
 	if (path === '/group_messages' || path === '/private_messages' || path === '/messages/group' || path === '/messages/private') {
 		const scope = path.includes('private') ? 'private' : 'group';
