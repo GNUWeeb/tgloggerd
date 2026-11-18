@@ -290,6 +290,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		}
 		send(res, 404, { error: 'not_found' }); return;
 	}
+	if (url.pathname === '/api/dashboard/kpis' && req.method === 'GET') {
+		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+		send(res, 200, { kpis: fx.dashboardKpis(who) }); return;
+	}
 	if (url.pathname === '/api/events' && req.method === 'GET') { await openStream(req, res, url, who); return; }
 	if (url.pathname === '/api/_standin/emit' && req.method === 'POST') {
 		const b = JSON.parse((await readBody(req)) || '{}');

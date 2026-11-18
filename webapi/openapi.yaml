@@ -1424,6 +1424,37 @@ paths:
         '500':
           $ref: '#/components/responses/Internal'
 
+  /api/dashboard/kpis:
+    get:
+      operationId: getDashboardKPIs
+      tags: [pages]
+      summary: The dashboard's cards alone
+      description: >-
+        The kpis of the dashboard's page data, the same keys and scope,
+        for a dashboard that keeps its cards current without loading
+        the rest again. The counts come from a cache that keeps them
+        for WEBAPI_COUNT_CACHE_SECS (60 by default), so asking more
+        often than that gives the same answer.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: The cards.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kpis]
+                properties:
+                  kpis:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/KPI'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
   /api/account/preferences:
     get:
       operationId: getPreferences
@@ -1455,7 +1486,8 @@ paths:
         key does not take, refuses the whole body with 400 bad_request
         naming the key in `field`: timezone an IANA zone name,
         date_format 24h, 12h or iso, lang en or id, theme system, light
-        or dark, sidebar open or collapsed, rows_per_page 25, 50 or 100,
+        or dark, sidebar open or collapsed, dashboard_numbers exact or
+        compact, rows_per_page 25, 50 or 100,
         landing a path on this
         site (one leading slash, at most 255 bytes), chat_media auto or
         click, the chat_* switches booleans. The viewer of the next page
@@ -3928,6 +3960,10 @@ components:
           type: string
           enum: [open, collapsed]
           description: Whether the menu starts open or collapsed (the sidebar preference, else open).
+        dashboard_numbers:
+          type: string
+          enum: [exact, compact]
+          description: How the dashboard shows its figures (the dashboard_numbers preference, else exact).
         rows_per_page:
           type: integer
         nav:
@@ -5544,6 +5580,23 @@ components:
         next:
           type: [string, 'null']
           description: Where to go after signing in; same-site paths only.
+    KPI:
+      type: object
+      description: >-
+        One dashboard card: a total and today's count (today being the
+        viewer's calendar day in its timezone), within the viewer's
+        scope.
+      required: [key, total, today]
+      properties:
+        key:
+          type: string
+          enum: [users, groups, group_messages, private_messages, files]
+        total:
+          type: integer
+          format: int64
+        today:
+          type: integer
+          format: int64
     DashboardProps:
       type: object
       required: [kpis, per_day, per_day_start, busiest, deleted]
@@ -5551,18 +5604,7 @@ components:
         kpis:
           type: array
           items:
-            type: object
-            required: [key, total, today]
-            properties:
-              key:
-                type: string
-                enum: [users, groups, group_messages, private_messages, files]
-              total:
-                type: integer
-                format: int64
-              today:
-                type: integer
-                format: int64
+            $ref: '#/components/schemas/KPI'
         per_day:
           type: array
           description: >-
@@ -5989,6 +6031,10 @@ components:
           type: [string, 'null']
           enum: [open, collapsed, null]
           description: Whether the menu starts open or collapsed; null is open.
+        dashboard_numbers:
+          type: [string, 'null']
+          enum: [exact, compact, null]
+          description: The dashboard's figures in full (12,345) or shortened (12k); null is exact.
         rows_per_page:
           type: [integer, 'null']
         landing:

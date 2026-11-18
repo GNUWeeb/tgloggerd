@@ -199,8 +199,23 @@ func TestPatchPreferences(t *testing.T) {
 	c := &client{t: t, h: h, cookies: map[string]string{}}
 	tok := signIn(t, c, "gw_admin", "password")
 
-	if v := viewerOf(t, c); v["sidebar"] != "open" {
-		t.Fatalf("default sidebar %v", v["sidebar"])
+	if v := viewerOf(t, c); v["sidebar"] != "open" || v["dashboard_numbers"] != "exact" {
+		t.Fatalf("default sidebar %v, dashboard numbers %v", v["sidebar"], v["dashboard_numbers"])
+	}
+	// The dashboard's figures, shortened, then back to the default.
+	if a := c.do("PATCH", "/api/account/preferences", tok, map[string]any{"dashboard_numbers": "compact"}); a.status != 200 {
+		t.Fatalf("dashboard_numbers: %d %v", a.status, a.body)
+	}
+	if v := viewerOf(t, c); v["dashboard_numbers"] != "compact" {
+		t.Fatalf("viewer dashboard numbers %v", v["dashboard_numbers"])
+	}
+	if a := c.do("PATCH", "/api/account/preferences", tok, map[string]any{"dashboard_numbers": "short"}); a.status != 400 ||
+		a.body["field"] != "dashboard_numbers" {
+		t.Fatalf("a bad value: %d %v", a.status, a.body)
+	}
+	c.do("PATCH", "/api/account/preferences", tok, map[string]any{"dashboard_numbers": nil})
+	if v := viewerOf(t, c); v["dashboard_numbers"] != "exact" {
+		t.Fatalf("reset dashboard numbers %v", v["dashboard_numbers"])
 	}
 	if a := c.do("PUT", "/api/account/preferences", tok,
 		map[string]any{"timezone": "UTC", "theme": "light", "landing": "/groups"}); a.status != 200 {

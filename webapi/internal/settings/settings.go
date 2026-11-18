@@ -38,6 +38,7 @@ type Prefs struct {
 	Lang            *string `json:"lang"`
 	Theme           *string `json:"theme"`
 	Sidebar         *string `json:"sidebar"`
+	DashNumbers     *string `json:"dashboard_numbers"`
 	RowsPerPage     *int    `json:"rows_per_page"`
 	Landing         *string `json:"landing"`
 	ChatAutoLoad    *bool   `json:"chat_auto_load"`
@@ -54,9 +55,12 @@ var (
 	// Langs are the languages an account may choose
 	// (web-accounts.md section 7). One without a catalogue of its own
 	// (internal/i18n) is shown in the site's language until it gets one.
-	Langs       = []string{"en", "id"}
-	Themes      = []string{"system", "light", "dark"}
-	Sidebars    = []string{"open", "collapsed"}
+	Langs    = []string{"en", "id"}
+	Themes   = []string{"system", "light", "dark"}
+	Sidebars = []string{"open", "collapsed"}
+	// DashNumbers: the dashboard's figures in full (12,345) or
+	// shortened (12k).
+	DashNumbers = []string{"exact", "compact"}
 	RowsPerPage = []int{25, 50, 100}
 	ChatMedia   = []string{"auto", "click"}
 )
@@ -195,6 +199,7 @@ func (p Prefs) Check() error {
 		str("lang", p.Lang, in(Langs)),
 		str("theme", p.Theme, in(Themes)),
 		str("sidebar", p.Sidebar, in(Sidebars)),
+		str("dashboard_numbers", p.DashNumbers, in(DashNumbers)),
 		str("landing", p.Landing, CheckLanding),
 		str("chat_media", p.ChatMedia, in(ChatMedia)),
 	} {
@@ -225,6 +230,7 @@ func (p *Prefs) fields() []struct {
 		{"lang", &p.Lang},
 		{"theme", &p.Theme},
 		{"sidebar", &p.Sidebar},
+		{"dashboard_numbers", &p.DashNumbers},
 		{"rows_per_page", &p.RowsPerPage},
 		{"landing", &p.Landing},
 		{"chat_auto_load", &p.ChatAutoLoad},
@@ -366,7 +372,9 @@ type Effective struct {
 	Lang  string
 	Theme string
 	// Sidebar is whether the menu starts open or collapsed.
-	Sidebar     string
+	Sidebar string
+	// DashNumbers is how the dashboard shows its figures.
+	DashNumbers string
 	RowsPerPage int
 	Landing     string
 	Chat        Chat
@@ -378,6 +386,7 @@ const (
 	DefaultRowsPerPage = 25
 	DefaultLanding     = "/"
 	DefaultSidebar     = "open"
+	DefaultDashNumbers = "exact"
 )
 
 // Resolve is the settings in effect under p and the site defaults d.
@@ -396,6 +405,7 @@ func Resolve(p Prefs, d Defaults) Effective {
 		Lang:        i18n.Pick(s(p.Lang, d.Lang)),
 		Theme:       s(p.Theme, d.Theme),
 		Sidebar:     s(p.Sidebar, DefaultSidebar),
+		DashNumbers: s(p.DashNumbers, DefaultDashNumbers),
 		RowsPerPage: DefaultRowsPerPage,
 		Landing:     s(p.Landing, DefaultLanding),
 		Chat: Chat{

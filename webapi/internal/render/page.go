@@ -42,7 +42,10 @@ type Viewer struct {
 	Lang       string `json:"lang,omitempty"`
 	Theme      string `json:"theme,omitempty"`
 	// Sidebar is whether the menu starts open or collapsed.
-	Sidebar     string `json:"sidebar,omitempty"`
+	Sidebar string `json:"sidebar,omitempty"`
+	// DashNumbers is how the dashboard shows its figures: exact or
+	// compact.
+	DashNumbers string `json:"dashboard_numbers,omitempty"`
 	RowsPerPage int    `json:"rows_per_page,omitempty"`
 	// Nav lists the route ids of the pages the menu shows.
 	Nav []string `json:"nav,omitempty"`

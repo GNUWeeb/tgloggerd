@@ -60,3 +60,40 @@ test('pages with nothing to follow open no stream', async ({ page }) => {
 	await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 	await expect(page.locator('.a-livestate')).toHaveCount(0);
 });
+
+test('the dashboard counts new messages itself, as the server counts them', async ({ page, emit, request }) => {
+	const as = { headers: { cookie: 'tgd_as=superadmin' } };
+	const uid = (await (await request.get('/api/chats/search?kind=user&limit=1', as)).json()).items[0].id;
+	await page.goto('/');
+	await expect(page.locator('.a-livestate.is-live')).toBeVisible();
+	const count = (label: string) => page.locator('.a-kpis .a-kpi').filter({ hasText: label }).locator('b');
+	const before = { g: await count('Group messages').textContent(), p: await count('Private messages').textContent() };
+	await page.evaluate(() => { (window as unknown as { __mark: number }).__mark = 1; });
+	const pages: string[] = [];
+	page.on('request', (r) => { if (/\/api\/page(\/|$|\?)/.test(new URL(r.url()).pathname)) pages.push(r.url()); });
+	await emit({ kind: 'message.new', chat_id: G });
+	await emit({ kind: 'message.new', chat_id: G });
+	await emit({ kind: 'message.new', chat_id: uid });
+	const num = (s: string | null) => Number(s!.replace(/,/g, ''));
+	await expect.poll(async () => num(await count('Group messages').textContent())).toBe(num(before.g) + 2);
+	await expect.poll(async () => num(await count('Private messages').textContent())).toBe(num(before.p) + 1);
+	// What the page ticked up to is what the server now counts.
+	const server = (await (await request.get('/api/dashboard/kpis', as)).json()).kpis as { key: string; total: number }[];
+	expect(server.find((k) => k.key === 'group_messages')!.total).toBe(num(before.g) + 2);
+	expect(server.find((k) => k.key === 'private_messages')!.total).toBe(num(before.p) + 1);
+	expect(pages).toEqual([]);
+	expect(await page.evaluate(() => (window as unknown as { __mark?: number }).__mark)).toBe(1);
+});
+
+test('the dashboard\'s number format is kept for the next visit', async ({ page }) => {
+	await page.goto('/');
+	const users = page.locator('.a-kpis .a-kpi').filter({ hasText: 'Users' }).locator('b');
+	await expect(users).toHaveText(/^\d{1,3}(,\d{3})+$/);
+	const saved = page.waitForResponse((r) => r.url().endsWith('/api/account/preferences') && r.request().method() === 'PATCH');
+	await page.getByRole('button', { name: 'Compact' }).click();
+	await expect(users).toHaveText(/^\d+(\.\d)?[kM]$/);
+	expect((await saved).status()).toBe(200);
+	await page.reload();
+	await expect(users).toHaveText(/^\d+(\.\d)?[kM]$/);
+	await expect(page.getByRole('button', { name: 'Compact' })).toHaveAttribute('aria-pressed', 'true');
+});

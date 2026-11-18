@@ -44,12 +44,27 @@ export function viewerOf(persona: Persona): Viewer {
 		timezone: pr.timezone ?? undefined, date_format: pr.date_format ?? undefined, theme: pr.theme ?? undefined,
 		rows_per_page: pr.rows_per_page ?? undefined,
 		sidebar: pr.sidebar ?? 'open',
+		dashboard_numbers: pr.dashboard_numbers ?? 'exact',
 		signed_in: true,
 		account: { id: s.acct.id, username: s.acct.username, name: s.acct.name, role: s.acct.role },
 		now: NOW,
 		nav: PAGE_KEYS.filter((k) => allowed(s, k)),
 		pinned: settingsState(persona).pinned.map((g) => ({ id: g.id, title: g.title })),
 	};
+}
+
+// The dashboard's counts (its page data, and GET /api/dashboard/kpis):
+// what the viewer may see, with the messages emitted since the fixtures
+// loaded counted in, as the server's counts would have them.
+const liveNew = { group: 0, private: 0 };
+export function dashboardKpis(persona: Persona) {
+	const s = scopeOf(persona);
+	const vis = groups.slice(0, 12).filter(s.group);
+	const rows: [string, number, number][] = s.role === 'member'
+		? [['users', users.filter(s.user).length, 2], ['groups', vis.length, 0], ['group_messages', vis.reduce((a, g) => a + g.msg_count, 0), 780]]
+		: [['users', TOTALS.users, 412], ['groups', TOTALS.groups, 3], ['group_messages', TOTALS.group_messages, 38211], ['private_messages', TOTALS.private_messages, 1290], ['files', TOTALS.files, 2406]];
+	const bump = (k: string) => (k === 'group_messages' ? liveNew.group : k === 'private_messages' ? liveNew.private : 0);
+	return rows.filter(([k]) => allowed(s, k)).map(([key, total, today]) => ({ key, total: total + bump(key), today: today + bump(key) }));
 }
 
 function userSummary(u, full: boolean) {
@@ -372,10 +387,7 @@ export function load(url: string, persona: Persona): Loaded {
 		const vis = groups.slice(0, 12).filter(s.group);
 		return {
 			route: 'dashboard', status: 200, props: {
-				kpis: (s.role === 'member'
-					? [['users', users.filter(s.user).length, 2], ['groups', vis.length, 0], ['group_messages', vis.reduce((a, g) => a + g.msg_count, 0), 780]]
-					: [['users', TOTALS.users, 412], ['groups', TOTALS.groups, 3], ['group_messages', TOTALS.group_messages, 38211], ['private_messages', TOTALS.private_messages, 1290], ['files', TOTALS.files, 2406]]
-				).filter(([k]) => allowed(s, k)).map(([key, total, today]) => ({ key, total, today })),
+				kpis: dashboardKpis(persona),
 				per_day: getActivity(31337, 38000 * 900 / 30),
 				per_day_start: perDayStart(persona, 30),
 				busiest: vis.sort((a, b) => b.msg_count - a.msg_count).slice(0, 6).map((g) => ({ ...groupSummary(g), msg_count: g.msg_count })),
@@ -601,6 +613,7 @@ const PREF_VALUES: Record<string, (v: unknown) => boolean> = {
 	landing: (v) => typeof v === 'string' && /^\/(?!\/)/.test(v) && v.length <= 255, chat_media: (v) => ['auto', 'click'].includes(v as string),
 	chat_auto_load: (v) => typeof v === 'boolean', chat_live: (v) => typeof v === 'boolean', chat_show_deleted: (v) => typeof v === 'boolean',
 	chat_show_edited: (v) => typeof v === 'boolean', chat_show_service: (v) => typeof v === 'boolean',
+	dashboard_numbers: (v) => ['exact', 'compact'].includes(v as string),
 };
 export function badPref(body: Record<string, unknown>): string | null {
 	for (const [k, v] of Object.entries(body)) {
@@ -1149,6 +1162,7 @@ export function liveChange(kind: string, b: { chat_id?: number; message_id?: num
 		const date = stamp(parseStamp(prev.date) + 30000);
 		const m = { ...prev, id: prev.id + 100000 + n, message_id: prev.message_id + 1, date, text: `Live message ${n + 1} from the stand-in`, content_type: 'text', media: null, album: [], reply_to: null, forward: null, edits: null, edited_at: null, deleted_at: null, link_preview: null };
 		all.push(m);
+		if (chat.kind === 'user') liveNew.private++; else liveNew.group++;
 		// The message search lists are built once; put it on top of its list.
 		const list = chat.kind === 'user' ? privateMessages() : groupMessages();
 		if (!list.includes(m) && list.some((x) => x.chat === chat)) list.unshift(Object.assign(m, { is_deleted: false, is_edited: false, is_forwarded: false }));

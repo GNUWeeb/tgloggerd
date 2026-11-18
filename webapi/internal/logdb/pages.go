@@ -460,13 +460,15 @@ const (
 	deletedMessages = 5
 )
 
-// LoadDashboard is the dashboard within the scope: a viewer that sees
-// everything gets the archive's totals (as Browse.cpp's counts); one
-// that does not gets counts over what it sees, and no private messages
-// or files. Its days are calendar days in loc, the viewer's timezone.
-func LoadDashboard(ctx context.Context, db *sql.DB, sc scope.Scope, now int64,
-	loc *time.Location) (Dashboard, error) {
-	var d Dashboard
+// LoadKPIs are the dashboard's cards within the scope, as LoadDashboard
+// answers them: totals and today's counts, today being the viewer's
+// calendar day in loc. A viewer that sees everything gets the
+// archive's totals; one that does not, counts over what it sees, and
+// no private messages or files. Every count goes through the count
+// cache, so asking often costs nothing more than asking once a TTL.
+func LoadKPIs(ctx context.Context, db *sql.DB, sc scope.Scope, now int64,
+	loc *time.Location) ([]KPI, error) {
+	var out []KPI
 	days := localDays(now, loc)
 	today := days[Days-1]
 	cond, cargs := sc.GroupFilter("m.chat_id")
@@ -512,16 +514,31 @@ func LoadDashboard(ctx context.Context, db *sql.DB, sc scope.Scope, now int64,
 	for _, k := range ks {
 		t, err := count(k.total, k.targs...)
 		if err != nil {
-			return Dashboard{}, err
+			return nil, err
 		}
 		n, err := count(k.today, k.dargs...)
 		if err != nil {
-			return Dashboard{}, err
+			return nil, err
 		}
-		d.KPIs = append(d.KPIs, KPI{Key: k.key, Total: t, Today: n})
+		out = append(out, KPI{Key: k.key, Total: t, Today: n})
+	}
+	return out, nil
+}
+
+// LoadDashboard is the dashboard within the scope: a viewer that sees
+// everything gets the archive's totals (as Browse.cpp's counts); one
+// that does not gets counts over what it sees, and no private messages
+// or files. Its days are calendar days in loc, the viewer's timezone.
+func LoadDashboard(ctx context.Context, db *sql.DB, sc scope.Scope, now int64,
+	loc *time.Location) (Dashboard, error) {
+	var d Dashboard
+	cond, cargs := sc.GroupFilter("m.chat_id")
+	gcond, gargs := sc.GroupFilter("g.id")
+	var err error
+	if d.KPIs, err = LoadKPIs(ctx, db, sc, now, loc); err != nil {
+		return Dashboard{}, err
 	}
 
-	var err error
 	if d.PerDay, d.PerDayStart, err = perLocalDay(ctx, db, now, loc, quarterIndex+
 		"FROM telegram_group_messages m WHERE m.date >= ? AND "+cond+" GROUP BY 1",
 		cargs...); err != nil {

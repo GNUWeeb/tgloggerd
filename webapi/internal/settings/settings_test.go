@@ -39,6 +39,9 @@ func TestCheckEachKey(t *testing.T) {
 		{"theme",
 			[]Prefs{{Theme: str("system")}, {Theme: str("light")}, {Theme: str("dark")}},
 			[]Prefs{{Theme: str("")}, {Theme: str("blue")}}},
+		{"dashboard_numbers",
+			[]Prefs{{DashNumbers: str("exact")}, {DashNumbers: str("compact")}},
+			[]Prefs{{DashNumbers: str("")}, {DashNumbers: str("short")}, {DashNumbers: str("Exact")}}},
 		{"sidebar",
 			[]Prefs{{Sidebar: str("open")}, {Sidebar: str("collapsed")}},
 			[]Prefs{{Sidebar: str("")}, {Sidebar: str("closed")}, {Sidebar: str("OPEN")}}},
@@ -101,7 +104,7 @@ func TestDefaults(t *testing.T) {
 	// system's theme; everything else on.
 	e := Resolve(Prefs{}, Defaults{})
 	want := Effective{Timezone: "Asia/Jakarta", DateFormat: "24h", Lang: "en", Theme: "system",
-		Sidebar: "open", RowsPerPage: 25, Landing: "/", Chat: Chat{AutoLoad: true, Live: true, Media: "auto",
+		Sidebar: "open", DashNumbers: "exact", RowsPerPage: 25, Landing: "/", Chat: Chat{AutoLoad: true, Live: true, Media: "auto",
 			ShowDeleted: true, ShowEdited: true, ShowService: true}}
 	if e != want {
 		t.Errorf("site defaults %+v", e)

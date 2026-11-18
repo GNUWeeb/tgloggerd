@@ -332,6 +332,7 @@ func (s *Server) pageViewer(ctx context.Context, sess *auth.Session, sc scope.Sc
 	v.Timezone, v.DateFormat, v.Lang, v.Theme = e.Timezone, e.DateFormat, e.Lang, e.Theme
 	v.RowsPerPage = e.RowsPerPage
 	v.Sidebar = e.Sidebar
+	v.DashNumbers = e.DashNumbers
 	v.Chat = &e.Chat
 	if sess == nil {
 		return v, nil

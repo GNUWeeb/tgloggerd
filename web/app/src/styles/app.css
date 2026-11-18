@@ -331,6 +331,7 @@
 .app .a-fill { width: 100% !important; height: 100% !important; }
 .app .a-typecell { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-2); }
 .app .a-seg-icons { margin: 0; padding: 2px; }
+.app .a-seg-text { margin: 0; flex-wrap: nowrap; }
 .app .a-seg-icons button { padding: 0 8px; height: 28px; display: grid; place-items: center; }
 .app .a-filegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; padding: 12px; }
 .app .a-filecard { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel); padding: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }

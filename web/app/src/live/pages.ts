@@ -22,7 +22,9 @@ const firstPage = (url: string) => { const q = new URL(url, 'http://x').searchPa
 export function pageLive(page: PageData): PageLive | null {
 	switch (page.route) {
 		case 'dashboard':
-			return { topics: ['stats', 'messages'], mode: 'refresh', interval: 5000, match: (e) => e.kind === 'stats.changed' || e.kind === 'message.new' };
+			// Its counts follow new messages themselves (routes/dashboard.tsx);
+			// the rest of the page refreshes when the stats change.
+			return { topics: ['stats'], mode: 'refresh', interval: 5000, match: (e) => e.kind === 'stats.changed' };
 		case 'user':
 		case 'user_history': {
 			const id = idIn(page.url, /^\/users\/(\d+)/);

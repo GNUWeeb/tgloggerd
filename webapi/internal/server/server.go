@@ -282,6 +282,7 @@ func (s *Server) routes() []route {
 		{"PUT /api/account/preferences", s.RequireSession(s.putPreferences)},
 		{"PATCH /api/account/preferences", s.RequireSession(s.patchPreferences)},
 		{"GET /api/account/preferences", s.RequireSession(s.getPreferences)},
+		{"GET /api/dashboard/kpis", s.RequireSession(s.dashboardKPIs)},
 		{"PUT /api/account/pinned/{group_id}", s.RequireSession(s.pinGroup)},
 		{"DELETE /api/account/pinned/{group_id}", s.RequireSession(s.unpinGroup)},
 		{"POST /api/account/saved-searches", s.RequireSession(s.saveSearch)},
