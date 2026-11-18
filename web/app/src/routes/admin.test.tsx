@@ -264,6 +264,60 @@ describe('accounts', () => {
 		});
 	});
 
+	describe('hiding private messages and groups', () => {
+		const flags = { federations: true, group_grants: true, restrictions: false, restrict_private: true, restrict_groups: true, abilities: true };
+		const withGroups = () => {
+			const p = fixture<AccountsProps>('/settings/accounts').props;
+			const admin = p.accounts.find((a) => a.role === 'admin' && (a.restrict?.hide_groups.length ?? 0) > 0)!;
+			const props = { ...p, editable: flags };
+			const calls = fakeApi('superadmin', { 'PATCH /api/accounts/:id': () => ({}), 'GET /api/page/settings/accounts': () => ({ ...fixture('/settings/accounts'), props }) });
+			renderPage('/settings/accounts', 'superadmin', { props });
+			return { admin, calls };
+		};
+
+		it('offers a superadmin both, and says only Join chat is missing', () => {
+			const { admin } = withGroups();
+			fireEvent.click(screen.getByRole('button', { name: `Edit ${admin.username}` }));
+			fireEvent.click(within(dialog()).getByRole('tab', { name: 'Access' }));
+			expect(within(dialog()).getByRole('checkbox', { name: /Hide private messages/ })).toBeTruthy();
+			expect(within(dialog()).getByText('Hide groups')).toBeTruthy();
+			expect(dialog().querySelector('.a-multi')).toBeTruthy();
+			expect(within(dialog()).queryByText('Allow Join chat')).toBeNull();
+			expect(within(dialog()).getByRole('note').textContent).toBe('Join chat is not available yet.');
+		});
+
+		it('sends the hidden groups as ids, with Join chat off', async () => {
+			const { admin, calls } = withGroups();
+			fireEvent.click(screen.getByRole('button', { name: `Edit ${admin.username}` }));
+			fireEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
+			await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/accounts/${admin.id}`)).toHaveLength(1));
+			expect(callsTo(calls, 'PATCH', `/api/accounts/${admin.id}`)[0]!.body).toMatchObject({
+				restrict: { hide_private: admin.restrict!.hide_private, hide_groups: admin.restrict!.hide_groups.map((g) => g.id), join_chat: false },
+			});
+		});
+
+		it('sums up the hidden groups in the account row', () => {
+			const { admin } = withGroups();
+			const n = admin.restrict!.hide_groups.length;
+			const row = screen.getByRole('button', { name: `Edit ${admin.username}` }).closest('tr')!;
+			expect(row.textContent).toContain(`${n} hidden group${n > 1 ? 's' : ''}`);
+		});
+
+		it('offers hiding groups only to a superadmin', () => {
+			const p = fixture<AccountsProps>('/settings/accounts', 'admin').props;
+			renderPage('/settings/accounts', 'admin', { props: { ...p, editable: flags } });
+			// An admin manages members only: no admin account to restrict.
+			const edits = screen.queryAllByRole('button', { name: /^Edit / });
+			for (const b of edits) {
+				fireEvent.click(b);
+				const access = within(dialog()).queryByRole('tab', { name: 'Access' });
+				if (access) fireEvent.click(access);
+				expect(within(dialog()).queryByText('Hide groups')).toBeNull();
+				fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }));
+			}
+		});
+	});
+
 	it('sends an admin\'s restrictions with hidden groups as ids', async () => {
 		const p = fixture<AccountsProps>('/settings/accounts').props;
 		const admin = p.accounts.find((a) => a.role === 'admin' && (a.restrict?.hide_groups.length ?? 0) > 0)!;
