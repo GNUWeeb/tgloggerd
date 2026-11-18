@@ -31,6 +31,11 @@ type Session struct {
 	// MustChangePassword is not in the cookie: Verifier sets it, and
 	// the role, from the account.
 	MustChangePassword bool
+	// AdminOf is the federations the account administers, read from
+	// the account with the role (web_federation_admins) and not in the
+	// cookie either, as webdb.JoinIDs writes them ("" for none), so a
+	// Session stays comparable.
+	AdminOf string
 
 	// Key identifies the session in web_sessions: the SHA-256 of the
 	// cookie value (SessionKey). Row is the session's web_sessions.id,

@@ -1570,10 +1570,10 @@ paths:
       tags: [accounts]
       summary: The accounts the viewer manages
       description: >-
-        A superadmin gets every account, an admin the members of its
-        federations (until federations exist, every member), by
-        username (web-accounts.md sections 2 and 3). To a member the
-        accounts administration does not exist (404).
+        A superadmin gets every account, an admin the members filed in
+        a federation it administers, by username (web-accounts.md
+        sections 2 and 3). To a member the accounts administration does
+        not exist (404).
       parameters:
         - name: role
           in: query
@@ -1626,11 +1626,12 @@ paths:
         temporary_password goes.
 
 
-        Until federations exist (web-federations), Default (fed 0) is
-        the only federation, every superadmin and admin administers it,
-        and groups cannot be granted (web-member-access): a grant is
-        {"fed": 0, "group_ids": []}. Audited as account_create, without
-        the password.
+        A grant files the member in a federation (fed 0 is Default);
+        groups cannot be granted inside it yet (web-member-access), so
+        group_ids is []. A superadmin may name any federation, and its
+        member without grants is filed in Default (grants [] files it
+        in none, which leaves it to superadmins). Audited as
+        account_create, with the federations and without the password.
       security:
         - session: []
           csrf: []
@@ -1657,7 +1658,8 @@ paths:
             underscores starting with a letter or digit (bad_username),
             a name over 128 characters or with control characters
             (bad_name), not an address (bad_email), an admin's member
-            without grants (grants_required), or groups in a grant
+            without grants (grants_required), a federation that does
+            not exist (bad_federation), or groups in a grant
             (not_supported).
           content:
             application/json:
@@ -1717,16 +1719,28 @@ paths:
       tags: [accounts]
       summary: Change an account
       description: >-
-        Changes the fields given: name, email and role. A role change
-        ends the account's sessions on both services. admin_of and
-        restrict are a superadmin's to send; until federations, admin
-        restrictions and member grants and abilities exist, they are
-        accepted only as what they are today (admin_of [] or [0],
-        restrictions all off, grants to fed 0 with no groups, no
-        abilities) and anything else answers 400 not_supported, so the
-        accounts page can send its whole form. A changed address is
-        recorded; it is verified by a link once web-email exists.
-        Audited as account_update, naming the fields changed.
+        Changes the fields given: name, email, role, an admin's
+        federations (admin_of) and a member's (grants). A role change
+        ends the account's sessions on both services, and drops the
+        federations of the old role: a member made admin leaves its
+        federations, an admin made member administers none and is
+        filed in Default unless grants say otherwise.
+
+
+        admin_of and restrict are a superadmin's to send (403
+        otherwise); admin_of is for admins (an empty list for anyone).
+        grants replace the member's federations among those the viewer
+        administers, all of them for a superadmin; the others stay. A
+        grant of a federation the member is in already passes as it
+        is, so the accounts page can send the member's whole list; one
+        that files it in a federation the viewer does not administer
+        answers 403. Until admin restrictions and member group grants
+        and abilities exist, they are accepted only as what they are
+        today (restrictions all off, no groups in grants, no
+        abilities) and anything else answers 400 not_supported. A
+        changed address is recorded; it is verified by a link once
+        web-email exists. Audited as account_update, naming the fields
+        changed and the federations before and after.
       security:
         - session: []
           csrf: []
@@ -1747,8 +1761,10 @@ paths:
                 $ref: '#/components/schemas/AccountRow'
         '400':
           description: >-
-            A malformed body or role (error bad_request), bad_name,
-            bad_email, or a field that cannot be set yet
+            A malformed body or role, or admin_of or grants for an
+            account of another role (error bad_request), bad_name,
+            bad_email, a federation that does not exist
+            (bad_federation), or a field that cannot be set yet
             (not_supported).
           content:
             application/json:
@@ -4495,8 +4511,8 @@ components:
           description: >-
             A member's federations and groups. Required, with at least
             one federation the viewer administers, when an admin
-            creates the member (else 400 grants_required). Until
-            web-federations, only {"fed": 0, "group_ids": []}.
+            creates the member (else 400 grants_required). group_ids
+            stays [] until web-member-access.
           items:
             $ref: '#/components/schemas/GrantWrite'
     AccountCreated:
@@ -4525,7 +4541,9 @@ components:
           format: email
         admin_of:
           type: array
-          description: An admin's federations; superadmins only.
+          description: >-
+            The federations an admin administers, replacing its list;
+            superadmins only.
           items:
             type: integer
             format: int64
@@ -4546,8 +4564,9 @@ components:
         grants:
           type: array
           description: >-
-            A member's grants. An admin changes only those in its own
-            federations; the others stay.
+            A member's grants, replacing the federations it is filed
+            in. An admin changes only those in its own federations; the
+            others stay.
           items:
             $ref: '#/components/schemas/GrantWrite'
         abilities:

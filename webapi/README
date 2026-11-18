@@ -477,13 +477,15 @@ it, and every permission check asks it; there is no other mechanism.
 Something outside it answers 404, a forbidden action on something
 inside it 403.
 
-So far it is built from the role alone (web/docs/accounts.md has the
-table): superadmins and admins see every group, private chat and user;
-members see no group, private chat or user until grants exist
-(web-member-access), and then the users of their groups only by name
-and photo; admins may do all but join chats and look up real
-names. Federations, restrictions, grants and the verified-address gate
-plug into the scope without changing its callers. Without a session
+So far it is built from the role and, for an admin, the federations it
+administers (web/docs/accounts.md has the table): superadmins and
+admins see every group, private chat and user; members see no group,
+private chat or user until grants exist (web-member-access), and then
+the users of their groups only by name and photo; admins may do all
+but join chats and look up real names, and manage the members of
+their federations (Scope.SeesAccount, AdministersFederation).
+Restrictions, grants and the verified-address gate plug into the scope
+without changing its callers. Without a session
 the scope sees nothing; a file token is its own authorization.
 
 # Layout

@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,6 +34,10 @@ type Account struct {
 	CreatedBy          uint64 // 0 when none
 	CreatedAt          time.Time
 	LastSignin         *time.Time // the newest login_ok, nil if none
+	// AdminOf is the federations an admin administers, Federations
+	// those a member is filed in; ascending, nil for none.
+	AdminOf     []uint64
+	Federations []uint64
 }
 
 // AccountAudit is one audited change of an account.
@@ -59,7 +64,8 @@ const accountColumns = "SELECT u.id, u.username, u.display_name, " +
 	"u.must_change_password, COALESCE(u.created_by, 0), " +
 	"UNIX_TIMESTAMP(u.created_at), " +
 	"(SELECT UNIX_TIMESTAMP(MAX(a.created_at)) FROM web_audit a " +
-	"WHERE a.web_user_id = u.id AND a.action = 'login_ok') " +
+	"WHERE a.web_user_id = u.id AND a.action = 'login_ok'), " +
+	adminOfColumn + ", " + memberOfColumn +
 	"FROM web_users u "
 
 type scanner interface {
@@ -68,14 +74,21 @@ type scanner interface {
 
 func scanAccount(row scanner) (Account, error) {
 	var (
-		a       Account
-		created float64
-		signin  sql.NullFloat64
+		a                 Account
+		created           float64
+		signin            sql.NullFloat64
+		adminOf, memberOf sql.NullString
 	)
 	err := row.Scan(&a.ID, &a.Username, &a.DisplayName, &a.Email, &a.Role,
 		&a.Active, &a.HasPassword, &a.MustChangePassword, &a.CreatedBy,
-		&created, &signin)
+		&created, &signin, &adminOf, &memberOf)
 	if err != nil {
+		return Account{}, err
+	}
+	if a.AdminOf, err = idList(adminOf); err != nil {
+		return Account{}, err
+	}
+	if a.Federations, err = idList(memberOf); err != nil {
 		return Account{}, err
 	}
 	a.CreatedAt = time.Unix(int64(created), 0).UTC()
@@ -154,6 +167,9 @@ type NewAccount struct {
 	Role         string
 	PasswordHash string // a temporary password's; must be changed
 	CreatedBy    uint64
+	// Federations files a member in these federations; they must
+	// exist (else ErrNoFederation).
+	Federations []uint64
 }
 
 // duplicate tells which unique key a failed insert or update hit.
@@ -197,8 +213,15 @@ func CreateAccount(ctx context.Context, db *sql.DB, n NewAccount, ip string) (ui
 		return 0, err
 	}
 	id := uint64(id64)
-	if err := AuditAccount(ctx, tx, n.CreatedBy, id, "account_create", ip,
-		n.Username+" role="+n.Role); err != nil {
+	detail := n.Username + " role=" + n.Role
+	if len(n.Federations) > 0 {
+		if _, _, err := setAccountFederations(ctx, tx, "web_federation_members", id,
+			FederationChange{Set: n.Federations, WithinAll: true}); err != nil {
+			return 0, err
+		}
+		detail += " federations=" + idsText(uniq(n.Federations))
+	}
+	if err := AuditAccount(ctx, tx, n.CreatedBy, id, "account_create", ip, detail); err != nil {
 		return 0, err
 	}
 	return id, tx.Commit()
@@ -217,6 +240,13 @@ type AccountChange struct {
 	// account on both services. A role change, a disable and a new
 	// password do it as well.
 	EndSessions bool
+	// AdminOf sets the federations an admin administers, Federations
+	// those a member is filed in (ErrNoFederation for one that does
+	// not exist). Whatever the account's role ends as, the rows of the
+	// other kind go: a member made admin leaves its federations, an
+	// admin made anything else stops administering.
+	AdminOf     *FederationChange
+	Federations *FederationChange
 }
 
 // UpdateAccount applies a change and audits it with the actor, in one
@@ -304,13 +334,43 @@ func UpdateAccount(ctx context.Context, db *sql.DB, actor, id uint64, c AccountC
 	if bump {
 		sets = append(sets, "session_epoch = session_epoch + 1")
 	}
-	if len(sets) == 0 {
-		return false, nil
+	if len(sets) > 0 {
+		args = append(args, id)
+		if _, err := tx.ExecContext(ctx, "UPDATE web_users SET "+strings.Join(sets, ", ")+
+			" WHERE id = ?", args...); err != nil {
+			return false, duplicate(err)
+		}
 	}
-	args = append(args, id)
-	if _, err := tx.ExecContext(ctx, "UPDATE web_users SET "+strings.Join(sets, ", ")+
-		" WHERE id = ?", args...); err != nil {
-		return false, duplicate(err)
+
+	role := cur.role
+	if c.Role != nil {
+		role = *c.Role
+	}
+	for _, part := range []struct {
+		table, what, role string
+		c                 *FederationChange
+	}{
+		{"web_federation_admins", "admin_of", "admin", c.AdminOf},
+		{"web_federation_members", "federations", "member", c.Federations},
+	} {
+		fc := part.c
+		if role != part.role {
+			// Not of this kind (any more): its rows go.
+			fc = &FederationChange{WithinAll: true}
+		}
+		if fc == nil {
+			continue
+		}
+		before, after, err := setAccountFederations(ctx, tx, part.table, id, *fc)
+		if err != nil {
+			return false, err
+		}
+		if !slices.Equal(before, after) {
+			detail = append(detail, part.what+" "+idsText(before)+"->"+idsText(after))
+		}
+	}
+	if len(sets) == 0 && len(detail) == 0 {
+		return false, nil
 	}
 	if err := AuditAccount(ctx, tx, actor, id, action, ip, strings.Join(detail, "; ")); err != nil {
 		return false, err

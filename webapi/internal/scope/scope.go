@@ -12,15 +12,18 @@
 // existence does not leak; 403 is for a forbidden action on something
 // the request may see.
 //
-// The scope is built from the account's role alone so far. Later items
-// add to Viewer and fill in the methods below without changing their
-// callers: web-federations the federations an admin manages,
+// The scope is built from the account's role and, for an admin, the
+// federations it administers. Later items add to Viewer and fill in
+// the methods below without changing their callers:
 // web-admin-restrictions an admin's hidden groups, hidden private
 // messages and join_chat, web-member-access a member's granted groups
 // and abilities, web-email the verified-address gate.
 package scope
 
-import "strconv"
+import (
+	"slices"
+	"strconv"
+)
 
 // Role is an account's role (web-accounts.md section 2).
 type Role string
@@ -75,8 +78,9 @@ const (
 	EmailRequired Gate = "email_required"
 )
 
-// DefaultFederation is the id the API uses for the Default federation,
-// the groups in no other federation (web-accounts.md section 3).
+// DefaultFederation is the id of the Default federation, the groups in
+// no other federation (web-accounts.md section 3), in the API and in
+// web_federations.
 const DefaultFederation uint64 = 0
 
 // Viewer is the signed-in account behind a request, as its account row
@@ -88,6 +92,11 @@ type Viewer struct {
 	// EmailVerified is whether the account has a verified address;
 	// false applies the EmailRequired gate.
 	EmailVerified bool
+	// AdminOf is the federations an admin administers
+	// (web_federation_admins), in ascending order; nil for the other
+	// roles, as a superadmin administers every federation without
+	// being listed.
+	AdminOf []uint64
 }
 
 // Account is an account the request acts on, as far as the rules of
@@ -95,6 +104,9 @@ type Viewer struct {
 type Account struct {
 	ID   uint64
 	Role Role
+	// Federations is the federations a member is filed in
+	// (web_federation_members); unused for the other roles.
+	Federations []uint64
 }
 
 type kind int
@@ -130,6 +142,14 @@ func Anonymous() Scope {
 func For(v Viewer) Scope {
 	if _, ok := ParseRole(string(v.Role)); !ok {
 		return Anonymous()
+	}
+	// Only an admin is limited to the federations listed; keep the
+	// list sorted and nil when empty, so two scopes built from the
+	// same rows compare equal (the live streams' recheck).
+	if v.Role == Admin && len(v.AdminOf) > 0 {
+		v.AdminOf = slices.Compact(slices.Sorted(slices.Values(v.AdminOf)))
+	} else {
+		v.AdminOf = nil
 	}
 	return Scope{kind: viewer, v: v}
 }
@@ -303,16 +323,22 @@ func (s Scope) ManagesAccounts() bool {
 
 // SeesAccount is whether the accounts administration shows a, which is
 // what the viewer may manage (web-accounts.md sections 2 and 3): a
-// superadmin every account, an admin the members of its federations
-// and never an admin or a superadmin, itself included. Until
-// web-federations, every member is in the Default federation and every
-// admin administers it.
+// superadmin every account, an admin the members filed in at least one
+// federation it administers, and never an admin or a superadmin,
+// itself included. A member in no federation is a superadmin's alone.
 func (s Scope) SeesAccount(a Account) bool {
 	switch {
 	case s.is(Superadmin):
 		return true
 	case s.is(Admin):
-		return a.Role == Member
+		if a.Role != Member {
+			return false
+		}
+		for _, f := range a.Federations {
+			if s.AdministersFederation(f) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -332,10 +358,41 @@ func (s Scope) MayGiveRole(r Role) bool {
 
 // AdministersFederation is whether the viewer manages the federation
 // with this id: the members filed in it, their grants there and its
-// forwarding. Until web-federations, Default is the only federation,
-// and every superadmin and admin administers it.
+// forwarding. A superadmin administers every federation (whether id
+// exists is the caller's to check), an admin those it is an admin of,
+// Default included only when it is listed there.
 func (s Scope) AdministersFederation(id uint64) bool {
-	return id == DefaultFederation && s.is(Superadmin, Admin)
+	switch {
+	case s.is(Superadmin):
+		return true
+	case s.is(Admin):
+		_, found := slices.BinarySearch(s.v.AdminOf, id)
+		return found
+	}
+	return false
+}
+
+// AdministeredFederations is the federations the viewer administers:
+// all true for a superadmin (every federation, ids nil), else the ids
+// of an admin's in ascending order (nil for none, and for every other
+// scope). The caller must not change the slice.
+func (s Scope) AdministeredFederations() (ids []uint64, all bool) {
+	switch {
+	case s.is(Superadmin):
+		return nil, true
+	case s.is(Admin):
+		return s.v.AdminOf, false
+	}
+	return nil, false
+}
+
+// ManagesFederations is whether the viewer defines federations:
+// creates, renames and deletes them, sets their groups and admins, and
+// says which federations an admin administers. Superadmins only
+// (web-accounts.md section 3); an admin sees the federations it
+// administers without changing them.
+func (s Scope) ManagesFederations() bool {
+	return s.is(Superadmin)
 }
 
 // String describes the scope for logs.

@@ -530,7 +530,7 @@ export interface paths {
         };
         /**
          * The accounts the viewer manages
-         * @description A superadmin gets every account, an admin the members of its federations (until federations exist, every member), by username (web-accounts.md sections 2 and 3). To a member the accounts administration does not exist (404).
+         * @description A superadmin gets every account, an admin the members filed in a federation it administers, by username (web-accounts.md sections 2 and 3). To a member the accounts administration does not exist (404).
          */
         get: operations["listAccounts"];
         put?: never;
@@ -540,7 +540,7 @@ export interface paths {
          *
          *     Until set-password links exist (web-email), the new account gets a random temporary password, answered once here and never stored or logged in plain text, which it must replace at its first sign-in (decisions/2026-11-18-temporary-passwords.md; see Gates). When links arrive, creation sends one instead and temporary_password goes.
          *
-         *     Until federations exist (web-federations), Default (fed 0) is the only federation, every superadmin and admin administers it, and groups cannot be granted (web-member-access): a grant is {"fed": 0, "group_ids": []}. Audited as account_create, without the password.
+         *     A grant files the member in a federation (fed 0 is Default); groups cannot be granted inside it yet (web-member-access), so group_ids is []. A superadmin may name any federation, and its member without grants is filed in Default (grants [] files it in none, which leaves it to superadmins). Audited as account_create, with the federations and without the password.
          */
         post: operations["createAccount"];
         delete?: never;
@@ -565,7 +565,9 @@ export interface paths {
         head?: never;
         /**
          * Change an account
-         * @description Changes the fields given: name, email and role. A role change ends the account's sessions on both services. admin_of and restrict are a superadmin's to send; until federations, admin restrictions and member grants and abilities exist, they are accepted only as what they are today (admin_of [] or [0], restrictions all off, grants to fed 0 with no groups, no abilities) and anything else answers 400 not_supported, so the accounts page can send its whole form. A changed address is recorded; it is verified by a link once web-email exists. Audited as account_update, naming the fields changed.
+         * @description Changes the fields given: name, email, role, an admin's federations (admin_of) and a member's (grants). A role change ends the account's sessions on both services, and drops the federations of the old role: a member made admin leaves its federations, an admin made member administers none and is filed in Default unless grants say otherwise.
+         *
+         *     admin_of and restrict are a superadmin's to send (403 otherwise); admin_of is for admins (an empty list for anyone). grants replace the member's federations among those the viewer administers, all of them for a superadmin; the others stay. A grant of a federation the member is in already passes as it is, so the accounts page can send the member's whole list; one that files it in a federation the viewer does not administer answers 403. Until admin restrictions and member group grants and abilities exist, they are accepted only as what they are today (restrictions all off, no groups in grants, no abilities) and anything else answers 400 not_supported. A changed address is recorded; it is verified by a link once web-email exists. Audited as account_update, naming the fields changed and the federations before and after.
          */
         patch: operations["updateAccount"];
         trace?: never;
@@ -1848,7 +1850,7 @@ export interface components {
             /** Format: email */
             email: string;
             role: components["schemas"]["Role"];
-            /** @description A member's federations and groups. Required, with at least one federation the viewer administers, when an admin creates the member (else 400 grants_required). Until web-federations, only {"fed": 0, "group_ids": []}. */
+            /** @description A member's federations and groups. Required, with at least one federation the viewer administers, when an admin creates the member (else 400 grants_required). group_ids stays [] until web-member-access. */
             grants?: components["schemas"]["GrantWrite"][];
         };
         AccountCreated: {
@@ -1863,7 +1865,7 @@ export interface components {
             role?: components["schemas"]["Role"];
             /** Format: email */
             email?: string;
-            /** @description An admin's federations; superadmins only. */
+            /** @description The federations an admin administers, replacing its list; superadmins only. */
             admin_of?: number[];
             /** @description An admin's restrictions; superadmins only. */
             restrict?: {
@@ -1871,7 +1873,7 @@ export interface components {
                 hide_groups: number[];
                 join_chat: boolean;
             };
-            /** @description A member's grants. An admin changes only those in its own federations; the others stay. */
+            /** @description A member's grants, replacing the federations it is filed in. An admin changes only those in its own federations; the others stay. */
             grants?: components["schemas"]["GrantWrite"][];
             abilities?: components["schemas"]["Ability"][];
         };
@@ -3275,7 +3277,7 @@ export interface operations {
                     "application/json": components["schemas"]["AccountCreated"];
                 };
             };
-            /** @description A malformed body or role (error bad_request), a username that is not 1 to 64 letters, digits, dots, dashes or underscores starting with a letter or digit (bad_username), a name over 128 characters or with control characters (bad_name), not an address (bad_email), an admin's member without grants (grants_required), or groups in a grant (not_supported). */
+            /** @description A malformed body or role (error bad_request), a username that is not 1 to 64 letters, digits, dots, dashes or underscores starting with a letter or digit (bad_username), a name over 128 characters or with control characters (bad_name), not an address (bad_email), an admin's member without grants (grants_required), a federation that does not exist (bad_federation), or groups in a grant (not_supported). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3358,7 +3360,7 @@ export interface operations {
                     "application/json": components["schemas"]["AccountRow"];
                 };
             };
-            /** @description A malformed body or role (error bad_request), bad_name, bad_email, or a field that cannot be set yet (not_supported). */
+            /** @description A malformed body or role, or admin_of or grants for an account of another role (error bad_request), bad_name, bad_email, a federation that does not exist (bad_federation), or a field that cannot be set yet (not_supported). */
             400: {
                 headers: {
                     [name: string]: unknown;
