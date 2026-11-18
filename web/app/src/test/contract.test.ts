@@ -138,7 +138,7 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		expect(patch(admin.id, { restrict: hide }, 'admin')[0]).toBe(403);
 		expect(patch(member.id, { restrict: hide })[0]).toBe(400);
 		expect(patch(admin.id, { restrict: { ...hide, join_chat: true } })[1]).toMatchObject({ error: 'not_supported' });
-		expect(patch(admin.id, { restrict: { ...hide, hide_groups: [-1] } })[1]).toMatchObject({ error: 'not_supported' });
+		expect(patch(admin.id, { restrict: { ...hide, hide_groups: [-1] } })[1]).toMatchObject({ error: 'bad_request', field: 'hide_groups' });
 		const [st, row] = patch(admin.id, { restrict: hide });
 		expect(st).toBe(200);
 		expect((row as { restrict: { hide_private: boolean } }).restrict.hide_private).toBe(true);
@@ -152,6 +152,30 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		expect(patch(member.id, { role: 'admin', restrict: hide })[0]).toBe(200);
 		const [, back] = patch(member.id, { role: 'member' });
 		expect((back as { restrict: { hide_private: boolean } | null }).restrict?.hide_private ?? false).toBe(false);
+	});
+
+	it('hiding groups from an admin, as Go takes it', () => {
+		const accts = (pageData('/settings/accounts', 'superadmin').props as { accounts: { id: number; role: string }[] }).accounts;
+		const admin = accts.find((a) => a.id === 3)!;
+		const member = accts.find((a) => a.role === 'member')!;
+		const patch = (id: number, body: object, who: Persona = 'superadmin') => adminApi('PATCH', `accounts/${id}`, body, who);
+		const g = (pageData('/groups', 'admin').props as { rows: { id: number }[] }).rows[0]!.id;
+		const hide = { hide_private: false, hide_groups: [g], join_chat: false };
+		expect(patch(admin.id, { restrict: hide }, 'admin')[0]).toBe(403);
+		expect(patch(member.id, { restrict: hide })[0]).toBe(400);
+		const [st, row] = patch(admin.id, { restrict: hide });
+		expect(st).toBe(200);
+		expect((row as { restrict: { hide_groups: { id: number }[] } }).restrict.hide_groups.map((x) => x.id)).toEqual([g]);
+		ok(200, row, '/api/accounts/{id}', 'patch');
+		// The admin then no longer has the group: its page, its list row.
+		expect(pageData(`/groups/${g}`, 'admin').status).toBe(404);
+		expect((pageData('/groups', 'admin').props as { rows: { id: number }[] }).rows.some((r) => r.id === g)).toBe(false);
+		// The list replaces the stored one; leaving the admin role clears it.
+		patch(admin.id, { restrict: { ...hide, hide_groups: [] } });
+		expect(pageData(`/groups/${g}`, 'admin').status).toBe(200);
+		patch(member.id, { role: 'admin', restrict: hide });
+		const [, back] = patch(member.id, { role: 'member' });
+		expect((back as { restrict: { hide_groups: unknown[] } | null }).restrict?.hide_groups ?? []).toEqual([]);
 	});
 
 	it('a name lookup', () => {
