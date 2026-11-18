@@ -43,8 +43,8 @@ function Dashboard({ page }: { page: PageData<DashboardProps> }) {
 				})}
 			</div>
 			<div className={`a-dash ${p.status ? '' : 'member'}`}>
-				<Card title="Messages logged per day" action={<span className="a-muted sm" title="Each day runs from midnight to midnight UTC">last 30 days, UTC</span>} className="a-dash-wide">
-					<div className="a-bigchart"><DayBars data={p.per_day} now={v.now} height={140} /></div>
+				<Card title="Messages logged per day" action={<span className="a-muted sm" title="Each day runs from midnight to midnight in your timezone">last 30 days</span>} className="a-dash-wide">
+					<div className="a-bigchart"><DayBars data={p.per_day} now={v.now} start={p.per_day_start} height={140} /></div>
 				</Card>
 				{p.status && (
 					<Card title="Logger status" className="a-status">

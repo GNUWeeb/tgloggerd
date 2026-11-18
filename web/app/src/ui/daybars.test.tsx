@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { DayBars } from './daybars.tsx';
-import { renderPage, setup } from '../test/page.tsx';
+import { fixture, renderPage, setup } from '../test/page.tsx';
 
 afterEach(cleanup);
 // 30 days ending on Tue 17 Nov 2026 (UTC), today's count last.
@@ -72,10 +72,20 @@ describe('day bars', () => {
 		expect(screen.getAllByRole('img').map((b) => b.getAttribute('aria-label')!.split(':')[0])).toEqual(['Fri 23 Oct', 'Sat 24 Oct', 'Sun 25 Oct', 'Mon 26 Oct', 'Today, 27 Oct']);
 	});
 
+	it('dates the dashboard\'s days from the server, in the viewer\'s timezone', () => {
+		setup();
+		const page = fixture<{ per_day: number[]; per_day_start: string }>('/');
+		// A viewer in Auckland is already on 18 Nov at the stand-in's now.
+		renderPage('/', 'superadmin', { props: { ...page.props, per_day_start: '2026-10-20' }, viewer: { ...page.viewer, timezone: 'Pacific/Auckland' } });
+		expect(screen.getAllByRole('img', { name: /^Today, 18 Nov: / })).toHaveLength(1);
+		expect(screen.getAllByRole('img', { name: /^Tue 20 Oct: / })).toHaveLength(1);
+	});
+
 	it('is the dashboard\'s messages-per-day chart', () => {
 		setup();
 		renderPage('/');
-		expect(screen.getByText('last 30 days, UTC')).toBeTruthy();
+		expect(screen.getByText('last 30 days')).toBeTruthy();
+		expect(screen.queryByText(/UTC/)).toBeNull();
 		expect(screen.getAllByRole('img', { name: /^Today, 17 Nov: [\d,]+ messages$/ })).toHaveLength(1);
 	});
 });
