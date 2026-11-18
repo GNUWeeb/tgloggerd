@@ -150,7 +150,7 @@ Accounts, roles and federations:
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
 - [`web-email`](todo/web-email.md): Give every account an email address for set-password links, password resets and security notices.
-- [`web-user-settings`](todo/web-user-settings.md): Keep settings per account, starting with the timezone dates are shown in.
+- [`web-user-settings`](todo/web-user-settings.md): Apply every per-account setting in the list loaders and the React pages.
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
 - [`search-engine-backend`](todo/search-engine-backend.md): Add OpenSearch as an optional search backend, with extra search options in the frontend when it is on (optional).
 - [`go-port-mcp`](todo/go-port-mcp.md): Move the MCP endpoint to the Go service.
