@@ -221,7 +221,7 @@ export function load(url: string, persona: Persona): Loaded {
 		const r = queryFiles({ ...st, per: Number(u.searchParams.get('per')) || 50 }, canSee);
 		const want = u.searchParams.get('file');
 		const pv = want ? files().find((f) => String(f.id) === want && canSee(f)) : null;
-		return { route: 'files', status: 200, props: { ...st, ...r, per: Number(u.searchParams.get('per')) || 50, rows: r.rows.map(fileRow), preview: pv ? fileRow(pv) : null, can_fetch: s.canFetch, archive_total: s.role === 'member' ? undefined : TOTALS.files, stored_bytes: s.role === 'member' ? undefined : 5.3 * 2 ** 40 } };
+		return { route: 'files', status: 200, props: { ...st, ...r, per: Number(u.searchParams.get('per')) || 50, rows: r.rows.map(fileRow), preview: pv ? fileRow(pv) : null, can_fetch: s.canFetch, archive_total: s.role === 'member' ? undefined : TOTALS.files, stored_bytes: s.role === 'member' ? undefined : Math.round(5.3 * 2 ** 40) } };
 	}
 	if (path === '/group_messages' || path === '/private_messages' || path === '/messages/group' || path === '/messages/private') {
 		const scope = path.includes('private') ? 'private' : 'group';
