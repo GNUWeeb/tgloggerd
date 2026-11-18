@@ -66,6 +66,12 @@ type pageRequest struct {
 	scope  scope.Scope
 	params map[string]string
 	query  url.Values
+	// rowsPerPage is the viewer's rows_per_page setting, the list
+	// pages' default page size.
+	rowsPerPage int
+	// rewritten: the loader replaced query with the page's own form of
+	// it (an old list URL), which becomes the page data's url.
+	rewritten bool
 }
 
 // pageLoader returns a page's props, or errPageNotFound for something
@@ -267,9 +273,17 @@ func (s *Server) buildPage(r *http.Request, sess *auth.Session, path string) (re
 	if rt == nil {
 		return s.notFoundPage(page), nil, pageServed, nil
 	}
-	props, err := rt.load(r.Context(), &pageRequest{
+	pr := &pageRequest{
 		s: s, r: r, sess: sess, scope: sc, params: params, query: r.URL.Query(),
-	})
+		rowsPerPage: viewer.RowsPerPage,
+	}
+	props, err := rt.load(r.Context(), pr)
+	if pr.rewritten {
+		page.URL = path
+		if qs := pr.query.Encode(); qs != "" {
+			page.URL += "?" + qs
+		}
+	}
 	if errors.Is(err, errPageNotFound) {
 		return s.notFoundPage(page), rt, pageServed, nil
 	}

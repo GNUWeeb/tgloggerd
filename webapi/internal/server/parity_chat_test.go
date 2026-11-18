@@ -477,7 +477,7 @@ func TestMessagesRedirect(t *testing.T) {
 	f := url.QueryEscape(`[{"field":"chat_id","op":"=","value":"-1001000000030"}]`)
 	for path, loc := range map[string]string{
 		"/messages/group?chat_id=-1001000000030&limit=20&before=5": "/group_messages?f=" + f + "&per=20",
-		"/messages/group?limit=500":                                "/group_messages?per=100",
+		"/messages/group?limit=5000":                               "/group_messages?per=1000",
 		"/messages/private":                                        "/private_messages",
 		"/messages/private?chat_id=x":                              "/private_messages",
 	} {

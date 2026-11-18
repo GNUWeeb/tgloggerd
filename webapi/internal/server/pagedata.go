@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/settings"
 )
 
@@ -106,8 +107,32 @@ func loadDashboard(ctx context.Context, pr *pageRequest) (any, error) {
 }
 
 type usernameJSON struct {
-	Username string `json:"username"`
-	Active   bool   `json:"active"`
+	Username    string `json:"username"`
+	Active      bool   `json:"active"`
+	Kind        string `json:"kind"`
+	Collectible bool   `json:"collectible"`
+}
+
+func usernamesJSON(us []logdb.Username) []usernameJSON {
+	out := []usernameJSON{}
+	for _, u := range us {
+		out = append(out, usernameJSON{Username: u.Username, Active: u.Active, Kind: u.Kind,
+			Collectible: u.Collectible})
+	}
+	return out
+}
+
+type birthdayJSON struct {
+	Day   int  `json:"day"`
+	Month int  `json:"month"`
+	Year  *int `json:"year"`
+}
+
+type emojiStatusJSON struct {
+	// Custom emoji ids are 64-bit, beyond what a JSON number keeps
+	// exactly in a browser: strings.
+	CustomEmojiID string  `json:"custom_emoji_id"`
+	ExpiresAt     *string `json:"expires_at"`
 }
 
 type userFullJSON struct {
@@ -117,6 +142,72 @@ type userFullJSON struct {
 	Bio       string         `json:"bio"`
 	Phone     string         `json:"phone"`
 	Usernames []usernameJSON `json:"usernames"`
+
+	PhotoFileID         *uint64           `json:"photo_file_id"`
+	Birthday            *birthdayJSON     `json:"birthday"`
+	PersonalChatID      *int64            `json:"personal_chat_id"`
+	PersonalChat        *groupSummaryJSON `json:"personal_chat"`
+	PaidMessageStars    int64             `json:"paid_message_star_count"`
+	EmojiStatus         *emojiStatusJSON  `json:"emoji_status"`
+	AccentColor         int               `json:"accent_color_id"`
+	ProfileAccentColor  *int              `json:"profile_accent_color_id"`
+	BackgroundEmoji     *string           `json:"background_custom_emoji_id"`
+	ProfileBgEmoji      *string           `json:"profile_background_custom_emoji_id"`
+	RestrictionReason   string            `json:"restriction_reason"`
+	HasSensitiveContent bool              `json:"has_sensitive_content"`
+	RestrictsNewChats   bool              `json:"restricts_new_chats"`
+	IsContact           bool              `json:"is_contact"`
+	IsMutualContact     bool              `json:"is_mutual_contact"`
+	OwnNameKnown        bool              `json:"own_name_known"`
+	OwnNameCheckedAt    *string           `json:"own_name_checked_at"`
+}
+
+// emojiID is a custom emoji id as the API sends it, nil for none.
+func emojiID(id int64) *string {
+	if id == 0 {
+		return nil
+	}
+	s := strconv.FormatInt(id, 10)
+	return &s
+}
+
+// userFull is the user page's profile for a full-access viewer.
+func (v view) userFull(ctx context.Context, pr *pageRequest, u logdb.UserDetail) (userFullJSON, error) {
+	j := userFullJSON{userSummaryJSON: v.user(u.User), FirstName: u.FirstName,
+		LastName: u.LastName, Bio: u.Bio, Phone: u.Phone, Usernames: usernamesJSON(u.Usernames),
+		PaidMessageStars: u.PaidMessageStars, AccentColor: u.AccentColor,
+		BackgroundEmoji: emojiID(u.BackgroundEmoji), ProfileBgEmoji: emojiID(u.ProfileBgEmoji),
+		RestrictionReason: u.RestrictionReason, HasSensitiveContent: u.HasSensitiveContent,
+		RestrictsNewChats: u.RestrictsNewChats, IsContact: u.Profile.IsContact,
+		IsMutualContact: u.IsMutualContact, OwnNameKnown: u.OwnNameKnown,
+		OwnNameCheckedAt: isoPtr(u.OwnNameCheckedAt)}
+	if u.Photo.ID != 0 {
+		j.PhotoFileID = &u.Photo.ID
+	}
+	if b := u.Birthday; b != nil {
+		j.Birthday = &birthdayJSON{Day: b.Day, Month: b.Month}
+		if b.Year != 0 {
+			j.Birthday.Year = &b.Year
+		}
+	}
+	if u.PersonalChatID != 0 {
+		j.PersonalChatID = &u.PersonalChatID
+		gs, err := logdb.VisibleGroups(ctx, pr.s.ro, pr.scope, []int64{u.PersonalChatID})
+		if err != nil {
+			return userFullJSON{}, err
+		}
+		if len(gs) == 1 {
+			g := v.group(gs[0])
+			j.PersonalChat = &g
+		}
+	}
+	if id := emojiID(u.EmojiStatus); id != nil {
+		j.EmojiStatus = &emojiStatusJSON{CustomEmojiID: *id, ExpiresAt: isoPtr(u.EmojiStatusExpires)}
+	}
+	if u.ProfileAccentColor >= 0 {
+		j.ProfileAccentColor = &u.ProfileAccentColor
+	}
+	return j, nil
 }
 
 type userGroupJSON struct {
@@ -132,15 +223,28 @@ type historyJSON struct {
 	Photo   *string          `json:"photo,omitempty"`
 	Removed bool             `json:"removed,omitempty"`
 	User    *userSummaryJSON `json:"user,omitempty"`
+	// A username event's state after it, an admin change's status.
+	UsernameKind string `json:"username_kind,omitempty"`
+	Collectible  bool   `json:"collectible,omitempty"`
+	Status       string `json:"status,omitempty"`
 }
 
 type userProps struct {
-	Limited    bool            `json:"limited"`
-	User       userFullJSON    `json:"user"`
-	Groups     []userGroupJSON `json:"groups"`
-	History    []historyJSON   `json:"history"`
-	Activity   []int64         `json:"activity"`
-	CanPrivate bool            `json:"can_private"`
+	Limited     bool            `json:"limited"`
+	User        userFullJSON    `json:"user"`
+	Groups      []userGroupJSON `json:"groups"`
+	History     []historyJSON   `json:"history"`
+	HistoryNext *string         `json:"history_next"`
+	Activity    []int64         `json:"activity"`
+	CanPrivate  bool            `json:"can_private"`
+	// CanLookupName: the page offers "Look up real name" (POST
+	// /api/users/{id}/lookup-name).
+	CanLookupName bool `json:"can_lookup_name"`
+	// LookupPending: a "Look up real name" removed the contact and
+	// has not added it back yet; since when, and its last error.
+	LookupPending      bool    `json:"lookup_pending"`
+	LookupPendingSince *string `json:"lookup_pending_since"`
+	LookupPendingError *string `json:"lookup_pending_error"`
 }
 
 type userLimitedProps struct {
@@ -150,7 +254,8 @@ type userLimitedProps struct {
 }
 
 func (v view) history(e logdb.HistoryEntry) historyJSON {
-	j := historyJSON{Kind: e.Kind, At: iso(e.At), Detail: e.Detail, Action: e.Action}
+	j := historyJSON{Kind: e.Kind, At: iso(e.At), Detail: e.Detail, Action: e.Action,
+		UsernameKind: e.UsernameKind, Collectible: e.Collectible, Status: e.Status}
 	if e.Kind == "photo" {
 		j.Detail = ""
 		if e.Photo.ID == 0 {
@@ -162,8 +267,27 @@ func (v view) history(e logdb.HistoryEntry) historyJSON {
 	return j
 }
 
+// historyCursor is the page's ?before=, the history's cursor; one that
+// does not parse starts from the newest changes.
+func (pr *pageRequest) historyCursor(kinds func(string) bool) string {
+	b := pr.query.Get("before")
+	if !kinds(b) {
+		return ""
+	}
+	return b
+}
+
+// nextCursor is a history page's next cursor as the API sends it.
+func nextCursor(h logdb.HistoryPage) *string {
+	if h.Next == "" {
+		return nil
+	}
+	return &h.Next
+}
+
 func loadUserPage(ctx context.Context, pr *pageRequest, history bool) (any, error) {
-	p, err := logdb.LoadUserPage(ctx, pr.s.ro, pr.scope, pr.pathID(), pr.now())
+	p, err := logdb.LoadUserPage(ctx, pr.s.ro, pr.scope, pr.pathID(), pr.now(),
+		pr.historyCursor(logdb.ValidUserCursor))
 	if err != nil {
 		return nil, notFoundOr(err)
 	}
@@ -180,22 +304,29 @@ func loadUserPage(ctx context.Context, pr *pageRequest, history bool) (any, erro
 		}
 		return lp, nil
 	}
-	up := userProps{
-		User: userFullJSON{userSummaryJSON: v.user(p.User.User), FirstName: p.User.FirstName,
-			LastName: p.User.LastName, Bio: p.User.Bio, Phone: p.User.Phone,
-			Usernames: []usernameJSON{}},
-		Groups: []userGroupJSON{}, History: []historyJSON{}, Activity: p.Activity,
-		CanPrivate: pr.scope.SeesPrivate(),
+	uj, err := v.userFull(ctx, pr, p.User)
+	if err != nil {
+		return nil, err
 	}
-	for _, u := range p.User.Usernames {
-		up.User.Usernames = append(up.User.Usernames, usernameJSON(u))
+	up := userProps{
+		User: uj, Groups: []userGroupJSON{}, History: []historyJSON{}, Activity: p.Activity,
+		CanPrivate: pr.scope.SeesPrivate(),
+		// "Look up real name" is for a contact, by a viewer who may,
+		// with the daemon's API to do it.
+		CanLookupName: uj.IsContact && pr.scope.Can(scope.LookupName) && pr.s.daemon != nil,
+		LookupPending: p.User.LookupPending,
+	}
+	if p.User.LookupPending {
+		up.LookupPendingSince = ptrTo(iso(p.User.LookupPendingSince))
+		up.LookupPendingError = ptrTo(p.User.LookupPendingError)
 	}
 	for _, g := range p.Groups {
 		up.Groups = append(up.Groups, userGroupJSON{groupSummaryJSON: v.group(g.Group), Msgs: g.Msgs})
 	}
-	for _, e := range p.History {
+	for _, e := range p.History.Entries {
 		up.History = append(up.History, v.history(e))
 	}
+	up.HistoryNext = nextCursor(p.History)
 	return up, nil
 }
 
@@ -209,7 +340,9 @@ func loadUserHistory(ctx context.Context, pr *pageRequest) (any, error) {
 
 type groupFullJSON struct {
 	groupSummaryJSON
-	Description string `json:"description"`
+	Usernames   []usernameJSON `json:"usernames"`
+	PhotoFileID *uint64        `json:"photo_file_id"`
+	Description string         `json:"description"`
 	// Members is not recorded by the logger; 0 until it is.
 	Members    int64  `json:"members"`
 	MsgCount   uint64 `json:"msg_count"`
@@ -233,15 +366,17 @@ type posterJSON struct {
 }
 
 type groupProps struct {
-	Group      groupFullJSON    `json:"group"`
-	Admins     []groupAdminJSON `json:"admins"`
-	History    []historyJSON    `json:"history"`
-	TopPosters []posterJSON     `json:"top_posters"`
-	Activity   []int64          `json:"activity"`
+	Group       groupFullJSON    `json:"group"`
+	Admins      []groupAdminJSON `json:"admins"`
+	History     []historyJSON    `json:"history"`
+	HistoryNext *string          `json:"history_next"`
+	TopPosters  []posterJSON     `json:"top_posters"`
+	Activity    []int64          `json:"activity"`
 }
 
 func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
-	p, err := logdb.LoadGroupPage(ctx, pr.s.ro, pr.scope, pr.pathID(), pr.now())
+	p, err := logdb.LoadGroupPage(ctx, pr.s.ro, pr.scope, pr.pathID(), pr.now(),
+		pr.historyCursor(logdb.ValidGroupCursor))
 	if err != nil {
 		return nil, notFoundOr(err)
 	}
@@ -250,8 +385,9 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 	gs.MsgCount = nil
 	g := p.Group
 	out := groupProps{
-		Group: groupFullJSON{groupSummaryJSON: gs, Description: g.Description,
-			MsgCount: g.MsgCount, AdminCount: g.AdminCount, CreatedAt: iso(g.CreatedAt),
+		Group: groupFullJSON{groupSummaryJSON: gs, Usernames: usernamesJSON(g.Usernames),
+			Description: g.Description,
+			MsgCount:    g.MsgCount, AdminCount: g.AdminCount, CreatedAt: iso(g.CreatedAt),
 			UpdatedAt: iso(g.UpdatedAt)},
 		Admins: []groupAdminJSON{}, History: []historyJSON{}, TopPosters: []posterJSON{},
 		Activity: p.Activity,
@@ -263,14 +399,11 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 			Status: a.Status, CustomTitle: a.CustomTitle, IsAnonymous: a.IsAnonymous,
 			Perms: a.Perms, Since: iso(a.Since)})
 	}
-	for _, e := range p.History {
-		h := v.history(e)
-		if e.Kind == "admin" {
-			u := v.userOf(p.Users, e.UserID)
-			h.User = &u
-		}
-		out.History = append(out.History, h)
+	if g.Photo.ID != 0 {
+		out.Group.PhotoFileID = &g.Photo.ID
 	}
+	out.History = v.groupHistory(p.History.Entries, p.Users)
+	out.HistoryNext = nextCursor(p.History)
 	for _, t := range p.TopPosters {
 		out.TopPosters = append(out.TopPosters, posterJSON{User: v.userOf(p.Users, t.UserID),
 			Msgs: t.Msgs})

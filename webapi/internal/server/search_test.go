@@ -24,6 +24,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 
 	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/settings"
 	"tgloggerd/webapi/internal/testdb"
 	"tgloggerd/webapi/internal/webdb"
 )
@@ -44,7 +45,21 @@ type searchEnv struct {
 
 func newSearchEnv(t *testing.T) *searchEnv {
 	t.Helper()
-	db := interpolating(t, testdb.New(t, testdb.Logger, "sample", "search"))
+	return newSearchEnvOpts(t, searchOpts{})
+}
+
+// searchOpts are a searchEnv's extras: more logger fixtures, the
+// accounts' preferences and a replacement of the lists' search.
+type searchOpts struct {
+	fixtures []string
+	prefs    func(ctx context.Context, uid uint64) (settings.Prefs, error)
+	search   searchFunc
+}
+
+func newSearchEnvOpts(t *testing.T, o searchOpts) *searchEnv {
+	t.Helper()
+	db := interpolating(t, testdb.New(t, testdb.Logger, append([]string{"sample", "search"},
+		o.fixtures...)...))
 	signer := auth.NewSigner(testKey)
 	ck := &auth.Cookies{Signer: signer, Timeout: 3600, Secure: true}
 	e := &searchEnv{t: t, tokens: auth.NewFileTokens(testKey), cookies: map[string]string{}}
@@ -66,6 +81,8 @@ func newSearchEnv(t *testing.T) *searchEnv {
 			}
 			return webdb.SessionState{Role: r, Active: true}, nil
 		},
+		prefs:  o.prefs,
+		search: o.search,
 	})
 	for uid, r := range roles {
 		e.cookies[r] = signer.EncodeSession(ck.NewSession(uid, r, r, 0))

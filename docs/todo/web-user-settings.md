@@ -15,9 +15,6 @@ the rest is saved but not yet followed.
 
 ## Scope
 
-- The list page loaders (users, groups, files, group and private
-  messages) take `viewer.rows_per_page` as the page size when the
-  request names none.
 - The React application (frontend session, web/app):
   - goes to `landing` from the sign-in answer when no next page was
     asked for;

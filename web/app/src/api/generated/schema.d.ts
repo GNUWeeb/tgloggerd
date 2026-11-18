@@ -157,7 +157,7 @@ export interface paths {
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public chats of exposed groups (group_chat).
          *
-         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope; filters it does not take are dropped and not echoed in conds, and archive_total is there only for a viewer who sees the whole archive of that list. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
+         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope. The users, groups, group_messages and private_messages lists take every field of their search registry (ListState.fields) with the search's operators and connectors, besides their own filter keys, and sort by the registry's sortable fields too; a filter or search text they refuse, or a search that runs out of time, answers the whole list with ListState.error, as the Drogon lists did. The files list drops a filter it does not take, not echoed in conds. per defaults to the viewer's rows_per_page and goes up to 1000. archive_total is there only for a viewer who sees the whole archive of that list. A Drogon list URL (search, offset, limit, order, without f, page, per and dir) is read as the same list, and the answer's url is the translated one, to put in the address bar. The user and group pages and their history pages take before, the history cursor (history_next). The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
         put?: never;
@@ -1103,6 +1103,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page of a user's change timeline
+         * @description The user's names, usernames (every event: added, removed, reordered, kind or collectible changed), bios, phone numbers and profile photos, newest first, as the user page's history: the page carries the first page and history_next, and this answers the following ones, from the cursor of the page before. Only for a viewer who sees users in full; to a member, as for a user the viewer may not see or the logger never saw, it is 404.
+         */
+        get: operations["getUserHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/groups/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page of a group's change timeline
+         * @description The group's titles, descriptions, usernames (every event), photos and admin changes, newest first, as the group page's history: the page carries the first page and history_next, and this answers the following ones. For a group the viewer sees; any other is 404.
+         */
+        get: operations["getGroupHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1430,15 +1470,75 @@ export interface components {
             created_at?: string;
             updated_at?: string;
         };
+        /** @description The user page's profile, for a full-access viewer. The service sends every property listed; null is "none". */
         UserFull: components["schemas"]["UserSummary"] & {
             first_name: string;
             last_name: string;
             bio: string;
             phone: string;
-            usernames: {
-                username: string;
-                active: boolean;
-            }[];
+            usernames: components["schemas"]["Username"][];
+            /**
+             * Format: int64
+             * @description The profile photo's file id (photo is its /files/<token> URL, the full file), for the files page's preview (/files?file=<id>); null without a photo.
+             */
+            photo_file_id?: number | null;
+            /** @description Null when not shared. */
+            birthday?: null | {
+                day: number;
+                month: number;
+                /** @description Null when the year is hidden. */
+                year: number | null;
+            };
+            /**
+             * Format: int64
+             * @description The channel shown on the profile; null for none.
+             */
+            personal_chat_id?: number | null;
+            /** @description That channel, when the logger knows it and the viewer sees it (its page is /groups/{id}); null otherwise. */
+            personal_chat?: null | components["schemas"]["GroupSummary"];
+            /**
+             * Format: int64
+             * @description Telegram Stars a message to the user costs; 0 for none.
+             */
+            paid_message_star_count?: number;
+            /** @description Null for none. */
+            emoji_status?: null | {
+                /** @description A 64-bit id, as a string. */
+                custom_emoji_id: string;
+                /** @description Null when it does not expire. */
+                expires_at: string | null;
+            };
+            /** @description The name's accent colour (Telegram's id; 0 is the default). */
+            accent_color_id?: number;
+            /** @description The profile's accent colour; null for none. */
+            profile_accent_color_id?: number | null;
+            /** @description The name background's custom emoji (64-bit id as a string); null for none. */
+            background_custom_emoji_id?: string | null;
+            /** @description The profile background's custom emoji; null for none. */
+            profile_background_custom_emoji_id?: string | null;
+            /** @description Why Telegram restricts the user; empty for none. */
+            restriction_reason?: string;
+            has_sensitive_content?: boolean;
+            /** @description Only contacts and Premium users may start a chat. */
+            restricts_new_chats?: boolean;
+            /** @description A contact of the logging account (contact_name is the name it saved). */
+            is_contact?: boolean;
+            is_mutual_contact?: boolean;
+            /** @description False when no own name was ever seen and name is the contact name standing in for it. */
+            own_name_known?: boolean;
+            /** @description When "Look up real name" last read the own name (RFC 3339); null for never. */
+            own_name_checked_at?: string | null;
+        };
+        Username: {
+            username: string;
+            active: boolean;
+            /**
+             * @description Always sent by the service; active is kind active.
+             * @enum {string}
+             */
+            kind?: "active" | "disabled";
+            /** @description Bought on fragment.com; always sent by the service. */
+            collectible?: boolean;
         };
         GroupSummary: {
             /** Format: int64 */
@@ -1455,6 +1555,13 @@ export interface components {
             msg_count: number;
         };
         GroupFull: components["schemas"]["GroupSummary"] & {
+            /** @description Every current username, active ones first, with kind and collectible (username is the first active one). Always sent by the service. */
+            usernames?: components["schemas"]["Username"][];
+            /**
+             * Format: int64
+             * @description The photo's file id, for the files page's preview; null without a photo. Always sent by the service.
+             */
+            photo_file_id?: number | null;
             description: string;
             /** @description The member count; not recorded by the logger yet, so 0. */
             members: number;
@@ -1476,18 +1583,54 @@ export interface components {
             /** @enum {string} */
             kind: "name" | "username" | "bio" | "phone" | "photo";
             at: string;
+            /** @description The name, username, bio or phone number; absent when empty. */
             detail?: string;
-            /** @enum {string} */
-            action?: "added" | "removed";
+            /**
+             * @description A username event's.
+             * @enum {string}
+             */
+            action?: "added" | "removed" | "reordered" | "kind_changed" | "collectible_changed";
+            /**
+             * @description A username event's kind after it; absent for a removal.
+             * @enum {string}
+             */
+            username_kind?: "active" | "disabled";
+            /** @description A username event's; present (true) only for a collectible username. */
+            collectible?: boolean;
+            /** @description A photo change's picture, a /files/<token> URL of the full file. */
             photo?: string | null;
+            /** @description A photo change that removed the photo. */
             removed?: boolean;
+        };
+        UserHistoryPage: {
+            entries: components["schemas"]["HistoryEntry"][];
+            /** @description The next page's cursor (before=); null at the end. */
+            next: string | null;
+        };
+        GroupHistoryPage: {
+            entries: components["schemas"]["GroupHistoryEntry"][];
+            /** @description The next page's cursor (before=); null at the end. */
+            next: string | null;
         };
         GroupHistoryEntry: {
             /** @enum {string} */
             kind: "title" | "description" | "username" | "photo" | "admin";
             at: string;
             detail?: string;
+            /** @description A username event's (added, removed, reordered, kind_changed, collectible_changed) or an admin change's (added, removed, updated). */
             action?: string;
+            /**
+             * @description A username event's kind after it; absent for a removal.
+             * @enum {string}
+             */
+            username_kind?: "active" | "disabled";
+            /** @description A username event's; present (true) only for a collectible username. */
+            collectible?: boolean;
+            /**
+             * @description An admin change's status at the event.
+             * @enum {string}
+             */
+            status?: "creator" | "administrator";
             photo?: string | null;
             removed?: boolean;
             user?: components["schemas"]["UserSummary"];
@@ -1810,11 +1953,18 @@ export interface components {
             has_older: boolean;
             has_newer: boolean;
         };
+        /** @description A filter of a list. field is one of the list's own filter keys (with the ops contains, =, !=, >, <, >=, <=, empty, is) or, on the users, groups and message lists, a field of ListState.fields with one of its operators (the advanced search's, as in web/docs/search-api.md). The filters form one chain, each joined to the next by its n; AND binds tighter than OR, as in SQL. */
         Cond: {
             field: string;
             /** @enum {string} */
-            op: "=" | "!=" | ">" | "<" | "contains" | "empty" | "is";
+            op: "=" | "!=" | ">" | "<" | ">=" | "<=" | "contains" | "empty" | "is" | "LIKE" | "NOT LIKE" | "%LIKE%" | "NOT %LIKE%" | "matches" | "IS NULL" | "IS NOT NULL";
+            /** @description Ignored (send "") for IS NULL and IS NOT NULL. */
             value: string;
+            /**
+             * @description The connector to the next filter; absent is AND (and the answer's conds leave it out then). Not taken by the files list, whose filters are all ANDed.
+             * @enum {string}
+             */
+            n?: "AND" | "OR";
         };
         ListState: {
             /** Format: int64 */
@@ -1832,6 +1982,17 @@ export interface components {
              * @description Everything in the archive; full-access viewers only.
              */
             archive_total?: number;
+            /** @description False when total is an estimate (a count that ran out of time, or the table's row estimate, as group_messages without conditions): show it as "about". Always sent by the service. */
+            total_exact?: boolean;
+            error?: components["schemas"]["ListError"];
+            /** @description The users, groups and message lists: the search fields the viewer may filter by, with their operators and whether they sort (a member's users only by id, name, username, type and photo). Absent on the files list. */
+            fields?: components["schemas"]["SearchField"][];
+        };
+        /** @description Why the list shows its rows without the search asked for: bad_search, a filter, connector, value or search text the list refuses (message in the search's words, naming the field), or search_timeout, the search ran out of its time limit. q and conds are then empty, as applied; sort and page size are kept (a sort that alone runs out of time falls back to the default). When even the plain list runs out of time, rows is empty. */
+        ListError: {
+            /** @enum {string} */
+            code: "bad_search" | "search_timeout";
+            message: string;
         };
         /** @description The forced password change after a password set for the account, typed by its creator or a temporary one (decisions/2026-11-18-email-optional.md); the page posts to POST /api/account/password, then loads `next`. */
         PasswordChangeProps: {
@@ -1876,7 +2037,21 @@ export interface components {
             };
         };
         UsersProps: components["schemas"]["ListState"] & {
-            rows: components["schemas"]["UserSummary"][];
+            rows: components["schemas"]["UserRow"][];
+        };
+        /** @description A row of the users list: the summary and, for a viewer who sees users in full, the Drogon list's other columns, always sent then (absent for a member). */
+        UserRow: components["schemas"]["UserSummary"] & {
+            phone?: string;
+            bio?: string;
+            restriction_reason?: string;
+            has_sensitive_content?: boolean;
+            restricts_new_chats?: boolean;
+            /** Format: int64 */
+            paid_message_star_count?: number;
+            /** Format: int64 */
+            personal_chat_id?: number | null;
+            /** @description The emoji status's custom emoji id (64-bit, as a string); null for none. */
+            emoji_status?: string | null;
         };
         /** @description A full-access viewer gets the profile; a member only the groups it shares with the person (limited), web-accounts.md section 5. */
         UserProps: {
@@ -1886,9 +2061,20 @@ export interface components {
             groups: (components["schemas"]["GroupSummary"] & {
                 msgs: number;
             })[];
+            /** @description The newest page of the timeline (UserHistoryPage). */
             history: components["schemas"]["HistoryEntry"][];
+            /** @description The cursor of the timeline's next page, for GET /api/users/{id}/history?before= (or the history page's own ?before=); null when this is all of it. Always sent by the service. */
+            history_next?: string | null;
             activity: number[];
             can_private: boolean;
+            /** @description The page offers "Look up real name" (POST /api/users/{id}/lookup-name): the user is a contact, the viewer may (superadmins), and the daemon's API is set up. Always sent by the service. */
+            can_lookup_name?: boolean;
+            /** @description A "Look up real name" removed the contact and has not added it back yet (a telegram_contact_lookups row is left for the user; the daemon keeps retrying). Always sent by the service. */
+            lookup_pending?: boolean;
+            /** @description When that lookup started; null when none is pending. */
+            lookup_pending_since?: string | null;
+            /** @description Its last error adding the contact back ("" for none yet); null when none is pending. */
+            lookup_pending_error?: string | null;
         } | {
             /** @constant */
             limited: true;
@@ -1901,12 +2087,17 @@ export interface components {
                 admin_count: number;
                 description: string;
                 created_at: string;
+                /** @description Always sent by the service. */
+                updated_at?: string;
             })[];
         };
         GroupProps: {
             group: components["schemas"]["GroupFull"];
             admins: components["schemas"]["GroupAdmin"][];
+            /** @description The newest page of the timeline (GroupHistoryPage). */
             history: components["schemas"]["GroupHistoryEntry"][];
+            /** @description The cursor of the timeline's next page, for GET /api/groups/{id}/history?before= (or the page's own ?before=); null when this is all of it. Always sent by the service. */
+            history_next?: string | null;
             top_posters: {
                 user: components["schemas"]["UserSummary"];
                 msgs: number;
@@ -2544,6 +2735,10 @@ export interface components {
         /** @description The group's Telegram chat id. */
         GroupId: number;
         ChatScope: components["schemas"]["MessageScope"];
+        /** @description The cursor a page answered as next (history_next on the page): the entries after it. Absent, the newest. One that does not parse is 400 bad_request. */
+        HistoryBefore: string;
+        /** @description Entries per page, 100 when absent; 1 to 500, else 400 bad_request. */
+        HistoryLimit: number;
     };
     requestBodies: never;
     headers: {
@@ -4852,6 +5047,70 @@ export interface operations {
                     "text/plain": string;
                 };
             };
+        };
+    };
+    getUserHistory: {
+        parameters: {
+            query?: {
+                /** @description The cursor a page answered as next (history_next on the page): the entries after it. Absent, the newest. One that does not parse is 400 bad_request. */
+                before?: components["parameters"]["HistoryBefore"];
+                /** @description Entries per page, 100 when absent; 1 to 500, else 400 bad_request. */
+                limit?: components["parameters"]["HistoryLimit"];
+            };
+            header?: never;
+            path: {
+                /** @description The user's Telegram id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page, and the cursor of the next. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserHistoryPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getGroupHistory: {
+        parameters: {
+            query?: {
+                /** @description The cursor a page answered as next (history_next on the page): the entries after it. Absent, the newest. One that does not parse is 400 bad_request. */
+                before?: components["parameters"]["HistoryBefore"];
+                /** @description Entries per page, 100 when absent; 1 to 500, else 400 bad_request. */
+                limit?: components["parameters"]["HistoryLimit"];
+            };
+            header?: never;
+            path: {
+                /** @description The group's Telegram chat id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page, and the cursor of the next. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupHistoryPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
 }

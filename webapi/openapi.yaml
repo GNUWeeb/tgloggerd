@@ -112,6 +112,8 @@ tags:
     description: The advanced search over the logged users, groups, files and messages.
   - name: contacts
     description: Actions on the logging account's Telegram contacts.
+  - name: history
+    description: The change timelines of users and groups, page by page.
 
 paths:
 
@@ -678,10 +680,22 @@ paths:
         document), whether or not the group exists. A list page reads
         its list state from its query string (q, f the filters as a
         JSON array of Cond, sort, dir, page, per) through the advanced
-        search (searchEntity) and the request scope; filters it does
-        not take are dropped and not echoed in conds, and archive_total
-        is there only for a viewer who sees the whole archive of that
-        list. The page's document
+        search (searchEntity) and the request scope. The users, groups,
+        group_messages and private_messages lists take every field of
+        their search registry (ListState.fields) with the search's
+        operators and connectors, besides their own filter keys, and
+        sort by the registry's sortable fields too; a filter or search
+        text they refuse, or a search that runs out of time, answers
+        the whole list with ListState.error, as the Drogon lists did.
+        The files list drops a filter it does not take, not echoed in
+        conds. per defaults to the viewer's rows_per_page and goes up
+        to 1000. archive_total is there only for a viewer who sees the
+        whole archive of that list. A Drogon list URL (search, offset,
+        limit, order, without f, page, per and dir) is read as the
+        same list, and the answer's url is the translated one, to put
+        in the address bar. The user and group pages and their history
+        pages take before, the history cursor (history_next). The
+        page's document
         (its HTML, web-ssr.md section 5) is served at the page's own
         path for each route whose data the service loads, and there a
         signed-out visitor asking for a page that needs a session is
@@ -3203,6 +3217,86 @@ paths:
               schema:
                 type: string
 
+  /api/users/{id}/history:
+    get:
+      operationId: getUserHistory
+      tags: [history]
+      summary: A page of a user's change timeline
+      description: >-
+        The user's names, usernames (every event: added, removed,
+        reordered, kind or collectible changed), bios, phone numbers and
+        profile photos, newest first, as the user page's history: the
+        page carries the first page and history_next, and this answers
+        the following ones, from the cursor of the page before. Only for
+        a viewer who sees users in full; to a member, as for a user the
+        viewer may not see or the logger never saw, it is 404.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The user's Telegram id.
+          schema:
+            type: integer
+            format: int64
+        - $ref: '#/components/parameters/HistoryBefore'
+        - $ref: '#/components/parameters/HistoryLimit'
+      responses:
+        '200':
+          description: The page, and the cursor of the next.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserHistoryPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/groups/{id}/history:
+    get:
+      operationId: getGroupHistory
+      tags: [history]
+      summary: A page of a group's change timeline
+      description: >-
+        The group's titles, descriptions, usernames (every event),
+        photos and admin changes, newest first, as the group page's
+        history: the page carries the first page and history_next, and
+        this answers the following ones. For a group the viewer sees;
+        any other is 404.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The group's Telegram chat id.
+          schema:
+            type: integer
+            format: int64
+        - $ref: '#/components/parameters/HistoryBefore'
+        - $ref: '#/components/parameters/HistoryLimit'
+      responses:
+        '200':
+          description: The page, and the cursor of the next.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupHistoryPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
 components:
 
   securitySchemes:
@@ -3304,6 +3398,25 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/MessageScope'
+    HistoryBefore:
+      name: before
+      in: query
+      required: false
+      description: >-
+        The cursor a page answered as next (history_next on the page):
+        the entries after it. Absent, the newest. One that does not
+        parse is 400 bad_request.
+      schema:
+        type: string
+    HistoryLimit:
+      name: limit
+      in: query
+      required: false
+      description: Entries per page, 100 when absent; 1 to 500, else 400 bad_request.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
 
   responses:
     BadRequest:
@@ -4019,6 +4132,9 @@ components:
         updated_at:
           type: string
     UserFull:
+      description: >-
+        The user page's profile, for a full-access viewer. The service
+        sends every property listed; null is "none".
       allOf:
         - $ref: '#/components/schemas/UserSummary'
         - type: object
@@ -4035,13 +4151,110 @@ components:
             usernames:
               type: array
               items:
-                type: object
-                required: [username, active]
-                properties:
-                  username:
-                    type: string
-                  active:
-                    type: boolean
+                $ref: '#/components/schemas/Username'
+            photo_file_id:
+              type: [integer, 'null']
+              format: int64
+              description: >-
+                The profile photo's file id (photo is its /files/<token>
+                URL, the full file), for the files page's preview
+                (/files?file=<id>); null without a photo.
+            birthday:
+              description: Null when not shared.
+              oneOf:
+                - type: 'null'
+                - type: object
+                  required: [day, month, year]
+                  properties:
+                    day:
+                      type: integer
+                      minimum: 1
+                      maximum: 31
+                    month:
+                      type: integer
+                      minimum: 1
+                      maximum: 12
+                    year:
+                      type: [integer, 'null']
+                      description: Null when the year is hidden.
+            personal_chat_id:
+              type: [integer, 'null']
+              format: int64
+              description: The channel shown on the profile; null for none.
+            personal_chat:
+              description: >-
+                That channel, when the logger knows it and the viewer
+                sees it (its page is /groups/{id}); null otherwise.
+              oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/GroupSummary'
+            paid_message_star_count:
+              type: integer
+              format: int64
+              description: Telegram Stars a message to the user costs; 0 for none.
+            emoji_status:
+              description: Null for none.
+              oneOf:
+                - type: 'null'
+                - type: object
+                  required: [custom_emoji_id, expires_at]
+                  properties:
+                    custom_emoji_id:
+                      type: string
+                      description: A 64-bit id, as a string.
+                    expires_at:
+                      type: [string, 'null']
+                      description: Null when it does not expire.
+            accent_color_id:
+              type: integer
+              description: The name's accent colour (Telegram's id; 0 is the default).
+            profile_accent_color_id:
+              type: [integer, 'null']
+              description: The profile's accent colour; null for none.
+            background_custom_emoji_id:
+              type: [string, 'null']
+              description: The name background's custom emoji (64-bit id as a string); null for none.
+            profile_background_custom_emoji_id:
+              type: [string, 'null']
+              description: The profile background's custom emoji; null for none.
+            restriction_reason:
+              type: string
+              description: Why Telegram restricts the user; empty for none.
+            has_sensitive_content:
+              type: boolean
+            restricts_new_chats:
+              type: boolean
+              description: Only contacts and Premium users may start a chat.
+            is_contact:
+              type: boolean
+              description: A contact of the logging account (contact_name is the name it saved).
+            is_mutual_contact:
+              type: boolean
+            own_name_known:
+              type: boolean
+              description: >-
+                False when no own name was ever seen and name is the
+                contact name standing in for it.
+            own_name_checked_at:
+              type: [string, 'null']
+              description: >-
+                When "Look up real name" last read the own name (RFC
+                3339); null for never.
+    Username:
+      type: object
+      required: [username, active]
+      properties:
+        username:
+          type: string
+        active:
+          type: boolean
+        kind:
+          type: string
+          enum: [active, disabled]
+          description: Always sent by the service; active is kind active.
+        collectible:
+          type: boolean
+          description: Bought on fragment.com; always sent by the service.
     GroupSummary:
       type: object
       required: [id, title, username, type, photo]
@@ -4076,6 +4289,20 @@ components:
         - type: object
           required: [description, members, msg_count, admin_count, created_at, updated_at]
           properties:
+            usernames:
+              type: array
+              description: >-
+                Every current username, active ones first, with kind and
+                collectible (username is the first active one). Always
+                sent by the service.
+              items:
+                $ref: '#/components/schemas/Username'
+            photo_file_id:
+              type: [integer, 'null']
+              format: int64
+              description: >-
+                The photo's file id, for the files page's preview; null
+                without a photo. Always sent by the service.
             description:
               type: string
             members:
@@ -4119,13 +4346,46 @@ components:
           type: string
         detail:
           type: string
+          description: The name, username, bio or phone number; absent when empty.
         action:
           type: string
-          enum: [added, removed]
+          description: A username event's.
+          enum: [added, removed, reordered, kind_changed, collectible_changed]
+        username_kind:
+          type: string
+          description: A username event's kind after it; absent for a removal.
+          enum: [active, disabled]
+        collectible:
+          type: boolean
+          description: A username event's; present (true) only for a collectible username.
         photo:
           type: [string, 'null']
+          description: A photo change's picture, a /files/<token> URL of the full file.
         removed:
           type: boolean
+          description: A photo change that removed the photo.
+    UserHistoryPage:
+      type: object
+      required: [entries, next]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoryEntry'
+        next:
+          type: [string, 'null']
+          description: The next page's cursor (before=); null at the end.
+    GroupHistoryPage:
+      type: object
+      required: [entries, next]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupHistoryEntry'
+        next:
+          type: [string, 'null']
+          description: The next page's cursor (before=); null at the end.
     GroupHistoryEntry:
       type: object
       required: [kind, at]
@@ -4139,6 +4399,21 @@ components:
           type: string
         action:
           type: string
+          description: >-
+            A username event's (added, removed, reordered, kind_changed,
+            collectible_changed) or an admin change's (added, removed,
+            updated).
+        username_kind:
+          type: string
+          description: A username event's kind after it; absent for a removal.
+          enum: [active, disabled]
+        collectible:
+          type: boolean
+          description: A username event's; present (true) only for a collectible username.
+        status:
+          type: string
+          description: An admin change's status at the event.
+          enum: [creator, administrator]
         photo:
           type: [string, 'null']
         removed:
@@ -4830,15 +5105,30 @@ components:
     # Lists: the rows of a list page and its state from the query string.
     Cond:
       type: object
+      description: >-
+        A filter of a list. field is one of the list's own filter keys
+        (with the ops contains, =, !=, >, <, >=, <=, empty, is) or, on
+        the users, groups and message lists, a field of ListState.fields
+        with one of its operators (the advanced search's, as in
+        web/docs/search-api.md). The filters form one chain, each joined
+        to the next by its n; AND binds tighter than OR, as in SQL.
       required: [field, op, value]
       properties:
         field:
           type: string
         op:
           type: string
-          enum: ['=', '!=', '>', '<', contains, empty, is]
+          enum: ['=', '!=', '>', '<', '>=', '<=', contains, empty, is, LIKE, NOT LIKE, '%LIKE%', 'NOT %LIKE%', matches, IS NULL, IS NOT NULL]
         value:
           type: string
+          description: Ignored (send "") for IS NULL and IS NOT NULL.
+        n:
+          type: string
+          enum: [AND, OR]
+          description: >-
+            The connector to the next filter; absent is AND (and the
+            answer's conds leave it out then). Not taken by the files
+            list, whose filters are all ANDed.
     ListState:
       type: object
       required: [total, page, pages, per, sort, dir, q, conds]
@@ -4867,6 +5157,40 @@ components:
           type: integer
           format: int64
           description: Everything in the archive; full-access viewers only.
+        total_exact:
+          type: boolean
+          description: >-
+            False when total is an estimate (a count that ran out of
+            time, or the table's row estimate, as group_messages without
+            conditions): show it as "about". Always sent by the service.
+        error:
+          $ref: '#/components/schemas/ListError'
+        fields:
+          type: array
+          description: >-
+            The users, groups and message lists: the search fields the
+            viewer may filter by, with their operators and whether they
+            sort (a member's users only by id, name, username, type and
+            photo). Absent on the files list.
+          items:
+            $ref: '#/components/schemas/SearchField'
+    ListError:
+      type: object
+      description: >-
+        Why the list shows its rows without the search asked for:
+        bad_search, a filter, connector, value or search text the list
+        refuses (message in the search's words, naming the field), or
+        search_timeout, the search ran out of its time limit. q and
+        conds are then empty, as applied; sort and page size are kept
+        (a sort that alone runs out of time falls back to the default).
+        When even the plain list runs out of time, rows is empty.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [bad_search, search_timeout]
+        message:
+          type: string
 
     # Page props, one per route (web/app/src/routes/).
     PasswordChangeProps:
@@ -4965,7 +5289,35 @@ components:
             rows:
               type: array
               items:
-                $ref: '#/components/schemas/UserSummary'
+                $ref: '#/components/schemas/UserRow'
+    UserRow:
+      description: >-
+        A row of the users list: the summary and, for a viewer who sees
+        users in full, the Drogon list's other columns, always sent
+        then (absent for a member).
+      allOf:
+        - $ref: '#/components/schemas/UserSummary'
+        - type: object
+          properties:
+            phone:
+              type: string
+            bio:
+              type: string
+            restriction_reason:
+              type: string
+            has_sensitive_content:
+              type: boolean
+            restricts_new_chats:
+              type: boolean
+            paid_message_star_count:
+              type: integer
+              format: int64
+            personal_chat_id:
+              type: [integer, 'null']
+              format: int64
+            emoji_status:
+              type: [string, 'null']
+              description: The emoji status's custom emoji id (64-bit, as a string); null for none.
     UserProps:
       description: >-
         A full-access viewer gets the profile; a member only the groups
@@ -4991,14 +5343,44 @@ components:
                         type: integer
             history:
               type: array
+              description: The newest page of the timeline (UserHistoryPage).
               items:
                 $ref: '#/components/schemas/HistoryEntry'
+            history_next:
+              type: [string, 'null']
+              description: >-
+                The cursor of the timeline's next page, for GET
+                /api/users/{id}/history?before= (or the history page's
+                own ?before=); null when this is all of it. Always
+                sent by the service.
             activity:
               type: array
               items:
                 type: integer
             can_private:
               type: boolean
+            can_lookup_name:
+              type: boolean
+              description: >-
+                The page offers "Look up real name" (POST
+                /api/users/{id}/lookup-name): the user is a contact,
+                the viewer may (superadmins), and the daemon's API is
+                set up. Always sent by the service.
+            lookup_pending:
+              type: boolean
+              description: >-
+                A "Look up real name" removed the contact and has not
+                added it back yet (a telegram_contact_lookups row is
+                left for the user; the daemon keeps retrying). Always
+                sent by the service.
+            lookup_pending_since:
+              type: [string, 'null']
+              description: When that lookup started; null when none is pending.
+            lookup_pending_error:
+              type: [string, 'null']
+              description: >-
+                Its last error adding the contact back ("" for none
+                yet); null when none is pending.
         - type: object
           required: [limited, user, shared_groups]
           properties:
@@ -5033,6 +5415,9 @@ components:
                         type: string
                       created_at:
                         type: string
+                      updated_at:
+                        type: string
+                        description: Always sent by the service.
     GroupProps:
       type: object
       required: [group, admins, history, top_posters, activity]
@@ -5045,8 +5430,16 @@ components:
             $ref: '#/components/schemas/GroupAdmin'
         history:
           type: array
+          description: The newest page of the timeline (GroupHistoryPage).
           items:
             $ref: '#/components/schemas/GroupHistoryEntry'
+        history_next:
+          type: [string, 'null']
+          description: >-
+            The cursor of the timeline's next page, for GET
+            /api/groups/{id}/history?before= (or the page's own
+            ?before=); null when this is all of it. Always sent by the
+            service.
         top_posters:
           type: array
           items:

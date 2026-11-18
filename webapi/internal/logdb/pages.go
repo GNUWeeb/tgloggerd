@@ -58,31 +58,14 @@ const dayIndex = "SELECT FLOOR((m.date - ?) / 86400), COUNT(*) "
 // full-access viewer sees.
 type UserDetail struct {
 	User
-	Bio       string
-	Phone     string
+	Profile
 	Usernames []Username
-}
-
-// Username is one of a user's current usernames.
-type Username struct {
-	Username string
-	Active   bool
 }
 
 // GroupCount is a group with the number of messages of someone in it.
 type GroupCount struct {
 	Group
 	Msgs int64
-}
-
-// HistoryEntry is one change on a user's or group's timeline.
-type HistoryEntry struct {
-	Kind   string // name, username, bio, phone, photo; title, description, admin
-	At     int64
-	Detail string
-	Action string
-	Photo  FileRef // a photo change; ID 0 = removed
-	UserID int64   // an admin change's admin
 }
 
 // UserPage is the data of the user pages.
@@ -92,13 +75,14 @@ type UserPage struct {
 	Limited  bool
 	User     UserDetail
 	Groups   []GroupCount
-	History  []HistoryEntry
+	History  HistoryPage
 	Activity []int64
 }
 
 // LoadUserPage is the user page of id, within the scope; now is the
-// server's clock (unix), for the activity series.
-func LoadUserPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int64) (UserPage, error) {
+// server's clock (unix), for the activity series, and before the
+// history's cursor ("" for the newest changes).
+func LoadUserPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int64, before string) (UserPage, error) {
 	us, err := VisibleUsers(ctx, db, sc, []int64{id})
 	if err != nil {
 		return UserPage{}, err
@@ -141,30 +125,14 @@ func LoadUserPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int64
 		return p, nil
 	}
 
-	err = db.QueryRowContext(ctx, "SELECT COALESCE(bio, ''), COALESCE(phone_number, '') "+
-		"FROM telegram_user_extra_info WHERE user_id = ?", id).Scan(&p.User.Bio, &p.User.Phone)
-	if err != nil && err != sql.ErrNoRows {
+	if p.User.Profile, err = loadProfile(ctx, db, id); err != nil {
 		return UserPage{}, err
 	}
-	rows, err = db.QueryContext(ctx, "SELECT username, kind = 'active' FROM telegram_user_usernames "+
-		"WHERE user_id = ? ORDER BY kind, position", id)
-	if err != nil {
-		return UserPage{}, err
-	}
-	for rows.Next() {
-		var u Username
-		if err := rows.Scan(&u.Username, &u.Active); err != nil {
-			rows.Close()
-			return UserPage{}, err
-		}
-		p.User.Usernames = append(p.User.Usernames, u)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
+	if p.User.Usernames, err = usernames(ctx, db, "telegram_user_usernames", "user_id", id); err != nil {
 		return UserPage{}, err
 	}
 
-	if p.History, err = userHistory(ctx, db, id); err != nil {
+	if p.History, err = UserHistory(ctx, db, id, before, HistoryPageSize); err != nil {
 		return UserPage{}, err
 	}
 
@@ -188,61 +156,11 @@ func LoadUserPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int64
 	return p, nil
 }
 
-// historyLimit caps a timeline.
-const historyLimit = 200
-
-// userHistory is the timeline of the five per-user history tables,
-// newest first, as userHistory in Browse.cpp merges them. Username
-// events other than additions and removals are left out.
-func userHistory(ctx context.Context, db *sql.DB, id int64) ([]HistoryEntry, error) {
-	q := "SELECT t.kind, UNIX_TIMESTAMP(t.created_at), COALESCE(t.detail, ''), " +
-		"COALESCE(t.action, ''), COALESCE(t.file_id, 0), " + fileColumnsOf("f") + " FROM (" +
-		"  SELECT 'name' AS kind, id, created_at, " +
-		"         TRIM(CONCAT_WS(' ', first_name, last_name)) AS detail, " +
-		"         NULL AS action, NULL AS file_id " +
-		"  FROM telegram_user_hist_name WHERE user_id = ? " +
-		"  UNION ALL SELECT 'bio', id, created_at, bio, NULL, NULL " +
-		"  FROM telegram_user_hist_bio WHERE user_id = ? " +
-		"  UNION ALL SELECT 'phone', id, created_at, phone_number, NULL, NULL " +
-		"  FROM telegram_user_hist_phone_num WHERE user_id = ? " +
-		"  UNION ALL SELECT 'username', id, created_at, username, action, NULL " +
-		"  FROM telegram_user_hist_usernames_events WHERE user_id = ? " +
-		"  AND action IN ('added', 'removed') " +
-		"  UNION ALL SELECT 'photo', id, created_at, NULL, NULL, file_id " +
-		"  FROM telegram_user_hist_profile_photo WHERE user_id = ? " +
-		") t LEFT JOIN telegram_files f ON f.id = t.file_id " +
-		"ORDER BY t.created_at DESC, t.kind, t.id DESC LIMIT ?"
-	return scanHistory(db.QueryContext(ctx, q, id, id, id, id, id, historyLimit))
-}
-
-func scanHistory(rows *sql.Rows, err error) ([]HistoryEntry, error) {
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []HistoryEntry{}
-	for rows.Next() {
-		var (
-			e    HistoryEntry
-			file uint64
-			f    nullFile
-		)
-		dest := append([]any{&e.Kind, &e.At, &e.Detail, &e.Action, &file}, f.dest()...)
-		if err := rows.Scan(dest...); err != nil {
-			return nil, err
-		}
-		if file != 0 {
-			e.Photo = f.ref(file)
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
-
 // GroupDetail is the group page's group.
 type GroupDetail struct {
 	Group
 	AdminCount int64
+	Usernames  []Username
 }
 
 // Admin is one of a group's current administrators.
@@ -265,7 +183,7 @@ type Poster struct {
 type GroupPage struct {
 	Group      GroupDetail
 	Admins     []Admin
-	History    []HistoryEntry
+	History    HistoryPage
 	TopPosters []Poster
 	Activity   []int64
 	// Users are the users the admins, the history and the posters
@@ -297,8 +215,9 @@ var adminPerms = []struct{ col, label string }{
 // topPosters is how many posters the group page lists.
 const topPosters = 8
 
-// LoadGroupPage is the group page of id, within the scope.
-func LoadGroupPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int64) (GroupPage, error) {
+// LoadGroupPage is the group page of id, within the scope; before is
+// the history's cursor ("" for the newest changes).
+func LoadGroupPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int64, before string) (GroupPage, error) {
 	gs, err := VisibleGroups(ctx, db, sc, []int64{id})
 	if err != nil {
 		return GroupPage{}, err
@@ -346,50 +265,17 @@ func LoadGroupPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int6
 		return GroupPage{}, err
 	}
 	p.Group.AdminCount = int64(len(p.Admins))
+	if p.Group.Usernames, err = usernames(ctx, db, "telegram_group_usernames", "group_id", id); err != nil {
+		return GroupPage{}, err
+	}
 
-	q := "SELECT t.kind, UNIX_TIMESTAMP(t.created_at), COALESCE(t.detail, ''), " +
-		"COALESCE(t.action, ''), COALESCE(t.file_id, 0), " + fileColumnsOf("f") + ", t.user_id FROM (" +
-		"  SELECT 'title' AS kind, id, created_at, title AS detail, NULL AS action, " +
-		"         NULL AS file_id, 0 AS user_id " +
-		"  FROM telegram_group_hist_title WHERE group_id = ? " +
-		"  UNION ALL SELECT 'description', id, created_at, description, NULL, NULL, 0 " +
-		"  FROM telegram_group_hist_description WHERE group_id = ? " +
-		"  UNION ALL SELECT 'username', id, created_at, username, action, NULL, 0 " +
-		"  FROM telegram_group_hist_usernames_events WHERE group_id = ? " +
-		"  AND action IN ('added', 'removed') " +
-		"  UNION ALL SELECT 'photo', id, created_at, NULL, NULL, file_id, 0 " +
-		"  FROM telegram_group_hist_photo WHERE group_id = ? " +
-		"  UNION ALL SELECT 'admin', id, created_at, " +
-		"         IF(custom_title <> '', custom_title, status), action, NULL, user_id " +
-		"  FROM telegram_group_admin_hist WHERE group_id = ? " +
-		") t LEFT JOIN telegram_files f ON f.id = t.file_id " +
-		"ORDER BY t.created_at DESC, t.kind, t.id DESC LIMIT ?"
-	rows, err = db.QueryContext(ctx, q, id, id, id, id, id, historyLimit)
-	if err != nil {
+	if p.History, err = GroupHistory(ctx, db, id, before, HistoryPageSize); err != nil {
 		return GroupPage{}, err
 	}
-	p.History = []HistoryEntry{}
-	for rows.Next() {
-		var (
-			e    HistoryEntry
-			file uint64
-			f    nullFile
-		)
-		dest := append([]any{&e.Kind, &e.At, &e.Detail, &e.Action, &file}, f.dest()...)
-		dest = append(dest, &e.UserID)
-		if err := rows.Scan(dest...); err != nil {
-			rows.Close()
-			return GroupPage{}, err
+	for _, e := range p.History.Entries {
+		if e.Kind == "admin" {
+			users = append(users, e.UserID)
 		}
-		if file != 0 {
-			e.Photo = f.ref(file)
-		}
-		p.History = append(p.History, e)
-		users = append(users, e.UserID)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return GroupPage{}, err
 	}
 
 	// The posters and the activity of the last Days days, which the

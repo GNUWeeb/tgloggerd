@@ -69,7 +69,10 @@ func TestListUsers(t *testing.T) {
 		"type": "regular", "photo": e.file(880007), "contact_name": "Dewi (kernel)",
 		"msg_count": 6, "is_verified": false, "is_premium": true, "is_scam": false,
 		"is_fake": false, "is_support": false, "language": "id",
-		"created_at": "2023-02-11T07:30:00Z", "updated_at": "2026-11-17T15:31:00Z"}
+		"created_at": "2023-02-11T07:30:00Z", "updated_at": "2026-11-17T15:31:00Z",
+		"phone": "+62 812 5550 1234", "bio": "Kernel hacker. Coffee first. She/her.",
+		"restriction_reason": "", "has_sensitive_content": false, "restricts_new_chats": false,
+		"paid_message_star_count": 0, "personal_chat_id": nil, "emoji_status": nil}
 	if js(p["rows"].([]any)[0]) != js(dewi) {
 		t.Errorf("Dewi:\n got %s\nwant %s", js(p["rows"].([]any)[0]), js(dewi))
 	}
@@ -104,16 +107,19 @@ func TestListUsers(t *testing.T) {
 		wantList(t, strings.Join(c.query, " "), p, c.total, c.ids)
 	}
 
-	// Filters the page does not know, or values that do not parse,
-	// are dropped and not echoed back; a malformed f is none.
+	// A filter the list does not take, or a value that does not
+	// parse, shows the whole list with the reason, as Drogon's lists
+	// do; an unknown sort or direction is the default.
 	p = e.props("superadmin", "users", "f", `[{"field":"nope","op":"=","value":"1"},`+
-		`{"field":"id","op":"=","value":"x"},{"field":"type","op":"=","value":"bot"}]`)
-	if js(p["conds"]) != `[{"field":"type","op":"=","value":"bot"}]` || num(p["total"]) != 1 {
-		t.Errorf("dropped filters: %v %v", p["conds"], p["total"])
+		`{"field":"type","op":"=","value":"bot"}]`)
+	if js(p["conds"]) != `[]` || num(p["total"]) != 9 ||
+		js(p["error"]) != `{"code":"bad_search","message":"unknown field: 'nope'"}` {
+		t.Errorf("refused filters: %v %v %v", p["conds"], p["total"], p["error"])
 	}
 	p = e.props("superadmin", "users", "f", "not json", "sort", "bio", "dir", "sideways")
-	if num(p["total"]) != 9 || p["sort"] != "msg_count" || p["dir"] != "desc" {
-		t.Errorf("malformed: %v %v %v", p["total"], p["sort"], p["dir"])
+	if num(p["total"]) != 9 || p["sort"] != "msg_count" || p["dir"] != "desc" ||
+		js(p["error"]) != `{"code":"bad_search","message":"f must be a JSON array of conditions"}` {
+		t.Errorf("malformed: %v %v %v %v", p["total"], p["sort"], p["dir"], p["error"])
 	}
 
 	// An admin sees what a superadmin sees; a member sees nobody until
@@ -139,7 +145,7 @@ func TestListGroups(t *testing.T) {
 	gnu := map[string]any{"id": -1001000000001, "title": "GNU/Weeb", "username": "gnuweeb",
 		"type": "supergroup", "photo": e.file(880008), "msg_count": 8, "exposed": true,
 		"admin_count": 2, "description": "Low-level programming, Linux and free software.",
-		"created_at": "2022-03-14T09:00:00Z"}
+		"created_at": "2022-03-14T09:00:00Z", "updated_at": "2026-11-17T15:40:00Z"}
 	if js(p["rows"].([]any)[0]) != js(gnu) || num(p["archive_total"]) != 6 {
 		t.Errorf("GNU/Weeb:\n got %s\nwant %s", js(p["rows"].([]any)[0]), js(gnu))
 	}
@@ -173,7 +179,8 @@ func TestListFiles(t *testing.T) {
 
 	p := e.props("superadmin", "files", "file", "880005")
 	wantList(t, "files", p, 8, "880006,880004,880001,880002,880005,880003,880007,880008")
-	if num(p["per"]) != 50 || num(p["archive_total"]) != 8 || p["can_fetch"] != true ||
+	// The page size is the viewer's rows_per_page, the site's 25 here.
+	if num(p["per"]) != 25 || num(p["archive_total"]) != 8 || p["can_fetch"] != true ||
 		num(p["stored_bytes"]) != 183406+3145728+24576+40960+51200 {
 		t.Errorf("state: %v %v %v %v", p["per"], p["archive_total"], p["can_fetch"], p["stored_bytes"])
 	}
