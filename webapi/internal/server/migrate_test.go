@@ -201,3 +201,65 @@ func TestMigrationAddsFederations(t *testing.T) {
 		t.Fatalf("%d tables left after the down migration, %v", left, err)
 	}
 }
+
+// Web migration 000008 only adds web_resource_relations, empty: every
+// resource starts with no owner (the superadmins'), and the accounts
+// stay as they were. One owner per resource, any number of other
+// relations. Its down migration drops the table again.
+func TestMigrationAddsResourceRelations(t *testing.T) {
+	t.Parallel()
+	db := emptyAppDB(t)
+	migrateAppDB(t, db, "000006")
+	hash, _ := auth.HashPassword("before-the-upgrade")
+	if _, err := db.Exec("INSERT INTO web_users (id, username, password_hash, role, "+
+		"session_epoch) VALUES (1, 'boss', ?, 'superadmin', 2), (2, 'peek', ?, 'member', 1)",
+		hash, hash); err != nil {
+		t.Fatal(err)
+	}
+	migrateAppDB(t, db, "000008")
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM web_resource_relations").Scan(&n); err != nil || n != 0 {
+		t.Fatalf("%d relations after the upgrade, %v", n, err)
+	}
+	var epoch uint32
+	if err := db.QueryRow("SELECT session_epoch FROM web_users WHERE username = 'boss'").
+		Scan(&epoch); err != nil || epoch != 2 {
+		t.Fatalf("account after the upgrade: epoch %d, %v", epoch, err)
+	}
+	ins := func(rel string, uid int) error {
+		_, err := db.Exec("INSERT INTO web_resource_relations (resource_type, resource_id, "+
+			"relation, user_id) VALUES ('mcp_group', -1001, ?, ?)", rel, uid)
+		return err
+	}
+	if err := ins("owner", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := ins("owner", 2); err == nil {
+		t.Error("a second owner")
+	}
+	if err := ins("viewer", 1); err != nil {
+		t.Error(err)
+	}
+	if err := ins("viewer", 2); err != nil {
+		t.Error(err)
+	}
+	if err := ins("owner", 99); err == nil {
+		t.Error("an owner that is no account")
+	}
+	if _, err := db.Exec("DELETE FROM web_users WHERE id = 1"); err == nil {
+		t.Error("deleted an account that owns a resource")
+	}
+
+	down, err := os.ReadFile("../../../web/migrations/000008_create_resource_relations.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(down)); err != nil {
+		t.Fatalf("down: %v", err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables " +
+		"WHERE table_schema = DATABASE() AND table_name = 'web_resource_relations'").Scan(&n); err != nil ||
+		n != 0 {
+		t.Fatalf("%d tables left after the down migration, %v", n, err)
+	}
+}
