@@ -250,3 +250,26 @@ export function Counts({ k }: { k: Pick<Kinds, 'pinned' | 'views' | 'forwards' |
 		</>
 	);
 }
+
+type Topic = S['ChatTopic'];
+export const topicColor = (t: Topic) => `#${(t.icon_color & 0xffffff).toString(16).padStart(6, '0')}`;
+
+// A forum's topics above its chat: all of them, or one at a time. The
+// choice is the page's ?topic=, so it survives a reload and a link.
+export function TopicStrip({ topics, current, hrefOf }: { topics: Topic[]; current: number | null; hrefOf: (id: number | null) => string }) {
+	return (
+		<nav className="k-topics" aria-label="Forum topics">
+			<Link to={hrefOf(null)} className={current === null ? 'on' : ''} aria-current={current === null ? 'page' : undefined}>All topics</Link>
+			{topics.filter((t) => !t.hidden || t.id === current).map((t) => (
+				<Link key={t.id} to={hrefOf(t.id)} className={current === t.id ? 'on' : ''} aria-current={current === t.id ? 'page' : undefined} title={t.closed ? `${t.name} (closed)` : t.name}>
+					<span className="k-topicdot" style={{ background: topicColor(t) }} />{t.name}{t.closed && <Lock size={11} aria-label="closed" />}
+				</Link>
+			))}
+		</nav>
+	);
+}
+
+// The topic of a message, on the bubble, while the chat shows them all.
+export function TopicTag({ t, href }: { t: Topic; href: string }) {
+	return <Link to={href} className="k-topictag" style={{ ['--tc' as string]: topicColor(t) }}><span className="k-topicdot" style={{ background: topicColor(t) }} />{t.name}</Link>;
+}

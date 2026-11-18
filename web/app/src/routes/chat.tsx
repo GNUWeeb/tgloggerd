@@ -1,6 +1,6 @@
 // The Telegram-like chat view (group or private chat), inside the shell,
 // or on its own as the public page of a group exposed through MCP.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { track } from '../ui/busy.ts';
 import { ArrowLeft, CalendarDays, ChevronDown, ChevronsUp, ExternalLink, CloudOff, Download, Forward, Globe, Info, Pencil, Play, Radio, Search, Trash2, X } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
@@ -8,7 +8,7 @@ import { PublicFrame } from '../ui/PublicFrame.tsx';
 import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
-import { Counts, KindDetail, Reactions, TEXT_INSIDE } from './chat-kinds.tsx';
+import { Counts, KindDetail, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
 import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
@@ -86,7 +86,7 @@ function LinkPreview({ lp }: { lp: NonNullable<ChatMessage['link_preview']> }) {
 		: <div className="c-lp">{inner}</div>;
 }
 
-function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage; v: Viewer; isGroup: boolean; first: boolean; last: boolean; flash: boolean; onReply: (id: number) => void }) {
+function Bubble({ m, v, isGroup, first, last, flash, onReply, tag }: { m: ChatMessage; v: Viewer; isGroup: boolean; first: boolean; last: boolean; flash: boolean; onReply: (id: number) => void; tag?: ReactNode }) {
 	const out = !m.sender;
 	const ct = m.content_type;
 	const sticker = ct === 'sticker';
@@ -111,6 +111,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 				{isGroup && s && first && !sticker && (senderTo
 					? <Link to={senderTo} className="c-sender" style={{ color: nameColor(s.id) }}>{asChat ? asChat.title : s.name}</Link>
 					: <span className="c-sender c-sender-hidden">{s.name}</span>)}
+				{tag}
 				{(m.forward_from || m.forward) && <ForwardLine m={m} />}
 				{r && (r.chat_id !== undefined
 					// A reply to another chat opens that chat at the message.
@@ -154,7 +155,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 	);
 }
 
-function Feed({ msgs: all, v, isGroup, flash, onReply }: { msgs: ChatMessage[]; v: Viewer; isGroup: boolean; flash: number | null; onReply: (id: number) => void }) {
+function Feed({ msgs: all, v, isGroup, flash, onReply, tag }: { msgs: ChatMessage[]; v: Viewer; isGroup: boolean; flash: number | null; onReply: (id: number) => void; tag?: (m: ChatMessage) => ReactNode }) {
 	const pref = prefs(v);
 	const msgs = all.filter((m) => (pref.showDeleted || !m.deleted_at) && (pref.showService || m.content_type !== 'service'));
 	const out: ReactElement[] = [];
@@ -181,7 +182,7 @@ function Feed({ msgs: all, v, isGroup, flash, onReply }: { msgs: ChatMessage[]; 
 			return;
 		}
 		const same = (a?: ChatMessage) => !!a && a.content_type !== 'service' && dayKey(a.date, v) === d && (a.sender?.id ?? 0) === (m.sender?.id ?? 0);
-		out.push(<Bubble key={m.id} m={m} v={v} isGroup={isGroup} first={!same(msgs[i - 1])} last={!same(msgs[i + 1])} flash={flash === m.message_id} onReply={onReply} />);
+		out.push(<Bubble key={m.id} m={m} v={v} isGroup={isGroup} first={!same(msgs[i - 1])} last={!same(msgs[i + 1])} flash={flash === m.message_id} onReply={onReply} tag={tag?.(m)} />);
 	});
 	return <>{out}</>;
 }
@@ -195,6 +196,14 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const chatId = p.chat.kind === 'group' ? p.chat.group.id : p.chat.user.id;
 	const group = useFreshGroup(p.chat.kind === 'group' ? p.chat.group : null);
 	const scope = isGroup ? 'group' : 'private';
+	// A forum's one topic, when the page asks for it (?topic=).
+	const topic = p.topic;
+	// While a forum shows every topic, each message says its own.
+	const tagOf = (m: ChatMessage) => {
+		const t = topic === null && m.topic_id !== null ? p.topics.find((x) => x.id === m.topic_id) : undefined;
+		return t ? <TopicTag t={t} href={topicHref(t.id)} /> : null;
+	};
+	const topicHref = (id: number | null) => setQuery(page.url, { topic: id ?? undefined, at: undefined, date: undefined, after: undefined, after_ts: undefined });
 	const [msgs, setMsgs] = useState(p.messages);
 	const [older, setOlder] = useState(p.has_older);
 	const [newer, setNewer] = useState(p.has_newer);
@@ -247,14 +256,14 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		if (!el || !first || !older || busy.current) return;
 		busy.current = true;
 		try {
-			const w = await track(fetchChatWindow(scope, chatId, { before: first.message_id }));
+			const w = await track(fetchChatWindow(scope, chatId, { before: first.message_id }, 60, undefined, topic));
 			// Once the older messages are rendered, keep the reader where
 			// they were (see the layout effect below).
 			afterRender.current = { prepend: el.scrollHeight };
 			setMsgs((cur) => [...w.messages, ...cur]);
 			setOlder(w.has_older);
 		} finally { busy.current = false; }
-	}, [msgs, older, scope, chatId]);
+	}, [msgs, older, scope, chatId, topic]);
 
 	useEffect(() => {
 		const el = scroller.current;
@@ -278,7 +287,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		for (let pages = 0; pages < 3; pages++) {
 			const last = msgsRef.current[msgsRef.current.length - 1];
 			if (!last) return;
-			const w = await fetchChatWindow(scope, chatId, { after: last.message_id });
+			const w = await fetchChatWindow(scope, chatId, { after: last.message_id }, 60, undefined, topic);
 			const el = scroller.current;
 			const stick = el ? el.scrollHeight - el.scrollTop - el.clientHeight < 80 : false;
 			const have = new Set(msgsRef.current.map((c) => c.id));
@@ -293,13 +302,13 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		}
 		// Too far behind to follow: leave the window, as when scrolled back.
 		setNewer(true);
-	}, [scope, chatId]);
+	}, [scope, chatId, topic]);
 
 	const replaceMessage = useCallback(async (messageId: number) => {
-		const w = await fetchChatWindow(scope, chatId, { around: messageId }, 3);
+		const w = await fetchChatWindow(scope, chatId, { around: messageId }, 3, undefined, topic);
 		const got = new Map(w.messages.map((m) => [m.id, m]));
 		setMsgs((cur) => cur.map((m) => got.get(m.id) ?? m));
-	}, [scope, chatId]);
+	}, [scope, chatId, topic]);
 
 	const following = live && !newer && !publicView;
 	useLive(following ? [`chat:${chatId}`] : null, (e) => {
@@ -367,6 +376,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 				</label>
 				{!publicView && <Link to={back} className="c-iconbtn c-hide-sm" aria-label="Details"><Info size={19} /></Link>}
 			</header>
+			{p.topics.length > 0 && <TopicStrip topics={p.topics} current={topic} hrefOf={topicHref} />}
 			{searching && (
 				<form className="c-searchbar" onSubmit={(e) => {
 					e.preventDefault();
@@ -381,7 +391,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 			<div className="c-scroll" ref={scroller}>
 				<div className="c-feed">
 					{older ? (prefs(v).autoLoad ? <div className="c-loading">Loading older messages...</div> : <div className="c-loading"><button type="button" className="a-link" onClick={() => void loadOlder()}>Load older messages</button></div>) : <div className="c-start">Beginning of the archived history</div>}
-					<Feed msgs={msgs} v={v} isGroup={isGroup} flash={flash} onReply={onReply} />
+					<Feed msgs={msgs} v={v} isGroup={isGroup} flash={flash} onReply={onReply} tag={tagOf} />
 				</div>
 			</div>
 			{(!atBottom || newer) && <button type="button" className="c-tobottom" aria-label={unseen ? `Jump to latest, ${unseen} new` : 'Jump to latest'} onClick={toLatest}><ChevronDown size={22} />{unseen > 0 && <span className="c-unseen">{unseen > 99 ? '99+' : unseen}</span>}</button>}

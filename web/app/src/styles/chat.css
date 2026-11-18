@@ -249,3 +249,10 @@
 .app .c-videowrap.round img, .app .c-videowrap.round video { object-fit: cover; width: 100%; height: 100%; }
 .app .c-bubble.mediaonly:has(.c-videowrap.round) { background: none; box-shadow: none; padding: 0; }
 .app .c-bubble.mediaonly:has(.c-videowrap.round) .c-sender { display: none; }
+.app .k-topics { display: flex; gap: 6px; padding: 6px 12px; overflow-x: auto; background: var(--c-head); border-bottom: 1px solid var(--border); flex: none; scrollbar-width: thin; }
+.app .k-topics a { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; height: 28px; padding: 0 12px; border-radius: 14px; color: var(--fg-2); font-weight: 550; font-size: 13px; text-decoration: none; }
+.app .k-topics a:hover { background: var(--hover); }
+.app .k-topics a.on { background: color-mix(in srgb, var(--c-accent) 16%, transparent); color: var(--fg); }
+.app .k-topicdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.app .k-topictag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-2); text-decoration: none; margin-bottom: 2px; }
+.app .k-topictag:hover { text-decoration: underline; }
