@@ -341,8 +341,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 			console.error(e);
 		}
 	}
-	let doc = documentHtml({ page, head, html, csrf: 'standin-csrf', assets: { css: [], preload: [], entry: '/src/entry-client.tsx' } });
+	// Vite's dev transform puts its base (/app/) before absolute URLs in
+	// the document, which would change the media URLs in the rendered
+	// app and break hydration. Transform the document around a marker and
+	// put the app in afterwards.
+	const MARK = '<!--standin-app-->';
+	let doc = documentHtml({ page, head, html: html === null ? null : MARK, csrf: 'standin-csrf', assets: { css: [], preload: [], entry: '/src/entry-client.tsx' } });
 	doc = await vite.transformIndexHtml(target, doc);
+	if (html !== null) doc = doc.replace(MARK, () => html);
 	res.writeHead(page.status, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': cookie, 'cache-control': 'no-store' });
 	res.end(doc);
 }
