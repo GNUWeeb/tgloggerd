@@ -128,6 +128,11 @@
 .app .c-sticker { display: block; width: 160px; height: 160px; object-fit: contain; }
 .app .c-sticker-btn { border: 0; background: none; padding: 0; cursor: zoom-in; }
 .app .c-sticker-btn img { width: 100%; height: 100%; object-fit: contain; }
+.app .c-lottie { position: relative; }
+.app .c-lottie-box { position: absolute; inset: 0; }
+.app .c-lottie-box svg { width: 100% !important; height: 100% !important; }
+.app .c-lottie-emoji { position: absolute; inset: 0; display: grid; place-items: center; }
+.app .c-lottie.wait .c-lottie-emoji { opacity: .55; }
 .app .c-sticker-emoji { width: auto; height: auto; font-size: 96px; line-height: 1.1; color: var(--fg-3); }
 .app .c-wave span.on { opacity: 1; }
 .app .c-play:disabled { cursor: default; opacity: .6; }

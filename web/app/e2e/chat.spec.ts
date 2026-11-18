@@ -85,3 +85,18 @@ test('a voice note fetches nothing until it is played', async ({ page }) => {
 	await voice.getByRole('button', { name: 'Play' }).click();
 	await expect.poll(() => asked.filter((u) => u.endsWith(src!)).length).toBeGreaterThan(0);
 });
+
+test('an animated sticker plays once in view, and only its chat loads the player', async ({ page }) => {
+	const player: string[] = [];
+	// The player itself, not the app's own loader module (lottie.ts).
+	page.on('request', (r) => /lottie-web|lottie_light/.test(r.url()) && player.push(r.url()));
+	await page.goto('/users');
+	await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+	expect(player).toEqual([]);
+	await page.goto(`/groups/${G}/chat?at=555533`);
+	const sticker = page.locator('#m555533 .c-lottie');
+	await expect(sticker.locator('.c-lottie-box svg')).toBeVisible();
+	await expect(sticker).toHaveClass(/ready/);
+	await expect(sticker.locator('.c-lottie-emoji')).toHaveCount(0);
+	expect(player.length).toBeGreaterThan(0);
+});

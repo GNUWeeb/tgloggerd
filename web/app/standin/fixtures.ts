@@ -95,8 +95,10 @@ export function chatMedia(md, type, fetch = false, extra = {}) {
 	if (!md) return null;
 	const stored = md.stored !== false;
 	const fetchable = !stored && fetch;
-	const url = stored || fetchable ? `/files/standin-${md.fileId}` : null;
 	const format = type === 'sticker' ? STICKER_FORMATS[md.fileId % 3] : undefined;
+	// A Lottie sticker's URL says so, for the stand-in's /files to answer
+	// with an animation instead of a picture.
+	const url = stored || fetchable ? `/files/standin-${md.fileId}${format === 'tgs' ? '.tgs' : ''}` : null;
 	const render = RENDER[type] ?? (format === 'tgs' ? 'lottie' : format === 'webm' ? 'animation' : 'image');
 	const picture = render === 'image';
 	return {

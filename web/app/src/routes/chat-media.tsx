@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 're
 import { createPortal } from 'react-dom';
 import { CloudDownload, CloudOff, Download, ExternalLink, Pause, Play, Trash2, X } from 'lucide-react';
 import { duration } from '../ui/media.tsx';
+import { playTgs } from '../ui/lottie.ts';
 import { bytes } from '../format.ts';
 import type { ChatMedia, ChatMessage } from '../types.ts';
 
@@ -132,11 +133,30 @@ export function Animation({ m, onClick = false }: { m: Media; onClick?: boolean 
 // A sticker's format: Go's, else from how it renders or its extension.
 export const stickerFormat = (m: Media) => m.format ?? (m.render === 'lottie' || m.ext === 'tgs' ? 'tgs' : m.render === 'animation' || m.ext === 'webm' ? 'webm' : 'webp');
 
-// A sticker: an image, a looping video, or (.tgs Lottie) its emoji
-// until the Lottie player draws it.
+// An animated (.tgs) sticker: its emoji until the Lottie player draws
+// it, and if it cannot.
+function LottieSticker({ m }: { m: Media }) {
+	const box = useRef<HTMLDivElement>(null);
+	const [state, setState] = useState<'wait' | 'ready' | 'failed'>('wait');
+	useEffect(() => {
+		if (!box.current || !m.url) return;
+		setState('wait');
+		return playTgs(box.current, m.url, () => setState('ready'), () => setState('failed'));
+	}, [m.url]);
+	const label = `sticker ${m.emoji ?? ''}`.trim();
+	return (
+		<div className={`c-sticker c-lottie ${state}`} role="img" aria-label={label} title={state === 'failed' ? 'This animated sticker could not be played' : undefined}>
+			<div ref={box} className="c-lottie-box" aria-hidden="true" />
+			{state !== 'ready' && <span className="c-sticker-emoji c-lottie-emoji" aria-hidden="true">{m.emoji || '?'}</span>}
+		</div>
+	);
+}
+
+// A sticker: an image, a looping video, or a Lottie animation.
 export function Sticker({ m }: { m: Media }) {
 	const [open, setOpen] = useState(false);
 	const f = stickerFormat(m);
+	if (m.url && f === 'tgs') return <LottieSticker m={m} />;
 	if (!m.url || f === 'tgs') return <div className="c-sticker c-sticker-emoji" role="img" aria-label={`sticker ${m.emoji ?? ''}`.trim()} title={m.url ? undefined : 'Not stored'}>{m.emoji || <CloudOff size={40} />}</div>;
 	if (f === 'webm') return <video className="c-sticker" src={m.url} autoPlay loop muted playsInline aria-label={`sticker ${m.emoji ?? ''}`.trim()} />;
 	return (
