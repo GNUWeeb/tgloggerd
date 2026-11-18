@@ -32,9 +32,22 @@ function hm(iso: string, v: Viewer): string {
 	return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: v.date_format === '12h', timeZone: v.timezone || 'Asia/Jakarta' }).format(new Date(iso));
 }
 
-function Photo({ m, single }: { m: ChatMedia; single?: boolean }) {
+// The viewer's chat preferences (Settings, Preferences); each one's site
+// default is on, except media, which loads automatically.
+const prefs = (v: Viewer) => ({
+	autoLoad: v.chat?.auto_load !== false,
+	mediaOnClick: v.chat?.media === 'click',
+	showDeleted: v.chat?.show_deleted !== false,
+	showEdited: v.chat?.show_edited !== false,
+	showService: v.chat?.show_service !== false,
+});
+
+function Photo({ m, single, onClick = false }: { m: ChatMedia; single?: boolean; onClick?: boolean }) {
+	const [shown, setShown] = useState(!onClick);
 	const ratio = m.w && m.h ? `${m.w} / ${m.h}` : '4 / 3';
 	if (!m.stored) return <div className="c-media c-missing" style={{ aspectRatio: ratio }}><CloudOff size={22} /><span>Not stored</span></div>;
+	// "Load media on click": a placeholder until asked for.
+	if (!shown) return <button type="button" className={`c-media c-missing c-reveal ${single ? 'single' : ''}`} style={{ aspectRatio: ratio }} onClick={() => setShown(true)}><Download size={20} /><span>Show</span></button>;
 	return (
 		<a className={`c-media ${single ? 'single' : ''}`} style={{ aspectRatio: ratio }} href={m.url ?? undefined} target="_blank" rel="noopener">
 			{m.thumb ? <img src={m.thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} /> : null}
@@ -49,6 +62,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 	const mediaOnly = (ct === 'photo' || ct === 'video') && !m.text && !m.reply_to && !m.forward;
 	const [edits, setEdits] = useState(false);
 	const s = useFreshUser(m.sender);
+	const pref = prefs(v);
 	return (
 		<div id={`m${m.message_id}`} className={`c-row ${out ? 'out' : 'in'} ${last ? 'last' : ''} ${flash ? 'flash' : ''}`}>
 			{isGroup && !out && <div className="c-avslot">{last && s && <Link to={`/users/${s.id}`} aria-label={s.name}><Avatar id={s.id} name={s.name} photo={s.photo} size={34} /></Link>}</div>}
@@ -62,11 +76,11 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 					</a>
 				)}
 				{ct === 'photo' && m.media && (m.album.length
-					? <div className={`c-album n${Math.min(4, m.album.length + 1)}`}><Photo m={m.media} />{m.album.map((a, i) => <Photo key={i} m={a} />)}</div>
-					: <Photo m={m.media} single />)}
+					? <div className={`c-album n${Math.min(4, m.album.length + 1)}`}><Photo m={m.media} onClick={pref.mediaOnClick} />{m.album.map((a, i) => <Photo key={i} m={a} onClick={pref.mediaOnClick} />)}</div>
+					: <Photo m={m.media} single onClick={pref.mediaOnClick} />)}
 				{ct === 'video' && m.media && (
 					<div className="c-videowrap">
-						<Photo m={m.media} single />
+						<Photo m={m.media} single onClick={pref.mediaOnClick} />
 						{m.media.stored && <span className="c-playbig"><Play size={22} fill="currentColor" /></span>}
 						{m.media.duration ? <span className="c-dur">{duration(m.media.duration)}{m.media.size ? ' . ' + bytes(m.media.size) : ''}</span> : null}
 					</div>
@@ -88,7 +102,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 				{m.link_preview && <div className="c-lp"><b className="c-lp-site">{m.link_preview.site}</b><b>{m.link_preview.title}</b><span>{m.link_preview.desc}</span></div>}
 				<div className="c-meta">
 					{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}
-					{m.edits.length > 0 && <button type="button" className="c-edited" onClick={() => setEdits((x) => !x)} aria-expanded={edits}><Pencil size={10} />edited</button>}
+					{pref.showEdited && m.edits.length > 0 && <button type="button" className="c-edited" onClick={() => setEdits((x) => !x)} aria-expanded={edits}><Pencil size={10} />edited</button>}
 					<Link to={`/messages/${m.scope}/${m.id}`} className="c-time" title={m.date}>{hm(m.date, v)}</Link>
 				</div>
 				{edits && (
@@ -102,7 +116,9 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 	);
 }
 
-function Feed({ msgs, v, isGroup, flash, onReply }: { msgs: ChatMessage[]; v: Viewer; isGroup: boolean; flash: number | null; onReply: (id: number) => void }) {
+function Feed({ msgs: all, v, isGroup, flash, onReply }: { msgs: ChatMessage[]; v: Viewer; isGroup: boolean; flash: number | null; onReply: (id: number) => void }) {
+	const pref = prefs(v);
+	const msgs = all.filter((m) => (pref.showDeleted || !m.deleted_at) && (pref.showService || m.content_type !== 'service'));
 	const out: ReactElement[] = [];
 	let day = '';
 	msgs.forEach((m, i) => {
@@ -191,7 +207,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 			const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
 			setAtBottom(bottom);
 			if (bottom) setUnseen(0);
-			if (el.scrollTop < 300) void loadOlder();
+			if (el.scrollTop < 300 && prefs(v).autoLoad) void loadOlder();
 		};
 		el.addEventListener('scroll', on, { passive: true });
 		return () => el.removeEventListener('scroll', on);
@@ -293,7 +309,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 			)}
 			<div className="c-scroll" ref={scroller}>
 				<div className="c-feed">
-					{older ? <div className="c-loading">Loading older messages...</div> : <div className="c-start">Beginning of the archived history</div>}
+					{older ? (prefs(v).autoLoad ? <div className="c-loading">Loading older messages...</div> : <div className="c-loading"><button type="button" className="a-link" onClick={() => void loadOlder()}>Load older messages</button></div>) : <div className="c-start">Beginning of the archived history</div>}
 					<Feed msgs={msgs} v={v} isGroup={isGroup} flash={flash} onReply={onReply} />
 				</div>
 			</div>
