@@ -26,5 +26,8 @@ export type Op = Cond['op'];
 export type ListProps<T> = S['ListState'] & { rows: T[] };
 
 export type FieldType = 'number' | 'text' | 'enum' | 'bool' | 'date';
-// ops, when given, replaces the operators of the field's type.
-export interface FieldDef { key: string; label: string; type: FieldType; values?: string[]; ops?: Op[] }
+// ops, when given, replaces the operators of the field's type. A field
+// of the advanced search (ListState.fields) is marked search: its bools
+// compare 1 and 0, its times are full date-times.
+export interface FieldDef { key: string; label: string; type: FieldType; values?: string[]; ops?: Op[]; search?: boolean; sortable?: boolean }
+export type SearchField = S['SearchField'];

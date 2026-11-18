@@ -18,6 +18,9 @@ interface Nav {
 
 const Ctx = createContext<Nav | null>(null);
 
+// A page's URL without a fragment: fragments stay in the browser.
+const noHash = (u: string) => u.split('#')[0] ?? '';
+
 export function NavProvider({ initial, children }: { initial: PageData; children: ReactNode }) {
 	const [page, setPage] = useState(initial);
 	const [loading, setLoading] = useState(false);
@@ -37,8 +40,11 @@ export function NavProvider({ initial, children }: { initial: PageData; children
 				location.assign(url);
 				return;
 			}
-			if (push === 'push') history.pushState(null, '', url);
-			if (push === 'replace') history.replaceState(null, '', url);
+			// The address bar shows the URL the server answered with: it
+			// translates old (Drogon) list URLs to the current ones.
+			const shown = noHash(r.page.url) || url;
+			if (push === 'push') history.pushState(null, '', shown);
+			else if (push === 'replace' || shown !== url) history.replaceState(null, '', shown);
 			current.current = r.page.url;
 			setPage(r.page);
 			if (scroll) scrollTo(0, 0);
@@ -47,6 +53,15 @@ export function NavProvider({ initial, children }: { initial: PageData; children
 		} finally {
 			if (abort.current === ac) setLoading(false);
 		}
+	}, []);
+
+	// The first page, rendered by the server for an old URL, names the
+	// current one: show that, keeping the address bar's own #anchor (a
+	// page may already have consumed and removed it, as the set-password
+	// token, so it is never taken from the page data).
+	useEffect(() => {
+		const want = noHash(initial.url);
+		if (want && location.pathname + location.search !== want) history.replaceState(null, '', want + location.hash);
 	}, []);
 
 	useEffect(() => {
