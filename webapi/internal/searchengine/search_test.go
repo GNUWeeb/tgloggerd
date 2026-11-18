@@ -45,10 +45,16 @@ type searchEnv struct {
 	eng *Engine
 }
 
-// newSearchEnv indexes the fixtures and returns an engine on them.
-func newSearchEnv(t *testing.T) *searchEnv {
+// newSearchEnv indexes the fixtures, and the statements of more, and
+// returns an engine on them.
+func newSearchEnv(t *testing.T, more ...string) *searchEnv {
 	t.Helper()
 	db := testdb.New(t, testdb.Logger, "sample", "search_engine")
+	for _, q := range more {
+		if _, err := db.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
 	x := testIndex(t)
 	ix := NewIndexer(db.DB, x, nil, IndexerOptions{Log: quiet, Pause: time.Millisecond})
 	ctx := context.Background()
@@ -169,6 +175,77 @@ func TestEngineSyntax(t *testing.T) {
 		t.Errorf("by date, second page: %v of %d at %d", ids, r.Total, r.Offset)
 	}
 	wantEngine(t, "by date", r)
+}
+
+// Words joined by punctuation are found by their parts, as MySQL finds
+// them, and as a whole.
+func TestEngineWordParts(t *testing.T) {
+	t.Parallel()
+	e := newSearchEnv(t, `INSERT INTO telegram_group_messages (id, chat_id, message_id,
+		sender_user_id, date, content_type, text) VALUES
+		(400, -1001000000003, 480001 << 20, 9299000004, 1794931200 - 400, 'text',
+		 'patches at git.kernel.org for the linux-kernel tree in /usr/src/kernel'),
+		(401, -1001000000003, 480002 << 20, 9299000004, 1794931200 - 399, 'text',
+		 'see Kernel.Org'),
+		(402, -1001000000003, 480003 << 20, 9299000004, 1794931200 - 398, 'text',
+		 'pushed to git.kernel.org/pub'),
+		(403, -1001000000003, 480004 << 20, 9299000004, 1794931200 - 397, 'text',
+		 'built from /usr/src/kernel'),
+		(404, -1001000000003, 480005 << 20, 9299000004, 1794931200 - 396, 'text',
+		 'the org has no kernel')`)
+	gm := logdb.GroupMessages
+	inChat := func(v string) string {
+		return fmt.Sprintf(`[{"c":"text","o":"matches","v":%q,"n":"AND"},`+
+			`{"c":"chat_id","o":"=","v":"-1001000000003"}]`, v)
+	}
+	for _, c := range []struct {
+		raw  string
+		want []int64
+	}{
+		{inChat("kernel"), []int64{400, 401, 402, 403, 404}},
+		{inChat("kernel.org"), []int64{400, 401, 402}},
+		{inChat("git.kernel.org"), []int64{400, 402}},
+		{inChat(`"linux kernel"`), []int64{400}},
+		{inChat(`"org kernel"`), nil},
+		{inChat(`"linux-kernel tree"`), []int64{400}},
+		{inChat(`"git kernel" @2`), []int64{400, 402}},
+		{inChat("kern*"), []int64{400, 401, 402, 403, 404}},
+		{inChat("+kernal~ +pub"), []int64{402}},
+		{inChat("src"), []int64{400, 403}},
+	} {
+		res := e.search(t, superadmin, gm, c.raw, logdb.TextOptions{})
+		wantEngine(t, c.raw, res)
+		wantRows(t, c.raw, res, c.want...)
+	}
+
+	// The engine counts what MySQL counts, in the chat and in the
+	// whole table.
+	for _, raw := range []string{inChat("kernel"), inChat(`"linux kernel"`), inChat("src"),
+		inChat("kern*"), matches("kernel"), matches("org"), matches("+kernel +panic")} {
+		mysqlOnly, err := logdb.Search(context.Background(), e.db.DB, superadmin, gm,
+			logdb.SearchRequest{Conds: conds(t, raw), Limit: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := e.search(t, superadmin, gm, raw, logdb.TextOptions{})
+		wantEngine(t, raw, res)
+		if res.Total != mysqlOnly.Total || !slices.Equal(sorted(rowIDs(res)), sorted(rowIDs(mysqlOnly))) {
+			t.Errorf("%s: the engine found %v, MySQL %v", raw, sorted(rowIDs(res)),
+				sorted(rowIDs(mysqlOnly)))
+		}
+	}
+
+	// The highlight marks the part that matched, or the whole word.
+	for _, c := range []struct{ q, want string }{
+		{"kernel", "git.<mark>kernel</mark>.org"},
+		{"pub", "git.kernel.org&#x2F;<mark>pub</mark>"},
+		{"kernel.org", "see <mark>Kernel.Org</mark>"},
+	} {
+		res := e.search(t, superadmin, gm, inChat(c.q), logdb.TextOptions{Highlight: true})
+		if !strings.Contains(fmt.Sprint(res.Highlights), c.want) {
+			t.Errorf("%s: highlights %q, want %q", c.q, res.Highlights, c.want)
+		}
+	}
 }
 
 // The scope is in the engine's query: a restricted admin and a member

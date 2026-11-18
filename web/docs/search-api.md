@@ -342,8 +342,13 @@ of MySQL's boolean mode, so it means the same on both backends, plus
 | `word~`, `word~1`, `word~2` | the word or one within a few edits (fuzzy; engine only) |
 
 Words are split on Unicode word boundaries, lowercased and folded to
-ASCII (an accented letter matches the plain one). MySQL's `~ < >` before a word and
-parentheses are read as spaces; a value with nothing to look for
+ASCII (an accented letter matches the plain one). A word joined by
+punctuation is also split at it, as MySQL splits it, and kept whole:
+`kernel` finds `git.kernel.org`, `linux-kernel` and `/usr/src/kernel`,
+and `kernel.org` finds `kernel.org` and `git.kernel.org` (its parts
+next to each other), where MySQL, reading it as `kernel org`, also
+finds rows with either word anywhere. MySQL's `~ < >` before a word
+and parentheses are read as spaces; a value with nothing to look for
 matches nothing.
 
 ### Parameters
