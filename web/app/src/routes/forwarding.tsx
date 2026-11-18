@@ -119,7 +119,12 @@ function ForwardingIndex({ page }: { page: PageData<ForwardingIndexProps> }) {
 					<p className="a-muted">{desc}</p>
 					<div className="a-dircard-foot"><span><b className="num">{n.active}</b> of {n.total} {noun}s active</span><span className="a-muted">{fmt(n.sent)} messages forwarded</span></div>
 				</Link>
-			))}</div>
+			))}
+				<Link to="/platform-fwd/bots" className="a-card a-dircard">
+					<div className="a-dircard-top"><BotMessageSquare size={18} /><h2>Bots</h2><ArrowRight size={16} className="a-muted" /></div>
+					<p className="a-muted">The Discord bots that read channels and the Telegram bots that send into chats for Discord to Telegram routes, with their status.</p>
+				</Link>
+			</div>
 			<p className="a-muted a-foot">Both directions can run on the same pair of chats. Each side skips messages the other side sent, so nothing loops.</p>
 		</Shell>
 	);

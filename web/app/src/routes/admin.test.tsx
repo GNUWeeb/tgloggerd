@@ -421,6 +421,15 @@ describe('Telegram to Discord edits', () => {
 	});
 });
 
+describe('Bots links', () => {
+	it('links the Bots page from the menu and from Platform forwarding', () => {
+		renderPage('/platform-fwd');
+		const nav = screen.getAllByRole('link', { name: 'Bots' });
+		expect(nav.map((a) => a.getAttribute('href'))).toEqual(expect.arrayContaining(['/platform-fwd/bots']));
+		expect(screen.getAllByRole('link').some((a) => a.getAttribute('href') === '/platform-fwd/bots' && a.classList.contains('a-dircard'))).toBe(true);
+	});
+});
+
 describe('Join chat', () => {
 	it('previews, then joins into the chosen federations', async () => {
 		const chat = { chat_id: -1001999000001, title: 'Compiler Nerds ID', type: 'supergroup', member_count: 1843, username: 'compilernerds_id', is_member: false, needs_approval: false };
