@@ -183,9 +183,11 @@ func TestListFiles(t *testing.T) {
 		byID[js(r.(map[string]any)["id"])] = r.(map[string]any)
 	}
 	photo := map[string]any{"id": 880001, "file_type": "photo", "name": "880001.jpg",
-		"ext": "jpg", "size": 183406, "hits": 12, "stored": true,
-		"created_at": "2026-11-17T14:05:00Z", "tg_file_id": "AgACAgUAAxkBAAIfixture01",
-		"url": e.file(880001), "thumb": e.file(880001),
+		"ext": "jpg", "size": 183406, "hits": 12, "stored": true, "fetchable": false,
+		"created_at": "2026-11-17T14:05:00Z", "accessed_at": "2026-11-17T15:30:00Z",
+		"tg_file_id": "AgACAgUAAxkBAAIfixture01",
+		"sha256":     "4a0886fd32d3b6fe7983dcfcb3f5948184e9751e308f0ddf34ca3076a7844913",
+		"url":        e.file(880001), "thumb": e.file(880001),
 		"chat":    map[string]any{"id": -1001000000001, "title": "GNU/Weeb", "kind": "group"},
 		"sender":  map[string]any{"id": 9299000001, "name": "Dewi Kusuma"},
 		"message": map[string]any{"scope": "group", "id": 4}}

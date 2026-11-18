@@ -7,6 +7,7 @@ package server
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"regexp"
@@ -211,6 +212,19 @@ func fulltextFilter(key string) pageFilter {
 	}
 }
 
+// sha256Filter is a SHA-256 digest, equal or not, as 64 hex digits of
+// either case; the search matches it through the unique index.
+func sha256Filter(key string) pageFilter {
+	return func(_ scope.Scope, op, v string) ([]logdb.Cond, bool) {
+		if (op == "=" || op == "!=") && len(v) == 64 {
+			if _, err := hex.DecodeString(v); err == nil {
+				return []logdb.Cond{cond(key, op, v)}, true
+			}
+		}
+		return nil, false
+	}
+}
+
 // or joins conditions into one chain of alternatives.
 func or(cs ...logdb.Cond) []logdb.Cond {
 	for i := range cs {
@@ -299,17 +313,22 @@ var filesList = &listSpec{
 	entity:  logdb.Files,
 	defSort: func(scope.Scope) string { return "created_at" },
 	defPer:  50,
-	sorts: map[string]string{"name": "name", "file_type": "file_type", "size": "size",
-		"hits": "hits", "created_at": "created_at"},
+	sorts: map[string]string{"id": "id", "name": "name", "file_type": "file_type",
+		"ext": "ext", "size": "size", "hits": "hits", "created_at": "created_at",
+		"accessed_at": "accessed_at"},
 	filters: map[string]pageFilter{
-		"id":         numberFilter("id"),
-		"file_type":  enumFilter("file_type", "photo,video,document,audio,voice,sticker,animation,unknown"),
-		"name":       textFilter("name"),
-		"ext":        textFilter("ext"),
-		"size":       numberFilter("size"),
-		"hits":       numberFilter("hits"),
-		"stored":     boolFilter("stored"),
-		"created_at": dateFilter("created_at"),
+		"id":          numberFilter("id"),
+		"file_type":   enumFilter("file_type", "photo,video,document,audio,voice,sticker,animation,unknown"),
+		"name":        textFilter("name"),
+		"ext":         textFilter("ext"),
+		"size":        numberFilter("size"),
+		"hits":        numberFilter("hits"),
+		"stored":      boolFilter("stored"),
+		"tg_file_id":  textFilter("tg_file_id"),
+		"sha256":      sha256Filter("sha256"),
+		"created_at":  dateFilter("created_at"),
+		"updated_at":  dateFilter("updated_at"),
+		"accessed_at": dateFilter("accessed_at"),
 	},
 	search: func(_ scope.Scope, q string) []logdb.Cond {
 		cs := []logdb.Cond{cond("name", "%LIKE%", q)}
@@ -612,20 +631,23 @@ type listMsgRef struct {
 
 // listFile is a row of the files page (FileRow).
 type listFile struct {
-	ID        uint64        `json:"id"`
-	FileType  string        `json:"file_type"`
-	Name      string        `json:"name"`
-	Ext       string        `json:"ext"`
-	Size      uint64        `json:"size"`
-	Hits      int64         `json:"hits"`
-	Stored    bool          `json:"stored"`
-	CreatedAt string        `json:"created_at"`
-	TgFileID  string        `json:"tg_file_id"`
-	URL       *string       `json:"url"`
-	Thumb     *string       `json:"thumb"`
-	Chat      *listChatName `json:"chat"`
-	Sender    *listIDName   `json:"sender"`
-	Message   *listMsgRef   `json:"message"`
+	ID         uint64        `json:"id"`
+	FileType   string        `json:"file_type"`
+	Name       string        `json:"name"`
+	Ext        string        `json:"ext"`
+	Size       uint64        `json:"size"`
+	Hits       int64         `json:"hits"`
+	Stored     bool          `json:"stored"`
+	Fetchable  bool          `json:"fetchable"`
+	CreatedAt  string        `json:"created_at"`
+	AccessedAt string        `json:"accessed_at"`
+	TgFileID   string        `json:"tg_file_id"`
+	SHA256     *string       `json:"sha256"`
+	URL        *string       `json:"url"`
+	Thumb      *string       `json:"thumb"`
+	Chat       *listChatName `json:"chat"`
+	Sender     *listIDName   `json:"sender"`
+	Message    *listMsgRef   `json:"message"`
 }
 
 // filesProps are the files page's (FilesProps).
@@ -641,7 +663,14 @@ type filesProps struct {
 // can show as a thumbnail.
 var thumbTypes = map[string]bool{"photo": true, "sticker": true}
 
-func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, rows []logdb.Row) ([]listFile, error) {
+// listFileRows are the rows as FileRow. Every file has a URL the
+// request may open, as each row of the Drogon files list links to
+// /files/<token>: a stored one's bytes, and an unstored one's whenever
+// the request may have them fetched from Telegram (Server.fileURL),
+// which opening the URL then does through the daemon. Only a stored
+// picture has a thumbnail, so that listing files fetches nothing.
+func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool,
+	rows []logdb.Row) ([]listFile, error) {
 	ids := make([]uint64, 0, len(rows))
 	for _, r := range rows {
 		ids = append(ids, r.Uint("id"))
@@ -655,7 +684,8 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, rows []logdb.
 		f := listFile{ID: r.Uint("id"), FileType: r.Str("file_type"),
 			Name: r.Str("orig_file_name"), Ext: r.Str("file_ext"),
 			Size: r.Uint("file_size"), Hits: r.Int("hit_count"), Stored: r.Bool("on_disk"),
-			CreatedAt: dbTime(r.Str("created_at")), TgFileID: r.Str("tg_file_id"),
+			CreatedAt: dbTime(r.Str("created_at")), AccessedAt: dbTime(r.Str("accessed_at")),
+			TgFileID: r.Str("tg_file_id"),
 			// A file sent in no message the viewer sees (a profile
 			// or group photo) has no chat and no message: null.
 		}
@@ -665,11 +695,14 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, rows []logdb.
 				f.Name += "." + f.Ext
 			}
 		}
-		if f.Stored {
-			f.URL = s.photoPtr(f.ID)
-			if thumbTypes[f.FileType] {
-				f.Thumb = f.URL
-			}
+		if h := r.Str("sha256_hex"); h != "" {
+			// A metadata-only row has none.
+			h = strings.ToLower(h)
+			f.SHA256 = &h
+		}
+		f.URL, f.Fetchable = s.fileURL(sc, signedIn, f.ID, f.Size, f.Stored)
+		if f.Stored && thumbTypes[f.FileType] {
+			f.Thumb = f.URL
 		}
 		if o, ok := origins[f.ID]; ok {
 			f.Chat = &listChatName{ID: o.ChatID, Title: o.ChatTitle, Kind: o.ChatKind}
@@ -691,7 +724,8 @@ func loadFiles(ctx context.Context, pr *pageRequest) (any, error) {
 	}
 	sc := pr.scope
 	p := filesProps{listState: run.state, CanFetch: sc.Can(scope.FetchFiles)}
-	if p.Rows, err = s.listFileRows(ctx, sc, run.res.Rows); err != nil {
+	signedIn := pr.sess != nil
+	if p.Rows, err = s.listFileRows(ctx, sc, signedIn, run.res.Rows); err != nil {
 		return nil, err
 	}
 	if want := pr.query.Get("file"); isInt(want) {
@@ -700,7 +734,7 @@ func loadFiles(ctx context.Context, pr *pageRequest) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if rows, err := s.listFileRows(ctx, sc, res.Rows); err != nil {
+		if rows, err := s.listFileRows(ctx, sc, signedIn, res.Rows); err != nil {
 			return nil, err
 		} else if len(rows) == 1 {
 			p.Preview = &rows[0]

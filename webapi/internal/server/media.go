@@ -123,6 +123,35 @@ func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
 	})
 }
 
+// mayFetch decides whether a request may have the daemon fetch a file
+// the store does not hold, by the file's size (0 when unknown) and
+// whether the request has a valid session (media.Policy). It is the one
+// place that decides it, as media::mayFetch() is in the Drogon web:
+// /files/<token> asks it before calling the daemon, and every JSON
+// answer that links a file (fileURL) asks it whether to give the link,
+// so narrowing who may fetch (docs/todo/web-fetch-permission.md, from
+// sc's abilities) is done here and holds for all of them.
+func (s *Server) mayFetch(_ scope.Scope, size uint64, signedIn bool) media.Decision {
+	p := media.Policy{Enabled: s.daemon.Enabled(), StoreCap: s.media.StoreFileCap}
+	return p.MayFetch(size, signedIn)
+}
+
+// fileURL is a file's /files/<token> URL for a request: given when the
+// bytes are stored, or when they are not and the request may have them
+// fetched (mayFetch), so opening the URL fetches them through the
+// daemon; nil otherwise. fetchable reports the second case.
+func (s *Server) fileURL(sc scope.Scope, signedIn bool, id, size uint64, stored bool) (url *string, fetchable bool) {
+	if id == 0 {
+		return nil, false
+	}
+	fetchable = !stored && s.mayFetch(sc, size, signedIn) == media.Allowed
+	if !stored && !fetchable {
+		return nil, false
+	}
+	u := "/files/" + s.tokens.Encrypt(id)
+	return &u, fetchable
+}
+
 // fileHeaders go on every file answer.
 func fileHeaders(h http.Header, ctype, attachment string) {
 	h.Set("Accept-Ranges", "bytes")
@@ -284,8 +313,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request) {
 
 	// Not in the store: ask the daemon to fetch it from Telegram, if
 	// this request may.
-	policy := media.Policy{Enabled: s.daemon.Enabled(), StoreCap: s.media.StoreFileCap}
-	switch policy.MayFetch(meta.Size, sess != nil) {
+	switch s.mayFetch(sc, meta.Size, sess != nil) {
 	case media.Off:
 		statusPage(w, http.StatusNotFound, "File not stored",
 			"This file's bytes are not in storage, and fetching files "+
