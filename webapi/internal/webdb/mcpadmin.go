@@ -121,3 +121,23 @@ func AllMCPTokenIDs(ctx context.Context, db *sql.DB) ([]int64, error) {
 	}
 	return scanIDs(rows)
 }
+
+// MCPTokenCreators maps every MCP token's id to the account that minted
+// it (web_mcp_tokens.web_user_id).
+func MCPTokenCreators(ctx context.Context, db *sql.DB) (map[int64]uint64, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, web_user_id FROM web_mcp_tokens")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]uint64{}
+	for rows.Next() {
+		var id int64
+		var uid uint64
+		if err := rows.Scan(&id, &uid); err != nil {
+			return nil, err
+		}
+		out[id] = uid
+	}
+	return out, rows.Err()
+}

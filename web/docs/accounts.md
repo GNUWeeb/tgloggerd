@@ -256,7 +256,8 @@ resource, so more relations (sharing) can be added later:
 ### Assigning the existing resources (deployment)
 
 Everything that exists when ownership is introduced becomes owned by
-the first superadmin, the account named `superadmin`. Once, at the
+the first superadmin, the account named `superadmin`, except MCP
+tokens: each becomes owned by the account that minted it. Once, at the
 deployment that brings web migration 000008:
 
 1. Restart the web service, which applies the web migrations, and the
