@@ -231,6 +231,10 @@ forum_topic_from_created(const td_api::message &message);
  */
 std::optional<std::string> message_meta_json(const td_api::message &m);
 
+/* The entities of a formattedText as stored JSON, or nullopt for none. */
+std::optional<std::string>
+formatted_text_entities_json(const td_api::formattedText &ft);
+
 /* A fact check as the "fact_check" value of meta, or nullopt for none. */
 std::optional<std::string> fact_check_json(const td_api::factCheck *fc);
 

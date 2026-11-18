@@ -2339,8 +2339,14 @@ void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
 		m.display_url = lp->display_url_;
 		m.site_name = lp->site_name_;
 		m.title = lp->title_;
-		if (lp->description_)
+		if (lp->description_) {
 			m.description = lp->description_->text_;
+			m.description_entities =
+				formatted_text_entities_json(*lp->description_);
+		}
+		m.show_media_above_description =
+			lp->show_media_above_description_;
+		m.skip_confirmation = lp->skip_confirmation_;
 		m.author = lp->author_;
 		m.type = type_name;
 		m.instant_view_version = lp->instant_view_version_;
