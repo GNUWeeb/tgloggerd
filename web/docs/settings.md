@@ -25,6 +25,7 @@ loader (`/api/page/settings...`):
 
     GET /api/account/preferences    the preferences page's data
     PUT /api/account/preferences    replace every preference; 200 {prefs}
+    PATCH /api/account/preferences  change only the keys given; 200 {prefs}
 
 | Key | Values | Site default |
 |---|---|---|
@@ -32,6 +33,7 @@ loader (`/api/page/settings...`):
 | date_format | `24h`, `12h`, `iso` | WEBAPI_DEFAULT_DATE_FORMAT, 24h |
 | lang | `en`, `id` | WEBAPI_DEFAULT_LANG, en |
 | theme | `system`, `light`, `dark` | WEBAPI_DEFAULT_THEME, system |
+| sidebar | `open`, `collapsed` | open |
 | rows_per_page | 25, 50, 100 | 25 |
 | landing | a path on this site, at most 255 bytes | `/` |
 | chat_auto_load, chat_live | true, false | true |
@@ -44,6 +46,11 @@ loader (`/api/page/settings...`):
   JSON value.
 - A key that is not in the table, or a value it does not take, refuses
   the whole body: 400 bad_request with the key in `field`.
+- PATCH changes only the keys its body names (null puts one back to
+  the site default) and keeps the others as stored, so a control that
+  saves one key, such as the theme toggle or the menu's collapse,
+  cannot undo another page's save made at the same time. It refuses
+  what PUT refuses and answers every preference as now stored.
 - The site defaults of the first four keys are configuration
   (decisions/2026-11-18-web-rollout.md), checked at start; the others
   are fixed.
@@ -57,10 +64,10 @@ page, where a sign-in without a next page goes.
 
 Every page's data carries the settings in effect, the account's own
 or the site's, in `viewer` (`timezone`, `date_format`, `lang`,
-`theme`, `rows_per_page`, `chat`), for a signed-out visitor too. Dates
-stay UTC in the database and in every JSON answer; the pages show them
-in the viewer's zone and format, the same on the server's render and
-in the browser. The document's `<html>` carries `lang` and, unless the
+`theme`, `sidebar`, `rows_per_page`, `chat`), for a signed-out visitor
+too. Dates stay UTC in the database and in every JSON answer; the
+pages show them in the viewer's zone and format, the same on the
+server's render and in the browser. The document's `<html>` carries `lang` and, unless the
 theme follows the system, `data-theme`.
 
 ## Pinned groups and saved searches

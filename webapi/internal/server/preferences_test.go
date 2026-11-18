@@ -119,7 +119,8 @@ func TestPreferences(t *testing.T) {
 		{map[string]any{"landing": "//evil.example"}, "landing"},
 		{map[string]any{"chat_media": "never"}, "chat_media"},
 		{map[string]any{"chat_live": "yes"}, "chat_live"},
-		{map[string]any{"theme": "dark", "sidebar": "open"}, "sidebar"},
+		{map[string]any{"theme": "dark", "sidebar": "closed"}, "sidebar"},
+		{map[string]any{"theme": "dark", "colour": "red"}, "colour"},
 	} {
 		a := c.do("PUT", "/api/account/preferences", tok, tc.body)
 		if a.status != 400 || a.body["error"] != "bad_request" || a.body["field"] != tc.field ||
@@ -185,5 +186,57 @@ func TestPreferencesPerAccount(t *testing.T) {
 	}
 	if v := viewerOf(t, tokyo); v["timezone"] != "Asia/Tokyo" || v["theme"] != "dark" {
 		t.Fatalf("own choice under configured defaults %v", v)
+	}
+}
+
+// PATCH changes only the keys it names: the others keep what a PUT
+// stored, null puts a key back to the site default, and the viewer
+// carries the sidebar.
+func TestPatchPreferences(t *testing.T) {
+	t.Parallel()
+	db := testdb.New(t, testdb.Web, "accounts").DB
+	h := newHandler(db, 5)
+	c := &client{t: t, h: h, cookies: map[string]string{}}
+	tok := signIn(t, c, "gw_admin", "password")
+
+	if v := viewerOf(t, c); v["sidebar"] != "open" {
+		t.Fatalf("default sidebar %v", v["sidebar"])
+	}
+	if a := c.do("PUT", "/api/account/preferences", tok,
+		map[string]any{"timezone": "UTC", "theme": "light", "landing": "/groups"}); a.status != 200 {
+		t.Fatalf("put: %d %v", a.status, a.body)
+	}
+	if a := c.do("PATCH", "/api/account/preferences", "", map[string]any{"theme": "dark"}); a.status != 403 {
+		t.Fatalf("without CSRF: %d %v", a.status, a.body)
+	}
+	a := c.do("PATCH", "/api/account/preferences", tok,
+		map[string]any{"theme": "dark", "sidebar": "collapsed", "landing": nil})
+	if a.status != 200 {
+		t.Fatalf("patch: %d %v", a.status, a.body)
+	}
+	p := a.body["prefs"].(map[string]any)
+	if p["theme"] != "dark" || p["sidebar"] != "collapsed" || p["timezone"] != "UTC" ||
+		p["landing"] != nil || p["lang"] != nil {
+		t.Fatalf("after patch %v", p)
+	}
+	if v := viewerOf(t, c); v["sidebar"] != "collapsed" || v["theme"] != "dark" || v["timezone"] != "UTC" {
+		t.Fatalf("viewer after patch %v", v)
+	}
+	if a := c.do("GET", "/api/account/preferences", "", nil); a.body["prefs"].(map[string]any)["sidebar"] != "collapsed" {
+		t.Fatalf("stored %v", a.body["prefs"])
+	}
+
+	// Refusals are PUT's, and leave everything as it was.
+	for _, body := range []map[string]any{
+		{"sidebar": "closed"}, {"sidebar": 1}, {"colour": "red"}, {"theme": "light", "rows_per_page": 7},
+	} {
+		if a := c.do("PATCH", "/api/account/preferences", tok, body); a.status != 400 || a.body["error"] != "bad_request" {
+			t.Errorf("%v: %d %v", body, a.status, a.body)
+		}
+	}
+	// An empty body changes nothing.
+	a = c.do("PATCH", "/api/account/preferences", tok, map[string]any{})
+	if p := a.body["prefs"].(map[string]any); a.status != 200 || p["theme"] != "dark" || p["sidebar"] != "collapsed" {
+		t.Fatalf("empty patch: %d %v", a.status, a.body)
 	}
 }

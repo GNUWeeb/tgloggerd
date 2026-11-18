@@ -212,7 +212,7 @@ func TestPageNotFoundShape(t *testing.T) {
 			"nav":     toAny(scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin}).Nav()),
 			// The site defaults, as the account set nothing.
 			"timezone": "Asia/Jakarta", "date_format": "24h", "lang": "en", "theme": "system",
-			"rows_per_page": 25.0,
+			"sidebar": "open", "rows_per_page": 25.0,
 			"chat": map[string]any{"auto_load": true, "live": true, "media": "auto",
 				"show_deleted": true, "show_edited": true, "show_service": true},
 		},

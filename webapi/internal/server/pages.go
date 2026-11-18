@@ -330,6 +330,7 @@ func (s *Server) pageViewer(ctx context.Context, sess *auth.Session, sc scope.Sc
 	e := settings.Resolve(prefs, s.defaults)
 	v.Timezone, v.DateFormat, v.Lang, v.Theme = e.Timezone, e.DateFormat, e.Lang, e.Theme
 	v.RowsPerPage = e.RowsPerPage
+	v.Sidebar = e.Sidebar
 	v.Chat = &e.Chat
 	if sess == nil {
 		return v, nil
