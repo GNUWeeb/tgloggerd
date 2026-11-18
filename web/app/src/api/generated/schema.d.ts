@@ -1748,6 +1748,13 @@ export interface components {
             abilities?: components["schemas"]["Ability"][];
         };
         AccountsProps: {
+            /** @description Which parts of an account the server can change today; the page offers only those. Each flag turns true when the item that builds it lands: federations (admin_of, and grants of federations other than Default) with web-federations, group_grants (groups inside a grant) with web-member-access, restrictions with web-admin-restrictions, abilities with web-member-access. Until then PATCH accepts these fields only unchanged and answers 400 not_supported to any change. */
+            editable: {
+                federations: boolean;
+                group_grants: boolean;
+                restrictions: boolean;
+                abilities: boolean;
+            };
             accounts: components["schemas"]["AccountRow"][];
             /** @description The federations the viewer may manage, with how many groups it can see in each; the groups come from the chat search. */
             federations: (components["schemas"]["Fed"] & {

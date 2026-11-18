@@ -4171,8 +4171,30 @@ components:
             $ref: '#/components/schemas/Ability'
     AccountsProps:
       type: object
-      required: [accounts, federations, all_federations]
+      required: [accounts, federations, all_federations, editable]
       properties:
+        editable:
+          type: object
+          description: >-
+            Which parts of an account the server can change today; the
+            page offers only those. Each flag turns true when the item
+            that builds it lands: federations (admin_of, and grants of
+            federations other than Default) with web-federations,
+            group_grants (groups inside a grant) with
+            web-member-access, restrictions with
+            web-admin-restrictions, abilities with web-member-access.
+            Until then PATCH accepts these fields only unchanged and
+            answers 400 not_supported to any change.
+          required: [federations, group_grants, restrictions, abilities]
+          properties:
+            federations:
+              type: boolean
+            group_grants:
+              type: boolean
+            restrictions:
+              type: boolean
+            abilities:
+              type: boolean
         accounts:
           type: array
           items:
