@@ -14,6 +14,11 @@ A superadmin needs to keep some data from some admins
   stored per admin, read into the request scope with the role, set
   with PATCH /api/accounts/{id} by a superadmin, offered on the
   accounts page through AccountsProps.editable.restrict_private.
+- Hiding groups (`hide_groups`, web migration 000010,
+  web_admin_hidden_groups): the scope's GroupFilter, SeesGroup and
+  SeesAllGroups honour them; references from other chats (posted as,
+  forwarded from, replying from) are not named; offered through
+  AccountsProps.editable.restrict_groups. Left: the join_chat grant.
 
 ## Scope
 

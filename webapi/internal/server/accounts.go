@@ -21,6 +21,7 @@ import (
 
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/i18n"
+	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/webdb"
 )
@@ -53,9 +54,9 @@ type auditJSON struct {
 }
 
 type restrictJSON struct {
-	HidePrivate bool  `json:"hide_private"`
-	HideGroups  []any `json:"hide_groups"`
-	JoinChat    bool  `json:"join_chat"`
+	HidePrivate bool       `json:"hide_private"`
+	HideGroups  []pickItem `json:"hide_groups"`
+	JoinChat    bool       `json:"join_chat"`
 }
 
 type grantJSON struct {
@@ -88,7 +89,8 @@ type accountJSON struct {
 // restrictions only hide_private is stored yet; the groups of member
 // grants and abilities are not: a member shows no groups in its
 // federations.
-func accountJSONOf(a webdb.Account, supers int, audits []webdb.AccountAudit) accountJSON {
+func accountJSONOf(a webdb.Account, supers int, audits []webdb.AccountAudit,
+	groups map[int64]pickItem) accountJSON {
 	j := accountJSON{
 		ID:            a.ID,
 		Username:      a.Username,
@@ -114,7 +116,14 @@ func accountJSONOf(a webdb.Account, supers int, audits []webdb.AccountAudit) acc
 	}
 	switch scope.Role(a.Role) {
 	case scope.Admin:
-		j.Restrict = &restrictJSON{HidePrivate: a.HidePrivate, HideGroups: []any{}}
+		j.Restrict = &restrictJSON{HidePrivate: a.HidePrivate, HideGroups: []pickItem{}}
+		for _, g := range a.HideGroups {
+			p, ok := groups[g]
+			if !ok {
+				p = pickItem{ID: g, Title: "#" + strconv.FormatInt(g, 10), Kind: "group"}
+			}
+			j.Restrict.HideGroups = append(j.Restrict.HideGroups, p)
+		}
 		j.AdminOf = append(j.AdminOf, a.AdminOf...)
 	case scope.Member:
 		for _, f := range a.Federations {
@@ -212,7 +221,7 @@ func (s *Server) row(w http.ResponseWriter, r *http.Request, id uint64, status i
 		s.internalError(w, "account audit", err)
 		return
 	}
-	writeJSON(w, status, accountJSONOf(a, supers, audits))
+	writeJSON(w, status, accountJSONOf(a, supers, audits, s.hiddenGroupPicks(ctx, a.HideGroups)))
 }
 
 // listAccounts answers GET /api/accounts: the accounts the viewer
@@ -259,7 +268,7 @@ func (s *Server) managedAccounts(ctx context.Context, sc scope.Scope, only scope
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, accountJSONOf(a, supers, audits))
+		out = append(out, accountJSONOf(a, supers, audits, s.hiddenGroupPicks(ctx, a.HideGroups)))
 	}
 	return out, nil
 }
@@ -687,16 +696,30 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	if in.Restrict != nil {
 		// Only hiding private chats is built so far
 		// (docs/todo/web-admin-restrictions.md).
-		if in.Restrict.JoinChat || len(in.Restrict.HideGroups) != 0 {
-			badRequest(w, "not_supported", "Hiding groups and granting Join chat cannot be set yet.")
+		if in.Restrict.JoinChat {
+			badRequest(w, "not_supported", "Granting Join chat cannot be set yet.")
 			return
 		}
-		if in.Restrict.HidePrivate && newRole != scope.Admin {
+		if (in.Restrict.HidePrivate || len(in.Restrict.HideGroups) != 0) && newRole != scope.Admin {
 			badRequest(w, "bad_request", "Only an admin can be restricted.")
 			return
 		}
+		groups := []int64{}
+		for _, g := range in.Restrict.HideGroups {
+			if _, ok, err := logdb.ResolveChat(r.Context(), s.ro, scope.Everything(), g); err != nil {
+				s.internalError(w, "hidden group", err)
+				return
+			} else if !ok || g >= 0 {
+				writeError(w, http.StatusBadRequest, "bad_request", map[string]any{
+					"message": "hide_groups names a group the archive does not have.",
+					"field":   "hide_groups",
+				})
+				return
+			}
+			groups = append(groups, g)
+		}
 		hide := in.Restrict.HidePrivate
-		c.HidePrivate = &hide
+		c.HidePrivate, c.HideGroups = &hide, &groups
 	}
 	if len(in.Grants) != 0 && newRole != scope.Member {
 		badRequest(w, "bad_request", "Only members get grants.")
@@ -852,4 +875,17 @@ func (s *Server) resetAccountPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"link_sent": false, "temporary_password": temp})
+}
+
+// hiddenGroupPicks is the hidden groups of an account as the pickers
+// show them, by id; a group the archive no longer has is left out
+// (accountJSONOf names it by its id).
+func (s *Server) hiddenGroupPicks(ctx context.Context, ids []int64) map[int64]pickItem {
+	out := map[int64]pickItem{}
+	for _, g := range ids {
+		if c, ok, err := logdb.ResolveChat(ctx, s.ro, scope.Everything(), g); err == nil && ok {
+			out[g] = fwdPick(c)
+		}
+	}
+	return out
 }

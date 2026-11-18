@@ -38,6 +38,9 @@ type Session struct {
 	AdminOf string
 	// HidePrivate is an admin's restriction, read like AdminOf.
 	HidePrivate bool
+	// HideGroups are an admin's hidden groups, read like AdminOf and
+	// written by webdb.JoinGroupIDs ("" for none).
+	HideGroups string
 
 	// Key identifies the session in web_sessions: the SHA-256 of the
 	// cookie value (SessionKey). Row is the session's web_sessions.id,

@@ -224,3 +224,31 @@ func TestFederations(t *testing.T) {
 		t.Error("scopes of the same rows differ")
 	}
 }
+
+// An admin's hidden groups (web-admin-restrictions): every other group
+// stays visible, the filter names the hidden ones, and the list means
+// nothing for the other roles.
+func TestHiddenGroups(t *testing.T) {
+	t.Parallel()
+	a := For(Viewer{ID: 3, Role: Admin, HideGroups: []int64{-12, -10, -12}})
+	if a.SeesAllGroups() || a.SeesGroup(-12) || a.SeesGroup(-10) || !a.SeesGroup(-11) ||
+		a.SeesChat(-10) || !a.SeesChat(-11) {
+		t.Error("an admin's hidden groups")
+	}
+	if cond, args := a.GroupFilter("m.chat_id"); cond != "m.chat_id NOT IN (?, ?)" ||
+		len(args) != 2 || args[0] != int64(-12) || args[1] != int64(-10) {
+		t.Errorf("filter %q %v", cond, args)
+	}
+	for _, r := range []Role{Superadmin, Member} {
+		s := For(Viewer{ID: 1, Role: r, HideGroups: []int64{-10}})
+		if s.v.HideGroups != nil {
+			t.Errorf("%s keeps hidden groups", r)
+		}
+	}
+	if s := For(Viewer{ID: 1, Role: Superadmin, HideGroups: []int64{-10}}); !s.SeesGroup(-10) || !s.SeesAllGroups() {
+		t.Error("a superadmin is never restricted")
+	}
+	if s := For(Viewer{ID: 3, Role: Admin}); !s.SeesAllGroups() {
+		t.Error("an unrestricted admin")
+	}
+}

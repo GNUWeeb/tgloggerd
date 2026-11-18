@@ -24,7 +24,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 	// Posted as a chat (a channel, an anonymous admin): link that chat.
 	const asChat = m.sender_chat;
 	const senderLink = asChat ? <Link to={`/groups/${asChat.id}`} className="a-rowlink"><b>{asChat.title}</b></Link>
-		: m.sender ? <Link to={`/users/${m.sender.id}`} className="a-rowlink"><b>{m.sender.name}</b></Link> : <b>You (logging account)</b>;
+		: m.sender ? (m.sender.id !== 0 ? <Link to={`/users/${m.sender.id}`} className="a-rowlink"><b>{m.sender.name}</b></Link> : <b className="a-muted">{m.sender.name}</b>) : <b>You (logging account)</b>;
 	const f = m.forward_from;
 	const fromLink = f?.user_id !== undefined ? <Link to={`/users/${f.user_id}`} className="a-rowlink">{f.name}</Link>
 		: f?.chat_id !== undefined ? <Link to={`/groups/${f.chat_id}`} className="a-rowlink">{f.name}</Link> : <>{f?.name ?? m.forwarded}</>;

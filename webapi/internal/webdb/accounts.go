@@ -42,6 +42,8 @@ type Account struct {
 	// HidePrivate is an admin's restriction: private chats are hidden
 	// from it (false for the other roles).
 	HidePrivate bool
+	// HideGroups are the groups hidden from an admin, ascending.
+	HideGroups []int64
 }
 
 // AccountAudit is one audited change of an account.
@@ -69,7 +71,7 @@ const accountColumns = "SELECT u.id, u.username, u.display_name, " +
 	"UNIX_TIMESTAMP(u.created_at), " +
 	"(SELECT UNIX_TIMESTAMP(MAX(a.created_at)) FROM web_audit a " +
 	"WHERE a.web_user_id = u.id AND a.action = 'login_ok'), u.hide_private, " +
-	adminOfColumn + ", " + memberOfColumn +
+	adminOfColumn + ", " + memberOfColumn + ", " + hiddenGroupsColumn +
 	"FROM web_users u "
 
 type scanner interface {
@@ -78,14 +80,14 @@ type scanner interface {
 
 func scanAccount(row scanner) (Account, error) {
 	var (
-		a                 Account
-		created           float64
-		signin            sql.NullFloat64
-		adminOf, memberOf sql.NullString
+		a                         Account
+		created                   float64
+		signin                    sql.NullFloat64
+		adminOf, memberOf, hidden sql.NullString
 	)
 	err := row.Scan(&a.ID, &a.Username, &a.DisplayName, &a.Email, &a.EmailVerified, &a.Role,
 		&a.Active, &a.HasPassword, &a.MustChangePassword, &a.CreatedBy,
-		&created, &signin, &a.HidePrivate, &adminOf, &memberOf)
+		&created, &signin, &a.HidePrivate, &adminOf, &memberOf, &hidden)
 	if err != nil {
 		return Account{}, err
 	}
@@ -93,6 +95,9 @@ func scanAccount(row scanner) (Account, error) {
 		return Account{}, err
 	}
 	if a.Federations, err = idList(memberOf); err != nil {
+		return Account{}, err
+	}
+	if a.HideGroups, err = groupList(hidden); err != nil {
 		return Account{}, err
 	}
 	a.CreatedAt = time.Unix(int64(created), 0).UTC()
@@ -264,6 +269,9 @@ type AccountChange struct {
 	// HidePrivate sets an admin's restriction on private chats. It is
 	// cleared whenever the account ends as another role.
 	HidePrivate *bool
+	// HideGroups replaces the groups hidden from an admin; they are
+	// dropped whenever the account ends as another role.
+	HideGroups *[]int64
 }
 
 // UpdateAccount applies a change and audits it with the actor, in one
@@ -361,6 +369,19 @@ func UpdateAccount(ctx context.Context, db *sql.DB, actor, id uint64, c AccountC
 		sets, args = append(sets, "hide_private = ?"), append(args, hide)
 		detail = append(detail, map[bool]string{true: "hide_private on", false: "hide_private off"}[hide])
 	}
+	if c.HideGroups != nil || endRole != "admin" {
+		var want []int64
+		if c.HideGroups != nil && endRole == "admin" {
+			want = slices.Compact(slices.Sorted(slices.Values(*c.HideGroups)))
+		}
+		before, err := setHiddenGroups(ctx, tx, id, want)
+		if err != nil {
+			return false, err
+		}
+		if !slices.Equal(before, want) {
+			detail = append(detail, "hide_groups "+groupsText(before)+"->"+groupsText(want))
+		}
+	}
 	if c.PasswordHash != nil {
 		sets, args = append(sets, "password_hash = ?", "must_change_password = 1"),
 			append(args, *c.PasswordHash)
@@ -414,4 +435,39 @@ func UpdateAccount(ctx context.Context, db *sql.DB, actor, id uint64, c AccountC
 		return false, err
 	}
 	return true, tx.Commit()
+}
+
+// setHiddenGroups replaces an account's hidden groups with want (sorted)
+// and answers the ones it had.
+func setHiddenGroups(ctx context.Context, tx *sql.Tx, id uint64, want []int64) ([]int64, error) {
+	var before sql.NullString
+	if err := tx.QueryRowContext(ctx, "SELECT JSON_ARRAYAGG(group_id) FROM web_admin_hidden_groups "+
+		"WHERE web_user_id = ?", id).Scan(&before); err != nil {
+		return nil, err
+	}
+	had, err := groupList(before)
+	if err != nil {
+		return nil, err
+	}
+	if slices.Equal(had, want) {
+		return had, nil
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM web_admin_hidden_groups WHERE web_user_id = ?", id); err != nil {
+		return nil, err
+	}
+	for _, g := range want {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO web_admin_hidden_groups (web_user_id, group_id) "+
+			"VALUES (?, ?)", id, g); err != nil {
+			return nil, err
+		}
+	}
+	return had, nil
+}
+
+// groupsText is a list of group ids for the audit, "none" for none.
+func groupsText(ids []int64) string {
+	if len(ids) == 0 {
+		return "none"
+	}
+	return JoinGroupIDs(ids)
 }

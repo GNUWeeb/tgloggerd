@@ -81,13 +81,12 @@ function TemporaryPassword({ username, password }: { username: string; password:
 // What the access editor cannot change yet, in one sentence; nothing
 // when everything can be.
 function NotYet({ editable: e }: { editable: AccountsProps['editable'] }) {
-	// With hiding private messages alone built, only the other two
-	// restrictions are missing.
-	const restrictions = e.restrict_private ? 'hidden groups and Join chat' : 'restrictions';
+	// The restrictions built one by one: name only those still missing.
+	const restrictions = e.restrict_private && e.restrict_groups ? 'Join chat' : e.restrict_private ? 'hidden groups and Join chat' : 'restrictions';
 	const off = [!e.federations && 'federations', !e.group_grants && 'group grants', !e.restrictions && restrictions, !e.abilities && 'abilities'].filter((x): x is string => !!x);
 	if (!off.length) return null;
 	const list = off.length === 1 ? off[0]! : `${off.slice(0, -1).join(', ')} and ${off.at(-1)}`;
-	const plural = off.length > 1 || off[0] === restrictions && e.restrict_private;
+	const plural = off.length > 1 || off[0] === 'hidden groups and Join chat';
 	return <div className="a-banner" role="note"><Info size={15} /><span>{list[0]!.toUpperCase() + list.slice(1)} {plural ? 'are' : 'is'} not available yet.</span></div>;
 }
 
@@ -155,16 +154,16 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 			...(a.email !== init.email ? { email: a.email ?? '' } : {}),
 			...(a.role === 'admin' && E.federations ? { admin_of: a.admin_of } : {}),
 			...(a.role === 'admin' && E.restrictions && a.restrict ? { restrict: { ...a.restrict, hide_groups: a.restrict.hide_groups.map((g) => g.id) } } : {}),
-			// Hiding private messages alone (the other restrictions are not
-			// built): a superadmin's save sends it for an admin, including
-			// one this save makes admin.
-			...(a.role === 'admin' && !E.restrictions && privateOnly ? { restrict: { hide_private: restrict.hide_private, hide_groups: [], join_chat: false } } : {}),
+			// The restrictions built so far (hidden private messages, hidden
+			// groups; not Join chat): a superadmin's save sends them for an
+			// admin, including one this save makes admin.
+			...(a.role === 'admin' && partial ? { restrict: { hide_private: E.restrict_private ? restrict.hide_private : false, hide_groups: E.restrict_groups ? restrict.hide_groups.map((g) => g.id) : [], join_chat: false } } : {}),
 			...(a.role === 'member' ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: E.group_grants ? g.groups.map((x) => x.id) : [] })) } : {}),
 			...(a.role === 'member' && E.abilities ? { abilities: a.abilities } : {}),
 		} })), 'close'));
 	const restrict = a.restrict ?? { hide_private: false, hide_groups: [], join_chat: false };
-	// Only a superadmin may change it; to anyone else the PATCH is 403.
-	const privateOnly = !E.restrictions && E.restrict_private && isSuper;
+	// Only a superadmin may change them; to anyone else the PATCH is 403.
+	const partial = !E.restrictions && isSuper && (E.restrict_private || E.restrict_groups);
 	// A member's groups per federation: on the Access tab, and when
 	// creating a member (an admin must grant at least one federation).
 	const grantsBlock = (
@@ -293,10 +292,12 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 							);
 						})}</div>
 					</section>}
-					{privateOnly && <section className="a-form">
+					{partial && <section className="a-form">
 						<h3 className="a-sec">Restrictions</h3>
 						<ul className="a-perms">
-							<li><label><input type="checkbox" checked={restrict.hide_private} onChange={() => set({ restrict: { ...restrict, hide_private: !restrict.hide_private } })} /><span><b>Hide private messages</b><span className="a-muted sm">No private-message menu, pages or API; their URLs answer 404.</span></span></label></li>
+							{E.restrict_private && <li><label><input type="checkbox" checked={restrict.hide_private} onChange={() => set({ restrict: { ...restrict, hide_private: !restrict.hide_private } })} /><span><b>Hide private messages</b><span className="a-muted sm">No private-message menu, pages or API; their URLs answer 404.</span></span></label></li>}
+							{E.restrict_groups && <li><div className="a-restrict"><span><b>Hide groups</b><span className="a-muted sm">The groups, their messages, members, files, forwarding and MCP exposure become invisible to this admin. A public group stays public.</span></span>
+								<MultiPicker value={restrict.hide_groups} onChange={(gs) => set({ restrict: { ...restrict, hide_groups: gs } })} search={{ kind: 'group' }} placeholder="Add a group to hide..." /></div></li>}
 						</ul>
 					</section>}
 					{E.restrictions && <section className="a-form">

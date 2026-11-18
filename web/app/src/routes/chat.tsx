@@ -94,14 +94,20 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 	// A message posted as a chat (a channel, an anonymous admin) links to
 	// that chat, not to a user page.
 	const asChat = m.sender_chat;
-	const senderTo = asChat ? `/groups/${asChat.id}` : s ? `/users/${s.id}` : '';
+	// A chat the viewer may not see comes as a sender without an id
+	// ("(hidden chat)"): named, but linked nowhere.
+	const senderTo = asChat ? `/groups/${asChat.id}` : s && s.id !== 0 ? `/users/${s.id}` : '';
 	const r = m.reply_to;
 	const replyTo = r?.chat_id !== undefined ? chatPath(r.chat_id, r.message_id) : r ? `?at=${r.message_id}` : '';
 	return (
 		<div id={`m${m.message_id}`} className={`c-row ${out ? 'out' : 'in'} ${last ? 'last' : ''} ${flash ? 'flash' : ''}`}>
-			{isGroup && !out && <div className="c-avslot">{last && s && <Link to={senderTo} aria-label={asChat ? asChat.title : s.name}>{asChat ? <Avatar id={asChat.id} name={asChat.title} photo={asChat.photo} size={34} square /> : <Avatar id={s.id} name={s.name} photo={s.photo} size={34} />}</Link>}</div>}
+			{isGroup && !out && <div className="c-avslot">{last && s && (senderTo
+					? <Link to={senderTo} aria-label={asChat ? asChat.title : s.name}>{asChat ? <Avatar id={asChat.id} name={asChat.title} photo={asChat.photo} size={34} square /> : <Avatar id={s.id} name={s.name} photo={s.photo} size={34} />}</Link>
+					: <Avatar id={0} name={s.name} photo={null} size={34} square />)}</div>}
 			<div className={`c-bubble ${sticker ? 'sticker' : ''} ${mediaOnly ? 'mediaonly' : ''} ${m.deleted_at ? 'deleted' : ''} ${last ? 'tail' : ''}`}>
-				{isGroup && s && first && !sticker && <Link to={senderTo} className="c-sender" style={{ color: nameColor(s.id) }}>{asChat ? asChat.title : s.name}</Link>}
+				{isGroup && s && first && !sticker && (senderTo
+					? <Link to={senderTo} className="c-sender" style={{ color: nameColor(s.id) }}>{asChat ? asChat.title : s.name}</Link>
+					: <span className="c-sender c-sender-hidden">{s.name}</span>)}
 				{(m.forward_from || m.forward) && <ForwardLine m={m} />}
 				{r && (r.chat_id !== undefined
 					// A reply to another chat opens that chat at the message.
@@ -156,7 +162,7 @@ function Feed({ msgs: all, v, isGroup, flash, onReply }: { msgs: ChatMessage[]; 
 		if (m.content_type === 'service') {
 			// The actor links to its user, or to its chat when it acted as
 			// one; the text falls back to the action's type.
-			const actor = m.sender_chat ? <Link to={`/groups/${m.sender_chat.id}`}>{m.sender_chat.title}</Link> : m.sender ? <Link to={`/users/${m.sender.id}`}>{m.sender.name}</Link> : null;
+			const actor = m.sender_chat ? <Link to={`/groups/${m.sender_chat.id}`}>{m.sender_chat.title}</Link> : m.sender ? (m.sender.id !== 0 ? <Link to={`/users/${m.sender.id}`}>{m.sender.name}</Link> : <span>{m.sender.name}</span>) : null;
 			out.push(
 				<div key={m.id} id={`m${m.message_id}`} className={`c-service ${m.deleted_at ? 'deleted' : ''}`}>
 					<span>{actor} {m.text || serviceText(m.service_type)} <Link to={`/messages/${m.scope}/${m.id}`} className="c-svctime" title={m.date}>{hm(m.date, v)}</Link>{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}</span>

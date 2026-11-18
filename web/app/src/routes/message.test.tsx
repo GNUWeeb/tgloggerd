@@ -55,6 +55,12 @@ describe('message page', () => {
 		expect(within(c).getByRole('link', { name: 'Earlier file' }).querySelector('img')!.getAttribute('src')).toBe('/files/old');
 	});
 
+	it('names a chat the viewer may not see without linking it', () => {
+		render({ sender: { id: 0, name: '(hidden chat)', username: '', type: 'unknown', photo: null } });
+		expect(screen.getAllByText('(hidden chat)').every((e) => e.closest('a') === null)).toBe(true);
+		expect(document.querySelector('a[href="/users/0"]')).toBeNull();
+	});
+
 	it('names a kind of message it cannot show yet', () => {
 		render({ content_type: 'unknown', text: '', media: null, tdlib_type: 'messageVideoNote' });
 		expect(screen.getByText('messageVideoNote')).toBeTruthy();
