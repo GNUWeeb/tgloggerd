@@ -1,16 +1,17 @@
 
 import Shell from '../ui/Shell.tsx';
 import { Avatar, PageHead } from '../ui/primitives.tsx';
-import { DataTable, FilterBar, useListNav, type Col } from '../ui/list.tsx';
+import { DataTable, FilterBar, LongText, useListNav, type Col } from '../ui/list.tsx';
 import { useFreshRows } from '../live/useEntities.tsx';
 import { Bar, Flags, UserCell, userFlags } from '../ui/bits.tsx';
 import { ago, compact, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
-import type { Cond, FieldDef, ListProps, UserSummary } from '../types.ts';
+import type { Cond, FieldDef } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
 export type UsersProps = S['UsersProps'];
+type UserRow = S['UserRow'];
 
 const FIELDS: FieldDef[] = [
 	{ key: 'id', label: 'User ID', type: 'number' },
@@ -38,13 +39,16 @@ function Users({ page }: { page: PageData<UsersProps> }) {
 	// Members see people only through their groups: no global counts.
 	const full = v.account?.role !== 'member';
 	const max = Math.max(1, ...L.rows.map((u) => u.msg_count ?? 0));
-	const all: Col<UserSummary>[] = [
+	const all: Col<UserRow>[] = [
 		{ key: 'name', label: 'User', sort: true, cls: 'c-name', render: (u) => <UserCell u={u} /> },
 		{ key: 'id', label: 'ID', sort: true, cls: 'mono a-dim', render: (u) => u.id },
 		{ key: 'type', label: 'Type', sort: true, render: (u) => <><span className={`a-dot a-dot-${u.type}`} />{u.type}</> },
 		{ key: 'msg_count', label: 'Messages', sort: true, align: 'right', render: (u) => <><Bar value={u.msg_count ?? 0} max={max} /><span className="num a-numcell">{fmt(u.msg_count ?? 0)}</span></> },
 		{ key: 'flags', label: 'Flags', render: (u) => <Flags flags={userFlags(u).filter((f) => f[0] !== 'deleted' && f[0] !== 'bot')} /> },
 		{ key: 'language', label: 'Lang', sort: true, cls: 'a-hide-md', render: (u) => u.language || <span className="a-muted">-</span> },
+		// The Drogon list's other columns, sent to full viewers only.
+		{ key: 'phone', label: 'Phone', cls: 'a-hide-md mono', render: (u) => u.phone || <span className="a-muted">-</span> },
+		{ key: 'bio', label: 'Bio', cls: 'a-hide-md', render: (u) => (u.bio ? <LongText text={u.bio} title={`Bio of ${u.name}`} /> : <span className="a-muted">-</span>) },
 		{ key: 'created_at', label: 'First seen', sort: true, render: (u) => (u.created_at ? <span title={u.created_at}>{ago(u.created_at, v)}</span> : null) },
 	];
 	const cols = full ? all : all.filter((c) => ['name', 'id', 'type'].includes(c.key));

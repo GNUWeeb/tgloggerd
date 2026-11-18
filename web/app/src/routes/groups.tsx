@@ -1,7 +1,7 @@
 import { Globe } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Avatar, PageHead, Pill } from '../ui/primitives.tsx';
-import { DataTable, FilterBar, useListNav, type Col } from '../ui/list.tsx';
+import { DataTable, FilterBar, LongText, useListNav, type Col } from '../ui/list.tsx';
 import { useFreshRows } from '../live/useEntities.tsx';
 import { Bar, GroupCell } from '../ui/bits.tsx';
 import { ago, compact, fmt } from '../format.ts';
@@ -42,9 +42,10 @@ function Groups({ page }: { page: PageData<GroupsProps> }) {
 		{ key: 'type', label: 'Type', sort: true, render: (g) => <Pill tone={g.type === 'channel' ? 'info' : ''}>{TYPE_LABEL[g.type]}</Pill> },
 		{ key: 'msg_count', label: 'Messages', sort: true, align: 'right', render: (g) => <><Bar value={g.msg_count} max={max} /><span className="num a-numcell">{fmt(g.msg_count)}</span></> },
 		{ key: 'admin_count', label: 'Admins', sort: true, align: 'right', cls: 'a-hide-md', render: (g) => <span className="num">{g.admin_count}</span> },
-		{ key: 'description', label: 'Description', cls: 'a-hide-md a-clip', render: (g) => g.description || <span className="a-muted">-</span> },
+		{ key: 'description', label: 'Description', cls: 'a-hide-md', render: (g) => (g.description ? <LongText text={g.description} title={`Description of ${g.title}`} /> : <span className="a-muted">-</span>) },
 		{ key: 'exposed', label: '', render: (g) => g.exposed && <span className="a-public" title="Exposed through MCP: readable without signing in"><Globe size={13} />public</span> },
 		{ key: 'created_at', label: 'First seen', sort: true, render: (g) => <span title={g.created_at}>{ago(g.created_at, v)}</span> },
+		{ key: 'updated_at', label: 'Updated', sort: true, cls: 'a-hide-md', render: (g) => (g.updated_at ? <span title={g.updated_at}>{ago(g.updated_at, v)}</span> : null) },
 	];
 	return (
 		<Shell crumbs={[['Groups', null]]}>
