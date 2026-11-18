@@ -325,8 +325,18 @@ answers {"reload": true} for it, so the browser loads it in full from
 the Drogon web. So far login, dashboard, user, user_history,
 user_chat, group, group_admins, group_history, group_chat and message
 have loaders (internal/server/pagedata.go, reading through
-internal/logdb); not_found is the answer for paths that are no page
-and for things the scope hides, 404 either way.
+internal/logdb), and so do the list pages; not_found is the answer for
+paths that are no page and for things the scope hides, 404 either way.
+
+  - The list pages, users, groups, files, group_messages and
+    private_messages (internal/server/lists.go), read their list state
+    from the query string as the React list writes it (q, f with the
+    filters as JSON, sort, dir, page, per) and run it through the
+    advanced search (see Search), so the request scope limits their
+    rows and totals the same way. A filter the page does not take is
+    dropped and not echoed back; archive_total is only for a viewer
+    who sees that whole list. The message lists order a search text
+    by relevance unless a sort is asked for (sort "relevance").
 
   - /api/page/<path> takes the page path without its leading slash,
     its slashes plain or encoded as %2F, and the page's query string

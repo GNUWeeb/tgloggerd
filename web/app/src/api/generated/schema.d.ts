@@ -157,7 +157,7 @@ export interface paths {
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public chats of exposed groups (group_chat).
          *
-         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message (and not_found); every other route answers {"reload": true}. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
+         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, and of the list pages users, groups, files, group_messages and private_messages (and not_found); every other route answers {"reload": true}. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope; filters it does not take are dropped and not echoed in conds, and archive_total is there only for a viewer who sees the whole archive of that list. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
         put?: never;
@@ -1398,7 +1398,7 @@ export interface components {
             /** Format: int64 */
             id: number;
             /** @enum {string} */
-            file_type: "photo" | "video" | "document" | "audio" | "voice" | "sticker" | "animation";
+            file_type: "photo" | "video" | "document" | "audio" | "voice" | "sticker" | "animation" | "unknown";
             name: string;
             ext: string;
             /** Format: int64 */
