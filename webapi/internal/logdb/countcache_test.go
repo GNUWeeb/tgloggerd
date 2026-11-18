@@ -98,3 +98,33 @@ func TestCountCache(t *testing.T) {
 		t.Error("a zero TTL makes a cache")
 	}
 }
+
+// The users count leaves out the extra-info join unless a condition
+// names it, and counts the same either way.
+func TestUsersCountFrom(t *testing.T) {
+	t.Parallel()
+	for where, want := range map[string]string{
+		"":                                     "telegram_users u",
+		"u.first_name LIKE ?":                  "telegram_users u",
+		"e.bio LIKE ?":                         Users.from,
+		"(u.id = ? OR e.personal_chat_id = ?)": Users.from,
+		"u.type = 'regular'":                   "telegram_users u",
+	} {
+		if got := Users.countFromFor(where); got != want {
+			t.Errorf("%q: %q, want %q", where, got, want)
+		}
+	}
+	db := testdb.New(t, testdb.Logger, "sample").DB
+	ctx := context.Background()
+	bare, err := countInt(ctx, db, "SELECT COUNT(*) FROM "+Users.countFromFor(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := countInt(ctx, db, "SELECT COUNT(*) FROM "+Users.from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bare != joined || bare == 0 {
+		t.Errorf("bare %d, joined %d", bare, joined)
+	}
+}

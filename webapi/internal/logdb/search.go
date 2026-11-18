@@ -580,10 +580,7 @@ func (e *Entity) build(sc scope.Scope, req SearchRequest) (*built, error) {
 	if where != "" {
 		whereClause = " WHERE " + where
 	}
-	countFrom := e.countFrom
-	if countFrom == "" {
-		countFrom = e.from
-	}
+	countFrom := e.countFromFor(where)
 	hint := "SELECT /*+ MAX_EXECUTION_TIME(" + strconv.Itoa(statementMS) + ") */ "
 	b.countSQL = hint + "COUNT(*) AS n FROM " + countFrom + whereClause
 	sel := e.sel
@@ -762,8 +759,12 @@ func explain(ctx context.Context, db *sql.DB, b *built) (*SearchDebug, error) {
 	return d, nil
 }
 
-// countFromOrFrom is the FROM of the entity's count.
-func (e *Entity) countFromOrFrom() string {
+// countFromFor is the FROM of the entity's count under where: the
+// join-free one when where does not name the joined table.
+func (e *Entity) countFromFor(where string) string {
+	if e.countBare != "" && !e.joinAlias.MatchString(where) {
+		return e.countBare
+	}
 	if e.countFrom != "" {
 		return e.countFrom
 	}

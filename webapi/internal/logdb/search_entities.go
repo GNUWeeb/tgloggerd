@@ -7,6 +7,7 @@ package logdb
 
 import (
 	"fmt"
+	"regexp"
 
 	"tgloggerd/webapi/internal/scope"
 )
@@ -23,6 +24,11 @@ type Entity struct {
 
 	from      string // FROM and JOINs of the page query
 	countFrom string // of the count, when cheaper; "" = from
+	// countBare counts without from's one-to-one LEFT JOIN, whose
+	// table's alias is joinAlias, for a WHERE that does not name it:
+	// the join cannot change the count, only slow it.
+	countBare string
+	joinAlias *regexp.Regexp
 	sel       string // the page query's columns
 	pageSel   string // more columns for the page loaders
 	idCol     string // tie breaker and EXISTS join target
@@ -154,13 +160,17 @@ func ContactName(r Row) string {
 // message there or administer one, by id, name, username, type and
 // photo only.
 var Users = &Entity{
-	Name:     "users",
-	from:     "telegram_users u LEFT JOIN telegram_user_extra_info e ON e.user_id = u.id",
-	sel:      searchUserSelect,
-	idCol:    "u.id",
-	exFK:     "user_id",
-	defSort:  "u.id",
-	defOrder: "DESC",
+	Name: "users",
+	from: "telegram_users u LEFT JOIN telegram_user_extra_info e ON e.user_id = u.id",
+	// telegram_user_extra_info is keyed by user_id: at most one row per
+	// user, so the join adds no row.
+	countBare: "telegram_users u",
+	joinAlias: regexp.MustCompile(`(^|[^A-Za-z0-9_.])e\.`),
+	sel:       searchUserSelect,
+	idCol:     "u.id",
+	exFK:      "user_id",
+	defSort:   "u.id",
+	defOrder:  "DESC",
 	fields: []Field{
 		col("id", "u.id", Int, "User ID", intOps, true),
 		col("first_name", "u.first_name", Text, "First name", textOps, true),

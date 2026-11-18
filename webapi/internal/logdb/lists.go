@@ -31,7 +31,7 @@ func ArchiveTotal(ctx context.Context, db *sql.DB, sc scope.Scope, e *Entity) (i
 	}
 	if !e.estimateBrowse {
 		n, err := countInt(ctx, db, "SELECT /*+ MAX_EXECUTION_TIME("+
-			strconv.Itoa(statementMS)+") */ COUNT(*) FROM "+e.countFromOrFrom())
+			strconv.Itoa(statementMS)+") */ COUNT(*) FROM "+e.countFromFor(""))
 		if err == nil {
 			return n, true, nil
 		}
