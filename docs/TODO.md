@@ -137,7 +137,6 @@ Accounts, roles and federations:
 
 - [`web-admin-restrictions`](todo/web-admin-restrictions.md): Let a superadmin hide private messages and specific groups from an admin, with 404 everywhere.
 - [`web-member-access`](todo/web-member-access.md): Limit a member to its granted groups and show users only as they appear in them.
-- [`web-ownership`](todo/web-ownership.md): Record which account owns which resource, in a table built to take more relations later.
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
 - [`discord-bots-per-user`](todo/discord-bots-per-user.md): Keep Discord bot tokens in the database, per account, and have discordd run every enabled bot.
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.

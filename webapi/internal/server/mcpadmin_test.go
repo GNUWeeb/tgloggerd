@@ -99,8 +99,11 @@ func TestMcpGroups(t *testing.T) {
 
 	want := []string{
 		fmt.Sprintf("3 mcp_expose group %d %s", kernel, strings.Repeat("n", 255-len(fmt.Sprintf("group %d ", kernel)))),
+		fmt.Sprintf("3 owner_set mcp_group %d", kernel),
 		fmt.Sprintf("1 mcp_unexpose group %d", kernel),
+		fmt.Sprintf("1 resource_drop mcp_group %d", kernel),
 		fmt.Sprintf("1 mcp_expose group %d again", kernel),
+		fmt.Sprintf("1 owner_set mcp_group %d", kernel),
 	}
 	if got := e.audits(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("audit\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -132,7 +135,7 @@ func TestMcpGroups(t *testing.T) {
 	if n := e.one("SELECT COUNT(*) FROM telegram_public_groups"); n != "4" {
 		t.Errorf("%s exposed after refusals", n)
 	}
-	if len(e.audits()) != 3 {
+	if len(e.audits()) != 6 {
 		t.Errorf("refusals audited: %v", e.audits())
 	}
 }
@@ -188,6 +191,7 @@ func TestMcpTokens(t *testing.T) {
 
 	want := []string{
 		fmt.Sprintf("3 mcp_token_create token %d ci runner", id),
+		fmt.Sprintf("3 owner_set mcp_token %d", id),
 		fmt.Sprintf("3 mcp_token_revoke token %d ci runner", id),
 	}
 	got := e.audits()

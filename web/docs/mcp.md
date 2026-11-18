@@ -590,6 +590,13 @@ The Go service serves the administration as JSON operations
 - Every change writes a `web_audit` row: `mcp_expose`,
   `mcp_unexpose`, `mcp_token_create`, `mcp_token_revoke` (with the
   group or the token's id and name, never the token).
+- An exposed group and a token are owned by the account that exposed
+  or created it (`web_resource_relations`, see *Ownership* in
+  [accounts.md](accounts.md)); withdrawing a group drops its owner, a
+  revoked token keeps its own. The tokens list names the owner, or,
+  for a token without an owner record, the account it was made by.
+  Ownership does not change what a token reads: that is the exposure
+  list alone.
 
 ## Configuration
 

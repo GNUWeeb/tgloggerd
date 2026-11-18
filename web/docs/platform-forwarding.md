@@ -72,10 +72,18 @@ counts of what was sent.
   `fwd_t2d_update`, `fwd_t2d_delete`, `fwd_d2t_create`,
   `fwd_d2t_update`, `fwd_d2t_delete`, with the id, the chat and what
   changed. Tests change nothing and are not audited.
-- Ownership is not stored yet (`web-ownership`): every configuration
-  shows as shared, in the Default federation, and the transfer
-  operations are planned. The Go service writes through the same
-  read-only account and grants as the Drogon pages (see *Grants*).
+- Every configuration created here is owned by the account that
+  created it, and so is a bot a new token adds (a token of a bot
+  already stored reuses the bot and leaves its owner);
+  `web_resource_relations`, see *Ownership* in
+  [accounts.md](accounts.md). Lists answer the owner with its role and
+  whether it is active. A configuration without an owner, made before
+  ownership was recorded or by the Drogon pages, counts as the
+  superadmins' and shows as shared. Federations are not stored yet:
+  every configuration is in Default, and the transfer operations are
+  planned (`forwarding-per-user`). The Go service writes through the
+  same read-only account and grants as the Drogon pages (see
+  *Grants*).
 
 ## Content-type filters
 

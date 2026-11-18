@@ -29,8 +29,8 @@ import (
 // its Telegram chat is (a group the scope sees, a private chat to a
 // scope that sees private chats), so a configuration touching a hidden
 // group does not exist for the request (web-accounts.md section 6).
-// Ownership (web-ownership) narrows this further later, in the same
-// condition.
+// Ownership (webdb ownership.go) narrows this further with
+// forwarding-per-user, in the same condition.
 //
 // The secrets, the webhook URL and the bot token, are write-only: the
 // token is never selected, and the URL is read only for sending a test
@@ -357,17 +357,30 @@ func GetD2T(ctx context.Context, db *sql.DB, sc scope.Scope, id uint64) (D2TRout
 // Telegram chat (uq_dtr_channel_chat).
 var ErrDuplicateRoute = errors.New("the channel already forwards to the chat")
 
+// Bot is the bot row a token was interned as; Created when the row is
+// new, for the caller to record its owner.
+type Bot struct {
+	ID      uint64
+	Created bool
+}
+
 // internBot is the bot row of a token: the existing one, enabled
 // again, or a new one. The token is unique (and compared as bytes,
 // migration 000029), so several routes share one credential.
-func internBot(ctx context.Context, tx *sql.Tx, token string) (uint64, error) {
+func internBot(ctx context.Context, tx *sql.Tx, token string) (Bot, error) {
 	res, err := tx.ExecContext(ctx, "INSERT INTO telegram_bots (token) VALUES (?) "+
 		"ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), enabled = 1", token)
 	if err != nil {
-		return 0, err
+		return Bot{}, err
 	}
 	id, err := res.LastInsertId()
-	return uint64(id), err
+	if err != nil {
+		return Bot{}, err
+	}
+	// 1 for an inserted row; 2 for an existing one enabled again, 0
+	// for one left as it was.
+	n, err := res.RowsAffected()
+	return Bot{ID: uint64(id), Created: n == 1}, err
 }
 
 func isDuplicate(err error) bool {
@@ -375,68 +388,71 @@ func isDuplicate(err error) bool {
 	return errors.As(err, &me) && me.Number == 1062
 }
 
-// CreateD2T adds a route through the bot of token.
+// CreateD2T adds a route through the bot of token, and returns the
+// route's id and the bot.
 func CreateD2T(ctx context.Context, db *sql.DB, channel uint64, chat int64, token string,
-	enabled bool, t FwdTypes) (uint64, error) {
+	enabled bool, t FwdTypes) (uint64, Bot, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return 0, Bot{}, err
 	}
 	defer tx.Rollback()
 	var n int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM discord_telegram_routes "+
 		"WHERE discord_channel_id = ? AND telegram_chat_id = ?", channel, chat).Scan(&n); err != nil {
-		return 0, err
+		return 0, Bot{}, err
 	}
 	if n > 0 {
-		return 0, ErrDuplicateRoute
+		return 0, Bot{}, ErrDuplicateRoute
 	}
 	bot, err := internBot(ctx, tx, token)
 	if err != nil {
-		return 0, err
+		return 0, Bot{}, err
 	}
-	args := append([]any{channel, chat, bot, enabled}, t.args(D2TTypeCount)...)
+	args := append([]any{channel, chat, bot.ID, enabled}, t.args(D2TTypeCount)...)
 	res, err := tx.ExecContext(ctx, "INSERT INTO discord_telegram_routes "+
 		"(discord_channel_id, telegram_chat_id, telegram_bot_id, enabled, "+
 		fwdColumns("", D2TTypeCount)+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", args...)
 	if isDuplicate(err) {
-		return 0, ErrDuplicateRoute
+		return 0, Bot{}, ErrDuplicateRoute
 	}
 	if err != nil {
-		return 0, err
+		return 0, Bot{}, err
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return 0, err
+		return 0, Bot{}, err
 	}
-	return uint64(id), tx.Commit()
+	return uint64(id), bot, tx.Commit()
 }
 
 // UpdateD2T stores a route's state and types and, with a token, the
-// bot it sends through. The bot it used before stays, for the other
-// routes that may share it.
-func UpdateD2T(ctx context.Context, db *sql.DB, id uint64, enabled bool, t FwdTypes, token *string) error {
+// bot it sends through, which it returns (the zero Bot without a
+// token). The bot it used before stays, for the other routes that may
+// share it.
+func UpdateD2T(ctx context.Context, db *sql.DB, id uint64, enabled bool, t FwdTypes,
+	token *string) (Bot, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return Bot{}, err
 	}
 	defer tx.Rollback()
 	args := append([]any{enabled}, t.args(D2TTypeCount)...)
 	set := "enabled = ?, fwd_sticker = ?, fwd_text = ?, fwd_photo = ?, fwd_video = ?, " +
 		"fwd_document = ?"
+	var bot Bot
 	if token != nil {
-		bot, err := internBot(ctx, tx, *token)
-		if err != nil {
-			return err
+		if bot, err = internBot(ctx, tx, *token); err != nil {
+			return Bot{}, err
 		}
 		set += ", telegram_bot_id = ?"
-		args = append(args, bot)
+		args = append(args, bot.ID)
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE discord_telegram_routes SET "+set+
 		" WHERE id = ?", append(args, id)...); err != nil {
-		return err
+		return Bot{}, err
 	}
-	return tx.Commit()
+	return bot, tx.Commit()
 }
 
 // D2TSent is how many messages a route has sent. Those rows refer to

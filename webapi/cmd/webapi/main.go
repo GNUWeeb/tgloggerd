@@ -5,12 +5,19 @@
 
 // Command webapi is the Go web service of tgloggerd. It serves the JSON
 // API under /api/ beside the Drogon web (docs/design/web-go.md).
+//
+// With arguments it runs a one-off command instead and exits:
+//
+//	webapi assign-owner <username>
+//
+// gives every resource without an owner to that account (assign.go).
 package main
 
 import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -238,7 +245,55 @@ func run(log *slog.Logger, cfg *config.Config) error {
 	return nil
 }
 
+// commandTimeout bounds a one-off command.
+const commandTimeout = 5 * time.Minute
+
+// command runs the one-off command in args and returns the exit
+// status: 0 done, 1 failed or refused, 2 a usage error.
+func command(args []string) int {
+	usage := func() int {
+		fmt.Fprintln(os.Stderr, "usage: webapi assign-owner <username>")
+		return 2
+	}
+	if args[0] != "assign-owner" || len(args) != 2 || args[1] == "" {
+		return usage()
+	}
+	cfg, err := config.FromEnv()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "configuration:", err)
+		return 2
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	ro, err := openPool(log, cfg.RO)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "assign-owner:", err)
+		return 1
+	}
+	defer ro.Close()
+	app, err := openPool(log, cfg.App)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "assign-owner:", err)
+		return 1
+	}
+	defer app.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	if err := assignOwner(ctx, ro, app, args[1], os.Stdout); err != nil {
+		var refused errRefused
+		if errors.As(err, &refused) {
+			fmt.Fprintln(os.Stderr, "assign-owner: refused:", err)
+		} else {
+			fmt.Fprintln(os.Stderr, "assign-owner:", err)
+		}
+		return 1
+	}
+	return 0
+}
+
 func main() {
+	if len(os.Args) > 1 {
+		os.Exit(command(os.Args[1:]))
+	}
 	cfg, err := config.FromEnv()
 	if err != nil {
 		slog.Error("configuration", "err", err)

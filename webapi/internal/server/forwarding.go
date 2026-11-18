@@ -20,6 +20,7 @@ import (
 
 	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/webdb"
 )
 
 // Platform forwarding (web/docs/platform-forwarding.md), the Drogon
@@ -29,10 +30,12 @@ import (
 // need the forward ability (Scope.Can); a configuration whose Telegram
 // chat the scope hides does not exist for the request.
 //
-// Ownership is not stored yet (web-ownership): until it is, every
-// configuration is shared, owned by nobody, in the Default federation,
-// and visible to every viewer with the ability; transferring is not
-// served.
+// Each configuration and each new bot is owned by the account that
+// created it (ownership.go); one without an owner, made before
+// ownership existed or by the Drogon pages, counts as the superadmins'
+// and is answered as shared. The federation of a configuration is not
+// stored yet: every one is in Default, visible to every viewer with the
+// ability, and transferring is not served (forwarding-per-user).
 //
 // The webhook URL and the bot token are write-only: an answer carries
 // the URL with its secret part cut off and the bot's name, never the
@@ -126,14 +129,29 @@ type owned struct {
 	TransferCandidates []fwdPerson `json:"transfer_candidates"`
 }
 
-// ownership is a configuration's owner and federation. Until
-// web-ownership stores them, every configuration is shared (id 0) and
-// in Default, and there is nobody to transfer it to; that item fills
-// this in.
-func (s *Server) ownership(ctx context.Context, v scope.Viewer, id uint64) owned {
+// fwdOwners is the owners of a list's configurations of type t, read
+// in one query.
+func (s *Server) fwdOwners(ctx context.Context, t webdb.ResourceType, ids []uint64) (map[int64]webdb.OwnerInfo, error) {
+	keys := make([]int64, len(ids))
+	for i, id := range ids {
+		keys[i] = int64(id)
+	}
+	return webdb.Owners(ctx, s.app, t, keys)
+}
+
+// ownership is a configuration's owner and federation: its owner from
+// owners, or shared (id 0, active) when it has none. The federation is
+// Default and there is nobody to transfer to until forwarding-per-user
+// stores federations and serves transfers.
+func (s *Server) ownership(ctx context.Context, v scope.Viewer, id uint64,
+	owners map[int64]webdb.OwnerInfo) owned {
+	owner := fwdPerson{ID: 0, Name: s.textFor(ctx, v, "fwd.shared"), Active: true}
+	if o, ok := owners[int64(id)]; ok {
+		owner = fwdPerson{ID: o.ID, Name: o.Name(), Role: o.Role, Active: o.Active}
+	}
 	return owned{
 		ID:                 id,
-		Owner:              fwdPerson{ID: 0, Name: s.textFor(ctx, v, "fwd.shared"), Active: true},
+		Owner:              owner,
 		Federation:         fedRef{scope.DefaultFederation, s.textFor(ctx, v, "federation.default")},
 		TransferCandidates: []fwdPerson{},
 	}
@@ -158,8 +176,9 @@ type t2dRoute struct {
 	LastSent  *string  `json:"last_sent"`
 }
 
-func (s *Server) t2dJSON(ctx context.Context, v scope.Viewer, h logdb.T2DWebhook) t2dRoute {
-	return t2dRoute{owned: s.ownership(ctx, v, h.ID), Chat: fwdPick(h.Chat),
+func (s *Server) t2dJSON(ctx context.Context, v scope.Viewer, h logdb.T2DWebhook,
+	owners map[int64]webdb.OwnerInfo) t2dRoute {
+	return t2dRoute{owned: s.ownership(ctx, v, h.ID, owners), Chat: fwdPick(h.Chat),
 		URLMasked: maskWebhook(h.URL), Types: h.Types.Keys(logdb.T2DTypeCount),
 		Enabled: h.Enabled, Sent: h.Sent, LastSent: isoPtr(h.LastSent)}
 }
@@ -188,8 +207,9 @@ func (s *Server) botLabel(ctx context.Context, v scope.Viewer, d logdb.D2TRoute)
 	return s.textFor(ctx, v, "fwd.bot_pending", "id", strconv.FormatUint(d.BotID, 10))
 }
 
-func (s *Server) d2tJSON(ctx context.Context, v scope.Viewer, d logdb.D2TRoute) d2tRoute {
-	return d2tRoute{owned: s.ownership(ctx, v, d.ID),
+func (s *Server) d2tJSON(ctx context.Context, v scope.Viewer, d logdb.D2TRoute,
+	owners map[int64]webdb.OwnerInfo) d2tRoute {
+	return d2tRoute{owned: s.ownership(ctx, v, d.ID, owners),
 		// A snowflake does not fit a JavaScript number exactly.
 		ChannelID: strconv.FormatUint(d.ChannelID, 10), ChannelName: d.ChannelName,
 		Chat: fwdPick(d.Chat), Bot: s.botLabel(ctx, v, d),
@@ -279,6 +299,7 @@ func (s *Server) createT2D(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auditAdmin(r, v.ID, "fwd_t2d_create", fmt.Sprintf("webhook %d chat %d enabled=%t types=%s",
 		id, chat.ID, *in.Enabled, strings.Join(types.Keys(logdb.T2DTypeCount), ",")))
+	s.recordOwner(r, webdb.Resource{Type: webdb.ResT2DWebhook, ID: int64(id)}, v.ID)
 	writeJSON(w, http.StatusCreated, map[string]uint64{"id": id})
 }
 
@@ -365,6 +386,7 @@ func (s *Server) deleteT2D(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAdmin(r, v.ID, "fwd_t2d_delete", fmt.Sprintf("webhook %d chat %d", h.ID, h.Chat.ID))
+	s.dropOwner(r, webdb.Resource{Type: webdb.ResT2DWebhook, ID: int64(h.ID)}, v.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -487,7 +509,7 @@ func (s *Server) createD2T(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id, err := logdb.CreateD2T(r.Context(), s.ro, channel, chat.ID, *in.BotToken, *in.Enabled, types)
+	id, bot, err := logdb.CreateD2T(r.Context(), s.ro, channel, chat.ID, *in.BotToken, *in.Enabled, types)
 	if errors.Is(err, logdb.ErrDuplicateRoute) {
 		s.refuse(w, r, v, http.StatusConflict, "duplicate", "fwd.duplicate")
 		return
@@ -498,7 +520,18 @@ func (s *Server) createD2T(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auditAdmin(r, v.ID, "fwd_d2t_create", fmt.Sprintf("route %d channel %d chat %d enabled=%t types=%s",
 		id, channel, chat.ID, *in.Enabled, strings.Join(types.Keys(logdb.D2TTypeCount), ",")))
+	s.recordOwner(r, webdb.Resource{Type: webdb.ResD2TRoute, ID: int64(id)}, v.ID)
+	s.botOwner(r, bot, v.ID)
 	writeJSON(w, http.StatusCreated, map[string]uint64{"id": id})
+}
+
+// botOwner makes account uid the owner of a bot a route's token has
+// just added. A token that names a bot already stored reuses that bot
+// and leaves its owner as it is.
+func (s *Server) botOwner(r *http.Request, bot logdb.Bot, uid uint64) {
+	if bot.Created {
+		s.recordOwner(r, webdb.Resource{Type: webdb.ResTelegramBot, ID: int64(bot.ID)}, uid)
+	}
 }
 
 // d2tOf loads the route in the path, answering 404 itself for one that
@@ -559,12 +592,14 @@ func (s *Server) updateD2T(w http.ResponseWriter, r *http.Request) {
 		d.Enabled = *in.Enabled
 		changed = append(changed, "enabled="+strconv.FormatBool(d.Enabled))
 	}
-	if err := logdb.UpdateD2T(r.Context(), s.ro, d.ID, d.Enabled, d.Types, in.BotToken); err != nil {
+	bot, err := logdb.UpdateD2T(r.Context(), s.ro, d.ID, d.Enabled, d.Types, in.BotToken)
+	if err != nil {
 		s.internalError(w, "update route", err)
 		return
 	}
 	s.auditAdmin(r, v.ID, "fwd_d2t_update", fmt.Sprintf("route %d chat %d %s",
 		d.ID, d.Chat.ID, strings.Join(changed, " ")))
+	s.botOwner(r, bot, v.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -596,6 +631,7 @@ func (s *Server) deleteD2T(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auditAdmin(r, v.ID, "fwd_d2t_delete", fmt.Sprintf("route %d channel %d chat %d",
 		d.ID, d.ChannelID, d.Chat.ID))
+	s.dropOwner(r, webdb.Resource{Type: webdb.ResD2TRoute, ID: int64(d.ID)}, v.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -663,9 +699,17 @@ func loadT2D(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	ids := make([]uint64, len(ws))
+	for i, w := range ws {
+		ids[i] = w.ID
+	}
+	owners, err := s.fwdOwners(ctx, webdb.ResT2DWebhook, ids)
+	if err != nil {
+		return nil, err
+	}
 	p := t2dProps{Routes: []t2dRoute{}, Federations: feds}
 	for _, w := range ws {
-		p.Routes = append(p.Routes, s.t2dJSON(ctx, v, w))
+		p.Routes = append(p.Routes, s.t2dJSON(ctx, v, w, owners))
 	}
 	return p, nil
 }
@@ -689,9 +733,17 @@ func loadD2T(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	ids := make([]uint64, len(rs))
+	for i, r := range rs {
+		ids[i] = r.ID
+	}
+	owners, err := s.fwdOwners(ctx, webdb.ResD2TRoute, ids)
+	if err != nil {
+		return nil, err
+	}
 	p := d2tProps{Routes: []d2tRoute{}, Federations: feds}
 	for _, r := range rs {
-		p.Routes = append(p.Routes, s.d2tJSON(ctx, v, r))
+		p.Routes = append(p.Routes, s.d2tJSON(ctx, v, r, owners))
 	}
 	return p, nil
 }

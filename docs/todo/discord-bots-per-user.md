@@ -23,9 +23,12 @@ each with its own Telegram and Discord bots
   a bot that Discord refuses is disabled, not retried in a loop (the
   IDENTIFY budget).
 - The Go service's operations and pages to add, rename, enable and
-  remove Discord bots, owned through web-ownership: tokens write-only,
-  validated in shape, never answered back; a member with `forward`
-  sees and uses only its own bots, as for Telegram bots.
+  remove Discord bots, owned through the ownership helpers
+  (webapi/internal/webdb/ownership.go, resource type `discord_bot`,
+  reserved): tokens write-only, validated in shape, never answered
+  back; a member with `forward` sees and uses only its own bots, as for
+  Telegram bots. The new bots table also gets its line in the
+  assign-owner command (webapi/cmd/webapi/assign.go, `ownable`).
 - Import: at deployment, the token in DISCORD_BOT_TOKEN becomes a bot
   owned by `superadmin`, and the existing routes refer to it; then the
   variable is removed from `.env` and `.env.example`.
@@ -41,7 +44,7 @@ each with its own Telegram and Discord bots
 
 ## Depends on
 
-- `web-ownership`
+Nothing.
 
 ## Done when
 
