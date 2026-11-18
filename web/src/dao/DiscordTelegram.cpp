@@ -199,11 +199,18 @@ drogon::Task<uint64_t> create(drogon::orm::DbClientPtr db,
 			      uint64_t telegramBotId, bool enabled,
 			      ForwardTypes types)
 {
+	/*
+	 * A route is read by the Discord bot it names (migration 000040).
+	 * This page has no Discord bot picker, so its routes get the oldest
+	 * Discord bot: the one imported from the environment at deployment.
+	 */
 	auto r = co_await db->execSqlCoro(
 		"INSERT INTO discord_telegram_routes "
 		"(discord_channel_id, telegram_chat_id, telegram_bot_id, enabled, "
-		"fwd_sticker, fwd_text, fwd_photo, fwd_video, fwd_document) "
-		"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"fwd_sticker, fwd_text, fwd_photo, fwd_video, fwd_document, "
+		"discord_bot_id) "
+		"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
+		"(SELECT MIN(id) FROM discord_bots))",
 		discordChannelId, telegramChatId, telegramBotId,
 		enabled ? 1 : 0, types.sticker ? 1 : 0, types.text ? 1 : 0,
 		types.photo ? 1 : 0, types.video ? 1 : 0,
