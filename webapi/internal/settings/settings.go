@@ -37,6 +37,7 @@ type Prefs struct {
 	DateFormat      *string `json:"date_format"`
 	Lang            *string `json:"lang"`
 	Theme           *string `json:"theme"`
+	Sidebar         *string `json:"sidebar"`
 	RowsPerPage     *int    `json:"rows_per_page"`
 	Landing         *string `json:"landing"`
 	ChatAutoLoad    *bool   `json:"chat_auto_load"`
@@ -55,6 +56,7 @@ var (
 	// (internal/i18n) is shown in the site's language until it gets one.
 	Langs       = []string{"en", "id"}
 	Themes      = []string{"system", "light", "dark"}
+	Sidebars    = []string{"open", "collapsed"}
 	RowsPerPage = []int{25, 50, 100}
 	ChatMedia   = []string{"auto", "click"}
 )
@@ -192,6 +194,7 @@ func (p Prefs) Check() error {
 		str("date_format", p.DateFormat, in(DateFormats)),
 		str("lang", p.Lang, in(Langs)),
 		str("theme", p.Theme, in(Themes)),
+		str("sidebar", p.Sidebar, in(Sidebars)),
 		str("landing", p.Landing, CheckLanding),
 		str("chat_media", p.ChatMedia, in(ChatMedia)),
 	} {
@@ -221,6 +224,7 @@ func (p *Prefs) fields() []struct {
 		{"date_format", &p.DateFormat},
 		{"lang", &p.Lang},
 		{"theme", &p.Theme},
+		{"sidebar", &p.Sidebar},
 		{"rows_per_page", &p.RowsPerPage},
 		{"landing", &p.Landing},
 		{"chat_auto_load", &p.ChatAutoLoad},
@@ -324,8 +328,10 @@ type Effective struct {
 	DateFormat string
 	// Lang is the language texts are shown in: the chosen one when it
 	// has a catalogue, else the site's.
-	Lang        string
-	Theme       string
+	Lang  string
+	Theme string
+	// Sidebar is whether the menu starts open or collapsed.
+	Sidebar     string
 	RowsPerPage int
 	Landing     string
 	Chat        Chat
@@ -336,6 +342,7 @@ type Effective struct {
 const (
 	DefaultRowsPerPage = 25
 	DefaultLanding     = "/"
+	DefaultSidebar     = "open"
 )
 
 // Resolve is the settings in effect under p and the site defaults d.
@@ -353,6 +360,7 @@ func Resolve(p Prefs, d Defaults) Effective {
 		DateFormat:  s(p.DateFormat, d.DateFormat),
 		Lang:        i18n.Pick(s(p.Lang, d.Lang)),
 		Theme:       s(p.Theme, d.Theme),
+		Sidebar:     s(p.Sidebar, DefaultSidebar),
 		RowsPerPage: DefaultRowsPerPage,
 		Landing:     s(p.Landing, DefaultLanding),
 		Chat: Chat{

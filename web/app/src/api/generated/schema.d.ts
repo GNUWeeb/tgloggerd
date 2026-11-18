@@ -390,7 +390,7 @@ export interface paths {
         get: operations["getPreferences"];
         /**
          * Save the account's preferences
-         * @description Replaces every preference; null (or a missing field) is the site default. A field that is not a preference, or a value its key does not take, refuses the whole body with 400 bad_request naming the key in `field`: timezone an IANA zone name, date_format 24h, 12h or iso, lang en or id, theme system, light or dark, rows_per_page 25, 50 or 100, landing a path on this site (one leading slash, at most 255 bytes), chat_media auto or click, the chat_* switches booleans. The viewer of the next page data carries the settings in effect (web/docs/settings.md).
+         * @description Replaces every preference; null (or a missing field) is the site default. A field that is not a preference, or a value its key does not take, refuses the whole body with 400 bad_request naming the key in `field`: timezone an IANA zone name, date_format 24h, 12h or iso, lang en or id, theme system, light or dark, sidebar open or collapsed, rows_per_page 25, 50 or 100, landing a path on this site (one leading slash, at most 255 bytes), chat_media auto or click, the chat_* switches booleans. The viewer of the next page data carries the settings in effect (web/docs/settings.md).
          */
         put: operations["putPreferences"];
         post?: never;
@@ -1228,7 +1228,10 @@ export interface components {
             lang?: "en" | "id";
             /** @enum {string} */
             theme?: "system" | "light" | "dark";
-            /** @enum {string} */
+            /**
+             * @description Whether the menu starts open or collapsed (the sidebar preference, else open).
+             * @enum {string}
+             */
             sidebar?: "open" | "collapsed";
             rows_per_page?: number;
             /** @description The route ids of the pages the menu shows. */
@@ -2169,6 +2172,11 @@ export interface components {
             lang?: "en" | "id" | null;
             /** @enum {string|null} */
             theme?: "system" | "light" | "dark" | null;
+            /**
+             * @description Whether the menu starts open or collapsed; null is open.
+             * @enum {string|null}
+             */
+            sidebar?: "open" | "collapsed" | null;
             rows_per_page?: number | null;
             landing?: string | null;
             chat_auto_load?: boolean | null;

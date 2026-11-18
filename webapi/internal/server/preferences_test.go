@@ -119,7 +119,8 @@ func TestPreferences(t *testing.T) {
 		{map[string]any{"landing": "//evil.example"}, "landing"},
 		{map[string]any{"chat_media": "never"}, "chat_media"},
 		{map[string]any{"chat_live": "yes"}, "chat_live"},
-		{map[string]any{"theme": "dark", "sidebar": "open"}, "sidebar"},
+		{map[string]any{"theme": "dark", "sidebar": "closed"}, "sidebar"},
+		{map[string]any{"theme": "dark", "colour": "red"}, "colour"},
 	} {
 		a := c.do("PUT", "/api/account/preferences", tok, tc.body)
 		if a.status != 400 || a.body["error"] != "bad_request" || a.body["field"] != tc.field ||

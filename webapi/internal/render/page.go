@@ -37,10 +37,12 @@ type Viewer struct {
 	Now string `json:"now"`
 	// Timezone (IANA) and DateFormat (24h, 12h, iso) are how dates,
 	// stored and sent in UTC, are shown.
-	Timezone    string `json:"timezone,omitempty"`
-	DateFormat  string `json:"date_format,omitempty"`
-	Lang        string `json:"lang,omitempty"`
-	Theme       string `json:"theme,omitempty"`
+	Timezone   string `json:"timezone,omitempty"`
+	DateFormat string `json:"date_format,omitempty"`
+	Lang       string `json:"lang,omitempty"`
+	Theme      string `json:"theme,omitempty"`
+	// Sidebar is whether the menu starts open or collapsed.
+	Sidebar     string `json:"sidebar,omitempty"`
 	RowsPerPage int    `json:"rows_per_page,omitempty"`
 	// Nav lists the route ids of the pages the menu shows.
 	Nav []string `json:"nav,omitempty"`

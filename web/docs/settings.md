@@ -32,6 +32,7 @@ loader (`/api/page/settings...`):
 | date_format | `24h`, `12h`, `iso` | WEBAPI_DEFAULT_DATE_FORMAT, 24h |
 | lang | `en`, `id` | WEBAPI_DEFAULT_LANG, en |
 | theme | `system`, `light`, `dark` | WEBAPI_DEFAULT_THEME, system |
+| sidebar | `open`, `collapsed` | open |
 | rows_per_page | 25, 50, 100 | 25 |
 | landing | a path on this site, at most 255 bytes | `/` |
 | chat_auto_load, chat_live | true, false | true |
@@ -57,10 +58,10 @@ page, where a sign-in without a next page goes.
 
 Every page's data carries the settings in effect, the account's own
 or the site's, in `viewer` (`timezone`, `date_format`, `lang`,
-`theme`, `rows_per_page`, `chat`), for a signed-out visitor too. Dates
-stay UTC in the database and in every JSON answer; the pages show them
-in the viewer's zone and format, the same on the server's render and
-in the browser. The document's `<html>` carries `lang` and, unless the
+`theme`, `sidebar`, `rows_per_page`, `chat`), for a signed-out visitor
+too. Dates stay UTC in the database and in every JSON answer; the
+pages show them in the viewer's zone and format, the same on the
+server's render and in the browser. The document's `<html>` carries `lang` and, unless the
 theme follows the system, `data-theme`.
 
 ## Pinned groups and saved searches

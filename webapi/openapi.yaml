@@ -1454,7 +1454,8 @@ paths:
         key does not take, refuses the whole body with 400 bad_request
         naming the key in `field`: timezone an IANA zone name,
         date_format 24h, 12h or iso, lang en or id, theme system, light
-        or dark, rows_per_page 25, 50 or 100, landing a path on this
+        or dark, sidebar open or collapsed, rows_per_page 25, 50 or 100,
+        landing a path on this
         site (one leading slash, at most 255 bytes), chat_media auto or
         click, the chat_* switches booleans. The viewer of the next page
         data carries the settings in effect (web/docs/settings.md).
@@ -1490,7 +1491,6 @@ paths:
           $ref: '#/components/responses/Csrf'
         '503':
           $ref: '#/components/responses/SessionUnavailable'
-
   /api/account/pinned/{group_id}:
     put:
       operationId: pinGroup
@@ -3673,6 +3673,7 @@ components:
         sidebar:
           type: string
           enum: [open, collapsed]
+          description: Whether the menu starts open or collapsed (the sidebar preference, else open).
         rows_per_page:
           type: integer
         nav:
@@ -5620,6 +5621,10 @@ components:
         theme:
           type: [string, 'null']
           enum: [system, light, dark, null]
+        sidebar:
+          type: [string, 'null']
+          enum: [open, collapsed, null]
+          description: Whether the menu starts open or collapsed; null is open.
         rows_per_page:
           type: [integer, 'null']
         landing:
