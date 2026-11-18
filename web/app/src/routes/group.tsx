@@ -54,7 +54,7 @@ function histItem(e: GroupHistoryEntry): TlItem {
 	if (e.kind === 'photo') body = e.removed || !e.photo ? <span className="a-muted">Photo removed</span> : <img className="a-tl-photo" src={e.photo} alt="" width={72} height={72} />;
 	else if (e.kind === 'username') body = <span className={e.action === 'removed' ? 'strike' : ''}>{e.collectible && <Gem size={12} aria-label="collectible" />}@{e.detail}{e.username_kind === 'disabled' ? ' (off)' : ''}</span>;
 	else if (e.kind === 'admin' && e.user) body = <><Link to={`/users/${e.user.id}`} className="a-rowlink">{e.user.name}</Link> <span className="a-muted">{e.action}</span></>;
-	else body = e.detail || <span className="a-muted">(cleared)</span>;
+	else body = e.detail ? <span className="a-multiline">{e.detail}</span> : <span className="a-muted">(cleared)</span>;
 	return {
 		icon, at: e.at, body, tone: e.kind === 'admin' ? 'accent' : e.kind === 'photo' ? 'info' : '',
 		title: e.kind === 'username' ? usernameTitle(e) : e.kind === 'admin' ? `Admin ${e.action}${e.status === 'creator' ? ' (owner)' : ''}` : title,
@@ -145,7 +145,7 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 								<KV rows={[
 									[Type, 'Title', g.title],
 									[AtSign, g.usernames.length > 1 ? 'Usernames' : 'Username', g.usernames.length ? g.usernames.map((n) => <UsernamePill key={n.username} n={n} />) : ''],
-									[Quote, 'Description', g.description],
+									[Quote, 'Description', g.description ? <span className="a-multiline">{g.description}</span> : ''],
 									[UsersIcon, 'Type', TYPE_LABEL[g.type]],
 									[ShieldCheck, 'Admins', <Link to={`${base}/admins`} className="a-rowlink">{g.admin_count} admins</Link>],
 									g.photo_file_id ? [Image, 'Photo', <Link to={`/files?file=${g.photo_file_id}`} className="a-rowlink">file {g.photo_file_id}</Link>] : null,

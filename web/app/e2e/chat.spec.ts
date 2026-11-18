@@ -100,3 +100,15 @@ test('an animated sticker plays once in view, and only its chat loads the player
 	await expect(sticker.locator('.c-lottie-emoji')).toHaveCount(0);
 	expect(player.length).toBeGreaterThan(0);
 });
+
+test('an opened edit history sits clear of the edited mark and the time', async ({ page }) => {
+	await page.goto(`/groups/${G}/chat`);
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	const edited = page.locator('button.c-edited').last();
+	await edited.scrollIntoViewIfNeeded();
+	await edited.click();
+	const bubble = edited.locator('xpath=ancestor::*[contains(@class,"c-bubble")][1]');
+	const meta = await bubble.locator('.c-meta').boundingBox();
+	const box = await bubble.locator('.c-edits').boundingBox();
+	expect(box!.y - (meta!.y + meta!.height)).toBeGreaterThanOrEqual(8);
+});
