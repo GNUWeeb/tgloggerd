@@ -671,6 +671,8 @@ MCP_TOKEN and both services' /mcp URLs:
                            assets and the page document.
     internal/testdb/       A database per test, and the dummy-data
                            fixtures (see Tests).
+    internal/mail/         Outbound mail: the SMTP sender and its
+                           queue (mailtest: an SMTP server for tests).
     vendor/                The third-party modules, committed.
     build/                 Build output (git-ignored).
 
