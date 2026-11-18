@@ -53,6 +53,13 @@ export function useListNav<T>(L: ListProps<T>) {
 }
 type ListNav<T> = ReturnType<typeof useListNav<T>>;
 
+// What an empty list says. Unfiltered and empty for a member, it has no
+// group granted yet, so nothing failed and no filter is to blame.
+export function emptyText(L: { q: string; conds: unknown[] }, member: boolean, noun: string, filtered: string): string {
+	if (member && !L.q && !L.conds.length) return `No ${noun} to show: no group is granted to you yet. An admin of your federation grants them.`;
+	return filtered;
+}
+
 function FilterAdd({ fields, onAdd }: { fields: FieldDef[]; onAdd: (c: Cond) => void }) {
 	const first = fields[0] as FieldDef;
 	const [open, setOpen] = useState(false);

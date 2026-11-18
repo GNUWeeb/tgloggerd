@@ -2,7 +2,7 @@ import { ArrowUpRight, Forward, Pencil, Trash2 } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
 import { Avatar, PageHead } from '../ui/primitives.tsx';
-import { DataTable, FilterBar, useListNav, type Col } from '../ui/list.tsx';
+import { DataTable, emptyText, FilterBar, useListNav, type Col } from '../ui/list.tsx';
 import { TypeIcon } from '../ui/media.tsx';
 import { ago, dateTime, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
@@ -79,7 +79,7 @@ function Messages({ page }: { page: PageData<MessagesProps> }) {
 		<Shell crumbs={[[title, null]]}>
 			<PageHead title={title} sub={v.account?.role === 'member' ? 'Messages in your groups. Full-text search over text and captions.' : `${fmt(page.props.archive_total ?? L.total)} messages. Full-text search over text and captions.`} />
 			<FilterBar L={L} fields={FIELDS[scope]} placeholder="Search message text" name={title} quick={QUICK[scope]} />
-			<DataTable L={L} cols={cols} noun="messages" empty="No messages match. Full-text search matches whole words."
+			<DataTable L={L} cols={cols} noun="messages" empty={emptyText(L, v.account?.role === 'member', 'messages', 'No messages match. Full-text search matches whole words.')}
 				href={(m) => `/messages/${scope}/${m.id}`}
 				mobile={(m) => ({
 					lead: scope === 'private' ? <Avatar id={m.chat.id} name={m.chat.title} photo={m.chat.photo} size={36} /> : <Avatar id={m.sender?.id ?? 0} name={m.sender?.name ?? '?'} photo={m.sender?.photo} size={36} />,

@@ -2,7 +2,7 @@ import { CloudDownload, CloudOff, Copy, Download, LayoutGrid, List, MessageSquar
 import Shell from '../ui/Shell.tsx';
 import { Link, setQuery, useNav, useQueryParams } from '../nav.tsx';
 import { Btn, KV, PageHead, Pill } from '../ui/primitives.tsx';
-import { DataTable, FilterBar, Pager, useListNav, type Col } from '../ui/list.tsx';
+import { DataTable, emptyText, FilterBar, Pager, useListNav, type Col } from '../ui/list.tsx';
 import { Modal } from '../ui/Modal.tsx';
 import { Thumb, TypeIcon, duration } from '../ui/media.tsx';
 import { ago, bytes, dateTime, fmt } from '../format.ts';
@@ -122,11 +122,11 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 							<span className="a-filecard-meta"><span className="a-ellipsis a-uname">{f.name}</span><span className="a-muted sm">{bytes(f.size)} . {ago(f.created_at, v)}</span></span>
 						</button>
 					))}</div>
-					{!L.rows.length && <div className="a-empty">No files match these filters.</div>}
+					{!L.rows.length && <div className="a-empty">{emptyText(L, member, 'files', 'No files match these filters.')}</div>}
 					<Pager L={L} noun="files" />
 				</div>
 			) : (
-				<DataTable L={L} cols={cols} noun="files" empty="No files match these filters."
+				<DataTable L={L} cols={cols} noun="files" empty={emptyText(L, member, 'files', 'No files match these filters.')}
 					href={(f) => setQuery(page.url, { file: f.id })}
 					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
 			)}
