@@ -1291,12 +1291,39 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/account/sessions:
+    get:
+      operationId: listSessions
+      tags: [account]
+      summary: The account's sessions
+      description: >-
+        Every live session of the account, this one first, then by last
+        use: the sessions page's data (web/docs/settings.md). A session
+        signed in on the Drogon web is listed once it has reached this
+        service. device is a short description of the browser's
+        User-Agent, ip the address of its last use, place empty (no
+        location source yet); started and last are UTC.
+      responses:
+        '200':
+          description: The sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionsProps'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
   /api/account/sessions/{id}:
     delete:
-      x-tgd-status: planned
       operationId: endSession
       tags: [account]
       summary: Sign out one of the account's other sessions
+      description: >-
+        That session ends on both web services. Ending this browser's
+        own session signs it out and clears its cookie. An id that is
+        not one of the account's live sessions answers 404.
       security:
         - session: []
           csrf: []
@@ -1319,16 +1346,29 @@ paths:
 
   /api/account/sessions/sign-out-others:
     post:
-      x-tgd-status: planned
       operationId: endOtherSessions
       tags: [account]
       summary: Sign out every other session of the account
+      description: >-
+        Every other session ends on both web services, listed or not,
+        as after a password change. This one stays signed in with a new
+        cookie, and its CSRF token changes: send the answered one from
+        now on.
       security:
         - session: []
           csrf: []
       responses:
-        '204':
+        '200':
           description: Every other session is signed out; this one stays.
+          headers:
+            Set-Cookie:
+              description: tgw_session, reissued.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrfToken'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':

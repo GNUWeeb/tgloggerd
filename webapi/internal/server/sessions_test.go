@@ -230,3 +230,149 @@ func TestSessionPasswordChangeKeepsRecord(t *testing.T) {
 		t.Fatalf("other session after the change: %d", a.status)
 	}
 }
+
+func TestSessionsListAndEnd(t *testing.T) {
+	t.Parallel()
+	db := freshAppDB(t)
+	hash, _ := auth.HashPassword("s3cret")
+	uid := addUser(t, db, "putri", hash, "member", true)
+	addUser(t, db, "agus", hash, "member", true)
+	h := newHandler(db, 5)
+	signer := auth.NewSigner(testKey)
+	laptop := &client{t: t, h: h, cookies: map[string]string{}, ua: firefox, addr: "203.0.113.24:1"}
+	phone := &client{t: t, h: h, cookies: map[string]string{}, ua: android, addr: "198.51.100.7:1"}
+	tok := signIn(t, laptop, "putri", "s3cret")
+	signIn(t, phone, "putri", "s3cret")
+	stranger := &client{t: t, h: h, cookies: map[string]string{}}
+	stok := signIn(t, stranger, "agus", "s3cret")
+	// A session signed in on the Drogon web and not seen here yet is
+	// not listed; ending the others ends it all the same.
+	ds := (&auth.Cookies{Signer: signer, Timeout: 3600}).NewSession(uid, "putri", "member", 0)
+	ds.Exp -= 600
+	drogon := signer.EncodeSession(ds)
+	if _, err := db.Exec("UPDATE web_sessions SET last_used_at = NOW() - INTERVAL 1 HOUR "+
+		"WHERE web_user_id = ? AND user_agent = ?", uid, android); err != nil {
+		t.Fatal(err)
+	}
+
+	list := func(c *client) []map[string]any {
+		t.Helper()
+		a := c.do("GET", "/api/account/sessions", "", nil)
+		if a.status != 200 {
+			t.Fatalf("list: %d %v", a.status, a.body)
+		}
+		var out []map[string]any
+		for _, x := range a.body["sessions"].([]any) {
+			out = append(out, x.(map[string]any))
+		}
+		// The page carries the same list.
+		p := c.do("GET", "/api/page/settings/sessions", "", nil)
+		if p.status != 200 || p.body["route"] != "settings_sessions" ||
+			len(p.body["props"].(map[string]any)["sessions"].([]any)) != len(out) {
+			t.Fatalf("page: %d %v", p.status, p.body)
+		}
+		return out
+	}
+	ss := list(laptop)
+	if len(ss) != 2 {
+		t.Fatalf("sessions %v", ss)
+	}
+	cur, ph := ss[0], ss[1]
+	if cur["current"] != true || cur["device"] != "Firefox on Linux" || cur["ip"] != "203.0.113.24" ||
+		ph["current"] != false || ph["device"] != "Chrome on Android" || ph["ip"] != "198.51.100.7" ||
+		ph["place"] != "" {
+		t.Fatalf("sessions %v", ss)
+	}
+	for _, k := range []string{"started", "last"} {
+		if _, err := time.Parse(time.RFC3339, cur[k].(string)); err != nil {
+			t.Errorf("%s %v", k, cur[k])
+		}
+	}
+
+	// Another account's session, or no session at all, is not found.
+	if a := stranger.do("DELETE", "/api/account/sessions/"+ph["id"].(string), stok, nil); a.status != 404 {
+		t.Fatalf("another account ends it: %d", a.status)
+	}
+	for _, id := range []string{"0", "x", "99999"} {
+		if a := laptop.do("DELETE", "/api/account/sessions/"+id, tok, nil); a.status != 404 {
+			t.Fatalf("end %s: %d", id, a.status)
+		}
+	}
+	if a := laptop.do("DELETE", "/api/account/sessions/"+ph["id"].(string), "", nil); a.status != 403 {
+		t.Fatalf("without CSRF: %d", a.status)
+	}
+	if a := laptop.do("DELETE", "/api/account/sessions/"+ph["id"].(string), tok, nil); a.status != 204 {
+		t.Fatalf("end the phone: %d", a.status)
+	}
+	if a := phone.do("GET", "/api/session", "", nil); a.status != 401 {
+		t.Fatalf("the ended phone: %d", a.status)
+	}
+	if a := laptop.do("DELETE", "/api/account/sessions/"+ph["id"].(string), tok, nil); a.status != 404 {
+		t.Fatalf("end it again: %d", a.status)
+	}
+	if ss := list(laptop); len(ss) != 1 || ss[0]["current"] != true {
+		t.Fatalf("after ending the phone %v", ss)
+	}
+
+	// Sign out all others: the Drogon session ends too; this one gets
+	// a new cookie and CSRF token, and keeps its start and device.
+	phone2 := &client{t: t, h: h, cookies: map[string]string{}, ua: android}
+	signIn(t, phone2, "putri", "s3cret")
+	if a := laptop.do("POST", "/api/account/sessions/sign-out-others", "", nil); a.status != 403 {
+		t.Fatalf("without CSRF: %d", a.status)
+	}
+	before := list(laptop)[0]
+	a := laptop.do("POST", "/api/account/sessions/sign-out-others", tok, nil)
+	newTok, _ := a.body["csrf"].(string)
+	if a.status != 200 || newTok == "" || newTok == tok ||
+		newTok != signer.SessionCSRF(laptop.cookies[auth.SessionCookie]) {
+		t.Fatalf("sign out others: %d %v", a.status, a.body)
+	}
+	for name, c := range map[string]*client{"phone": phone2,
+		"drogon": {t: t, h: h, cookies: map[string]string{auth.SessionCookie: drogon}}} {
+		if a := c.do("GET", "/api/session", "", nil); a.status != 401 {
+			t.Fatalf("%s after sign-out-others: %d", name, a.status)
+		}
+	}
+	after := list(laptop)
+	if len(after) != 1 || after[0]["started"] != before["started"] ||
+		after[0]["device"] != "Firefox on Linux" || after[0]["current"] != true {
+		t.Fatalf("after sign-out-others %v (was %v)", after, before)
+	}
+	if a := laptop.do("PUT", "/api/account/preferences", newTok, map[string]any{}); a.status != 200 {
+		t.Fatalf("the new token: %d", a.status)
+	}
+	// The other account is untouched.
+	if a := stranger.do("GET", "/api/session", "", nil); a.status != 200 {
+		t.Fatalf("the other account: %d", a.status)
+	}
+
+	// Ending this browser's own session signs it out.
+	id := after[0]["id"].(string)
+	if a := laptop.do("DELETE", "/api/account/sessions/"+id, newTok, nil); a.status != 204 {
+		t.Fatalf("end own: %d", a.status)
+	}
+	if _, ok := laptop.cookies[auth.SessionCookie]; ok {
+		t.Fatal("ending its own session kept the cookie")
+	}
+}
+
+func TestDeviceName(t *testing.T) {
+	t.Parallel()
+	for ua, want := range map[string]string{
+		firefox: "Firefox on Linux",
+		android: "Chrome on Android",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) " +
+			"Version/18.0 Safari/605.1.15": "Safari on macOS",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+			"Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0": "Edge on Windows",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 " +
+			"(KHTML, like Gecko) CriOS/141.0 Mobile/15E148 Safari/604.1": "Chrome on iPhone",
+		"curl/8.11.0": "curl",
+		"":            "Unknown device",
+	} {
+		if got := deviceName("en", ua); got != want {
+			t.Errorf("%q: %q, want %q", ua, got, want)
+		}
+	}
+}

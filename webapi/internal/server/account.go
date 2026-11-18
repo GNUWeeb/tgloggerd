@@ -128,7 +128,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "audit", err)
 		return
 	}
-	raw, err := s.startSession(ctx, w, r, u.ID, u.Username, u.Role, epoch, sess.Row)
+	raw, err := s.startSession(ctx, w, r, u.ID, u.Username, u.Role, epoch, &sess.Key)
 	if err != nil {
 		s.internalError(w, "start session", err)
 		return

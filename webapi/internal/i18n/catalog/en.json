@@ -5,5 +5,7 @@
 	"prefs.unknown": "{key} is not a preference.",
 	"search.limit": "At most {max} searches can be saved; delete one first.",
 	"search.title": "A saved search needs a title of at most 128 characters.",
-	"search.url": "A saved search must be a path on this site, of at most 2048 bytes."
+	"search.url": "A saved search must be a path on this site, of at most 2048 bytes.",
+	"session.device": "{browser} on {system}",
+	"session.unknown_device": "Unknown device"
 }

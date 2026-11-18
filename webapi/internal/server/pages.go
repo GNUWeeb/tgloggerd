@@ -53,6 +53,7 @@ type pageRoute struct {
 // pageRequest is what a loader gets: the request, its session (nil for
 // a signed-out visitor), its scope and the path's parameters.
 type pageRequest struct {
+	s      *Server
 	r      *http.Request
 	sess   *auth.Session
 	scope  scope.Scope
@@ -92,7 +93,7 @@ func defaultPages() []pageRoute {
 		{id: "message", pattern: "/messages/{scope}/{id}"},
 		{id: "settings", pattern: "/settings"},
 		{id: "settings_preferences", pattern: "/settings/preferences"},
-		{id: "settings_sessions", pattern: "/settings/sessions"},
+		{id: "settings_sessions", pattern: "/settings/sessions", load: loadSessions},
 		{id: "accounts", pattern: "/settings/accounts"},
 		{id: "federations", pattern: "/settings/federations"},
 		{id: "platform_fwd", pattern: "/platform-fwd"},
@@ -250,7 +251,7 @@ func (s *Server) buildPage(r *http.Request, sess *auth.Session, path string) (re
 		return s.notFoundPage(page), nil, pageServed, nil
 	}
 	props, err := rt.load(r.Context(), &pageRequest{
-		r: r, sess: sess, scope: sc, params: params, query: r.URL.Query(),
+		s: s, r: r, sess: sess, scope: sc, params: params, query: r.URL.Query(),
 	})
 	if errors.Is(err, errPageNotFound) {
 		return s.notFoundPage(page), rt, pageServed, nil

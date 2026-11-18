@@ -63,6 +63,37 @@ theme follows the system, `data-theme`.
 - An account keeps at most 50 pins and 100 saved searches; one more
   answers 400 too_many.
 
+## Sessions
+
+    GET    /api/account/sessions                    {sessions}
+    DELETE /api/account/sessions/{id}               sign one out; 204
+    POST   /api/account/sessions/sign-out-others    200 {csrf}
+
+The sessions page (`/settings/sessions`) shows the same list. Each
+session is a row of web_sessions, keyed by the SHA-256 of its cookie
+(decisions/2026-11-18-sessions-list.md):
+
+- `device` is a short description of the User-Agent it signed in
+  with ("Firefox on Linux"), `ip` the address of its last use, `place`
+  empty (no location source yet), `started` and `last` UTC times. The
+  current session comes first, the others by last use.
+- A session signed in on the Go service is listed at once. One signed
+  in on the Drogon web is listed once it reaches the Go service (any
+  page or API request); the last use is recorded there, once a minute
+  at most.
+- Signing one out ends its row: both services refuse its cookie from
+  the next request (the Drogon AuthFilter reads the row in the same
+  query as the epoch). Signing this browser's own session out clears
+  its cookie, as a logout does; POST /api/logout ends the row too.
+- "Sign out all others" bumps the account's session epoch, as a
+  password change does, so every other session ends on both services,
+  listed or not. This session gets a new cookie that keeps its start
+  and device, and a new CSRF token, which the answer carries; the
+  client must send it from then on.
+- Rows of an older epoch and expired rows are deleted when the account
+  signs in or lists its sessions. Audit rows: `session_end` (detail
+  `session <id>`) and `sessions_signout_others`.
+
 ## Texts
 
 User-facing texts go through a lookup by language

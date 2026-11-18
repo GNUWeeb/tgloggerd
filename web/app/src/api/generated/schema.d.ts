@@ -429,6 +429,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/account/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The account's sessions
+         * @description Every live session of the account, this one first, then by last use: the sessions page's data (web/docs/settings.md). A session signed in on the Drogon web is listed once it has reached this service. device is a short description of the browser's User-Agent, ip the address of its last use, place empty (no location source yet); started and last are UTC.
+         */
+        get: operations["listSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/account/sessions/{id}": {
         parameters: {
             query?: never;
@@ -439,7 +459,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Sign out one of the account's other sessions */
+        /**
+         * Sign out one of the account's other sessions
+         * @description That session ends on both web services. Ending this browser's own session signs it out and clears its cookie. An id that is not one of the account's live sessions answers 404.
+         */
         delete: operations["endSession"];
         options?: never;
         head?: never;
@@ -455,7 +478,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sign out every other session of the account */
+        /**
+         * Sign out every other session of the account
+         * @description Every other session ends on both web services, listed or not, as after a password change. This one stays signed in with a new cookie, and its CSRF token changes: send the answered one from now on.
+         */
         post: operations["endOtherSessions"];
         delete?: never;
         options?: never;
@@ -2930,6 +2956,28 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    listSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sessions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionsProps"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
     endSession: {
         parameters: {
             query?: never;
@@ -2964,11 +3012,15 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Every other session is signed out; this one stays. */
-            204: {
+            200: {
                 headers: {
+                    /** @description tgw_session, reissued. */
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["CsrfToken"];
+                };
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];

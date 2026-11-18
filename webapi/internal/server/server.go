@@ -191,6 +191,9 @@ func (s *Server) routes() []route {
 		{"DELETE /api/account/pinned/{group_id}", s.RequireSession(s.unpinGroup)},
 		{"POST /api/account/saved-searches", s.RequireSession(s.saveSearch)},
 		{"DELETE /api/account/saved-searches/{id}", s.RequireSession(s.deleteSavedSearch)},
+		{"GET /api/account/sessions", s.RequireSession(s.listSessions)},
+		{"DELETE /api/account/sessions/{id}", s.RequireSession(s.endSession)},
+		{"POST /api/account/sessions/sign-out-others", s.RequireSession(s.endOtherSessions)},
 	}
 }
 

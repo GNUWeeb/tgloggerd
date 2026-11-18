@@ -269,7 +269,7 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, err := s.startSession(ctx, w, r, u.ID, u.Username, u.Role, u.Epoch, 0)
+	raw, err := s.startSession(ctx, w, r, u.ID, u.Username, u.Role, u.Epoch, nil)
 	if err != nil {
 		s.internalError(w, "start session", err)
 		return

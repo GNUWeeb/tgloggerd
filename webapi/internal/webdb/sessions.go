@@ -46,10 +46,10 @@ type NewSession struct {
 	IP        string
 	// SignedIn is when the session started; zero is now.
 	SignedIn time.Time
-	// From is the row of the session this one replaces (a cookie
+	// From is the key of the session this one replaces (a cookie
 	// reissued after a password change), whose start and device it
-	// keeps; 0 for a new sign-in.
-	From uint64
+	// keeps when it has a row; nil for a new sign-in.
+	From *[32]byte
 }
 
 func fit(s string, n int) string {
@@ -80,12 +80,12 @@ func RecordSession(ctx context.Context, db *sql.DB, n NewSession) error {
 		res sql.Result
 		err error
 	)
-	if n.From != 0 {
+	if n.From != nil {
 		res, err = db.ExecContext(ctx,
 			"INSERT INTO web_sessions (web_user_id, token_hash, epoch, expires, "+
 				"user_agent, ip, signed_in_at) SELECT ?, ?, ?, ?, user_agent, ?, "+
-				"signed_in_at FROM web_sessions WHERE id = ? AND web_user_id = ?",
-			n.UID, n.Key[:], n.Epoch, n.Expires, ip, n.From, n.UID)
+				"signed_in_at FROM web_sessions WHERE token_hash = ? AND web_user_id = ?",
+			n.UID, n.Key[:], n.Epoch, n.Expires, ip, n.From[:], n.UID)
 		if err == nil {
 			if k, _ := res.RowsAffected(); k == 1 {
 				return nil
@@ -216,4 +216,29 @@ func ListSessions(ctx context.Context, db *sql.DB, uid uint64) ([]SessionRow, er
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// EndOtherSessions ends every session of the account on both services
+// by bumping its session_epoch, recorded or not, and returns the new
+// epoch for the caller's new cookie.
+func EndOtherSessions(ctx context.Context, db *sql.DB, uid uint64) (uint32, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE web_users SET session_epoch = session_epoch + 1 WHERE id = ?", uid); err != nil {
+		return 0, err
+	}
+	var epoch uint32
+	err = tx.QueryRowContext(ctx, "SELECT session_epoch FROM web_users WHERE id = ?", uid).
+		Scan(&epoch)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNoUser
+	}
+	if err != nil {
+		return 0, err
+	}
+	return epoch, tx.Commit()
 }
