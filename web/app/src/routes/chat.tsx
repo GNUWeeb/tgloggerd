@@ -8,6 +8,7 @@ import { PublicFrame } from '../ui/PublicFrame.tsx';
 import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
+import { Counts, KindDetail, Reactions, TEXT_INSIDE } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
 import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
@@ -89,7 +90,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 	const out = !m.sender;
 	const ct = m.content_type;
 	const sticker = ct === 'sticker';
-	const mediaOnly = (ct === 'photo' || ct === 'video' || ct === 'animation') && !m.text && !m.reply_to && !m.forward;
+	const mediaOnly = (ct === 'photo' || ct === 'video' || ct === 'animation' || ct === 'video_note') && !m.text && !m.reply_to && !m.forward;
 	const [edits, setEdits] = useState(false);
 	const s = useFreshUser(m.sender);
 	const pref = prefs(v);
@@ -122,11 +123,14 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 						{r.resolved === false ? <span className="c-sub">not in the archive</span> : <span className={r.deleted ? 'c-replydel' : ''}>{r.snippet}{r.deleted ? ' (deleted)' : ''}</span>}
 					</a>)}
 				<MessageMedia msg={m} onClick={pref.mediaOnClick} />
+				{m.detail && <KindDetail d={m.detail} text={m.text} v={v} />}
 				{m.content_type === 'unknown' && <div className="c-unknown c-sub">{m.tdlib_type ? `A kind of message this view does not show yet (${m.tdlib_type})` : 'A kind of message this view does not show'}</div>}
-				{m.text && <div className="c-text">{m.text}</div>}
+				{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) && <div className="c-text">{m.text}</div>}
 				{m.link_preview && <LinkPreview lp={m.link_preview} />}
 				{m.author_signature && <div className="c-sign">- {m.author_signature}</div>}
+				<Reactions list={m.reactions} />
 				<div className="c-meta">
+					<Counts k={m} />
 					{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}
 					{pref.showEdited && m.edits.length > 0 && <button type="button" className="c-edited" onClick={() => setEdits((x) => !x)} aria-expanded={edits}><Pencil size={10} />edited</button>}
 					{/* Edited, but no earlier version was recorded. */}
@@ -164,10 +168,14 @@ function Feed({ msgs: all, v, isGroup, flash, onReply }: { msgs: ChatMessage[]; 
 		if (m.content_type === 'service') {
 			// The actor links to its user, or to its chat when it acted as
 			// one; the text falls back to the action's type.
+			// The text comes rebuilt for the viewer (whom it may name); a pin,
+			// a changed poll or a giveaway links to the message it is about.
+			const svcText = m.text || serviceText(m.service?.type ?? m.service_type);
+			const svcAbout = m.service?.refs.message_id ?? null;
 			const actor = m.sender_chat ? <Link to={`/groups/${m.sender_chat.id}`}>{m.sender_chat.title}</Link> : m.sender ? (m.sender.id !== 0 ? <Link to={`/users/${m.sender.id}`}>{m.sender.name}</Link> : <span>{m.sender.name}</span>) : null;
 			out.push(
 				<div key={m.id} id={`m${m.message_id}`} className={`c-service ${m.deleted_at ? 'deleted' : ''}`}>
-					<span>{actor} {m.text || serviceText(m.service_type)} <Link to={`/messages/${m.scope}/${m.id}`} className="c-svctime" title={m.date}>{hm(m.date, v)}</Link>{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}</span>
+					<span>{actor} {svcAbout ? <a href={`?at=${svcAbout}`} onClick={(e) => { e.preventDefault(); onReply(svcAbout); }}>{svcText}</a> : svcText} <Link to={`/messages/${m.scope}/${m.id}`} className="c-svctime" title={m.date}>{hm(m.date, v)}</Link>{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}</span>
 				</div>,
 			);
 			return;
