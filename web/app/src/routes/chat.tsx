@@ -132,7 +132,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 					<Link to={`/messages/${m.scope}/${m.id}`} className="c-time" title={m.date}>{hm(m.date, v)}</Link>
 				</div>
 				{edits && (
-					<div className="c-edits">
+					<div className="c-editswrap"><div className="c-edits">
 						{m.edits.map((e, i) => (
 							<div key={i}>
 								<span className="c-sub">{hm(e.at, v)}{e.content_type && e.content_type !== m.content_type ? ` . was ${e.content_type}` : ''}</span>
@@ -141,7 +141,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 							</div>
 						))}
 						<div><span className="c-sub">{m.edited_at ? hm(m.edited_at, v) : ''} (current)</span><div>{m.text}</div></div>
-					</div>
+					</div></div>
 				)}
 			</div>
 		</div>
