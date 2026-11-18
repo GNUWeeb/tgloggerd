@@ -545,10 +545,30 @@ stored. See decision
 
 Group rows have `topic_kind ENUM('forum','thread','direct','saved')
 NULL` and `topic_id BIGINT NULL` for `message.topic_id`, indexed with
-`chat_id` (added by migration 000034). A table `telegram_forum_topics (chat_id, topic_id, name,
-icon_color, icon_custom_emoji_id, is_closed, is_hidden, creation_date,
-creator_user_id NULL, ...)` is filled from `updateForumTopicInfo`,
-`getForumTopics` once per forum, and the topic service messages.
+`chat_id` (added by migration 000034). A forum topic's id is TDLib's
+`forum_topic_id`; a thread's is the server id of the thread's first
+message (comments of a channel post in its discussion group); direct
+and saved-messages topics keep TDLib's id. A copy of a message without
+a topic leaves a stored one in place.
+
+The topics are in `telegram_forum_topics` (migration 000039), keyed by
+`(chat_id, topic_id)`: `name`, `is_name_implicit`, `icon_color`,
+`icon_custom_emoji_id`, `creation_date`, `creator_user_id` or
+`creator_chat_id`, `is_general`, `is_closed`, `is_hidden`, `is_pinned`.
+There is no foreign key to `telegram_groups`, since topic updates can
+arrive before the group row is written. Unread counts, notification
+settings and drafts describe this account and are left out.
+
+The table is filled from three sources:
+
+- `updateForumTopicInfo`, which replaces the stored state;
+- one `getForumTopics` sweep per forum per run, started when
+  `updateSupergroup` says the group is a forum (at most 20 pages of
+  100), which also sets `is_pinned`; `updateForumTopic` keeps it
+  current;
+- a "topic created" service message, which only fills in a topic not
+  stored yet, since history backfill reads such messages long after
+  the topic may have been renamed.
 
 ### 4.6 Message-level metadata (`meta`)
 

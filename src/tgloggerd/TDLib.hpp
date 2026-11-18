@@ -16,6 +16,7 @@
 #include <tgloggerd/models/User.hpp>
 #include <tgloggerd/models/File.hpp>
 #include <tgloggerd/models/Poll.hpp>
+#include <tgloggerd/models/ForumTopic.hpp>
 #include <tgloggerd/models/Group.hpp>
 #include <tgloggerd/models/PrivateMessage.hpp>
 #include <tgloggerd/models/GroupMessage.hpp>
@@ -286,6 +287,16 @@ public:
 	 * updatePoll, which TDLib sends as votes arrive or the poll closes.
 	 */
 	void setPollHandler(std::function<void(const models::Poll &)> cb);
+
+	/*
+	 * Set the callbacks for forum topics: @info with a topic and whether
+	 * it only fills in a missing one (read from its "created" message)
+	 * rather than describing it now; @pinned when a topic is pinned or
+	 * unpinned in the forum's list.
+	 */
+	void setForumTopicHandlers(
+		std::function<void(const models::ForumTopic &, bool only_if_absent)> info,
+		std::function<void(int64_t chat_id, int32_t topic_id, bool pinned)> pinned);
 
 	/*
 	 * Set the callback invoked once for every live, newly-received message

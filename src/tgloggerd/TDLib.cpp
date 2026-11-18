@@ -787,6 +787,10 @@ struct TDLib::Impl {
 	std::function<void(const models::GroupMessage &)> group_msg_handler_;
 	std::function<void(const models::LinkPreview &, bool)> link_preview_handler_;
 	std::function<void(const models::Poll &)>	poll_handler_;
+	std::function<void(const models::ForumTopic &, bool)> forum_topic_handler_;
+	std::function<void(int64_t, int32_t, bool)>	forum_topic_pinned_handler_;
+	/* Forums whose topic list was read in this run (getForumTopics). */
+	std::unordered_set<int64_t>			forum_topics_swept_;
 	/* A message's content as delivered inline by updateMessageContent. */
 	std::function<void(int64_t, int64_t, const models::MessageContent &,
 			   bool)> content_version_handler_;
@@ -1029,6 +1033,9 @@ struct TDLib::Impl {
 	void maybe_download_message_file(const td_api::message &message,
 					 bool is_group);
 	void maybe_store_poll(const td_api::message &message);
+	void sweep_forum_topics(int64_t chat_id, int32_t offset_date,
+				int64_t offset_message_id,
+				int32_t offset_topic_id, int pages);
 	void ingest_message_file(PendingMsgFile ref, const td_api::file &file);
 	void emit_message_file(const PendingMsgFile &ref, const td_api::file &f);
 	bool record_without_download(int64_t chat_id, const td_api::file &f);
@@ -1359,6 +1366,19 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				supergroups_[sg.id_] = info;
 				update_group_membership(sg.id_, false,
 							info.member);
+				/*
+				 * A forum: read its topic list once per run, so
+				 * topics created or renamed while the daemon was
+				 * down are known too. The chat id of supergroup N
+				 * is -(10^12 + N).
+				 */
+				if (sg.is_forum_ && forum_topic_handler_ &&
+				    forum_topics_swept_
+					    .insert(-1000000000000LL - sg.id_)
+					    .second)
+					sweep_forum_topics(
+						-1000000000000LL - sg.id_, 0, 0,
+						0, 0);
 
 				auto it = group_state_.find(sg.id_);
 				if (it == group_state_.end())
@@ -1440,6 +1460,18 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 					return;
 				refetch_edited_message(u.chat_id_, u.message_id_,
 						       true);
+			},
+			[this](td_api::updateForumTopicInfo &u) {
+				if (forum_topic_handler_ && u.info_)
+					forum_topic_handler_(
+						extract_forum_topic(*u.info_),
+						false);
+			},
+			[this](td_api::updateForumTopic &u) {
+				if (forum_topic_pinned_handler_)
+					forum_topic_pinned_handler_(
+						u.chat_id_, u.forum_topic_id_,
+						u.is_pinned_);
 			},
 			[this](td_api::updatePoll &u) {
 				/*
@@ -1797,6 +1829,9 @@ void TDLib::Impl::handle_message_for_group_chat(td_api::message &message,
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, true);
 	maybe_store_poll(message);
+	if (forum_topic_handler_)
+		if (auto t = forum_topic_from_created(message))
+			forum_topic_handler_(*t, true);
 	/* ...and record its link preview, whose row keys off that same row. */
 	if (message.content_)
 		maybe_store_link_preview(message.chat_id_, message.id_,
@@ -2171,6 +2206,13 @@ void TDLib::Impl::build_group_message(const td_api::message &message,
 
 	extract_message_content(message, out.content);
 	out.forward_info = extract_forward_info(message);
+
+	std::string topic_kind;
+	int64_t topic_id = 0;
+	if (message_topic(message.topic_id_.get(), topic_kind, topic_id)) {
+		out.topic_kind = std::move(topic_kind);
+		out.topic_id = topic_id;
+	}
 }
 
 void TDLib::Impl::resolve_forward_origin(const models::ForwardInfo &info)
@@ -2317,6 +2359,47 @@ void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
 	}
 	ref.dl_query = start_ingest_download(img->id_);
 	pending_message_file_.emplace(img->id_, std::move(ref));
+}
+
+/* Pages of getForumTopics read per forum and run, at most; 100 each. */
+constexpr int kMaxForumTopicPages = 20;
+
+/*
+ * Read a forum's topic list, a page at a time, and store each topic as it
+ * stands. Errors end the sweep: a forum the account cannot read has no
+ * topics to learn.
+ */
+void TDLib::Impl::sweep_forum_topics(int64_t chat_id, int32_t offset_date,
+				     int64_t offset_message_id,
+				     int32_t offset_topic_id, int pages)
+{
+	send_query(td_api::make_object<td_api::getForumTopics>(
+			   chat_id, std::string(), offset_date,
+			   offset_message_id, offset_topic_id, 100),
+		[this, chat_id, pages](Object obj) {
+			if (!obj || obj->get_id() != td_api::forumTopics::ID)
+				return;
+			auto &ft = static_cast<const td_api::forumTopics &>(*obj);
+			for (const auto &t : ft.topics_) {
+				if (!t || !t->info_)
+					continue;
+				forum_topic_handler_(extract_forum_topic(*t->info_),
+						     false);
+				if (forum_topic_pinned_handler_)
+					forum_topic_pinned_handler_(
+						chat_id, t->info_->forum_topic_id_,
+						t->is_pinned_);
+			}
+			if (ft.topics_.empty() || pages + 1 >= kMaxForumTopicPages ||
+			    (ft.next_offset_date_ == 0 &&
+			     ft.next_offset_message_id_ == 0 &&
+			     ft.next_offset_forum_topic_id_ == 0))
+				return;
+			sweep_forum_topics(chat_id, ft.next_offset_date_,
+					   ft.next_offset_message_id_,
+					   ft.next_offset_forum_topic_id_,
+					   pages + 1);
+		});
 }
 
 /* Store the poll a message shows, as the message has it now. */
@@ -3643,6 +3726,14 @@ void TDLib::setPrivateMessageHandler(
 	std::function<void(const models::PrivateMessage &)> cb)
 {
 	impl_->private_msg_handler_ = std::move(cb);
+}
+
+void TDLib::setForumTopicHandlers(
+	std::function<void(const models::ForumTopic &, bool)> info,
+	std::function<void(int64_t, int32_t, bool)> pinned)
+{
+	impl_->forum_topic_handler_ = std::move(info);
+	impl_->forum_topic_pinned_handler_ = std::move(pinned);
 }
 
 void TDLib::setPollHandler(std::function<void(const models::Poll &)> cb)

@@ -52,6 +52,12 @@ struct GroupMessage {
 
 	/* Forward information; nullopt if not forwarded. */
 	std::optional<ForwardInfo>	forward_info;
+
+	/* td_api::message.topic_id: "forum", "thread", "direct" or "saved"
+	 * and the id within the chat; nullopt when the message has none. A
+	 * thread id is the server id of the thread's first message. */
+	std::optional<std::string>	topic_kind;
+	std::optional<int64_t>		topic_id;
 };
 
 } /* namespace models */

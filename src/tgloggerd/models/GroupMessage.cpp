@@ -41,9 +41,9 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		" is_channel_post, author_signature, date,"
 		" edit_date, content_type, text, entities, service_type,"
 		" tdlib_type, content_extra,"
-		" is_forwarded, media_album_id"
+		" is_forwarded, media_album_id, topic_kind, topic_id"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_user_id = new.sender_user_id,"
 		" sender_chat_id = new.sender_chat_id,"
@@ -52,6 +52,9 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		" date = new.date,"
 		" is_forwarded = new.is_forwarded,"
 		" media_album_id = new.media_album_id,"
+		/* A copy without a topic leaves a stored one in place. */
+		" topic_kind = COALESCE(new.topic_kind, telegram_group_messages.topic_kind),"
+		" topic_id = COALESCE(new.topic_id, telegram_group_messages.topic_id),"
 		/*
 		 * The content columns are only taken from a copy that is at
 		 * least as recent as the stored one. Two getMessage replies for
@@ -138,6 +141,13 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		if (msg.media_album_id.has_value())
 			album_param = (int64_t)*msg.media_album_id;
 
+		mysql::Param topic_kind_param = std::monostate{};
+		mysql::Param topic_id_param = std::monostate{};
+		if (msg.topic_kind.has_value() && msg.topic_id.has_value()) {
+			topic_kind_param = *msg.topic_kind;
+			topic_id_param = (int64_t)*msg.topic_id;
+		}
+
 		std::string new_ct = models::to_string(msg.content.content_type);
 
 		auto bind_all = [&]() -> std::vector<mysql::Param> {
@@ -158,6 +168,8 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 				extra_param,
 				b(msg.forward_info.has_value()),
 				album_param,
+				topic_kind_param,
+				topic_id_param,
 			};
 		};
 
