@@ -81,7 +81,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 				{ct === 'voice' && m.media && (
 					<div className="c-voice">
 						<button type="button" className="c-play" aria-label="Play"><Play size={16} fill="currentColor" /></button>
-						<div><div className="c-wave">{(m.media.wave ?? []).map((w, i) => <span key={i} style={{ height: 4 + w * 18 }} />)}</div><span className="c-sub">{duration(m.media.duration ?? 0)}</span></div>
+						<div><div className="c-wave">{(m.media.wave ?? []).map((w, i) => <span key={i} style={{ height: 4 + (w / 31) * 18 }} />)}</div><span className="c-sub">{duration(m.media.duration ?? 0)}</span></div>
 					</div>
 				)}
 				{m.text && <div className="c-text">{m.text}</div>}

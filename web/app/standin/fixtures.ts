@@ -81,7 +81,9 @@ function chatMedia(md, type) {
 	if (!md) return null;
 	return {
 		stored: md.stored !== false, thumb: null, url: md.stored !== false ? `/files/standin-${md.fileId}` : null,
-		w: md.w, h: md.h, duration: md.duration, name: md.name, size: md.size, emoji: md.emoji, wave: md.wave,
+		w: md.w, h: md.h, duration: md.duration, name: md.name, size: md.size, emoji: md.emoji,
+		// Telegram's voice waveform is 5-bit: 0 to 31 per bar.
+		wave: md.wave?.map((x) => Math.round(x * 31)),
 	};
 }
 
