@@ -9,6 +9,8 @@ import type { PageData } from '../page.ts';
 import type { Cond, FieldDef, ListProps, MessageRow } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
+import { safeFragment } from '../api/engine.ts';
+import { BackendNote, EngineOptions, Facets, Highlighted } from '../ui/SearchEngine.tsx';
 
 export type MessagesProps = S['MessagesProps'];
 
@@ -64,6 +66,10 @@ function Messages({ page }: { page: PageData<MessagesProps> }) {
 	const v = page.viewer;
 	const scope = page.props.scope;
 	const title = scope === 'group' ? 'Group messages' : 'Private messages';
+	// The engine's matched fragments of each row, when it sent them; the
+	// rows without any keep the plain snippet.
+	const hls = new Map((page.props.highlights ?? []).map((h, i) => [page.props.rows[i]?.id, h]));
+	const snippet = (m: MessageRow) => (hls.get(m.id)?.some((f) => safeFragment(f) !== null) ? <Highlighted fragments={hls.get(m.id)} /> : <Hl text={m.snippet} q={L.q} />);
 	const cols: Col<MessageRow>[] = [
 		{ key: 'date', label: 'Sent', sort: true, cls: 'mono a-dim', render: (m) => <span title={m.date}>{dateTime(m.date, v)}</span> },
 		{ key: 'chat', label: scope === 'group' ? 'Group' : 'Chat with', cls: 'a-hide-md', render: (m) => <Link to={chatLink(m.chat)} className="a-chatcell"><Avatar id={m.chat.id} name={m.chat.title} photo={m.chat.photo} size={20} square={m.chat.kind === 'group'} /><span className="a-ellipsis">{m.chat.title}</span></Link> },
@@ -71,7 +77,7 @@ function Messages({ page }: { page: PageData<MessagesProps> }) {
 			? m.sender.id === 0 ? <span className="a-chatcell a-muted"><span className="a-ellipsis">{m.sender.name}</span></span> : <Link to={`/users/${m.sender.id}`} className="a-chatcell"><Avatar id={m.sender.id} name={m.sender.name} photo={m.sender.photo} size={20} /><span className="a-ellipsis">{m.sender.name}</span></Link>
 			: <span className="a-out">you</span>) },
 		{ key: 'content_type', label: 'Type', render: (m) => <span className="a-typecell"><TypeIcon type={m.content_type} />{m.content_type}</span> },
-		{ key: 'text', label: 'Text', cls: 'a-textcell', render: (m) => <Link to={`/messages/${scope}/${m.id}`} className={`a-snippet ${m.deleted_at ? 'is-deleted' : ''} ${m.content_type === 'service' ? 'is-service' : ''}`}><Hl text={m.snippet} q={L.q} /></Link> },
+		{ key: 'text', label: 'Text', cls: 'a-textcell', render: (m) => <Link to={`/messages/${scope}/${m.id}`} className={`a-snippet ${m.deleted_at ? 'is-deleted' : ''} ${m.content_type === 'service' ? 'is-service' : ''}`}>{snippet(m)}</Link> },
 		{ key: 'flags', label: '', render: (m) => <MsgFlags m={m} /> },
 		{ key: 'open', label: '', render: (m) => <Link to={chatPath(m)} className="a-icon-btn sm" title="Show in chat" aria-label="Show in chat"><ArrowUpRight size={14} /></Link> },
 	];
@@ -79,12 +85,15 @@ function Messages({ page }: { page: PageData<MessagesProps> }) {
 		<Shell crumbs={[[title, null]]}>
 			<PageHead title={title} sub={v.account?.role === 'member' ? 'Messages in your groups. Full-text search over text and captions.' : `${fmt(page.props.archive_total ?? L.total)} messages. Full-text search over text and captions.`} />
 			<FilterBar L={L} fields={FIELDS[scope]} placeholder="Search message text" name={title} quick={QUICK[scope]} />
+			<EngineOptions p={page.props} />
+			<BackendNote b={page.props.backend} />
+			<Facets facets={page.props.facets} conds={L.conds} onConds={L.setConds} />
 			<DataTable L={L} cols={cols} noun="messages" empty={emptyText(L, v.account?.role === 'member', 'messages', 'No messages match. Full-text search matches whole words.')}
 				href={(m) => `/messages/${scope}/${m.id}`}
 				mobile={(m) => ({
 					lead: scope === 'private' ? <Avatar id={m.chat.id} name={m.chat.title} photo={m.chat.photo} size={36} /> : <Avatar id={m.sender?.id ?? 0} name={m.sender?.name ?? '?'} photo={m.sender?.photo} size={36} />,
 					title: scope === 'private' ? m.chat.title : <>{m.sender?.name}<span className="a-muted"> in {m.chat.title}</span></>,
-					sub: <span className={`a-snippet2 ${m.deleted_at ? 'is-deleted' : ''}`}>{!m.sender && <b>You: </b>}<Hl text={m.snippet} q={L.q} /></span>,
+					sub: <span className={`a-snippet2 ${m.deleted_at ? 'is-deleted' : ''}`}>{!m.sender && <b>You: </b>}{snippet(m)}</span>,
 					side: <><span className="a-muted sm">{ago(m.date, v)}</span><MsgFlags m={m} /></>,
 				})} />
 		</Shell>

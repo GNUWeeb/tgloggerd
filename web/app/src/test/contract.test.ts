@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { viewOf, adminApi, federationGroups, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { setEngine, viewOf, adminApi, federationGroups, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 import { FORUM_GROUP, KINDS_GROUP, TOPICS, sampleOf } from '../../standin/kinds.ts';
 import { chatStream } from '../../../mockup/src/data/messages.js';
@@ -254,5 +254,26 @@ describe('the kind samples', () => {
 	it('are each on a message page of their own, for a full viewer and a member', () => {
 		expect(sampleIds.length).toBeGreaterThanOrEqual(23);
 		for (const persona of ['superadmin', 'member'] as Persona[]) for (const id of sampleIds) expect(pageData(`/messages/group/${id}`, persona).status).toBe(200);
+	});
+});
+
+describe('the message lists with a search engine', () => {
+	const checked = (url: string, persona: Persona) => {
+		const page = pageData(url, persona);
+		return validate(spec, ref(variants.get(page.route)!), wire(page));
+	};
+	it.each(['available', 'behind'] as const)('answer as the description says while it is %s', (state) => {
+		setEngine(state);
+		try {
+			for (const persona of ['superadmin', 'member'] as Persona[]) {
+				for (const url of ['/group_messages', '/group_messages?q=kernel&highlight=1&facets=1&fuzzy=1', '/group_messages?f=' + encodeURIComponent('[{"field":"text","op":"matches","value":"rust"}]') + '&highlight=1']) {
+					expect(checked(url, persona)).toEqual([]);
+				}
+			}
+			expect(checked('/private_messages?q=thanks&highlight=1&facets=1', 'superadmin')).toEqual([]);
+			const p = pageData('/group_messages?q=kernel&highlight=1&facets=1', 'superadmin').props as { engine?: { available: boolean }; highlights?: unknown[]; rows: unknown[]; facets?: unknown[] };
+			expect(p.engine?.available).toBe(state === 'available');
+			if (state === 'available') { expect(p.highlights).toHaveLength(p.rows.length); expect(p.facets?.length).toBeGreaterThan(0); }
+		} finally { setEngine('off'); }
 	});
 });

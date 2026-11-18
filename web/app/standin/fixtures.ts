@@ -13,6 +13,8 @@ import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/d
 import { createHash, randomBytes } from 'node:crypto';
 import { REGISTRY, SLOW, compile, fieldsOf, legacyQuery, type ListError } from './search.ts';
 import { ALL, kindsOf, sampleOf, topicOf, topicsOf, type View } from './kinds.ts';
+import { engineAnswer } from './engine.ts';
+export { engineOf, setEngine } from './engine.ts';
 import { queryRows } from '../../mockup/src/data/seed.js';
 import type { PageData, Viewer } from '../src/page.ts';
 
@@ -383,10 +385,13 @@ function searchList(st, registry: string, rows: Record<string, unknown>[], keep:
 		if (typeof t === 'function') test = t; else error = t;
 	}
 	const applied = error ? { ...st, q: '', conds: [] } : st;
-	const r = query({ ...applied, conds: [] }, (x) => (!keep || keep(x)) && (!test || test(x)));
+	const want = (x) => (!keep || keep(x)) && (!test || test(x));
+	const r = query({ ...applied, conds: [] }, want);
 	// Without a search the biggest list counts by the table's estimate.
 	const exact = !(estimate && !applied.q && !applied.conds.length);
-	return { st: applied, r: exact ? r : { ...r, total: Math.round(r.total / 100) * 100 || r.total }, extra: { total_exact: exact, fields: fieldsOf(fields), ...(error ? { error } : {}) } };
+	// Every row the search matches, for the engine's facets.
+	const all = () => query({ ...applied, conds: [], page: 1, per: 1_000_000 }, want).rows;
+	return { st: applied, r: exact ? r : { ...r, total: Math.round(r.total / 100) * 100 || r.total }, all, extra: { total_exact: exact, fields: fieldsOf(fields), ...(error ? { error } : {}) } };
 }
 
 // The first per-day bar's date, as Go gives it: the calendar day 29 days
@@ -516,8 +521,12 @@ export function load(url: string, persona: Persona): Loaded {
 		const scope = path.includes('private') ? 'private' : 'group';
 		if (!allowed(s, scope === 'group' ? 'group_messages' : 'private_messages')) return notFound;
 		const all = scope === 'group' ? groupMessages() : privateMessages();
-		const { st, r, extra } = searchList(listState(u.searchParams, 'date', 50, persona), 'messages', all, scope === 'group' && s.role !== 'superadmin' ? (x) => s.group(x.chat) : null, (state, keep) => queryMessages(scope, state, keep), scope === 'group');
-		return { route: scope === 'group' ? 'group_messages' : 'private_messages', status: 200, props: { ...st, ...r, ...extra, scope, rows: r.rows.map(messageRow), archive_total: s.role === 'member' ? undefined : scope === 'group' ? TOTALS.group_messages : TOTALS.private_messages } };
+		const { st, r, extra, all: matched } = searchList(listState(u.searchParams, 'date', 50, persona), 'messages', all, scope === 'group' && s.role !== 'superadmin' ? (x) => s.group(x.chat) : null, (state, keep) => queryMessages(scope, state, keep), scope === 'group');
+		// The search engine's part (engine.ts): its text is the search box's
+		// and every text matches condition's.
+		const text = [st.q, ...st.conds.filter((c) => c.field === 'text' && c.op === 'matches').map((c) => c.value)].filter(Boolean).join(' ');
+		const eng = engineAnswer(u.searchParams, text, r.rows as never, matched as never);
+		return { route: scope === 'group' ? 'group_messages' : 'private_messages', status: 200, props: { ...st, ...r, ...extra, ...eng, scope, rows: r.rows.map(messageRow), archive_total: s.role === 'member' ? undefined : scope === 'group' ? TOTALS.group_messages : TOTALS.private_messages } };
 	}
 	if ((m = path.match(/^\/messages\/(group|private)\/(\d+)$/))) {
 		if (!allowed(s, m[1] === 'group' ? 'group_messages' : 'private_messages')) return notFound;
@@ -1431,3 +1440,7 @@ d2t.forEach((r, i) => {
 	r.discord_bot_id = d; r.telegram_bot_id = t;
 	delete r.bot;
 });
+
+// Whether a persona may see private chats (the capabilities list their
+// search only then).
+export const canSeePrivate = (persona: Persona) => persona !== 'public' && allowed(scopeOf(persona), 'private_messages');

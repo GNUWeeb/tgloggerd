@@ -316,6 +316,22 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		send(res, 200, { reset: true });
 		return;
 	}
+	// The search engine of the message lists (engine.ts): off, available
+	// or behind. It lives in the fixtures' module, so a reset turns it off.
+	if (url.pathname === '/api/_standin/engine' && req.method === 'POST') {
+		const st = String(JSON.parse((await readBody(req)) || '{}').state ?? 'off');
+		if (!['off', 'available', 'behind'].includes(st)) { send(res, 400, { error: 'bad_request' }); return; }
+		fx.setEngine(st as 'off' | 'available' | 'behind');
+		send(res, 200, { state: st });
+		return;
+	}
+	// GET /api/search/capabilities, as Go answers it.
+	if (url.pathname === '/api/search/capabilities' && req.method === 'GET') {
+		const e = fx.engineOf();
+		const entities = !e || who === 'public' ? {} : Object.fromEntries((fx.canSeePrivate(who) ? ['group_messages', 'private_messages'] : ['group_messages']).map((k) => [k, e]));
+		send(res, 200, { engine: e ? 'opensearch' : null, entities });
+		return;
+	}
 	if (url.pathname === '/api/_standin/events' && req.method === 'POST') {
 		liveOff = !!JSON.parse((await readBody(req)) || '{}').off;
 		if (liveOff) for (const c of liveClients) c.res.end();
