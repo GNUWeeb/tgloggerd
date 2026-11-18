@@ -370,6 +370,15 @@ paths that are no page and for things the scope hides, 404 either way.
     dropped and not echoed back; archive_total is only for a viewer
     who sees that whole list. The message lists order a search text
     by relevance unless a sort is asked for (sort "relevance").
+  - The user and group pages carry the newest 100 entries of their
+    change timeline (internal/logdb/history.go: every history table
+    of the person or group merged, every username event included) and
+    history_next, the cursor of the rest. GET /api/users/{id}/history
+    and GET /api/groups/{id}/history?before=<cursor>&limit=<1-500>
+    answer the following pages, and the history pages take ?before=
+    themselves. The cursor is the last entry's time, kind and row id,
+    the timeline's sort key, so a page costs the same however deep it
+    is. A member sees no user's history (404).
 
   - /api/page/<path> takes the page path without its leading slash,
     its slashes plain or encoded as %2F, and the page's query string

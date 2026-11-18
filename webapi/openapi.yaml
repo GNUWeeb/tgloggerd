@@ -112,6 +112,8 @@ tags:
     description: The advanced search over the logged users, groups, files and messages.
   - name: contacts
     description: Actions on the logging account's Telegram contacts.
+  - name: history
+    description: The change timelines of users and groups, page by page.
 
 paths:
 
@@ -3203,6 +3205,86 @@ paths:
               schema:
                 type: string
 
+  /api/users/{id}/history:
+    get:
+      operationId: getUserHistory
+      tags: [history]
+      summary: A page of a user's change timeline
+      description: >-
+        The user's names, usernames (every event: added, removed,
+        reordered, kind or collectible changed), bios, phone numbers and
+        profile photos, newest first, as the user page's history: the
+        page carries the first page and history_next, and this answers
+        the following ones, from the cursor of the page before. Only for
+        a viewer who sees users in full; to a member, as for a user the
+        viewer may not see or the logger never saw, it is 404.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The user's Telegram id.
+          schema:
+            type: integer
+            format: int64
+        - $ref: '#/components/parameters/HistoryBefore'
+        - $ref: '#/components/parameters/HistoryLimit'
+      responses:
+        '200':
+          description: The page, and the cursor of the next.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserHistoryPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/groups/{id}/history:
+    get:
+      operationId: getGroupHistory
+      tags: [history]
+      summary: A page of a group's change timeline
+      description: >-
+        The group's titles, descriptions, usernames (every event),
+        photos and admin changes, newest first, as the group page's
+        history: the page carries the first page and history_next, and
+        this answers the following ones. For a group the viewer sees;
+        any other is 404.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The group's Telegram chat id.
+          schema:
+            type: integer
+            format: int64
+        - $ref: '#/components/parameters/HistoryBefore'
+        - $ref: '#/components/parameters/HistoryLimit'
+      responses:
+        '200':
+          description: The page, and the cursor of the next.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupHistoryPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
 components:
 
   securitySchemes:
@@ -3304,6 +3386,25 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/MessageScope'
+    HistoryBefore:
+      name: before
+      in: query
+      required: false
+      description: >-
+        The cursor a page answered as next (history_next on the page):
+        the entries after it. Absent, the newest. One that does not
+        parse is 400 bad_request.
+      schema:
+        type: string
+    HistoryLimit:
+      name: limit
+      in: query
+      required: false
+      description: Entries per page, 100 when absent; 1 to 500, else 400 bad_request.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
 
   responses:
     BadRequest:
@@ -4119,13 +4220,46 @@ components:
           type: string
         detail:
           type: string
+          description: The name, username, bio or phone number; absent when empty.
         action:
           type: string
-          enum: [added, removed]
+          description: A username event's.
+          enum: [added, removed, reordered, kind_changed, collectible_changed]
+        username_kind:
+          type: string
+          description: A username event's kind after it; absent for a removal.
+          enum: [active, disabled]
+        collectible:
+          type: boolean
+          description: A username event's; present (true) only for a collectible username.
         photo:
           type: [string, 'null']
+          description: A photo change's picture, a /files/<token> URL of the full file.
         removed:
           type: boolean
+          description: A photo change that removed the photo.
+    UserHistoryPage:
+      type: object
+      required: [entries, next]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoryEntry'
+        next:
+          type: [string, 'null']
+          description: The next page's cursor (before=); null at the end.
+    GroupHistoryPage:
+      type: object
+      required: [entries, next]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupHistoryEntry'
+        next:
+          type: [string, 'null']
+          description: The next page's cursor (before=); null at the end.
     GroupHistoryEntry:
       type: object
       required: [kind, at]
@@ -4139,6 +4273,21 @@ components:
           type: string
         action:
           type: string
+          description: >-
+            A username event's (added, removed, reordered, kind_changed,
+            collectible_changed) or an admin change's (added, removed,
+            updated).
+        username_kind:
+          type: string
+          description: A username event's kind after it; absent for a removal.
+          enum: [active, disabled]
+        collectible:
+          type: boolean
+          description: A username event's; present (true) only for a collectible username.
+        status:
+          type: string
+          description: An admin change's status at the event.
+          enum: [creator, administrator]
         photo:
           type: [string, 'null']
         removed:
@@ -4991,8 +5140,16 @@ components:
                         type: integer
             history:
               type: array
+              description: The newest page of the timeline (UserHistoryPage).
               items:
                 $ref: '#/components/schemas/HistoryEntry'
+            history_next:
+              type: [string, 'null']
+              description: >-
+                The cursor of the timeline's next page, for GET
+                /api/users/{id}/history?before= (or the history page's
+                own ?before=); null when this is all of it. Always
+                sent by the service.
             activity:
               type: array
               items:
@@ -5045,8 +5202,16 @@ components:
             $ref: '#/components/schemas/GroupAdmin'
         history:
           type: array
+          description: The newest page of the timeline (GroupHistoryPage).
           items:
             $ref: '#/components/schemas/GroupHistoryEntry'
+        history_next:
+          type: [string, 'null']
+          description: >-
+            The cursor of the timeline's next page, for GET
+            /api/groups/{id}/history?before= (or the page's own
+            ?before=); null when this is all of it. Always sent by the
+            service.
         top_posters:
           type: array
           items:

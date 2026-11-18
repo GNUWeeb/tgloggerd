@@ -289,6 +289,8 @@ func (s *Server) routes() []route {
 		{"POST /api/password/set", s.setPassword},
 		{"POST /api/password/forgot", s.forgotPassword},
 		{"POST /api/accounts/{id}/resend-invite", s.RequireSession(s.resendInvite)},
+		{"GET /api/users/{id}/history", s.RequireSession(s.getUserHistory)},
+		{"GET /api/groups/{id}/history", s.RequireSession(s.getGroupHistory)},
 	}
 }
 

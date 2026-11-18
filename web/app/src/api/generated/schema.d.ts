@@ -1103,6 +1103,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page of a user's change timeline
+         * @description The user's names, usernames (every event: added, removed, reordered, kind or collectible changed), bios, phone numbers and profile photos, newest first, as the user page's history: the page carries the first page and history_next, and this answers the following ones, from the cursor of the page before. Only for a viewer who sees users in full; to a member, as for a user the viewer may not see or the logger never saw, it is 404.
+         */
+        get: operations["getUserHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/groups/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page of a group's change timeline
+         * @description The group's titles, descriptions, usernames (every event), photos and admin changes, newest first, as the group page's history: the page carries the first page and history_next, and this answers the following ones. For a group the viewer sees; any other is 404.
+         */
+        get: operations["getGroupHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1476,18 +1516,54 @@ export interface components {
             /** @enum {string} */
             kind: "name" | "username" | "bio" | "phone" | "photo";
             at: string;
+            /** @description The name, username, bio or phone number; absent when empty. */
             detail?: string;
-            /** @enum {string} */
-            action?: "added" | "removed";
+            /**
+             * @description A username event's.
+             * @enum {string}
+             */
+            action?: "added" | "removed" | "reordered" | "kind_changed" | "collectible_changed";
+            /**
+             * @description A username event's kind after it; absent for a removal.
+             * @enum {string}
+             */
+            username_kind?: "active" | "disabled";
+            /** @description A username event's; present (true) only for a collectible username. */
+            collectible?: boolean;
+            /** @description A photo change's picture, a /files/<token> URL of the full file. */
             photo?: string | null;
+            /** @description A photo change that removed the photo. */
             removed?: boolean;
+        };
+        UserHistoryPage: {
+            entries: components["schemas"]["HistoryEntry"][];
+            /** @description The next page's cursor (before=); null at the end. */
+            next: string | null;
+        };
+        GroupHistoryPage: {
+            entries: components["schemas"]["GroupHistoryEntry"][];
+            /** @description The next page's cursor (before=); null at the end. */
+            next: string | null;
         };
         GroupHistoryEntry: {
             /** @enum {string} */
             kind: "title" | "description" | "username" | "photo" | "admin";
             at: string;
             detail?: string;
+            /** @description A username event's (added, removed, reordered, kind_changed, collectible_changed) or an admin change's (added, removed, updated). */
             action?: string;
+            /**
+             * @description A username event's kind after it; absent for a removal.
+             * @enum {string}
+             */
+            username_kind?: "active" | "disabled";
+            /** @description A username event's; present (true) only for a collectible username. */
+            collectible?: boolean;
+            /**
+             * @description An admin change's status at the event.
+             * @enum {string}
+             */
+            status?: "creator" | "administrator";
             photo?: string | null;
             removed?: boolean;
             user?: components["schemas"]["UserSummary"];
@@ -1886,7 +1962,10 @@ export interface components {
             groups: (components["schemas"]["GroupSummary"] & {
                 msgs: number;
             })[];
+            /** @description The newest page of the timeline (UserHistoryPage). */
             history: components["schemas"]["HistoryEntry"][];
+            /** @description The cursor of the timeline's next page, for GET /api/users/{id}/history?before= (or the history page's own ?before=); null when this is all of it. Always sent by the service. */
+            history_next?: string | null;
             activity: number[];
             can_private: boolean;
         } | {
@@ -1906,7 +1985,10 @@ export interface components {
         GroupProps: {
             group: components["schemas"]["GroupFull"];
             admins: components["schemas"]["GroupAdmin"][];
+            /** @description The newest page of the timeline (GroupHistoryPage). */
             history: components["schemas"]["GroupHistoryEntry"][];
+            /** @description The cursor of the timeline's next page, for GET /api/groups/{id}/history?before= (or the page's own ?before=); null when this is all of it. Always sent by the service. */
+            history_next?: string | null;
             top_posters: {
                 user: components["schemas"]["UserSummary"];
                 msgs: number;
@@ -2544,6 +2626,10 @@ export interface components {
         /** @description The group's Telegram chat id. */
         GroupId: number;
         ChatScope: components["schemas"]["MessageScope"];
+        /** @description The cursor a page answered as next (history_next on the page): the entries after it. Absent, the newest. One that does not parse is 400 bad_request. */
+        HistoryBefore: string;
+        /** @description Entries per page, 100 when absent; 1 to 500, else 400 bad_request. */
+        HistoryLimit: number;
     };
     requestBodies: never;
     headers: {
@@ -4852,6 +4938,70 @@ export interface operations {
                     "text/plain": string;
                 };
             };
+        };
+    };
+    getUserHistory: {
+        parameters: {
+            query?: {
+                /** @description The cursor a page answered as next (history_next on the page): the entries after it. Absent, the newest. One that does not parse is 400 bad_request. */
+                before?: components["parameters"]["HistoryBefore"];
+                /** @description Entries per page, 100 when absent; 1 to 500, else 400 bad_request. */
+                limit?: components["parameters"]["HistoryLimit"];
+            };
+            header?: never;
+            path: {
+                /** @description The user's Telegram id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page, and the cursor of the next. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserHistoryPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getGroupHistory: {
+        parameters: {
+            query?: {
+                /** @description The cursor a page answered as next (history_next on the page): the entries after it. Absent, the newest. One that does not parse is 400 bad_request. */
+                before?: components["parameters"]["HistoryBefore"];
+                /** @description Entries per page, 100 when absent; 1 to 500, else 400 bad_request. */
+                limit?: components["parameters"]["HistoryLimit"];
+            };
+            header?: never;
+            path: {
+                /** @description The group's Telegram chat id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page, and the cursor of the next. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupHistoryPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
 }

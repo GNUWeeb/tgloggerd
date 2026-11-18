@@ -132,15 +132,20 @@ type historyJSON struct {
 	Photo   *string          `json:"photo,omitempty"`
 	Removed bool             `json:"removed,omitempty"`
 	User    *userSummaryJSON `json:"user,omitempty"`
+	// A username event's state after it, an admin change's status.
+	UsernameKind string `json:"username_kind,omitempty"`
+	Collectible  bool   `json:"collectible,omitempty"`
+	Status       string `json:"status,omitempty"`
 }
 
 type userProps struct {
-	Limited    bool            `json:"limited"`
-	User       userFullJSON    `json:"user"`
-	Groups     []userGroupJSON `json:"groups"`
-	History    []historyJSON   `json:"history"`
-	Activity   []int64         `json:"activity"`
-	CanPrivate bool            `json:"can_private"`
+	Limited     bool            `json:"limited"`
+	User        userFullJSON    `json:"user"`
+	Groups      []userGroupJSON `json:"groups"`
+	History     []historyJSON   `json:"history"`
+	HistoryNext *string         `json:"history_next"`
+	Activity    []int64         `json:"activity"`
+	CanPrivate  bool            `json:"can_private"`
 }
 
 type userLimitedProps struct {
@@ -150,7 +155,8 @@ type userLimitedProps struct {
 }
 
 func (v view) history(e logdb.HistoryEntry) historyJSON {
-	j := historyJSON{Kind: e.Kind, At: iso(e.At), Detail: e.Detail, Action: e.Action}
+	j := historyJSON{Kind: e.Kind, At: iso(e.At), Detail: e.Detail, Action: e.Action,
+		UsernameKind: e.UsernameKind, Collectible: e.Collectible, Status: e.Status}
 	if e.Kind == "photo" {
 		j.Detail = ""
 		if e.Photo.ID == 0 {
@@ -162,8 +168,27 @@ func (v view) history(e logdb.HistoryEntry) historyJSON {
 	return j
 }
 
+// historyCursor is the page's ?before=, the history's cursor; one that
+// does not parse starts from the newest changes.
+func (pr *pageRequest) historyCursor(kinds func(string) bool) string {
+	b := pr.query.Get("before")
+	if !kinds(b) {
+		return ""
+	}
+	return b
+}
+
+// nextCursor is a history page's next cursor as the API sends it.
+func nextCursor(h logdb.HistoryPage) *string {
+	if h.Next == "" {
+		return nil
+	}
+	return &h.Next
+}
+
 func loadUserPage(ctx context.Context, pr *pageRequest, history bool) (any, error) {
-	p, err := logdb.LoadUserPage(ctx, pr.s.ro, pr.scope, pr.pathID(), pr.now())
+	p, err := logdb.LoadUserPage(ctx, pr.s.ro, pr.scope, pr.pathID(), pr.now(),
+		pr.historyCursor(logdb.ValidUserCursor))
 	if err != nil {
 		return nil, notFoundOr(err)
 	}
@@ -193,9 +218,10 @@ func loadUserPage(ctx context.Context, pr *pageRequest, history bool) (any, erro
 	for _, g := range p.Groups {
 		up.Groups = append(up.Groups, userGroupJSON{groupSummaryJSON: v.group(g.Group), Msgs: g.Msgs})
 	}
-	for _, e := range p.History {
+	for _, e := range p.History.Entries {
 		up.History = append(up.History, v.history(e))
 	}
+	up.HistoryNext = nextCursor(p.History)
 	return up, nil
 }
 
@@ -233,15 +259,17 @@ type posterJSON struct {
 }
 
 type groupProps struct {
-	Group      groupFullJSON    `json:"group"`
-	Admins     []groupAdminJSON `json:"admins"`
-	History    []historyJSON    `json:"history"`
-	TopPosters []posterJSON     `json:"top_posters"`
-	Activity   []int64          `json:"activity"`
+	Group       groupFullJSON    `json:"group"`
+	Admins      []groupAdminJSON `json:"admins"`
+	History     []historyJSON    `json:"history"`
+	HistoryNext *string          `json:"history_next"`
+	TopPosters  []posterJSON     `json:"top_posters"`
+	Activity    []int64          `json:"activity"`
 }
 
 func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
-	p, err := logdb.LoadGroupPage(ctx, pr.s.ro, pr.scope, pr.pathID(), pr.now())
+	p, err := logdb.LoadGroupPage(ctx, pr.s.ro, pr.scope, pr.pathID(), pr.now(),
+		pr.historyCursor(logdb.ValidGroupCursor))
 	if err != nil {
 		return nil, notFoundOr(err)
 	}
@@ -263,14 +291,8 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 			Status: a.Status, CustomTitle: a.CustomTitle, IsAnonymous: a.IsAnonymous,
 			Perms: a.Perms, Since: iso(a.Since)})
 	}
-	for _, e := range p.History {
-		h := v.history(e)
-		if e.Kind == "admin" {
-			u := v.userOf(p.Users, e.UserID)
-			h.User = &u
-		}
-		out.History = append(out.History, h)
-	}
+	out.History = v.groupHistory(p.History.Entries, p.Users)
+	out.HistoryNext = nextCursor(p.History)
 	for _, t := range p.TopPosters {
 		out.TopPosters = append(out.TopPosters, posterJSON{User: v.userOf(p.Users, t.UserID),
 			Msgs: t.Msgs})
