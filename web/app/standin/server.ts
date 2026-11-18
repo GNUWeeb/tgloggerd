@@ -20,6 +20,7 @@
 import { createServer as createHttp, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createVite } from 'vite';
 import { documentHtml } from './document.ts';
+import { gzipSync } from 'node:zlib';
 
 // PORT=0 picks a free port (the browser tests start one stand-in per
 // worker). TGD_STANDIN_TEST=<worker> runs hot reload over this server
@@ -141,12 +142,26 @@ if (TICK) {
 const csrfTokens = new Set(['standin-csrf']);
 const csrfOk = (req: IncomingMessage) => csrfTokens.has(String(req.headers['x-csrf-token'] || ''));
 
+// An HSL colour (0..1 each) as Lottie's RGB (0..1 each).
+function hsl(h: number, s: number, l: number): number[] {
+	const f = (n: number) => { const k = (n + h * 12) % 12; return l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+	return [f(0), f(8), f(4)];
+}
+
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	const url = new URL(req.url || '/', 'http://x');
 	// A file's bytes (/files/<token>): a picture in a colour of its id,
 	// whatever the file's type, so the media in the pages have something
 	// to show. Videos and audio do not play.
-	const fm = url.pathname.match(/^\/files\/standin-(\d+)$/);
+	const fm = url.pathname.match(/^\/files\/standin-(\d+)(\.tgs)?$/);
+	if (fm?.[2]) {
+		// A Lottie sticker: a circle that pulses, gzipped as .tgs files are.
+		const fill = hsl(((Number(fm[1]) * 47) % 360) / 360, 0.6, 0.5);
+		const anim = { v: '5.5.2', fr: 30, ip: 0, op: 30, w: 512, h: 512, layers: [{ ty: 4, ind: 1, ip: 0, op: 30, st: 0, ks: { o: { a: 0, k: 100 }, r: { a: 0, k: 0 }, p: { a: 0, k: [256, 256, 0] }, a: { a: 0, k: [0, 0, 0] }, s: { a: 1, k: [{ t: 0, s: [80, 80, 100], i: { x: [0.5], y: [1] }, o: { x: [0.5], y: [0] } }, { t: 15, s: [100, 100, 100], i: { x: [0.5], y: [1] }, o: { x: [0.5], y: [0] } }, { t: 30, s: [80, 80, 100] }] } }, shapes: [{ ty: 'el', p: { a: 0, k: [0, 0] }, s: { a: 0, k: [360, 360] } }, { ty: 'fl', c: { a: 0, k: [...fill, 1] }, o: { a: 0, k: 100 } }] }] };
+		res.writeHead(200, { 'content-type': 'application/x-tgsticker', 'cache-control': 'no-store' });
+		res.end(gzipSync(JSON.stringify(anim)));
+		return;
+	}
 	if (fm) {
 		const hue = (Number(fm[1]) * 47) % 360;
 		res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' });
