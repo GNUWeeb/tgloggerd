@@ -194,3 +194,60 @@ func TestSearchEngineAnswers(t *testing.T) {
 		t.Errorf("list page search: total %v, want 5", p["total"])
 	}
 }
+
+// The message lists' pages take the same options from their query and
+// answer the engine's part as the search API does, within the scope,
+// with their entity's capabilities; without an engine they answer
+// none of it.
+func TestListPagesEngineParts(t *testing.T) {
+	t.Parallel()
+	e := engineEnv(t, true)
+	for _, c := range []struct {
+		role   string
+		facets string
+	}{
+		{"superadmin", `-1001000000001:2 -1001000000003:1 -1001000000002:1`},
+		{"admin", `-1001000000001:2 -1001000000003:1`},
+		{"member", `-1001000000001:2`},
+	} {
+		p := e.props(c.role, "group_messages", "q", "quick", "highlight", "1", "facets", "1")
+		if js(p["backend"]) != `{"used":"engine"}` {
+			t.Errorf("%s: backend %s", c.role, js(p["backend"]))
+		}
+		hs, _ := p["highlights"].([]any)
+		rs, _ := p["rows"].([]any)
+		if len(rs) == 0 || len(hs) != len(rs) || !strings.Contains(fmt.Sprint(hs), "<mark>quick</mark>") {
+			t.Errorf("%s: %d rows, highlights %s", c.role, len(rs), js(hs))
+		}
+		var fs []string
+		for _, f := range p["facets"].([]any) {
+			m := f.(map[string]any)
+			fs = append(fs, js(m["chat_id"])+":"+js(m["count"]))
+		}
+		if strings.Join(fs, " ") != c.facets {
+			t.Errorf("%s: facets %v, want %s", c.role, fs, c.facets)
+		}
+		if strings.Contains(js(p), "kernel group") && c.role != "superadmin" {
+			t.Errorf("%s: the hidden group's text in %s", c.role, js(p))
+		}
+		want := `{"available":true,"fallback":null,"fields":["text"],"options":` +
+			`["phrase","proximity","prefix","fuzzy","highlight","facets"]}`
+		if js(p["engine"]) != want {
+			t.Errorf("%s: engine %s", c.role, js(p["engine"]))
+		}
+	}
+	// engine=mysql on the page: MySQL answers and says so.
+	p := e.props("superadmin", "group_messages", "q", "quick", "engine", "mysql", "highlight", "1")
+	if js(p["backend"]) != `{"fallback":"asked","ignored":["highlight"],"used":"mysql"}` ||
+		p["highlights"] != nil {
+		t.Errorf("engine=mysql: %s %v", js(p["backend"]), p["highlights"])
+	}
+
+	plain := engineEnv(t, false).props("superadmin", "group_messages", "q", "quick",
+		"highlight", "1", "facets", "1")
+	for _, k := range []string{"backend", "highlights", "facets", "engine"} {
+		if _, ok := plain[k]; ok {
+			t.Errorf("list page has %s without an engine", k)
+		}
+	}
+}

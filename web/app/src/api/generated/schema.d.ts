@@ -2625,6 +2625,13 @@ export interface components {
         MessagesProps: components["schemas"]["ListState"] & {
             rows: components["schemas"]["MessageRow"][];
             scope: components["schemas"]["MessageScope"];
+            backend?: components["schemas"]["SearchBackend"];
+            /** @description As SearchAnswer.highlights, aligned to rows: with highlight=1 in the page's query and the engine answering the search text. */
+            highlights?: string[][];
+            /** @description As SearchAnswer.facets: with facets=1 in the page's query and the engine answering the whole search. */
+            facets?: components["schemas"]["SearchFacet"][];
+            /** @description The capabilities entry of the list's entity (GET /api/search/capabilities), so the page can offer the engine's options; present only with an engine configured. The page's query takes the search API's options for its search text: fuzzy=1, highlight=1, facets=1 and engine=mysql. */
+            engine?: components["schemas"]["SearchEngineEntity"];
         };
         MessageProps: {
             message: components["schemas"]["MessageFull"];

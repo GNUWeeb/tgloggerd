@@ -626,8 +626,14 @@ func (l *listSpec) run(ctx context.Context, pr *pageRequest) (*listRun, error) {
 
 	req := logdb.SearchRequest{Conds: conds, Order: st.Dir, Internal: true, Limit: st.Per}
 	// The search engine answers the search text, when there is one
-	// (searchengine.go); the list's answer keeps its shape.
-	if s.engine != nil {
+	// (searchengine.go); the list's answer keeps its shape. The message
+	// lists take the search API's options for it from the page's query
+	// (fuzzy, highlight, facets, engine=mysql) and answer its backend,
+	// highlights and facets (messagesProps).
+	switch {
+	case s.engine != nil && l.relevance:
+		s.withEngineOptions(q, &req)
+	case s.engine != nil:
 		req.Engine = s.engine
 	}
 	if st.Q != "" && failed == nil {
@@ -1041,6 +1047,14 @@ type messagesProps struct {
 	listState
 	Rows  []listMessage `json:"rows"`
 	Scope string        `json:"scope"`
+	// The search engine's part, as in the search API's answer: only
+	// with an engine configured. Engine is the capabilities entry of
+	// the list's entity, so the page offers the options without a
+	// further request.
+	Backend    *logdb.Backend `json:"backend,omitempty"`
+	Highlights [][]string     `json:"highlights,omitempty"`
+	Facets     []logdb.Facet  `json:"facets,omitempty"`
+	Engine     *engineCaps    `json:"engine,omitempty"`
 }
 
 // snippetRunes is how much of a message's text a list shows.
@@ -1070,7 +1084,9 @@ func loadMessages(ctx context.Context, pr *pageRequest, l *listSpec, msgScope st
 		return nil, err
 	}
 	sc := pr.scope
-	p := messagesProps{listState: run.state, Rows: []listMessage{}, Scope: msgScope}
+	p := messagesProps{listState: run.state, Rows: []listMessage{}, Scope: msgScope,
+		Backend: run.res.Backend, Highlights: run.res.Highlights, Facets: run.res.Facets,
+		Engine: s.listEngineCaps(ctx, sc, l.entity)}
 	var fwd []uint64
 	for _, r := range run.res.Rows {
 		m := listMessage{ID: r.Uint("id"), Scope: msgScope, MessageID: r.Int("message_id"),

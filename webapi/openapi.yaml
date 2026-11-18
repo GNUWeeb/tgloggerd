@@ -6704,6 +6704,34 @@ components:
                 $ref: '#/components/schemas/MessageRow'
             scope:
               $ref: '#/components/schemas/MessageScope'
+            backend:
+              $ref: '#/components/schemas/SearchBackend'
+            highlights:
+              type: array
+              description: >-
+                As SearchAnswer.highlights, aligned to rows: with
+                highlight=1 in the page's query and the engine
+                answering the search text.
+              items:
+                type: array
+                items:
+                  type: string
+            facets:
+              type: array
+              description: >-
+                As SearchAnswer.facets: with facets=1 in the page's
+                query and the engine answering the whole search.
+              items:
+                $ref: '#/components/schemas/SearchFacet'
+            engine:
+              description: >-
+                The capabilities entry of the list's entity
+                (GET /api/search/capabilities), so the page can offer
+                the engine's options; present only with an engine
+                configured. The page's query takes the search API's
+                options for its search text: fuzzy=1, highlight=1,
+                facets=1 and engine=mysql.
+              $ref: '#/components/schemas/SearchEngineEntity'
     MessageProps:
       type: object
       required: [message]

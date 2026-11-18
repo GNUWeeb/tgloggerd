@@ -6,10 +6,13 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"net/url"
 	"slices"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/scope"
 )
 
 // The optional search engine's part of the search API
@@ -35,10 +38,15 @@ var engineOptions = []string{"phrase", "proximity", "prefix", "fuzzy", "highligh
 // it: fuzzy=1, highlight=1, facets=1, and engine=mysql to keep it on
 // MySQL.
 func (s *Server) withEngine(r *http.Request, req *logdb.SearchRequest) {
+	s.withEngineOptions(r.URL.Query(), req)
+}
+
+// withEngineOptions is withEngine for a query string of its own, as the
+// message lists' pages read the same options from theirs.
+func (s *Server) withEngineOptions(q url.Values, req *logdb.SearchRequest) {
 	if s.engine == nil {
 		return
 	}
-	q := r.URL.Query()
 	req.Engine = s.engine
 	req.Text = logdb.TextOptions{
 		Fuzzy:     q.Get("fuzzy") == "1",
@@ -88,19 +96,35 @@ func (s *Server) searchCapabilities(w http.ResponseWriter, r *http.Request) {
 	}
 	slices.Sort(names)
 	for _, n := range names {
-		e := logdb.Entities[n]
-		c := engineCaps{Fields: []string{}, Options: engineOptions}
-		for _, f := range e.FieldInfos(sc) {
-			if slices.Contains(f.Operators, "matches") {
-				c.Fields = append(c.Fields, f.Key)
-			}
-		}
-		ok, why := s.engine.Ready(r.Context(), n)
-		c.Available = ok
-		if !ok {
-			c.Fallback = &why
-		}
-		ans.Entities[n] = c
+		ans.Entities[n] = s.engineCapsOf(r.Context(), sc, logdb.Entities[n])
 	}
 	writeJSON(w, http.StatusOK, ans)
+}
+
+// engineCapsOf is what the engine offers for e to the viewer of sc,
+// given an engine and an entity it answers.
+func (s *Server) engineCapsOf(ctx context.Context, sc scope.Scope, e *logdb.Entity) engineCaps {
+	c := engineCaps{Fields: []string{}, Options: engineOptions}
+	for _, f := range e.FieldInfos(sc) {
+		if slices.Contains(f.Operators, "matches") {
+			c.Fields = append(c.Fields, f.Key)
+		}
+	}
+	ok, why := s.engine.Ready(ctx, e.Name)
+	c.Available = ok
+	if !ok {
+		c.Fallback = &why
+	}
+	return c
+}
+
+// listEngineCaps is the capabilities entry of a list's entity for its
+// page: nil without an engine, for an entity it does not answer, or
+// for a viewer who may not search it.
+func (s *Server) listEngineCaps(ctx context.Context, sc scope.Scope, e *logdb.Entity) *engineCaps {
+	if s.engine == nil || !logdb.EngineEntity(e) || !sc.Page(e.Name) {
+		return nil
+	}
+	c := s.engineCapsOf(ctx, sc, e)
+	return &c
 }

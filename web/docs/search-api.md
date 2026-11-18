@@ -393,6 +393,14 @@ the request scope applied again.
   `facets` are not given then (`ignored`), since the engine's per-chat
   counts would not match MySQL's total.
 
+The message list pages (`/group_messages`, `/private_messages` and
+their page data, MessagesProps) take the same options from their own
+query (`fuzzy=1`, `highlight=1`, `facets=1`, `engine=mysql`) for their
+search text, and their page data carries `backend`, `highlights` and
+`facets` as above, plus `engine`: their entity's entry of the
+capabilities, so the page can offer the options without asking for
+them. Without an engine none of these is present.
+
 ### The request scope
 
 The scope is a filter of every engine query, never applied to its
