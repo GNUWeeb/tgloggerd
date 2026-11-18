@@ -22,10 +22,11 @@ import (
 
 // The federations editor (docs/design/web-accounts.md section 3):
 // superadmins create, change and delete federations, their groups and
-// their admins. To anyone else these operations do not exist (404);
-// admins see the federations they administer on the federations page,
-// read-only. The contract is in webapi/openapi.yaml (tag accounts);
-// web/docs/accounts.md explains it.
+// their admins. An admin renames and describes the federations it
+// administers and changes nothing else of them (403); to anyone else,
+// and for a federation it does not administer, these operations do
+// not exist (404). The contract is in webapi/openapi.yaml (tag
+// accounts); web/docs/accounts.md explains it.
 
 // Limits of a federation write: the name's and the description's
 // lengths in characters (web_federations.name and description), how
@@ -86,12 +87,19 @@ func (s *Server) federationEditor(w http.ResponseWriter, r *http.Request) (scope
 
 // readFederation decodes and checks a federation write, answering the
 // request itself when it does not pass: the name, the description, and
-// the groups, which must be groups the logger knows.
-func (s *Server) readFederation(w http.ResponseWriter, r *http.Request, sc scope.Scope) (webdb.FederationWrite, bool) {
+// the groups, which must be groups the logger knows. textOnly is for a
+// viewer that may change the name and description only; groups or
+// admins from it answer 403.
+func (s *Server) readFederation(w http.ResponseWriter, r *http.Request, sc scope.Scope,
+	textOnly bool) (webdb.FederationWrite, bool) {
 	var in federationWrite
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxFederationBody))
 	if err := dec.Decode(&in); err != nil {
 		badRequest(w, "bad_request", s.text(r, "federation.malformed"))
+		return webdb.FederationWrite{}, false
+	}
+	if textOnly && (in.GroupIDs != nil || in.AdminIDs != nil) {
+		forbidden(w, s.text(r, "federation.text_only"))
 		return webdb.FederationWrite{}, false
 	}
 	out := webdb.FederationWrite{Groups: in.GroupIDs, Admins: in.AdminIDs}
@@ -169,7 +177,7 @@ func (s *Server) createFederation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	fw, ok := s.readFederation(w, r, sc)
+	fw, ok := s.readFederation(w, r, sc, false)
 	if !ok {
 		return
 	}
@@ -194,22 +202,30 @@ func federationID(w http.ResponseWriter, r *http.Request) (uint64, bool) {
 	return id, true
 }
 
-// updateFederation answers PATCH /api/federations/{id}. Default takes
-// admins only: its groups are derived and its name is fixed.
+// updateFederation answers PATCH /api/federations/{id}: a superadmin
+// changes any federation, an admin the name and description of one it
+// administers. Default takes admins and a description only: its
+// groups are derived and its name is fixed.
 func (s *Server) updateFederation(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	if !s.checkCSRF(w, r) {
 		return
 	}
-	sc, v, ok := s.federationEditor(w, r)
+	sc := ScopeFrom(r.Context())
+	v, ok := sc.Viewer()
 	if !ok {
+		notFound(w)
 		return
 	}
 	id, ok := federationID(w, r)
 	if !ok {
 		return
 	}
-	fw, ok := s.readFederation(w, r, sc)
+	if !sc.ManagesFederations() && !sc.DescribesFederation(id) {
+		notFound(w)
+		return
+	}
+	fw, ok := s.readFederation(w, r, sc, !sc.ManagesFederations())
 	if !ok {
 		return
 	}

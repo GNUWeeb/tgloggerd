@@ -717,7 +717,7 @@ export interface paths {
         head?: never;
         /**
          * Change a federation
-         * @description Superadmins only; anyone else gets 404, as does a federation that does not exist. The fields given replace the federation's name, description, groups and admins; the others stay. A group taken out of its last federation is back in Default. The Default federation (id 0) is derived, the groups in no other federation, so it takes description and admin_ids only (and its own name back unchanged). Audited as federation_update, with what changed (for the description, only that it was set or cleared).
+         * @description A superadmin changes any federation. An admin of the federation (one it administers) may send name and description only; group_ids or admin_ids from it answer 403 forbidden. Anyone else gets 404, as does a federation that does not exist or that the admin does not administer. The fields given replace the federation's name, description, groups and admins; the others stay. A group taken out of its last federation is back in Default. The Default federation (id 0) is derived, the groups in no other federation, so it takes description and admin_ids only (and its own name back unchanged); a new name for it answers 400 bad_request, whoever sends it. Audited as federation_update, with what changed (for the description, only that it was set or cleared) and the account that changed it.
          */
         patch: operations["updateFederation"];
         trace?: never;
@@ -4313,7 +4313,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthenticated"];
-            403: components["responses"]["Csrf"];
+            /** @description The CSRF token is wrong (error csrf), an admin of the federation sent group_ids or admin_ids (error forbidden), or a gate is up (see Gates). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             404: components["responses"]["NotFound"];
             /** @description Another federation has the name (error taken). */
             409: {

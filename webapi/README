@@ -165,7 +165,9 @@ a reset sends a link to a verified address when mail is set up and
 gives a temporary password otherwise, and the last active superadmin
 cannot be disabled or demoted. The federations editor (POST
 /api/federations, PATCH and DELETE /api/federations/{id}) is the
-superadmins' and is described there too.
+superadmins', except that an admin renames and describes the
+federations it administers (Scope.DescribesFederation), and is
+described there too.
 
 The login throttle is in the process's memory, as in Drogon, so each
 service counts failures on its own. The address logged and throttled

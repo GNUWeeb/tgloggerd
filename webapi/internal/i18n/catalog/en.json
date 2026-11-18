@@ -36,6 +36,7 @@
 	"federation.malformed": "The body must be a JSON object of name, description, group_ids and admin_ids.",
 	"federation.name": "A federation's name is 1 to {max} characters, without control characters.",
 	"federation.taken": "Another federation has that name.",
+	"federation.text_only": "An admin of a federation changes only its name and description; its groups and admins are the superadmins'.",
 	"federation.too_many_groups": "A federation holds at most {max} groups.",
 	"federation.unknown": "That federation does not exist.",
 	"forgot.required": "username is required.",

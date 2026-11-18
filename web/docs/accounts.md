@@ -79,7 +79,11 @@ several.
   request, with its role, so a change applies to its next request.
 
 The federations API (webapi/openapi.yaml, tag accounts) is the
-superadmins'; to anyone else it answers 404:
+superadmins', except that an admin renames and describes the
+federations it administers (`PATCH` with `name` and `description`
+only; `group_ids` or `admin_ids` from it answer 403 `forbidden`). To
+anyone else, and to an admin for a federation it does not administer,
+it answers 404:
 
     POST   /api/federations       {name, description?, group_ids?, admin_ids?}; 201 {id}
     PATCH  /api/federations/{id}  the same fields, each optional; 200 {id}
@@ -95,7 +99,8 @@ superadmins'; to anyone else it answers 404:
   otherwise 400 `bad_description`); `""` clears it. The federations
   page's rows carry it.
 - Default (id 0) takes `description` and `admin_ids` only; groups or
-  a new name answer 400 `bad_request`, and it cannot be deleted.
+  a new name answer 400 `bad_request` (to its admins as well), and it
+  cannot be deleted.
 - Deleting a federation puts its groups back in Default unless
   another federation holds them, and files a member it was the only
   federation of in Default.
@@ -104,7 +109,7 @@ superadmins'; to anyone else it answers 404:
 - Audited as `federation_create`, `federation_update` (with what
   changed: name, whether the description was set or cleared, groups
   added and removed, admins before and after)
-  and `federation_delete`, with the acting superadmin.
+  and `federation_delete`, with the acting account.
 - The groups of a federation are listed by the pickers' chat search,
   `GET /api/chats/search?federation=<id>`; for Default those are the
   groups in no other federation.

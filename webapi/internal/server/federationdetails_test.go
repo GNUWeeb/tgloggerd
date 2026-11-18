@@ -147,3 +147,87 @@ func TestFederationDescription(t *testing.T) {
 		t.Errorf("audit:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(wantAudit, "\n"))
 	}
 }
+
+// An admin renames and describes the federations it administers, and
+// changes nothing else of them: groups or admins answer 403, another
+// federation 404 as if it did not exist, Default's name 400 as for a
+// superadmin. Its changes are audited as its own.
+func TestFederationAdminRename(t *testing.T) {
+	t.Parallel()
+	h, app := newFedHandler(t)
+	kern := newSession(t, h, "kern_admin", "password")
+	sec := newSession(t, h, "sec_admin", "password")
+	member := newSession(t, h, "kern_member", "password")
+	name := func(id int) string {
+		t.Helper()
+		var n string
+		if err := app.QueryRow("SELECT name FROM web_federations WHERE id = ?", id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	for _, tc := range []struct {
+		s      session
+		who    string
+		path   string
+		body   map[string]any
+		status int
+		code   string
+	}{
+		{kern, "kern_admin", "/api/federations/1", map[string]any{"group_ids": []int64{-1001000000001}}, 403, "forbidden"},
+		{kern, "kern_admin", "/api/federations/1", map[string]any{"name": "Linux", "admin_ids": []int{102}}, 403, "forbidden"},
+		{kern, "kern_admin", "/api/federations/1", map[string]any{"group_ids": []int64{}}, 403, "forbidden"},
+		{kern, "kern_admin", "/api/federations/2", map[string]any{"name": "Mine"}, 404, "not_found"},
+		{kern, "kern_admin", "/api/federations/0", map[string]any{"description": "x"}, 404, "not_found"},
+		{kern, "kern_admin", "/api/federations/99", map[string]any{"name": "Mine"}, 404, "not_found"},
+		{sec, "sec_admin", "/api/federations/1", map[string]any{"description": "x"}, 404, "not_found"},
+		{sec, "sec_admin", "/api/federations/0", map[string]any{"name": "Everything"}, 400, "bad_request"},
+		{sec, "sec_admin", "/api/federations/2", map[string]any{"name": "Kernel"}, 409, "taken"},
+		{sec, "sec_admin", "/api/federations/2", map[string]any{"name": " "}, 400, "bad_name"},
+		{sec, "sec_admin", "/api/federations/2", map[string]any{"description": strings.Repeat("d", 2001)}, 400, "bad_description"},
+		{sec, "sec_admin", "/api/federations/2", map[string]any{"description": "tab\tok but not\x00"}, 400, "bad_description"},
+		{member, "kern_member", "/api/federations/1", map[string]any{"name": "Mine"}, 404, "not_found"},
+	} {
+		if a := tc.s.call("PATCH", tc.path, tc.body); a.status != tc.status || a.body["error"] != tc.code {
+			t.Errorf("%s PATCH %s %v: %d %v", tc.who, tc.path, tc.body, a.status, a.body)
+		}
+	}
+	if name(1) != "Kernel" || name(2) != "Security" || fedDescription(t, app, 2) != "" {
+		t.Fatalf("after refusals: %s, %s, %q", name(1), name(2), fedDescription(t, app, 2))
+	}
+	// Creating and deleting stay the superadmins'.
+	if a := kern.call("POST", "/api/federations", map[string]any{"name": "Mine"}); a.status != 404 {
+		t.Errorf("kern_admin creates: %d", a.status)
+	}
+	if a := kern.call("DELETE", "/api/federations/1", nil); a.status != 404 {
+		t.Errorf("kern_admin deletes: %d", a.status)
+	}
+
+	if a := kern.call("PATCH", "/api/federations/1", map[string]any{"name": " Linux ",
+		"description": "Kernel hackers."}); a.status != 200 || a.body["id"] != float64(1) {
+		t.Fatalf("kern_admin renames: %d %v", a.status, a.body)
+	}
+	if name(1) != "Linux" || fedDescription(t, app, 1) != "Kernel hackers." {
+		t.Errorf("after the rename: %s %q", name(1), fedDescription(t, app, 1))
+	}
+	// Default's admin describes it, sending its name back unchanged.
+	if a := sec.call("PATCH", "/api/federations/0", map[string]any{"name": "Default",
+		"description": "The rest."}); a.status != 200 {
+		t.Fatalf("sec_admin describes Default: %d %v", a.status, a.body)
+	}
+	if got := fedAudits(t, app, fedAccountID("kern_admin")); !slices.Equal(got,
+		[]string{"federation_update: federation 1; name Kernel->Linux; description set"}) {
+		t.Errorf("kern_admin's audit %q", got)
+	}
+	if got := fedAudits(t, app, fedAccountID("sec_admin")); !slices.Equal(got,
+		[]string{"federation_update: federation 0; description set"}) {
+		t.Errorf("sec_admin's audit %q", got)
+	}
+	// The groups and admins stayed.
+	var n int
+	if err := app.QueryRow("SELECT (SELECT COUNT(*) FROM web_federation_groups WHERE federation_id = 1) + " +
+		"(SELECT COUNT(*) FROM web_federation_admins WHERE federation_id = 1)").Scan(&n); err != nil || n != 3 {
+		t.Errorf("Kernel's groups and admins: %d %v", n, err)
+	}
+}
