@@ -26,8 +26,8 @@ nginx still sends every page path to the Drogon web.
 - Loaders for the other pages come with the ports that bring their
   data (`go-port-admin`, `web-roles`, `web-user-settings`); each adds
   its loader to the page table, and the path then follows here.
-- The email address gate has its hook in `Server.emailRequired`
-  (pages.go), filled in by `web-email`.
+- The password gate comes before the loaders; there is no email
+  address gate (decisions/2026-11-18-email-optional.md).
 - The build id comes from the bundle's `build.json`, which the build
   writes for the client bundle and the render entry alike;
   `WEBAPI_APP_BUILD` overrides it.
