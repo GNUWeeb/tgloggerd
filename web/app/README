@@ -77,10 +77,12 @@ After a change under web/app:
 
 The webapi service reads the manifest and build id at start only, so
 it is restarted after every build, after the render service. Between
-the build and that restart its pages link assets the build replaced,
-and the render service may answer 409 for the old id; pages fall
-back to browser rendering meanwhile, and a page whose assets are gone
-shows only its title until the restart.
+the build and that restart the render service may answer 409 for the
+old id, and pages fall back to browser rendering meanwhile. A build
+adds its assets beside those of earlier builds instead of replacing
+them, so pages linked before the restart, and pages still open in a
+browser, keep working; assets that none of the last three builds uses
+are removed (dist/client/.builds.json records which build used which).
 
 RENDER_WORKERS in the environment of `docker compose` (or .env, read
 for interpolation only) sets the number of render processes,

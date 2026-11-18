@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BUILD_FILE, buildId, INPUTS, inputFiles, writeBuildFile } from './build.ts';
+import { BUILD_FILE, BUILDS_FILE, buildId, INPUTS, inputFiles, mergeClient, writeBuildFile } from './build.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -61,5 +61,58 @@ describe('writeBuildFile', () => {
 		writeBuildFile(d, 'def456');
 		expect(JSON.parse(readFileSync(join(d, BUILD_FILE), 'utf8'))).toEqual({ build: 'def456' });
 		expect(readdirSync(d).filter((f) => f.includes('.tmp'))).toEqual([]);
+	});
+});
+
+describe('mergeClient', () => {
+	// A client bundle as Vite writes it: hashed assets and a manifest.
+	const bundle = (files: string[], manifest: string) => {
+		const d = mkdtempSync(join(tmpdir(), 'tgd-client-'));
+		dirs.push(d);
+		mkdirSync(join(d, 'assets'));
+		mkdirSync(join(d, '.vite'));
+		for (const f of files) writeFileSync(join(d, 'assets', f), f);
+		writeFileSync(join(d, '.vite', 'manifest.json'), manifest);
+		return d;
+	};
+	const dist = () => { const d = mkdtempSync(join(tmpdir(), 'tgd-dist-')); dirs.push(d); return d; };
+	const assets = (d: string) => readdirSync(join(d, 'assets')).sort();
+
+	it('adds a build beside the one before, and replaces the manifest and build id', () => {
+		const d = dist();
+		mergeClient(bundle(['entry-a1.js', 'style-s1.css'], 'm1'), d, 'b1');
+		mergeClient(bundle(['entry-a2.js', 'style-s1.css'], 'm2'), d, 'b2');
+		expect(assets(d)).toEqual(['entry-a1.js', 'entry-a2.js', 'style-s1.css']);
+		expect(readFileSync(join(d, '.vite', 'manifest.json'), 'utf8')).toBe('m2');
+		expect(JSON.parse(readFileSync(join(d, BUILD_FILE), 'utf8'))).toEqual({ build: 'b2' });
+	});
+
+	it('removes assets once no kept build uses them', () => {
+		const d = dist();
+		mergeClient(bundle(['a1.js', 'shared.css'], 'm'), d, 'b1', 2);
+		mergeClient(bundle(['a2.js', 'shared.css'], 'm'), d, 'b2', 2);
+		const { removed } = mergeClient(bundle(['a3.js', 'shared.css'], 'm'), d, 'b3', 2);
+		expect(removed).toEqual(['assets/a1.js']);
+		expect(assets(d)).toEqual(['a2.js', 'a3.js', 'shared.css']);
+		expect(JSON.parse(readFileSync(join(d, BUILDS_FILE), 'utf8')).map((b: { build: string }) => b.build)).toEqual(['b3', 'b2']);
+	});
+
+	it('counts files from before the record as one earlier build', () => {
+		const d = dist();
+		mkdirSync(join(d, 'assets'));
+		writeFileSync(join(d, 'assets', 'old.js'), 'old');
+		mergeClient(bundle(['new1.js'], 'm'), d, 'b1', 2);
+		expect(assets(d)).toEqual(['new1.js', 'old.js']);
+		mergeClient(bundle(['new2.js'], 'm'), d, 'b2', 2);
+		expect(assets(d)).toEqual(['new1.js', 'new2.js']);
+	});
+
+	it('rebuilding the same id keeps one record of it, and leaves no temporary file', () => {
+		const d = dist();
+		mergeClient(bundle(['a1.js'], 'm'), d, 'b1', 2);
+		mergeClient(bundle(['a1.js'], 'm'), d, 'b1', 2);
+		expect(JSON.parse(readFileSync(join(d, BUILDS_FILE), 'utf8'))).toEqual([{ build: 'b1', files: ['assets/a1.js'] }]);
+		const all = (x: string): string[] => readdirSync(x, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? all(join(x, e.name)) : [e.name]));
+		expect(all(d).filter((f) => f.endsWith('.tmp'))).toEqual([]);
 	});
 });
