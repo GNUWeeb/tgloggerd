@@ -278,6 +278,8 @@ function fileRow(f, fetch: boolean) {
 	};
 }
 
+const q = (u: URL, k: string) => u.searchParams.get(k);
+
 type Loaded = { route: string; status: 200 | 404; props: unknown };
 const notFound: Loaded = { route: 'not_found', status: 404, props: {} };
 
@@ -337,12 +339,18 @@ export function load(url: string, persona: Persona): Loaded {
 		}
 		return {
 			route: m[2] ? 'user_history' : 'user', status: 200, props: {
-				user: { ...userSummary(usr, true), first_name: usr.first_name, last_name: usr.last_name, bio: usr.bio, phone: usr.phone, usernames: getUsernames(usr).map((n) => ({ username: n.username, active: n.kind === 'active' })), ...contactFields(usr) },
+				user: {
+					...userSummary(usr, true), first_name: usr.first_name, last_name: usr.last_name, bio: usr.bio, phone: usr.phone,
+					usernames: getUsernames(usr).map((n) => ({ username: n.username, active: n.kind === 'active', kind: n.kind === 'active' ? 'active' : 'disabled', collectible: /\d$/.test(n.username) })),
+					...contactFields(usr), ...profileExtras(usr, s),
+				},
 				groups: getGroupsOfUser(usr).filter(s.group).map((g) => ({ ...groupSummary(g), msgs: g.msgs })),
-				history: getUserHistory(usr).map((e) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, photo: null, removed: e.kind === 'photo' ? true : undefined })),
+				...(() => { const h = historyPage(userHistory(usr), q(u, 'before'), HISTORY_FIRST) ?? historyPage(userHistory(usr), null, HISTORY_FIRST)!; return { history: h.entries, history_next: h.next }; })(),
 				activity: getActivity(usr.id, usr.msg_count),
 				can_private: allowed(s, 'private_messages'),
 				can_lookup_name: !!s.canLookupName && !!usr.is_contact, lookup_pending: lookupPending.has(usr.id),
+				lookup_pending_since: lookupPending.has(usr.id) ? '2026-11-17T09:12:00Z' : null,
+				lookup_pending_error: lookupPending.has(usr.id) ? 'FLOOD_WAIT_120' : null,
 			},
 		};
 	}
@@ -356,9 +364,12 @@ export function load(url: string, persona: Persona): Loaded {
 		if (!g || !s.group(g)) return notFound;
 		return {
 			route: m[2] === '/admins' ? 'group_admins' : m[2] === '/history' ? 'group_history' : 'group', status: 200, props: {
-				group: { ...groupSummary(g), description: g.description, members: g.members, msg_count: g.msg_count, admin_count: g.admin_count, created_at: iso(g.created_at), updated_at: iso(g.updated_at) },
+				group: {
+					...groupSummary(g), description: g.description, members: g.members, msg_count: g.msg_count, admin_count: g.admin_count, created_at: iso(g.created_at), updated_at: iso(g.updated_at),
+					usernames: g.username ? [{ username: g.username, active: true, kind: 'active', collectible: false }] : [], photo_file_id: null,
+				},
 				admins: getAdmins(g).map((a) => ({ user: userSummary(a.user, false), status: a.status, custom_title: a.custom_title, is_anonymous: a.is_anonymous, perms: a.perms, since: iso(a.since) })),
-				history: getGroupHistory(g).map((e) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, photo: null, removed: e.kind === 'photo' ? true : undefined, user: e.user ? userSummary(e.user, false) : undefined })),
+				...(() => { const h = historyPage(groupHistory(g), q(u, 'before'), HISTORY_FIRST) ?? historyPage(groupHistory(g), null, HISTORY_FIRST)!; return { history: h.entries, history_next: h.next }; })(),
 				top_posters: getTopPosters(g).map((p) => ({ user: userSummary(p.user, false), msgs: p.msgs })),
 				activity: getActivity(-g.id, g.msg_count / 40),
 			},
@@ -575,6 +586,65 @@ export function lookupName(id: string, persona: Persona): [number, unknown, numb
 	ownChecked.set(u.id, new Date(now).toISOString().replace(/\.\d+Z$/, 'Z'));
 	const [first, ...rest] = String(u.contact_name ?? '').split(' ');
 	return [200, { user_id: u.id, first_name: u.first_name, last_name: u.last_name, contact_first_name: first, contact_last_name: rest.join(' '), checked_at: Math.floor(now / 1000) }];
+}
+
+// Histories, page by page (UserHistoryPage, GroupHistoryPage). The
+// cursor is the offset of the next entry. The sample timelines are
+// short, so the pages' first page is too, for paging to show.
+const HISTORY_FIRST = 10;
+function historyPage<T>(all: T[], before: string | null, limit: number): { entries: T[]; next: string | null } | null {
+	let from = 0;
+	if (before !== null) {
+		if (!/^h\d+$/.test(before)) return null;
+		from = Number(before.slice(1));
+	}
+	const entries = all.slice(from, from + limit);
+	return { entries, next: from + limit < all.length ? `h${from + limit}` : null };
+}
+
+// A username event's details; every fifth added name is a reorder, and
+// names ending in a digit were bought (collectible).
+function usernameEvent(e, i: number) {
+	if (e.kind !== 'username') return {};
+	const action = e.action === 'added' && i % 5 === 4 ? 'reordered' : e.action;
+	return { action, ...(action !== 'removed' ? { username_kind: 'active' } : {}), ...(/\d$/.test(e.detail) ? { collectible: true } : {}) };
+}
+
+const userHistory = (usr) => getUserHistory(usr).map((e, i) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, photo: null, removed: e.kind === 'photo' ? true : undefined, ...usernameEvent(e, i) }));
+const groupHistory = (g) => getGroupHistory(g).map((e, i) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, photo: null, removed: e.kind === 'photo' ? true : undefined, user: e.user ? userSummary(e.user, false) : undefined, ...usernameEvent(e, i) }));
+
+// GET /api/users/{id}/history and /api/groups/{id}/history.
+export function historyApi(kind: 'users' | 'groups', id: string, q: URLSearchParams, persona: Persona): [number, unknown] {
+	const s = scopeOf(persona);
+	const limit = q.get('limit') === null ? 100 : Number(q.get('limit'));
+	if (!Number.isInteger(limit) || limit < 1 || limit > 500) return [400, { error: 'bad_request', message: 'limit is 1 to 500.' }];
+	const all = kind === 'users'
+		? (() => { const u = getUser(id); return u && s.user(u) && s.fullUser ? userHistory(u) : null; })()
+		: (() => { const g = getGroup(id); return g && s.group(g) ? groupHistory(g) : null; })();
+	if (!all) return [404, { error: 'not_found' }];
+	const page = historyPage(all, q.get('before'), limit);
+	return page ? [200, page] : [400, { error: 'bad_request', message: 'That cursor does not parse.' }];
+}
+
+// The profile fields the sample users lack, derived from the id: some
+// share a birthday (one without the year), the featured user a personal
+// channel, premium users an emoji status; a few charge Stars for
+// messages or take chats from contacts only.
+function profileExtras(usr, s) {
+	const n = Number(String(usr.id).slice(-4));
+	const channel = usr === users[3] ? groups.find((g) => g.type === 'channel') : null;
+	return {
+		photo_file_id: null,
+		birthday: n % 5 === 0 ? { day: 1 + (n % 28), month: 1 + (n % 12), year: n % 2 ? 1990 + (n % 20) : null } : null,
+		personal_chat_id: channel ? channel.id : null,
+		personal_chat: channel && s.group(channel) ? groupSummary(channel) : null,
+		paid_message_star_count: n % 17 === 0 ? 50 : 0,
+		emoji_status: usr.is_premium ? { custom_emoji_id: String(5368324170671202286n + BigInt(n)), expires_at: n % 3 ? null : '2026-12-31T00:00:00Z' } : null,
+		accent_color_id: n % 7, profile_accent_color_id: usr.is_premium ? n % 16 : null,
+		background_custom_emoji_id: null, profile_background_custom_emoji_id: null,
+		restriction_reason: usr.is_scam ? 'Reported as a scam by many users.' : '',
+		has_sensitive_content: false, restricts_new_chats: n % 7 === 0,
+	};
 }
 
 export function adminApi(method: string, p: string, body, persona: Persona): [number, unknown] {

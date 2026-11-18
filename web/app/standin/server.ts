@@ -330,6 +330,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		res.end(JSON.stringify(out));
 		return;
 	}
+	const hm = url.pathname.match(/^\/api\/(users|groups)\/(-?\d+)\/history$/);
+	if (hm && req.method === 'GET') {
+		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+		const [status, out] = fx.historyApi(hm[1] as 'users' | 'groups', hm[2], url.searchParams, who);
+		send(res, status, out);
+		return;
+	}
 	if (url.pathname === '/api/entities' && req.method === 'GET') {
 		const [status, out] = fx.entities(who, url.searchParams);
 		send(res, status, out);

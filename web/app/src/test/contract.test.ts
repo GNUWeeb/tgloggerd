@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { adminApi, chatFor, chatWindow, entities, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { adminApi, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 
 const spec = loadSpec();
@@ -101,6 +101,18 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 			const [status, body] = adminApi('GET', 'bots', kind ? { kind } : {}, p);
 			ok(status, body, '/api/bots');
 		}
+	});
+
+	it('history pages of a user and a group', () => {
+		const user = String(sampleContacts()[0]);
+		for (const q of ['', 'limit=3', 'limit=3&before=h3']) {
+			const [us, ub] = historyApi('users', user, new URLSearchParams(q), 'superadmin');
+			ok(us, ub, '/api/users/{id}/history');
+			const [gs, gb] = historyApi('groups', String(groupId), new URLSearchParams(q), 'superadmin');
+			ok(gs, gb, '/api/groups/{id}/history');
+		}
+		expect(historyApi('users', user, new URLSearchParams('before=junk'), 'superadmin')[0]).toBe(400);
+		expect(historyApi('users', user, new URLSearchParams(''), 'member')[0]).toBe(404);
 	});
 
 	it('a name lookup', () => {
