@@ -28,6 +28,16 @@ func (s *Server) textLang(ctx context.Context, uid uint64) string {
 	return settings.Resolve(p, s.defaults).Lang
 }
 
+// landing is the account's landing page, its own or the default; a
+// preference that cannot be read gives the default.
+func (s *Server) landing(ctx context.Context, uid uint64) string {
+	p, err := s.viewerPrefs(ctx, uid)
+	if err != nil {
+		p = settings.Prefs{}
+	}
+	return settings.Resolve(p, s.defaults).Landing
+}
+
 // badField answers 400 bad_request for a refused key.
 func badField(w http.ResponseWriter, lang, msgKey, key string) {
 	writeError(w, http.StatusBadRequest, "bad_request", map[string]any{

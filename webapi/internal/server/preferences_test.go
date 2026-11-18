@@ -37,6 +37,9 @@ func TestPreferences(t *testing.T) {
 	tok := signIn(t, c, "gw_admin", "password")
 
 	// Nothing set: the site's defaults.
+	if a := c.do("GET", "/api/session", "", nil); a.body["landing"] != "/" {
+		t.Fatalf("default landing %v", a.body)
+	}
 	v := viewerOf(t, c)
 	if v["timezone"] != "Asia/Jakarta" || v["date_format"] != "24h" || v["lang"] != "en" ||
 		v["theme"] != "system" || v["rows_per_page"] != 25.0 {
@@ -65,6 +68,13 @@ func TestPreferences(t *testing.T) {
 		if got[k] != want {
 			t.Errorf("answered %s = %v, want %v", k, got[k], want)
 		}
+	}
+	// Where signing in goes: the landing page, in the session too.
+	if a := c.do("GET", "/api/session", "", nil); a.body["landing"] != "/groups" {
+		t.Fatalf("session landing %v", a.body)
+	}
+	if a := (&client{t: t, h: h, cookies: map[string]string{}}).login("gw_admin", "password"); a.body["landing"] != "/groups" {
+		t.Fatalf("login landing %v", a.body)
 	}
 	v = viewerOf(t, c)
 	chat := v["chat"].(map[string]any)

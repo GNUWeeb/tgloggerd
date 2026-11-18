@@ -988,6 +988,8 @@ export interface components {
             user: components["schemas"]["SessionUser"];
             /** @description The session's CSRF token. */
             csrf: string;
+            /** @description The account's landing page (its preference, else /): where a sign-in without a next page goes. */
+            landing?: string;
         };
         CsrfToken: {
             /** @description The session's CSRF token from now on. */

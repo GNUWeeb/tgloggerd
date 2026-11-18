@@ -52,6 +52,9 @@ loader (`/api/page/settings...`):
 
 ### Where they apply
 
+POST /api/login and GET /api/session answer the account's `landing`
+page, where a sign-in without a next page goes.
+
 Every page's data carries the settings in effect, the account's own
 or the site's, in `viewer` (`timezone`, `date_format`, `lang`,
 `theme`, `rows_per_page`, `chat`), for a signed-out visitor too. Dates

@@ -92,8 +92,10 @@ text) and a fresh pre-login "csrf" token on refused logins.
     POST /api/login   X-CSRF-Token: <login token>
                       {"username":"...","password":"..."}
                       200 {"user":{"id":1,"username":"admin",
-                      "role":"admin"},"csrf":"<session token>"} and the
-                      tgw_session cookie.
+                      "role":"admin"},"csrf":"<session token>",
+                      "landing":"/"} and the tgw_session cookie;
+                      landing is the account's landing page, where a
+                      sign-in without a next page goes.
                       403 csrf: the token or its cookie is missing or
                       wrong. 400 bad_request: the body is not JSON.
                       429 rate_limited: WEB_LOGIN_MAX_ATTEMPTS failures
@@ -111,7 +113,8 @@ text) and a fresh pre-login "csrf" token on refused logins.
                       csrf. Other sessions of the account stay signed
                       in.
 
-    GET /api/session  200 {"user":{...},"csrf":"<session token>"}.
+    GET /api/session  200 {"user":{...},"csrf":"<session token>",
+                      "landing":"..."}.
                       401 unauthenticated: no valid session (a revoked
                       cookie is cleared). 503 unavailable: the session
                       could not be checked against the database; the

@@ -144,8 +144,9 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	sess, _ := SessionFrom(r.Context())
 	noStore(w)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user": userJSON{sess.UID, sess.Username, sess.Role, sess.MustChangePassword},
-		"csrf": s.signer.SessionCSRF(auth.RawSession(r)),
+		"user":    userJSON{sess.UID, sess.Username, sess.Role, sess.MustChangePassword},
+		"csrf":    s.signer.SessionCSRF(auth.RawSession(r)),
+		"landing": s.landing(r.Context(), sess.UID),
 	})
 }
 
@@ -275,8 +276,9 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user": userJSON{u.ID, u.Username, u.Role, u.MustChangePassword},
-		"csrf": s.signer.SessionCSRF(raw),
+		"user":    userJSON{u.ID, u.Username, u.Role, u.MustChangePassword},
+		"csrf":    s.signer.SessionCSRF(raw),
+		"landing": s.landing(ctx, u.ID),
 	})
 }
 

@@ -2596,6 +2596,11 @@ components:
         csrf:
           type: string
           description: The session's CSRF token.
+        landing:
+          type: string
+          description: >-
+            The account's landing page (its preference, else /): where a
+            sign-in without a next page goes.
     CsrfToken:
       type: object
       required: [csrf]
