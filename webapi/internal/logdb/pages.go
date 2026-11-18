@@ -359,7 +359,7 @@ func LoadGroupPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int6
 		"WHERE m.date >= ? AND m.chat_id = ? GROUP BY 1", id); err != nil {
 		return GroupPage{}, err
 	}
-	if p.Users, err = usersByID(ctx, db, users); err != nil {
+	if p.Users, err = usersByID(ctx, db, sc, users); err != nil {
 		return GroupPage{}, err
 	}
 	return p, nil
@@ -423,7 +423,7 @@ func LoadMessage(ctx context.Context, db *sql.DB, sc scope.Scope, group bool, ro
 			d.ChatGroup = Group{ID: d.ChatID, Title: "(no title)"}
 		}
 	} else {
-		us, err := usersByID(ctx, db, []int64{d.ChatID})
+		us, err := usersByID(ctx, db, sc, []int64{d.ChatID})
 		if err != nil {
 			return MessageDetail{}, err
 		}
@@ -560,7 +560,7 @@ func LoadDashboard(ctx context.Context, db *sql.DB, sc scope.Scope, now int64,
 		users = append(users, m.SenderUser)
 		groups = append(groups, m.ChatID, m.SenderChat)
 	}
-	if d.Users, err = usersByID(ctx, db, users); err != nil {
+	if d.Users, err = usersByID(ctx, db, sc, users); err != nil {
 		return Dashboard{}, err
 	}
 	if d.Groups, err = groupsByID(ctx, db, groups); err != nil {

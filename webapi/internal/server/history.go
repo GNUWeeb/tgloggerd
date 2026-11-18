@@ -129,7 +129,7 @@ func (s *Server) getGroupHistory(w http.ResponseWriter, r *http.Request) {
 		s.historyFailed(w, err)
 		return
 	}
-	users, err := logdb.HistoryUsers(r.Context(), s.ro, h)
+	users, err := logdb.HistoryUsers(r.Context(), s.ro, sc, h)
 	if err != nil {
 		s.internalError(w, "history", err)
 		return

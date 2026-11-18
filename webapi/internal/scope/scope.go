@@ -229,6 +229,12 @@ func (s Scope) GroupFilter(column string) (string, []any) {
 	return "1 = 0", nil
 }
 
+// HiddenGroups are the groups a superadmin hid from this admin,
+// ascending; nil for everyone else. Visibility goes through
+// GroupFilter and SeesGroup; this is for the queries that subtract the
+// hidden groups' messages from a stored total.
+func (s Scope) HiddenGroups() []int64 { return s.v.HideGroups }
+
 // SeesGroup is whether one group is visible.
 func (s Scope) SeesGroup(chatID int64) bool {
 	switch {

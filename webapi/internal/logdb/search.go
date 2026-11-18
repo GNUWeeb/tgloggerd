@@ -590,6 +590,11 @@ func (e *Entity) build(sc scope.Scope, req SearchRequest) (*built, error) {
 	b.pageSQL = hint + sel + " FROM " + e.from + whereClause + " ORDER BY " + sortExpr +
 		" " + b.order + tiebreak + " LIMIT " + strconv.Itoa(b.limit) +
 		" OFFSET " + strconv.Itoa(b.offset)
+	if e == Users {
+		// A user's total, its sort and its filters as the scope may see
+		// them (userTotal).
+		b.pageSQL, b.countSQL = scopedTotals(sc, b.pageSQL), scopedTotals(sc, b.countSQL)
+	}
 
 	want := len(binds)
 	if b.orderBind != nil {

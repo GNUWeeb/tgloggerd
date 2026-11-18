@@ -65,7 +65,7 @@ func OpenChat(ctx context.Context, db *sql.DB, sc scope.Scope, group bool, id in
 	if id <= 0 || !sc.SeesPrivate() {
 		return Chat{}, ErrNotFound
 	}
-	us, err := usersByID(ctx, db, []int64{id})
+	us, err := usersByID(ctx, db, sc, []int64{id})
 	if err != nil {
 		return Chat{}, err
 	}
@@ -578,7 +578,7 @@ func (c Chat) names(ctx context.Context, db *sql.DB, w *Window) error {
 		}
 	}
 	var err error
-	if w.Users, err = usersByID(ctx, db, users); err != nil {
+	if w.Users, err = usersByID(ctx, db, c.sc, users); err != nil {
 		return err
 	}
 	w.Groups, err = groupsByID(ctx, db, groups)

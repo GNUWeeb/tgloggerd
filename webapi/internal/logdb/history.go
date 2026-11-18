@@ -11,6 +11,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"tgloggerd/webapi/internal/scope"
 )
 
 // The change timelines of the user and group pages: the per-user and
@@ -218,12 +219,12 @@ func ValidGroupCursor(s string) bool {
 
 // HistoryUsers are the users a group's timeline names (its admin
 // changes); they appear in the group, so its viewer sees them.
-func HistoryUsers(ctx context.Context, db *sql.DB, h HistoryPage) (map[int64]User, error) {
+func HistoryUsers(ctx context.Context, db *sql.DB, sc scope.Scope, h HistoryPage) (map[int64]User, error) {
 	var ids []int64
 	for _, e := range h.Entries {
 		if e.Kind == "admin" {
 			ids = append(ids, e.UserID)
 		}
 	}
-	return usersByID(ctx, db, ids)
+	return usersByID(ctx, db, sc, ids)
 }

@@ -113,7 +113,7 @@ func both(a, b []any) []any {
 const searchUserSelect = "u.id, u.first_name, u.last_name, u.type, u.is_verified, " +
 	"u.is_premium, u.is_scam, u.is_fake, u.is_support, " +
 	"u.profile_photo_file_id, u.created_at, u.updated_at, " +
-	"u.msg_count, u.contact_first_name, u.contact_last_name, " +
+	"u.msg_count AS msg_count, u.contact_first_name, u.contact_last_name, " +
 	"(SELECT un.username FROM telegram_user_usernames un " +
 	"WHERE un.user_id = u.id AND un.kind='active' " +
 	"ORDER BY un.position LIMIT 1) AS username, " +

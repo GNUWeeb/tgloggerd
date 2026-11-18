@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"slices"
+	"strconv"
 	"strings"
 
 	"tgloggerd/webapi/internal/scope"
@@ -194,13 +195,52 @@ func scanUsers(rows *sql.Rows) (map[int64]User, error) {
 	return out, rows.Err()
 }
 
+// userTotal is the SQL expression of a user's message total as the
+// scope may see it: telegram_users.msg_count counts every group and
+// private message the user sent, so a scope that hides groups or
+// private chats gets it less the user's messages there. Only such a
+// scope pays for the subqueries, which the (sender_user_id, chat_id)
+// and (sender_id) indexes answer. The hidden groups are inlined: they
+// are our own integers, from the account's settings.
+func userTotal(sc scope.Scope) string {
+	minus := ""
+	if hidden := sc.HiddenGroups(); len(hidden) > 0 {
+		ids := make([]string, len(hidden))
+		for i, g := range hidden {
+			ids[i] = strconv.FormatInt(g, 10)
+		}
+		minus += " - (SELECT COUNT(*) FROM telegram_group_messages hm WHERE hm.sender_user_id = u.id" +
+			" AND hm.chat_id IN (" + strings.Join(ids, ",") + "))"
+	}
+	if !sc.SeesPrivate() && sc.SeesAllUsers() {
+		minus += " - (SELECT COUNT(*) FROM telegram_private_messages hp WHERE hp.sender_id = u.id)"
+	}
+	if minus == "" {
+		return "u.msg_count"
+	}
+	return "GREATEST(CAST(u.msg_count AS SIGNED)" + minus + ", 0)"
+}
+
+// scopedTotals rewrites a query over users aliased u so it reads the
+// scope's userTotal wherever it reads u.msg_count.
+func scopedTotals(sc scope.Scope, q string) string {
+	if t := userTotal(sc); t != "u.msg_count" {
+		// One pass, so the expression's own u.msg_count is left alone;
+		// the column keeps its name for the rows that read it by name.
+		return strings.NewReplacer("u.msg_count AS msg_count", t+" AS msg_count",
+			"u.msg_count", t).Replace(q)
+	}
+	return q
+}
+
 // usersByID loads the users with these ids; missing ones are left out.
-func usersByID(ctx context.Context, db *sql.DB, ids []int64) (map[int64]User, error) {
+// Their totals are as sc may see them (userTotal).
+func usersByID(ctx context.Context, db *sql.DB, sc scope.Scope, ids []int64) (map[int64]User, error) {
 	ids = uniq(ids)
 	if len(ids) == 0 {
 		return map[int64]User{}, nil
 	}
-	rows, err := db.QueryContext(ctx, userQuery+"WHERE u.id IN ("+placeholders(len(ids))+")",
+	rows, err := db.QueryContext(ctx, scopedTotals(sc, userQuery)+"WHERE u.id IN ("+placeholders(len(ids))+")",
 		int64Args(ids)...)
 	if err != nil {
 		return nil, err
@@ -344,7 +384,7 @@ func usersInVisibleGroups(ctx context.Context, db *sql.DB, sc scope.Scope, ids [
 // sees, in the order of ids: every user for a viewer that sees all
 // users, else those that appear in its visible groups.
 func VisibleUsers(ctx context.Context, db *sql.DB, sc scope.Scope, ids []int64) ([]User, error) {
-	m, err := usersByID(ctx, db, ids)
+	m, err := usersByID(ctx, db, sc, ids)
 	if err != nil {
 		return nil, err
 	}
