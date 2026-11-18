@@ -18,7 +18,6 @@ Two web services are a transition, not a destination.
 
 - `go-port-media`
 - `go-port-admin`
-- `go-port-mcp`
 
 ## Done when
 
