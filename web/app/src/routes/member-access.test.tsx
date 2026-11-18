@@ -72,7 +72,9 @@ describe('member access', () => {
 		expect(mine).not.toContain(2);
 		expect(section('Rust and systems')).toBeUndefined();
 		const note = within(dialog()).getByRole('note', { name: '' });
-		expect(note.textContent).toMatch(/Also filed in Rust and systems \(1 group\), which you do not administer/);
+		expect(note.textContent).toMatch(/Also filed in Rust and systems, which you do not administer/);
+		// Its groups there are not the admin's to see: no count of them.
+		expect(note.textContent).not.toMatch(/group/);
 		const body = await save(calls, r.id);
 		// Naming a federation it does not administer would be refused.
 		expect(body.grants.every((g) => mine.includes(g.fed))).toBe(true);
@@ -92,5 +94,13 @@ describe('member access', () => {
 		openAccess('superadmin', { 'PATCH /api/accounts/:id': () => json(400, { error: 'bad_request', message: 'Group -1009001 is not in GNU/Weeb network.', field: 'grants' }) });
 		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
 		expect((await within(dialog()).findByRole('alert')).textContent).toBe('Group -1009001 is not in GNU/Weeb network.');
+	});
+
+	it('gives an admin only the granted groups it may see', () => {
+		const asAdmin = researcher('admin');
+		const asSuper = researcher('superadmin');
+		expect(asSuper.grants.find((g) => g.fed === 2)!.groups.length).toBeGreaterThan(0);
+		expect(asAdmin.grants.find((g) => g.fed === 2)!.groups).toEqual([]);
+		expect(asAdmin.grants.find((g) => g.fed === 1)!.groups).toEqual(asSuper.grants.find((g) => g.fed === 1)!.groups);
 	});
 });

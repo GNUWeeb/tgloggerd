@@ -198,7 +198,9 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 				);
 			})}
 			{others.length > 0 && (
-				<p className="a-muted sm" role="note"><Info size={13} /> Also filed in {others.map((g, i) => <span key={g.fed}>{i ? ', ' : ''}<b>{fedName(g.fed)}</b>{E.group_grants ? ` (${g.groups.length} group${g.groups.length === 1 ? '' : 's'})` : ''}</span>)}, which you do not administer; those stay as they are.</p>
+				// Their groups are not shown to an admin (the server leaves them
+				// out), so only the federations are named.
+				<p className="a-muted sm" role="note"><Info size={13} /> Also filed in {others.map((g, i) => <span key={g.fed}>{i ? ', ' : ''}<b>{fedName(g.fed)}</b></span>)}, which you do not administer; its grants there stay as they are.</p>
 			)}
 		</>
 	);
