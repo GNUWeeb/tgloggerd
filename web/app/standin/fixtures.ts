@@ -43,6 +43,7 @@ export function viewerOf(persona: Persona): Viewer {
 	return {
 		timezone: pr.timezone ?? undefined, date_format: pr.date_format ?? undefined, theme: pr.theme ?? undefined,
 		rows_per_page: pr.rows_per_page ?? undefined,
+		sidebar: pr.sidebar ?? 'open',
 		signed_in: true,
 		account: { id: s.acct.id, username: s.acct.username, name: s.acct.name, role: s.acct.role },
 		now: NOW,
@@ -573,6 +574,24 @@ export function load(url: string, persona: Persona): Loaded {
 // Per-account settings the stand-in keeps in memory (lost on reload of
 // this module); the Go service keeps them in the web database.
 const SETTINGS = new Map();
+// The preference a PATCH or PUT body gets wrong, if any: an unknown key
+// or a value its key does not take (null is always taken).
+const PREF_VALUES: Record<string, (v: unknown) => boolean> = {
+	timezone: (v) => typeof v === 'string' && v.length > 0, date_format: (v) => ['24h', '12h', 'iso'].includes(v as string),
+	lang: (v) => ['en', 'id'].includes(v as string), theme: (v) => ['system', 'light', 'dark'].includes(v as string),
+	sidebar: (v) => ['open', 'collapsed'].includes(v as string), rows_per_page: (v) => [25, 50, 100].includes(v as number),
+	landing: (v) => typeof v === 'string' && /^\/(?!\/)/.test(v) && v.length <= 255, chat_media: (v) => ['auto', 'click'].includes(v as string),
+	chat_auto_load: (v) => typeof v === 'boolean', chat_live: (v) => typeof v === 'boolean', chat_show_deleted: (v) => typeof v === 'boolean',
+	chat_show_edited: (v) => typeof v === 'boolean', chat_show_service: (v) => typeof v === 'boolean',
+};
+export function badPref(body: Record<string, unknown>): string | null {
+	for (const [k, v] of Object.entries(body)) {
+		const ok = PREF_VALUES[k];
+		if (!ok || (v !== null && !ok(v))) return k;
+	}
+	return null;
+}
+
 export function settingsState(persona: Persona) {
 	if (!SETTINGS.has(persona)) {
 		const s = scopeOf(persona);

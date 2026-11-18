@@ -253,6 +253,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 			const sent = fx.changeEmail(who, String(body.email ?? ''));
 			send(res, 200, { verification_sent: sent }); return;
 		}
+		if (p === 'preferences' && req.method === 'PATCH') {
+			// Only the keys named change; null resets one to the site default.
+			const bad = fx.badPref(body);
+			if (bad) { send(res, 400, { error: 'bad_request', message: `${bad} does not take that value.`, field: bad }); return; }
+			for (const [k, v] of Object.entries(body)) { if (v === null) delete st.prefs[k]; else st.prefs[k] = v; }
+			send(res, 200, { prefs: st.prefs }); return;
+		}
 		if (p === 'preferences' && req.method === 'PUT') {
 			st.prefs = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== null));
 			send(res, 200, { prefs: st.prefs }); return;
