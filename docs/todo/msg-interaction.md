@@ -9,8 +9,8 @@ They show how a post was received, which the archive does not keep.
 
 ## Scope
 
-- Additive migration: `view_count`, `forward_count`, `reply_count`,
-  `reactions JSON` on both message tables.
+- Write `view_count`, `forward_count`, `reply_count` and `reactions`
+  (columns added by migration 000034).
 - `updateMessageInteractionInfo` and `updateMessageReactions`,
   coalesced per message.
 
