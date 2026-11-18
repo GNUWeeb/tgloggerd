@@ -11,7 +11,10 @@ per-user configurations (docs/design/web-accounts.md section 6).
 ## Scope
 
 - Owner and federation for Telegram to Discord webhooks, Discord to
-  Telegram routes and Telegram bots, through web-ownership.
+  Telegram routes and Telegram bots. Owners are recorded already
+  (webapi/internal/webdb/ownership.go: set on creation, answered in
+  the lists, TransferOwner and OwnedBy ready); what is left is the
+  federation, the per-owner visibility and the transfer operations.
 - A member with `forward` creates configurations for its granted
   groups only and sees only its own; bot tokens never reveal or reuse
   another owner's bot.
@@ -24,8 +27,9 @@ per-user configurations (docs/design/web-accounts.md section 6).
   than one of the owner's federations holds its group. Transfer
   candidates: for an admin, the federation's admins and its members
   holding `forward`; for a superadmin, any active account.
-- Existing configurations become owned by the superadmin, in the
-  Default federation.
+- Existing configurations go into the Default federation; their
+  owner, the superadmin, is given by `webapi assign-owner` at
+  deployment (web/docs/accounts.md, Ownership).
 - `web/docs/platform-forwarding.md` updated.
 
 ## Design notes
@@ -36,7 +40,6 @@ per-user configurations (docs/design/web-accounts.md section 6).
 
 ## Depends on
 
-- `web-ownership`
 - `web-member-access`
 
 ## Done when
