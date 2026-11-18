@@ -4120,6 +4120,9 @@ components:
         updated_at:
           type: string
     UserFull:
+      description: >-
+        The user page's profile, for a full-access viewer. The service
+        sends every property listed; null is "none".
       allOf:
         - $ref: '#/components/schemas/UserSummary'
         - type: object
@@ -4136,13 +4139,110 @@ components:
             usernames:
               type: array
               items:
-                type: object
-                required: [username, active]
-                properties:
-                  username:
-                    type: string
-                  active:
-                    type: boolean
+                $ref: '#/components/schemas/Username'
+            photo_file_id:
+              type: [integer, 'null']
+              format: int64
+              description: >-
+                The profile photo's file id (photo is its /files/<token>
+                URL, the full file), for the files page's preview
+                (/files?file=<id>); null without a photo.
+            birthday:
+              description: Null when not shared.
+              oneOf:
+                - type: 'null'
+                - type: object
+                  required: [day, month, year]
+                  properties:
+                    day:
+                      type: integer
+                      minimum: 1
+                      maximum: 31
+                    month:
+                      type: integer
+                      minimum: 1
+                      maximum: 12
+                    year:
+                      type: [integer, 'null']
+                      description: Null when the year is hidden.
+            personal_chat_id:
+              type: [integer, 'null']
+              format: int64
+              description: The channel shown on the profile; null for none.
+            personal_chat:
+              description: >-
+                That channel, when the logger knows it and the viewer
+                sees it (its page is /groups/{id}); null otherwise.
+              oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/GroupSummary'
+            paid_message_star_count:
+              type: integer
+              format: int64
+              description: Telegram Stars a message to the user costs; 0 for none.
+            emoji_status:
+              description: Null for none.
+              oneOf:
+                - type: 'null'
+                - type: object
+                  required: [custom_emoji_id, expires_at]
+                  properties:
+                    custom_emoji_id:
+                      type: string
+                      description: A 64-bit id, as a string.
+                    expires_at:
+                      type: [string, 'null']
+                      description: Null when it does not expire.
+            accent_color_id:
+              type: integer
+              description: The name's accent colour (Telegram's id; 0 is the default).
+            profile_accent_color_id:
+              type: [integer, 'null']
+              description: The profile's accent colour; null for none.
+            background_custom_emoji_id:
+              type: [string, 'null']
+              description: The name background's custom emoji (64-bit id as a string); null for none.
+            profile_background_custom_emoji_id:
+              type: [string, 'null']
+              description: The profile background's custom emoji; null for none.
+            restriction_reason:
+              type: string
+              description: Why Telegram restricts the user; empty for none.
+            has_sensitive_content:
+              type: boolean
+            restricts_new_chats:
+              type: boolean
+              description: Only contacts and Premium users may start a chat.
+            is_contact:
+              type: boolean
+              description: A contact of the logging account (contact_name is the name it saved).
+            is_mutual_contact:
+              type: boolean
+            own_name_known:
+              type: boolean
+              description: >-
+                False when no own name was ever seen and name is the
+                contact name standing in for it.
+            own_name_checked_at:
+              type: [string, 'null']
+              description: >-
+                When "Look up real name" last read the own name (RFC
+                3339); null for never.
+    Username:
+      type: object
+      required: [username, active]
+      properties:
+        username:
+          type: string
+        active:
+          type: boolean
+        kind:
+          type: string
+          enum: [active, disabled]
+          description: Always sent by the service; active is kind active.
+        collectible:
+          type: boolean
+          description: Bought on fragment.com; always sent by the service.
     GroupSummary:
       type: object
       required: [id, title, username, type, photo]
@@ -4177,6 +4277,20 @@ components:
         - type: object
           required: [description, members, msg_count, admin_count, created_at, updated_at]
           properties:
+            usernames:
+              type: array
+              description: >-
+                Every current username, active ones first, with kind and
+                collectible (username is the first active one). Always
+                sent by the service.
+              items:
+                $ref: '#/components/schemas/Username'
+            photo_file_id:
+              type: [integer, 'null']
+              format: int64
+              description: >-
+                The photo's file id, for the files page's preview; null
+                without a photo. Always sent by the service.
             description:
               type: string
             members:
@@ -5156,6 +5270,28 @@ components:
                 type: integer
             can_private:
               type: boolean
+            can_lookup_name:
+              type: boolean
+              description: >-
+                The page offers "Look up real name" (POST
+                /api/users/{id}/lookup-name): the user is a contact,
+                the viewer may (superadmins), and the daemon's API is
+                set up. Always sent by the service.
+            lookup_pending:
+              type: boolean
+              description: >-
+                A "Look up real name" removed the contact and has not
+                added it back yet (a telegram_contact_lookups row is
+                left for the user; the daemon keeps retrying). Always
+                sent by the service.
+            lookup_pending_since:
+              type: [string, 'null']
+              description: When that lookup started; null when none is pending.
+            lookup_pending_error:
+              type: [string, 'null']
+              description: >-
+                Its last error adding the contact back ("" for none
+                yet); null when none is pending.
         - type: object
           required: [limited, user, shared_groups]
           properties:

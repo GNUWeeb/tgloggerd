@@ -58,15 +58,8 @@ const dayIndex = "SELECT FLOOR((m.date - ?) / 86400), COUNT(*) "
 // full-access viewer sees.
 type UserDetail struct {
 	User
-	Bio       string
-	Phone     string
+	Profile
 	Usernames []Username
-}
-
-// Username is one of a user's current usernames.
-type Username struct {
-	Username string
-	Active   bool
 }
 
 // GroupCount is a group with the number of messages of someone in it.
@@ -132,26 +125,10 @@ func LoadUserPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int64
 		return p, nil
 	}
 
-	err = db.QueryRowContext(ctx, "SELECT COALESCE(bio, ''), COALESCE(phone_number, '') "+
-		"FROM telegram_user_extra_info WHERE user_id = ?", id).Scan(&p.User.Bio, &p.User.Phone)
-	if err != nil && err != sql.ErrNoRows {
+	if p.User.Profile, err = loadProfile(ctx, db, id); err != nil {
 		return UserPage{}, err
 	}
-	rows, err = db.QueryContext(ctx, "SELECT username, kind = 'active' FROM telegram_user_usernames "+
-		"WHERE user_id = ? ORDER BY kind, position", id)
-	if err != nil {
-		return UserPage{}, err
-	}
-	for rows.Next() {
-		var u Username
-		if err := rows.Scan(&u.Username, &u.Active); err != nil {
-			rows.Close()
-			return UserPage{}, err
-		}
-		p.User.Usernames = append(p.User.Usernames, u)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
+	if p.User.Usernames, err = usernames(ctx, db, "telegram_user_usernames", "user_id", id); err != nil {
 		return UserPage{}, err
 	}
 
@@ -183,6 +160,7 @@ func LoadUserPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int64
 type GroupDetail struct {
 	Group
 	AdminCount int64
+	Usernames  []Username
 }
 
 // Admin is one of a group's current administrators.
@@ -287,6 +265,9 @@ func LoadGroupPage(ctx context.Context, db *sql.DB, sc scope.Scope, id, now int6
 		return GroupPage{}, err
 	}
 	p.Group.AdminCount = int64(len(p.Admins))
+	if p.Group.Usernames, err = usernames(ctx, db, "telegram_group_usernames", "group_id", id); err != nil {
+		return GroupPage{}, err
+	}
 
 	if p.History, err = GroupHistory(ctx, db, id, before, HistoryPageSize); err != nil {
 		return GroupPage{}, err

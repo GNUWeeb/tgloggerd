@@ -379,6 +379,15 @@ paths that are no page and for things the scope hides, 404 either way.
     themselves. The cursor is the last entry's time, kind and row id,
     the timeline's sort key, so a page costs the same however deep it
     is. A member sees no user's history (404).
+  - The user page's profile is every field the logger records, as
+    the Drogon page shows it: birthday, personal channel, paid message
+    stars, emoji status, accent colours and background emojis (64-bit
+    custom emoji ids as strings), restriction and the sensitive and
+    restricts-new-chats flags, contact, mutual contact and the own
+    name's state, every username with its kind and collectible flag
+    (groups too), and the photo's file id. can_lookup_name and
+    lookup_pending drive "Look up real name". A member gets the
+    narrow variant only (name and photo, web-accounts.md section 5).
 
   - /api/page/<path> takes the page path without its leading slash,
     its slashes plain or encoded as %2F, and the page's query string

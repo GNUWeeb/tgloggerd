@@ -1470,15 +1470,75 @@ export interface components {
             created_at?: string;
             updated_at?: string;
         };
+        /** @description The user page's profile, for a full-access viewer. The service sends every property listed; null is "none". */
         UserFull: components["schemas"]["UserSummary"] & {
             first_name: string;
             last_name: string;
             bio: string;
             phone: string;
-            usernames: {
-                username: string;
-                active: boolean;
-            }[];
+            usernames: components["schemas"]["Username"][];
+            /**
+             * Format: int64
+             * @description The profile photo's file id (photo is its /files/<token> URL, the full file), for the files page's preview (/files?file=<id>); null without a photo.
+             */
+            photo_file_id?: number | null;
+            /** @description Null when not shared. */
+            birthday?: null | {
+                day: number;
+                month: number;
+                /** @description Null when the year is hidden. */
+                year: number | null;
+            };
+            /**
+             * Format: int64
+             * @description The channel shown on the profile; null for none.
+             */
+            personal_chat_id?: number | null;
+            /** @description That channel, when the logger knows it and the viewer sees it (its page is /groups/{id}); null otherwise. */
+            personal_chat?: null | components["schemas"]["GroupSummary"];
+            /**
+             * Format: int64
+             * @description Telegram Stars a message to the user costs; 0 for none.
+             */
+            paid_message_star_count?: number;
+            /** @description Null for none. */
+            emoji_status?: null | {
+                /** @description A 64-bit id, as a string. */
+                custom_emoji_id: string;
+                /** @description Null when it does not expire. */
+                expires_at: string | null;
+            };
+            /** @description The name's accent colour (Telegram's id; 0 is the default). */
+            accent_color_id?: number;
+            /** @description The profile's accent colour; null for none. */
+            profile_accent_color_id?: number | null;
+            /** @description The name background's custom emoji (64-bit id as a string); null for none. */
+            background_custom_emoji_id?: string | null;
+            /** @description The profile background's custom emoji; null for none. */
+            profile_background_custom_emoji_id?: string | null;
+            /** @description Why Telegram restricts the user; empty for none. */
+            restriction_reason?: string;
+            has_sensitive_content?: boolean;
+            /** @description Only contacts and Premium users may start a chat. */
+            restricts_new_chats?: boolean;
+            /** @description A contact of the logging account (contact_name is the name it saved). */
+            is_contact?: boolean;
+            is_mutual_contact?: boolean;
+            /** @description False when no own name was ever seen and name is the contact name standing in for it. */
+            own_name_known?: boolean;
+            /** @description When "Look up real name" last read the own name (RFC 3339); null for never. */
+            own_name_checked_at?: string | null;
+        };
+        Username: {
+            username: string;
+            active: boolean;
+            /**
+             * @description Always sent by the service; active is kind active.
+             * @enum {string}
+             */
+            kind?: "active" | "disabled";
+            /** @description Bought on fragment.com; always sent by the service. */
+            collectible?: boolean;
         };
         GroupSummary: {
             /** Format: int64 */
@@ -1495,6 +1555,13 @@ export interface components {
             msg_count: number;
         };
         GroupFull: components["schemas"]["GroupSummary"] & {
+            /** @description Every current username, active ones first, with kind and collectible (username is the first active one). Always sent by the service. */
+            usernames?: components["schemas"]["Username"][];
+            /**
+             * Format: int64
+             * @description The photo's file id, for the files page's preview; null without a photo. Always sent by the service.
+             */
+            photo_file_id?: number | null;
             description: string;
             /** @description The member count; not recorded by the logger yet, so 0. */
             members: number;
@@ -1968,6 +2035,14 @@ export interface components {
             history_next?: string | null;
             activity: number[];
             can_private: boolean;
+            /** @description The page offers "Look up real name" (POST /api/users/{id}/lookup-name): the user is a contact, the viewer may (superadmins), and the daemon's API is set up. Always sent by the service. */
+            can_lookup_name?: boolean;
+            /** @description A "Look up real name" removed the contact and has not added it back yet (a telegram_contact_lookups row is left for the user; the daemon keeps retrying). Always sent by the service. */
+            lookup_pending?: boolean;
+            /** @description When that lookup started; null when none is pending. */
+            lookup_pending_since?: string | null;
+            /** @description Its last error adding the contact back ("" for none yet); null when none is pending. */
+            lookup_pending_error?: string | null;
         } | {
             /** @constant */
             limited: true;
