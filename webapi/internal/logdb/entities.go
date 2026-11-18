@@ -196,41 +196,52 @@ func scanUsers(rows *sql.Rows) (map[int64]User, error) {
 }
 
 // userTotal is the SQL expression of a user's message total as the
-// scope may see it: telegram_users.msg_count counts every group and
-// private message the user sent, so a scope that hides groups or
-// private chats gets it less the user's messages there. Only such a
-// scope pays for the subqueries, which the (sender_user_id, chat_id)
-// and (sender_id) indexes answer. The hidden groups are inlined: they
-// are our own integers, from the account's settings.
-func userTotal(sc scope.Scope) string {
+// scope may see it, and the joins it reads: telegram_users.msg_count
+// counts every group and private message the user sent, so a scope
+// that hides groups or private chats gets it less the user's messages
+// there. Those are counted once per query, per sender, in derived
+// tables joined to the users (hg, hp), not per user row: the users
+// list sorts by the total, and a subquery per row over half a million
+// users ran past the statement time limit. The hidden groups are
+// inlined: they are our own integers, from the account's settings.
+func userTotal(sc scope.Scope) (expr, joins string) {
 	minus := ""
 	if hidden := sc.HiddenGroups(); len(hidden) > 0 {
 		ids := make([]string, len(hidden))
 		for i, g := range hidden {
 			ids[i] = strconv.FormatInt(g, 10)
 		}
-		minus += " - (SELECT COUNT(*) FROM telegram_group_messages hm WHERE hm.sender_user_id = u.id" +
-			" AND hm.chat_id IN (" + strings.Join(ids, ",") + "))"
+		joins += " LEFT JOIN (SELECT sender_user_id AS uid, COUNT(*) AS n FROM telegram_group_messages" +
+			" WHERE chat_id IN (" + strings.Join(ids, ",") + ") AND sender_user_id IS NOT NULL" +
+			" GROUP BY sender_user_id) hg ON hg.uid = u.id"
+		minus += " - COALESCE(hg.n, 0)"
 	}
 	if !sc.SeesPrivate() && sc.SeesAllUsers() {
-		minus += " - (SELECT COUNT(*) FROM telegram_private_messages hp WHERE hp.sender_id = u.id)"
+		joins += " LEFT JOIN (SELECT sender_id AS uid, COUNT(*) AS n FROM telegram_private_messages" +
+			" WHERE sender_id IS NOT NULL GROUP BY sender_id) hp ON hp.uid = u.id"
+		minus += " - COALESCE(hp.n, 0)"
 	}
 	if minus == "" {
-		return "u.msg_count"
+		return "u.msg_count", ""
 	}
-	return "GREATEST(CAST(u.msg_count AS SIGNED)" + minus + ", 0)"
+	return "GREATEST(CAST(u.msg_count AS SIGNED)" + minus + ", 0)", joins
 }
 
 // scopedTotals rewrites a query over users aliased u so it reads the
-// scope's userTotal wherever it reads u.msg_count.
+// scope's userTotal wherever it reads u.msg_count, joining what that
+// reads right after each telegram_users u it selects from (a query and
+// the page subquery the users search may nest in it). A query that does
+// not read the total is left alone, so it pays for no join.
 func scopedTotals(sc scope.Scope, q string) string {
-	if t := userTotal(sc); t != "u.msg_count" {
-		// One pass, so the expression's own u.msg_count is left alone;
-		// the column keeps its name for the rows that read it by name.
-		return strings.NewReplacer("u.msg_count AS msg_count", t+" AS msg_count",
-			"u.msg_count", t).Replace(q)
+	t, joins := userTotal(sc)
+	if t == "u.msg_count" || !strings.Contains(q, "u.msg_count") {
+		return q
 	}
-	return q
+	// One pass, so the expression's own u.msg_count is left alone;
+	// the column keeps its name for the rows that read it by name.
+	q = strings.NewReplacer("u.msg_count AS msg_count", t+" AS msg_count",
+		"u.msg_count", t).Replace(q)
+	return strings.ReplaceAll(q, "telegram_users u ", "telegram_users u"+joins+" ")
 }
 
 // usersByID loads the users with these ids; missing ones are left out.

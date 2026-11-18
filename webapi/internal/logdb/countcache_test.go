@@ -8,8 +8,10 @@ package logdb
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"sync"
 	"testing"
+	"tgloggerd/webapi/internal/scope"
 	"time"
 
 	"tgloggerd/webapi/internal/testdb"
@@ -126,5 +128,25 @@ func TestUsersCountFrom(t *testing.T) {
 	}
 	if bare != joined || bare == 0 {
 		t.Errorf("bare %d, joined %d", bare, joined)
+	}
+}
+
+// A scope's totals are joined once, right after the query's own users,
+// and only into queries that read the total.
+func TestScopedTotalsJoin(t *testing.T) {
+	t.Parallel()
+	sc := scope.For(scope.Viewer{ID: 3, Role: scope.Admin, HidePrivate: true, HideGroups: []int64{-10}})
+	q := scopedTotals(sc, "SELECT u.id, u.msg_count AS msg_count FROM telegram_users u WHERE u.msg_count > 1 ORDER BY u.msg_count DESC")
+	if strings.Count(q, " hg ON hg.uid = u.id") != 1 || strings.Count(q, " hp ON hp.uid = u.id") != 1 ||
+		!strings.Contains(q, "FROM telegram_users u LEFT JOIN (SELECT sender_user_id") ||
+		strings.Contains(q, "SELECT COUNT(*) FROM telegram_private_messages hp WHERE") ||
+		!strings.Contains(q, " AS msg_count FROM") {
+		t.Errorf("rewritten: %s", q)
+	}
+	if q := scopedTotals(sc, "SELECT COUNT(*) FROM telegram_users u"); strings.Contains(q, "JOIN") {
+		t.Errorf("a query without the total got the joins: %s", q)
+	}
+	if q := scopedTotals(scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin}), "SELECT u.msg_count FROM telegram_users u"); q != "SELECT u.msg_count FROM telegram_users u" {
+		t.Errorf("a superadmin's query changed: %s", q)
 	}
 }

@@ -591,6 +591,16 @@ func (e *Entity) build(sc scope.Scope, req SearchRequest) (*built, error) {
 		" " + b.order + tiebreak + " LIMIT " + strconv.Itoa(b.limit) +
 		" OFFSET " + strconv.Itoa(b.offset)
 	if e == Users {
+		if t, _ := userTotal(sc); t != "u.msg_count" && b.orderBind == nil {
+			// The scope's totals have no index to sort by, so the rows
+			// are sorted by them in full: find the page's ids with a
+			// narrow query first, and only then read their columns
+			// (whose subqueries would otherwise run for every user).
+			b.pageSQL = hint + sel + " FROM " + e.from + " JOIN (SELECT u.id AS page_id FROM " +
+				e.from + whereClause + " ORDER BY " + sortExpr + " " + b.order + tiebreak +
+				" LIMIT " + strconv.Itoa(b.limit) + " OFFSET " + strconv.Itoa(b.offset) +
+				") page ON page.page_id = u.id ORDER BY " + sortExpr + " " + b.order + tiebreak
+		}
 		// A user's total, its sort and its filters as the scope may see
 		// them (userTotal).
 		b.pageSQL, b.countSQL = scopedTotals(sc, b.pageSQL), scopedTotals(sc, b.countSQL)
