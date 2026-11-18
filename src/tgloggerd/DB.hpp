@@ -509,6 +509,29 @@ private:
 			       int64_t entity_id, const std::string &value);
 
 	/*
+	 * SQL that is 1 when a stored content_extra and the one bound to its
+	 * placeholder agree on their curated keys, ignoring TDLib's own JSON
+	 * ("tdlib"), which changes with nobody editing. A stored row with no
+	 * curated keys yet (none at all, or TDLib's JSON only) agrees with
+	 * everything: gaining detail is not an edit.
+	 */
+	static constexpr const char *kCuratedExtraSame =
+		"(COALESCE(JSON_REMOVE(content_extra, '$.tdlib',"
+		" '$.tdlib_omitted_bytes'), JSON_OBJECT()) = JSON_OBJECT() OR"
+		" COALESCE(JSON_REMOVE(content_extra, '$.tdlib',"
+		" '$.tdlib_omitted_bytes'), JSON_OBJECT()) ="
+		" COALESCE(JSON_REMOVE(CAST(? AS JSON), '$.tdlib',"
+		" '$.tdlib_omitted_bytes'), JSON_OBJECT()))";
+
+	/* Whether two tdlib_type values describe the same class; a value
+	 * that was never recorded matches any. */
+	static bool sameTdlibType(const std::optional<std::string> &a,
+				  const std::optional<std::string> &b)
+	{
+		return !a.has_value() || !b.has_value() || *a == *b;
+	}
+
+	/*
 	 * Shared message-upsert helpers, parameterized by table and
 	 * foreign-key column so the identical private/group logic is not
 	 * duplicated. The table and column arguments are compile-time
@@ -522,7 +545,8 @@ private:
 					  int64_t old_edit_date,
 					  const models::MessageContent &new_content,
 					  int64_t new_edit_date,
-					  bool entities_same);
+					  bool entities_same,
+					  bool extra_same);
 	void appendMessageVersion(mysql::Transaction &tx,
 				  const char *edits_table,
 				  const char *fk_column,

@@ -114,6 +114,19 @@ struct MessageContent {
 	/* telegram_files.id for media attachments; nullopt if none. */
 	std::optional<uint64_t>		file_id;
 
+	/* The exact TDLib content class, e.g. "messageVideoNote". */
+	std::optional<std::string>	tdlib_type;
+
+	/*
+	 * Per-class detail as a JSON object (docs/design/message-types.md
+	 * section 4.2): curated keys, and TDLib's own JSON under "tdlib" for
+	 * what has no curated mapping yet. Snapshotted on edits; only the
+	 * curated keys count when deciding whether an edit changed anything,
+	 * since the TDLib JSON also carries state that changes with nobody
+	 * editing (refreshed file references, for one).
+	 */
+	std::optional<std::string>	content_extra;
+
 	/*
 	 * The copy is self-destructed media (messageExpired*): Telegram has
 	 * removed what it showed, so it says nothing about the content. A

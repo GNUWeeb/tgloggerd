@@ -43,9 +43,10 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		"INSERT INTO telegram_private_messages ("
 		" chat_id, message_id, sender_id, is_outgoing, date,"
 		" edit_date, content_type, text, entities, service_type,"
+		" tdlib_type, content_extra,"
 		" is_forwarded, media_album_id"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_id = new.sender_id,"
 		" is_outgoing = new.is_outgoing,"
@@ -75,6 +76,8 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		" text = IF(new.edit_date >= telegram_private_messages.edit_date, new.text, telegram_private_messages.text),"
 		" entities = IF(new.edit_date >= telegram_private_messages.edit_date, new.entities, telegram_private_messages.entities),"
 		" service_type = IF(new.edit_date >= telegram_private_messages.edit_date, new.service_type, telegram_private_messages.service_type),"
+		" tdlib_type = IF(new.edit_date >= telegram_private_messages.edit_date, new.tdlib_type, telegram_private_messages.tdlib_type),"
+		" content_extra = IF(new.edit_date >= telegram_private_messages.edit_date, new.content_extra, telegram_private_messages.content_extra),"
 		" edit_date = IF(new.edit_date >= telegram_private_messages.edit_date, new.edit_date, telegram_private_messages.edit_date)";
 		/* deleted_at is intentionally not upserted; a re-ingested
 		 * message must not clear an existing deletion time. It is set
@@ -85,6 +88,14 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		if (msg.content.entities.has_value())
 			entities_param = *msg.content.entities;
 
+		mysql::Param tdlib_type_param = std::monostate{};
+		if (msg.content.tdlib_type.has_value())
+			tdlib_type_param = *msg.content.tdlib_type;
+
+		mysql::Param extra_param = std::monostate{};
+		if (msg.content.content_extra.has_value())
+			extra_param = *msg.content.content_extra;
+
 		/*
 		 * Fetch the current row (if any) to detect edits. The trailing
 		 * expression compares stored and incoming entities as JSON
@@ -94,10 +105,12 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		auto old_rows = tx.query(
 			"SELECT id, edit_date, content_type, text, file_id,"
 			"       deleted_at, entities,"
-			"       (entities <=> CAST(? AS JSON))"
+			"       (entities <=> CAST(? AS JSON)),"
+			"       tdlib_type, content_extra, " +
+			std::string(kCuratedExtraSame) +
 			" FROM telegram_private_messages"
 			" WHERE chat_id = ? AND message_id = ?",
-			{ entities_param, (int64_t)msg.chat_id,
+			{ entities_param, extra_param, (int64_t)msg.chat_id,
 			  (int64_t)msg.message_id });
 
 		mysql::Param sender_param = std::monostate{};
@@ -141,6 +154,8 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 				text_param,
 				entities_param,
 				service_param,
+				tdlib_type_param,
+				extra_param,
 				b(msg.forward_info.has_value()),
 				album_param,
 			});
@@ -235,6 +250,10 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			old_content.entities = *old[6];
 		if (old[4].has_value())
 			old_content.file_id = std::stoull(*old[4]);
+		if (old[8].has_value())
+			old_content.tdlib_type = *old[8];
+		if (old[9].has_value())
+			old_content.content_extra = *old[9];
 
 		/*
 		 * A copy with a later edit_date: the guarded upsert below
@@ -247,7 +266,8 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 					     "private_message_id", pm_id,
 					     old_content, old_edit_date,
 					     msg.content, msg.edit_date,
-					     old[7].value_or("0") == "1");
+					     old[7].value_or("0") == "1",
+					     old[10].value_or("0") == "1");
 
 		/*
 		 * Update the telegram_private_messages row.
@@ -263,6 +283,8 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			text_param,
 			entities_param,
 			service_param,
+			tdlib_type_param,
+			extra_param,
 			b(msg.forward_info.has_value()),
 			album_param,
 		});
