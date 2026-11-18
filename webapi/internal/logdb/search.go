@@ -507,8 +507,9 @@ func (e *Entity) chain(sc scope.Scope, conds []Cond, internal bool, exists *int,
 			continue
 		case !f.Exists && op == OpMatch:
 			where.WriteString("MATCH(" + f.Expr + ") AGAINST(? IN BOOLEAN MODE))")
+			val = mysqlText(c.V)
 			if *ftExpr == "" {
-				*ftExpr, *ftVal = f.Expr, c.V
+				*ftExpr, *ftVal = f.Expr, val
 			}
 		case !f.Exists:
 			rhs := f.Bind

@@ -339,7 +339,7 @@ of MySQL's boolean mode, so it means the same on both backends, plus
 | `word*` | a word starting so (prefix) |
 | `"a phrase"` | the words in order, next to each other |
 | `"a b" @3` | the words within 3 positions (proximity; MySQL's syntax too) |
-| `word~`, `word~1`, `word~2` | the word or one within a few edits (fuzzy; engine only) |
+| `word~`, `word~1`, `word~2` | the word or one within a few edits (fuzzy; engine only: MySQL, also without an engine, searches the plain word) |
 
 Words are split on Unicode word boundaries, lowercased and folded to
 ASCII (an accented letter matches the plain one). A word joined by

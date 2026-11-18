@@ -8,6 +8,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -66,6 +67,33 @@ func engineEnv(t *testing.T, withEngine bool) *searchEnv {
 		}
 		engine = searchengine.NewEngine(x, searchengine.EngineOptions{Log: quiet})
 	}
+	return engineServer(t, db, engine)
+}
+
+// downEngineEnv is an engineEnv whose engine never answers: nothing
+// listens on port 1 of the loopback, so every search falls back to
+// MySQL, as it does while the engine is in its backoff. It needs no
+// test engine.
+func downEngineEnv(t *testing.T) *searchEnv {
+	t.Helper()
+	d := testdb.New(t, testdb.Logger, "sample", "search_engine")
+	c, err := searchengine.NewClient("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := c.Index("down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return engineServer(t, interpolating(t, d), searchengine.NewEngine(x,
+		searchengine.EngineOptions{Log: quiet, Timeout: time.Second}))
+}
+
+// engineServer is the service of engineEnv on db, with engine.
+func engineServer(t *testing.T, db *sql.DB, engine SearchEngine) *searchEnv {
+	t.Helper()
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	signer := auth.NewSigner(testKey)
 	ck := &auth.Cookies{Signer: signer, Timeout: 3600, Secure: true}
 	e := &searchEnv{t: t, tokens: auth.NewFileTokens(testKey), cookies: map[string]string{}}
@@ -193,6 +221,53 @@ func TestSearchEngineAnswers(t *testing.T) {
 	if p["total"] != float64(5) {
 		t.Errorf("list page search: total %v, want 5", p["total"])
 	}
+}
+
+// The engine's own syntax, word~ and word~N, means the plain word on
+// MySQL: without an engine, and when MySQL answers in its place, the
+// search API and the list pages find the word instead of failing.
+func TestEngineSyntaxOnMySQL(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		what    string
+		e       *searchEnv
+		backend string
+	}{
+		{"without an engine", engineEnv(t, false), ""},
+		{"engine down", downEngineEnv(t), `{"fallback":"unavailable","used":"mysql"}`},
+	} {
+		for _, v := range []struct {
+			text  string
+			total int64
+		}{
+			{"kernal~", 1},
+			{"kernal~2", 1},
+			{"+kernal~1 +oops", 1},
+			{"kernal~ quick~", 5},
+			{`"kernel panic" @3`, 2},
+		} {
+			q := fmt.Sprintf(`[{"c":"text","o":"matches","v":%q}]`, v.text)
+			b := getAnswer(t, c.e, "superadmin", search("group_messages", q))
+			wantTotal(t, c.what+": "+v.text, b, v.total, true)
+			if c.backend != "" && js(b["backend"]) != c.backend {
+				t.Errorf("%s: %s: backend %s", c.what, v.text, js(b["backend"]))
+			}
+		}
+		p := c.e.props("superadmin", "group_messages", "q", "kernal~", "fuzzy", "1")
+		if num(p["total"]) != 1 || p["error"] != nil || p["q"] != "kernal~" {
+			t.Errorf("%s: list page: total %v error %v q %v", c.what, p["total"], p["error"], p["q"])
+		}
+	}
+}
+
+// getAnswer is e.ok that goes on after a failure.
+func getAnswer(t *testing.T, e *searchEnv, role, path string) map[string]any {
+	t.Helper()
+	st, b := e.get(role, path)
+	if st != 200 {
+		t.Errorf("GET %s: %d %v", path, st, b)
+	}
+	return b
 }
 
 // The message lists' pages take the same options from their query and
