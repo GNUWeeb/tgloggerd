@@ -45,6 +45,11 @@ export function viewerOf(persona: Persona): Viewer {
 		rows_per_page: pr.rows_per_page ?? undefined,
 		sidebar: pr.sidebar ?? 'open',
 		dashboard_numbers: pr.dashboard_numbers ?? 'exact',
+		// The chat switches in effect, as Go gives them: the account's, else on.
+		chat: {
+			auto_load: pr.chat_auto_load ?? true, live: pr.chat_live ?? true, media: pr.chat_media ?? 'auto',
+			show_deleted: pr.chat_show_deleted ?? true, show_edited: pr.chat_show_edited ?? true, show_service: pr.chat_show_service ?? true,
+		},
 		signed_in: true,
 		account: { id: s.acct.id, username: s.acct.username, name: s.acct.name, role: s.acct.role },
 		now: NOW,
@@ -463,14 +468,14 @@ export function load(url: string, persona: Persona): Loaded {
 		};
 	}
 	if (path === '/files') {
-		const st = listState(u.searchParams, 'created_at');
+		const st = listState(u.searchParams, 'created_at', 50, persona);
 		const canSee = (f) => (orphan(f) ? s.role !== 'member' : f.msg.scope === 'group' ? s.group(f.msg.chat) : allowed(s, 'private_messages'));
 		// A digest matches in either case, as in Go.
 		const conds = st.conds.map((c) => (c.field === 'sha256' ? { ...c, value: String(c.value).toLowerCase() } : c));
-		const r = queryRows(allFiles().filter(canSee), { ...st, conds, per: Number(u.searchParams.get('per')) || 50 }, (f) => `${f.name} ${f.id}`);
+		const r = queryRows(allFiles().filter(canSee), { ...st, conds }, (f) => `${f.name} ${f.id}`);
 		const want = u.searchParams.get('file');
 		const pv = want ? allFiles().find((f) => String(f.id) === want && canSee(f)) : null;
-		return { route: 'files', status: 200, props: { ...st, ...r, total_exact: true, per: Number(u.searchParams.get('per')) || 50, rows: r.rows.map((f) => fileRow(f, s.canFetch)), preview: pv ? fileRow(pv, s.canFetch) : null, can_fetch: s.canFetch, archive_total: s.role === 'member' ? undefined : TOTALS.files, stored_bytes: s.role === 'member' ? undefined : Math.round(5.3 * 2 ** 40) } };
+		return { route: 'files', status: 200, props: { ...st, ...r, total_exact: true, rows: r.rows.map((f) => fileRow(f, s.canFetch)), preview: pv ? fileRow(pv, s.canFetch) : null, can_fetch: s.canFetch, archive_total: s.role === 'member' ? undefined : TOTALS.files, stored_bytes: s.role === 'member' ? undefined : Math.round(5.3 * 2 ** 40) } };
 	}
 	if (path === '/group_messages' || path === '/private_messages' || path === '/messages/group' || path === '/messages/private') {
 		const scope = path.includes('private') ? 'private' : 'group';
@@ -647,7 +652,8 @@ export function settingsState(persona: Persona) {
 				{ id: 1, title: 'Deleted messages', url: '/group_messages?f=' + encodeURIComponent(JSON.stringify([{ field: 'is_deleted', op: 'is', value: 'yes' }])) },
 				{ id: 2, title: 'Premium users', url: '/users?f=' + encodeURIComponent(JSON.stringify([{ field: 'is_premium', op: 'is', value: 'yes' }])) },
 			],
-			sessions: mySessions.map((x) => ({ id: x.id, device: x.device, ip: x.ip, place: x.place, started: iso(x.started), last: iso(x.last), current: !!x.current })),
+			// Go has no place for an address yet: it sends place empty.
+			sessions: mySessions.map((x) => ({ id: x.id, device: x.device, ip: x.ip, place: '', started: iso(x.started), last: iso(x.last), current: !!x.current })),
 		});
 	}
 	return SETTINGS.get(persona);
