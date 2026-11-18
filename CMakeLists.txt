@@ -71,6 +71,8 @@ add_executable(tgloggerd
 	src/tgloggerd/helpers/log.h
 	src/tgloggerd/ThreadPool.cpp
 	src/tgloggerd/ThreadPool.hpp
+	src/tgloggerd/MessageExtract.cpp
+	src/tgloggerd/MessageExtract.hpp
 	src/tgloggerd/TDLib.cpp
 	src/tgloggerd/TDLib.hpp
 	src/tgloggerd/FileToken.cpp
