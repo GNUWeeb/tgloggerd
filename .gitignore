@@ -1,6 +1,8 @@
 /build/
 /web/build/
 /.env
+/.env.before-split
+/env/*.env
 /task.md
 /Td/
 *.so

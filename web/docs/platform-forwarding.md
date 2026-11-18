@@ -176,9 +176,9 @@ It stores the bot of the token, named "Discord bot", owned by the
 account named (an active superadmin), points every route that names no
 Discord bot at it, and prints what it did; the token is never printed.
 A second run changes nothing. discordd switches to the imported bot on
-its next reload by itself; then remove `DISCORD_BOT_TOKEN` from `.env`
+its next reload by itself; then remove `DISCORD_BOT_TOKEN` from the env files
 and recreate discordd, so the variable is gone from its environment.
-`.env.example` no longer lists it. Routes made on the Drogon page get the
+No env example lists it. Routes made on the Drogon page get the
 oldest Discord bot, the imported one, since that page has no Discord
 bot picker.
 

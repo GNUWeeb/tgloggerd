@@ -7,7 +7,7 @@ as usernames, names, and photos. For groups it also tracks the
 administrator list and each admin's privileges, keeping a history of
 admin changes. Since a regular user account is not pushed admin changes,
 the admin list is fetched when a group is first seen and refreshed by
-periodic polling (see TG_ADMIN_POLL_INTERVAL in .env.example).
+periodic polling (see TG_ADMIN_POLL_INTERVAL in env/settings.env.example).
 
 # Quick start
 
@@ -20,11 +20,14 @@ first start. The full setup is:
 2. Provide credentials and configuration:
 
        cp .env.example .env
-       # edit .env: set TG_API_ID and TG_API_HASH (from
-       # https://my.telegram.org), and change every *_PASSWORD.
+       for f in env/*.env.example; do cp "$f" "${f%.example}"; done
+       chmod 600 env/*.env
+       # edit env/telegram-api.env: TG_API_ID and TG_API_HASH (from
+       # https://my.telegram.org); change every password in env/ and
+       # set WEB_APP_KEY (env/README).
 
 3. Start MySQL. On its first start it creates the databases and users
-   from .env (the daemon's tgloggerd database and user, plus the web
+   from env/ (the daemon's tgloggerd database and user, plus the web
    app's tgloggerd_web database and its web_ro / web_app users):
 
        docker compose up -d mysql
@@ -69,10 +72,17 @@ web modes apply their migrations on every start, which is idempotent
 
 # Configuration
 
-All configuration is environment-based; `.env.example` documents every
-variable and its default. `.env` is git-ignored because it holds
-secrets. The daemon variables are prefixed `TG_`, the web variables
-`WEB_`, and the MySQL image is configured through `MYSQL_`.
+All configuration is environment-based. Each service gets its
+environment from the files in `env/` (env/README): `env/settings.env`
+holds every setting that is not a secret, and each secret has a file
+of its own, given only to the services that need it, so a service's
+environment holds no other service's secrets. The `env/*.env.example`
+files document every variable and its default; the `env/*.env` files
+are git-ignored because they hold secrets. `.env` keeps only
+docker-compose.yml's own settings (TG_UID, TG_GID). The daemon
+variables are prefixed `TG_`, the web variables `WEB_`, and the MySQL
+image is configured through `MYSQL_`. A deployment that still has
+everything in one `.env` splits it once with `scripts/split-env.py`.
 
 # Project structure
 
@@ -112,7 +122,8 @@ secrets. The daemon variables are prefixed `TG_`, the web variables
                                services.
     docker/mysql/init/         MySQL first-init hook (web database/users).
     run.sh                     Container entrypoint: build, migrate, run.
-    .env.example               Configuration template; copy to .env.
+    .env.example               Compose's own settings; copy to .env.
+    env/                       The services' settings and secrets.
     web/                       Optional server-rendered web interface for
                                browsing the database (a separate Drogon
                                application; see web/README.web).

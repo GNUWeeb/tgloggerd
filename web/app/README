@@ -44,7 +44,7 @@ Deployment
 
 docker-compose.yml runs the render service as the "render" service
 (container tgloggerd-render): Node pinned to the image ./dev uses, the
-built web/app mounted read-only, no network, no .env, a read-only file
+built web/app mounted read-only, no network, no env files, a read-only file
 system, no capabilities, restarted when it exits. It creates its
 socket in the render-socket volume, a tmpfs owned by TG_UID:TG_GID
 that only it and the webapi service mount, at the path both use by
@@ -62,7 +62,7 @@ both always come from the same build with the same id.
 
 First deployment, from the repository root:
 
-    # .env: WEBAPI_APP_BUILD empty or absent (the id comes from
+    # env/settings.env: WEBAPI_APP_BUILD empty or absent (the id comes from
     # build.json); RENDER_SOCKET, WEBAPI_APP_DIST at their defaults.
     docker compose run --rm render-build
     docker compose up -d render
@@ -84,9 +84,9 @@ them, so pages linked before the restart, and pages still open in a
 browser, keep working; assets that none of the last three builds uses
 are removed (dist/client/.builds.json records which build used which).
 
-RENDER_WORKERS in the environment of `docker compose` (or .env, read
-for interpolation only) sets the number of render processes,
-default 2.
+RENDER_WORKERS in the environment of `docker compose` (or .env, which
+compose reads for interpolation only) sets the number of render
+processes, default 2.
 
 scripts/test-render-service.sh tests all of this on a copy of the
 tree, in a compose project of its own.

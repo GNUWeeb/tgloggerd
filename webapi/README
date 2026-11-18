@@ -239,7 +239,7 @@ WEBAPI_TRUSTED_PROXIES (nginx, and the CDN in front of it). Left
 empty, that is the connection's peer, nginx, as in the Drogon web. The
 Drogon route stays in place, so moving back is
 removing the location. Both services read the same store, the same
-TDLib directory and the same .env (WEB_STORAGE_DIR, TG_DATA_DIR,
+TDLib directory and the same env/settings.env (WEB_STORAGE_DIR, TG_DATA_DIR,
 TG_MAX_STORE_FILE_SIZE, TG_FETCH_TIMEOUT_SECS), and the webapi
 container mounts the repository at /workspace and runs from there, as
 the daemon does, so the paths the daemon answers with open in it.
@@ -704,7 +704,7 @@ The Drogon route stays in place, so moving back is removing the
 location. Both services read the same tokens and the same exposure
 list, so a client notices no change, and WEB_PUBLIC_URL (or
 TG_DISCORD_PUBLIC_URL), MCP_THREADS, MCP_ALLOWED_ORIGINS and
-MCP_LOG_REQUESTS come from the same .env.
+MCP_LOG_REQUESTS come from the same env/settings.env.
 
 Before the switch, scripts/mcp_compare.py sends the same requests to
 both services, one right after the other, and reports every answer
@@ -879,7 +879,7 @@ route that names no Discord bot at it, and prints what it did, never
 the token. A second run changes nothing. It is the web service's
 command because the owner lives in the web's schema, which discordd
 does not reach. Run it in the webapi container, whose environment
-holds the variable until it is removed from .env:
+holds the variable until it is removed from the env files:
 
     docker compose exec webapi webapi/build/webapi import-discord-bot superadmin
 
@@ -947,7 +947,7 @@ To run the tests from the host instead, publish the port:
 # Configuration
 
 The database settings are the Drogon web's, with the same defaults, so
-one .env serves both (see .env.example):
+the same env files serve both (env/README):
 
     WEB_DB_HOST, WEB_DB_PORT     the MySQL server; fall back to
                                  TG_DB_HOST, TG_DB_PORT
