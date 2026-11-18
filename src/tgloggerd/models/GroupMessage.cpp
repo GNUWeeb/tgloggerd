@@ -41,9 +41,10 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		" is_channel_post, author_signature, date,"
 		" edit_date, content_type, text, entities, service_type,"
 		" tdlib_type, content_extra,"
-		" is_forwarded, media_album_id, topic_kind, topic_id, meta, is_pinned"
+		" is_forwarded, media_album_id, topic_kind, topic_id, meta, is_pinned,"
+		" view_count, forward_count, reply_count, reactions"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_user_id = new.sender_user_id,"
 		" sender_chat_id = new.sender_chat_id,"
@@ -56,6 +57,11 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		 * message unpinned. Not content, so no edit_date guard. */
 		" meta = new.meta,"
 		" is_pinned = new.is_pinned,"
+		/* A copy that reports no totals keeps the stored ones. */
+		" view_count = COALESCE(new.view_count, telegram_group_messages.view_count),"
+		" forward_count = COALESCE(new.forward_count, telegram_group_messages.forward_count),"
+		" reply_count = COALESCE(new.reply_count, telegram_group_messages.reply_count),"
+		" reactions = COALESCE(new.reactions, telegram_group_messages.reactions),"
 		/* A copy without a topic leaves a stored one in place. */
 		" topic_kind = COALESCE(new.topic_kind, telegram_group_messages.topic_kind),"
 		" topic_id = COALESCE(new.topic_id, telegram_group_messages.topic_id),"
@@ -149,6 +155,20 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		if (msg.meta.has_value())
 			meta_param = *msg.meta;
 
+		mysql::Param views_param = std::monostate{}, forwards_param = std::monostate{},
+			     replies_param = std::monostate{}, reactions_param = std::monostate{};
+		if (msg.interaction.has_value()) {
+			const auto &ia = *msg.interaction;
+			if (ia.view_count)
+				views_param = *ia.view_count;
+			if (ia.forward_count)
+				forwards_param = *ia.forward_count;
+			if (ia.reply_count)
+				replies_param = *ia.reply_count;
+			if (ia.reactions)
+				reactions_param = *ia.reactions;
+		}
+
 		mysql::Param topic_kind_param = std::monostate{};
 		mysql::Param topic_id_param = std::monostate{};
 		if (msg.topic_kind.has_value() && msg.topic_id.has_value()) {
@@ -180,6 +200,10 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 				topic_id_param,
 				meta_param,
 				b(msg.is_pinned),
+				views_param,
+				forwards_param,
+				replies_param,
+				reactions_param,
 			};
 		};
 

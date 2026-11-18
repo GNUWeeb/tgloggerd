@@ -201,6 +201,14 @@ struct FmtEntity {
 	std::string language; /* Pre only: the code-block language, may be empty */
 };
 
+/* One message's latest interaction totals, from the coalesced updates. */
+struct InteractionUpdate {
+	int64_t			chat_id = 0;
+	int64_t			message_id = 0;	/* server id */
+	bool			is_group = false;
+	models::Interaction	interaction;
+};
+
 struct ForwardMessage {
 	int64_t		chat_id = 0;
 	int64_t		message_id = 0;
@@ -287,6 +295,18 @@ public:
 	 * updatePoll, which TDLib sends as votes arrive or the poll closes.
 	 */
 	void setPollHandler(std::function<void(const models::Poll &)> cb);
+
+	/*
+	 * Set the callback for interaction totals (views, forwards, replies,
+	 * reactions) that changed since a message was stored. Updates are
+	 * coalesced per message and handed over in one batch every
+	 * @flush_secs seconds, so a message is written at most once per
+	 * interval; 0 records none of them (a new copy still carries its
+	 * totals). A rate report is logged every ten minutes.
+	 */
+	void setInteractionHandler(
+		std::function<void(std::vector<InteractionUpdate>)> cb,
+		int flush_secs);
 
 	/*
 	 * Set the callbacks for changes to a message outside its content:

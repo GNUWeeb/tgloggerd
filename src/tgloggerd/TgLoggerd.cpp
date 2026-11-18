@@ -588,6 +588,36 @@ int TgLoggerd::start(void)
 				}
 			});
 		});
+	/*
+	 * Views, forwards, replies and reaction totals change constantly on
+	 * busy channels; TDLib's updates are coalesced so each message is
+	 * written at most once per TG_INTERACTION_FLUSH_SECS (0 = keep only
+	 * the totals a message carries when it is stored).
+	 */
+	tdlib_->setInteractionHandler(
+		[this](std::vector<InteractionUpdate> batch) {
+			serial_->post([this, batch = std::move(batch)] {
+				size_t stored = 0;
+				for (const auto &u : batch) {
+					try {
+						if (db_->setMessageInteraction(
+							    u.chat_id, u.message_id,
+							    u.is_group, u.interaction))
+							stored++;
+					} catch (const std::exception &e) {
+						pr_error(l_, "Failed to store"
+							 " interaction chat_id=%lld"
+							 " msg_id=%lld: %s",
+							 (long long)u.chat_id,
+							 (long long)u.message_id,
+							 e.what());
+					}
+				}
+				pr_debug(l_, "interaction: stored %zu of %zu",
+					 stored, batch.size());
+			});
+		},
+		std::atoi(env("TG_INTERACTION_FLUSH_SECS", "60").c_str()));
 	tdlib_->setPollHandler([this](const models::Poll &p) {
 		/* Serialised with the message writes, like everything that
 		 * belongs to a message. */

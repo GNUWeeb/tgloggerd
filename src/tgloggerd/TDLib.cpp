@@ -820,6 +820,26 @@ struct TDLib::Impl {
 	std::function<void(const models::LinkPreview &, bool)> link_preview_handler_;
 	std::function<void(const models::Poll &)>	poll_handler_;
 	std::function<void(int64_t, int64_t, bool, bool)> message_pinned_handler_;
+	/*
+	 * Interaction totals waiting to be written, latest per message
+	 * (chat_id, server message id). Loop-thread only. Flushed every
+	 * interaction_flush_secs_, so a message changes in the database at
+	 * most once per interval however busy it is. 0 = not recorded.
+	 */
+	struct PendingInteraction {
+		models::Interaction	ia;
+		bool			is_group = false;
+	};
+	std::map<std::pair<int64_t, int64_t>, PendingInteraction> interaction_pending_;
+	std::function<void(std::vector<InteractionUpdate>)> interaction_handler_;
+	int		interaction_flush_secs_ = 60;
+	time_t		interaction_last_flush_ = 0;
+	/* For the rate log: updates and distinct messages since the last
+	 * report, and writes handed over. */
+	time_t		interaction_report_at_ = 0;
+	size_t		interaction_updates_ = 0;
+	size_t		interaction_writes_ = 0;
+	std::set<std::pair<int64_t, int64_t>>	interaction_seen_;
 	std::function<void(int64_t, int64_t, bool, const std::optional<std::string> &)> fact_check_handler_;
 	std::function<void(const models::ForumTopic &, bool)> forum_topic_handler_;
 	std::function<void(int64_t, int32_t, bool)>	forum_topic_pinned_handler_;
@@ -1071,6 +1091,9 @@ struct TDLib::Impl {
 	void maybe_download_message_file(const td_api::message &message,
 					 bool is_group);
 	void maybe_store_poll(const td_api::message &message);
+	void note_interaction(int64_t chat_id, int64_t td_message_id,
+			      const models::Interaction &ia, bool reactions_only);
+	void drain_interaction(void);
 	void sweep_forum_topics(int64_t chat_id, int32_t offset_date,
 				int64_t offset_message_id,
 				int32_t offset_topic_id, int pages);
@@ -1498,6 +1521,19 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 					return;
 				refetch_edited_message(u.chat_id_, u.message_id_,
 						       true);
+			},
+			[this](td_api::updateMessageInteractionInfo &u) {
+				auto ia = extract_interaction(u.interaction_info_.get());
+				if (ia)
+					note_interaction(u.chat_id_, u.message_id_,
+							 *ia, false);
+			},
+			[this](td_api::updateMessageReactions &u) {
+				models::Interaction ia;
+				ia.reactions = reactions_json(u.reactions_);
+				if (!ia.reactions)
+					ia.reactions = "[]";
+				note_interaction(u.chat_id_, u.message_id_, ia, true);
 			},
 			[this](td_api::updateMessageIsPinned &u) {
 				if (!message_pinned_handler_ ||
@@ -2234,6 +2270,7 @@ void TDLib::Impl::build_private_message(const td_api::message &message,
 	out.forward_info = extract_forward_info(message);
 	out.meta = message_meta_json(message);
 	out.is_pinned = message.is_pinned_;
+	out.interaction = extract_interaction(message.interaction_info_.get());
 }
 
 void TDLib::Impl::build_group_message(const td_api::message &message,
@@ -2276,6 +2313,7 @@ void TDLib::Impl::build_group_message(const td_api::message &message,
 	out.forward_info = extract_forward_info(message);
 	out.meta = message_meta_json(message);
 	out.is_pinned = message.is_pinned_;
+	out.interaction = extract_interaction(message.interaction_info_.get());
 
 	std::string topic_kind;
 	int64_t topic_id = 0;
@@ -2476,6 +2514,66 @@ void TDLib::Impl::sweep_forum_topics(int64_t chat_id, int32_t offset_date,
 					   ft.next_offset_forum_topic_id_,
 					   pages + 1);
 		});
+}
+
+/*
+ * Remember the latest interaction totals of a message until the next flush.
+ * updateMessageReactions carries the reactions alone and only replaces
+ * those; updateMessageInteractionInfo carries everything.
+ */
+void TDLib::Impl::note_interaction(int64_t chat_id, int64_t td_message_id,
+				   const models::Interaction &ia,
+				   bool reactions_only)
+{
+	if (!interaction_handler_ || interaction_flush_secs_ <= 0 ||
+	    !is_server_msg_id(td_message_id))
+		return;
+	auto key = std::make_pair(chat_id, to_server_msg_id(td_message_id));
+	++interaction_updates_;
+	interaction_seen_.insert(key);
+	auto &p = interaction_pending_[key];
+	p.is_group = !is_private_chat(chat_id);
+	if (reactions_only)
+		p.ia.reactions = ia.reactions;
+	else
+		p.ia = ia;
+}
+
+/* Seconds between the reports of how busy interaction updates are. */
+constexpr int kInteractionReportSecs = 600;
+
+void TDLib::Impl::drain_interaction(void)
+{
+	const time_t now = std::time(nullptr);
+	if (interaction_report_at_ == 0)
+		interaction_report_at_ = now;
+	if (now - interaction_report_at_ >= kInteractionReportSecs) {
+		/* The measurement the flush interval is chosen from. */
+		pr_info(l_, "interaction: %zu update(s) for %zu message(s) in"
+			" the last %lld s, %zu write(s) at a %d s interval",
+			interaction_updates_, interaction_seen_.size(),
+			(long long)(now - interaction_report_at_),
+			interaction_writes_, interaction_flush_secs_);
+		interaction_report_at_ = now;
+		interaction_updates_ = 0;
+		interaction_writes_ = 0;
+		interaction_seen_.clear();
+	}
+
+	if (interaction_pending_.empty() ||
+	    now - interaction_last_flush_ < interaction_flush_secs_)
+		return;
+	interaction_last_flush_ = now;
+
+	std::vector<InteractionUpdate> batch;
+	batch.reserve(interaction_pending_.size());
+	for (auto &kv : interaction_pending_)
+		batch.push_back(InteractionUpdate{ kv.first.first,
+			kv.first.second, kv.second.is_group,
+			std::move(kv.second.ia) });
+	interaction_pending_.clear();
+	interaction_writes_ += batch.size();
+	interaction_handler_(std::move(batch));
 }
 
 /* Store the poll a message shows, as the message has it now. */
@@ -3844,6 +3942,13 @@ void TDLib::setMessageMetaHandlers(
 	impl_->fact_check_handler_ = std::move(fact_check);
 }
 
+void TDLib::setInteractionHandler(
+	std::function<void(std::vector<InteractionUpdate>)> cb, int flush_secs)
+{
+	impl_->interaction_handler_ = std::move(cb);
+	impl_->interaction_flush_secs_ = flush_secs;
+}
+
 void TDLib::setPollHandler(std::function<void(const models::Poll &)> cb)
 {
 	impl_->poll_handler_ = std::move(cb);
@@ -3988,6 +4093,7 @@ void TDLib::loop(int timeout)
 	/* Issue any refetches queued by the DB worker, on this (the loop)
 	 * thread where send_query and the TDLib caches live. */
 	impl_->drain_refetch();
+	impl_->drain_interaction();
 	impl_->process_response(impl_->client_manager_->receive(timeout));
 }
 

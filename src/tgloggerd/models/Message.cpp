@@ -438,6 +438,27 @@ bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
 	return recorded;
 }
 
+bool DB::setMessageInteraction(int64_t chat_id, int64_t message_id,
+				bool is_group, const models::Interaction &ia)
+{
+	auto p = [](const auto &v) -> mysql::Param {
+		if (v.has_value())
+			return *v;
+		return std::monostate{};
+	};
+	uint64_t n = db_.execute(std::string("UPDATE ") +
+		(is_group ? "telegram_group_messages"
+			  : "telegram_private_messages") +
+		" SET view_count = COALESCE(?, view_count),"
+		" forward_count = COALESCE(?, forward_count),"
+		" reply_count = COALESCE(?, reply_count),"
+		" reactions = COALESCE(CAST(? AS JSON), reactions)"
+		" WHERE chat_id = ? AND message_id = ?",
+		{ p(ia.view_count), p(ia.forward_count), p(ia.reply_count),
+		  p(ia.reactions), (int64_t)chat_id, (int64_t)message_id });
+	return n > 0;
+}
+
 void DB::setMessagePinned(int64_t chat_id, int64_t message_id,
 			  bool is_group, bool pinned)
 {

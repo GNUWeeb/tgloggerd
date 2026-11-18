@@ -610,15 +610,27 @@ the reply columns hold it.
 
 `interaction_info` (views, forwards, reply count, reaction totals)
 changes constantly on busy channels. The columns `view_count`,
-`forward_count`, `reply_count` and `reactions JSON` (latest totals per
-reaction; added by migration 000034) are updated in place from `updateMessageInteractionInfo` and
-`updateMessageReactions`, coalesced per message so a busy channel
-causes at most one write per message per minute. Who reacted with what
-is available only through `getMessageAddedReactions` and only where
-the chat allows it; it is left out, and so is the history of the
-counters (decision
+`forward_count`, `reply_count` and `reactions JSON` (added by migration
+000034) hold the latest totals. Every stored copy of a message sets
+them; a copy that reports none keeps the stored ones. `reactions` is an
+array of `{emoji | custom_emoji_id | paid: true, count}`; `[]` means
+the reactions were all withdrawn. Reactions that are Saved Messages
+tags are this account's own labels and are left out.
+
+Between copies, `updateMessageInteractionInfo` (all totals) and
+`updateMessageReactions` (reactions only) are coalesced per message on
+the TDLib loop and written in one batch every `TG_INTERACTION_FLUSH_SECS`
+(default 60; 0 keeps only the totals a stored copy carries), so a
+message changes in the database at most once per interval however busy
+it is. Every ten minutes the daemon logs how many updates arrived for
+how many messages and how many writes they became; the interval is
+chosen from those numbers once the daemon has run with them for a day
+(item `msg-interaction`).
+
+Who reacted with what is available only through
+`getMessageAddedReactions` and only where the chat allows it; it is
+left out, and so is the history of the counters (decision
 [2026-11-18-msg-interaction-latest-totals](decisions/2026-11-18-msg-interaction-latest-totals.md)).
-The coalescing interval is set after measuring the update rate.
 
 ### 4.8 Link previews
 

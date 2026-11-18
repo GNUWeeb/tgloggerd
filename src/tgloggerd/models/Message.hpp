@@ -135,6 +135,25 @@ struct MessageContent {
 	bool				is_expired = false;
 };
 
+/*
+ * A message's latest interaction totals (docs/design/message-types.md
+ * section 4.7): views, forwards, replies and reaction totals. A member
+ * left out was not reported and keeps what is stored.
+ */
+struct Interaction {
+	std::optional<int64_t>		view_count;
+	std::optional<int64_t>		forward_count;
+	std::optional<int64_t>		reply_count;
+	/* JSON array of {emoji|custom_emoji_id|paid, count}. */
+	std::optional<std::string>	reactions;
+
+	bool empty(void) const
+	{
+		return !view_count && !forward_count && !reply_count &&
+		       !reactions;
+	}
+};
+
 /* Textual encodings used by the *_messages tables' ENUM columns. */
 const char *to_string(MessageContentType t);
 const char *to_string(ForwardOriginType t);

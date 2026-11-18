@@ -1,25 +1,34 @@
 # msg-interaction
 
-Store each message's latest views, forwards, reply count and reaction
-totals.
+Choose the interval at which interaction totals are written, from a
+day of the rate the live daemon reports.
 
 ## Why
 
-They show how a post was received, which the archive does not keep.
+Views, forwards, replies and reaction totals are stored and kept
+current, coalesced per message and written every
+`TG_INTERACTION_FLUSH_SECS` (default 60). The default is a guess: the
+design asked for the update rate to be measured first, and that needs
+the live account.
 
 ## Scope
 
-- Write `view_count`, `forward_count`, `reply_count` and `reactions`
-  (columns added by migration 000034).
-- `updateMessageInteractionInfo` and `updateMessageReactions`,
-  coalesced per message.
+- After the next tgloggerd restart, collect a day of the
+  "interaction: N update(s) for M message(s) ... W write(s)" lines the
+  daemon logs every ten minutes.
+- Record the measured rate (updates and distinct messages per minute,
+  peak and typical) in message-types.md section 4.7, and choose the
+  interval from it: as long as keeps the writes well below the rest of
+  the daemon's database load, and short enough that the web shows
+  totals that are minutes, not hours, old.
+- Change the default if the measurement says so.
 
 ## Design notes
 
 message-types.md section 4.7; decision
 [2026-11-18-msg-interaction-latest-totals](../design/decisions/2026-11-18-msg-interaction-latest-totals.md).
-Measure the update rate on the live account for a day (log only)
-before choosing the coalescing interval.
+Reading the logs is read-only; changing TG_INTERACTION_FLUSH_SECS in
+production is the owner's call.
 
 ## Depends on
 
@@ -27,5 +36,5 @@ Nothing.
 
 ## Done when
 
-- The measured rate is recorded in the design; counts update at most
-  once per message per interval.
+- The measured rate is recorded in the design and the interval is set
+  from it.
