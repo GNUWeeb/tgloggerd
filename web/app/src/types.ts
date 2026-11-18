@@ -29,5 +29,6 @@ export type FieldType = 'number' | 'text' | 'enum' | 'bool' | 'date';
 // ops, when given, replaces the operators of the field's type. A field
 // of the advanced search (ListState.fields) is marked search: its bools
 // compare 1 and 0, its times are full date-times.
-export interface FieldDef { key: string; label: string; type: FieldType; values?: string[]; ops?: Op[]; search?: boolean; sortable?: boolean }
+// needsChat: usable only beside a `chat_id =` filter, all joined with AND.
+export interface FieldDef { key: string; label: string; type: FieldType; values?: string[]; ops?: Op[]; search?: boolean; sortable?: boolean; needsChat?: boolean }
 export type SearchField = S['SearchField'];

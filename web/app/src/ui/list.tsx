@@ -28,7 +28,7 @@ const OP_HINT: Partial<Record<Op, string>> = {
 // A field of the advanced search, as the filter picker shows it.
 export function searchField(f: SearchField): FieldDef {
 	const type: FieldType = f.type === 'int' ? 'number' : f.type === 'datetime' ? 'date' : f.type;
-	return { key: f.key, label: f.label, type, ops: f.operators as Op[], values: f.enum ? f.enum.split(',') : undefined, search: true, sortable: f.sortable };
+	return { key: f.key, label: f.label, type, ops: f.operators as Op[], values: f.enum ? f.enum.split(',') : undefined, search: true, sortable: f.sortable, ...(f.needs_chat ? { needsChat: true } : {}) };
 }
 
 // A list's filter fields: its own, then the search's that it lacks.
@@ -36,6 +36,13 @@ export function listFields(own: FieldDef[], server?: SearchField[]): FieldDef[] 
 	if (!server?.length) return own;
 	const have = new Set(own.map((f) => f.key));
 	return [...own, ...server.filter((f) => !have.has(f.key)).map(searchField)];
+}
+
+// Whether the filters pin the list to one chat: a `chat_id =` filter,
+// with every filter joined by AND. Only then does the server take the
+// fields that need it (needs_chat), which have no index of their own.
+export function chatBound(conds: Cond[]): boolean {
+	return conds.some((c) => c.field === 'chat_id' && c.op === '=') && conds.slice(0, -1).every((c) => c.n !== 'OR');
 }
 
 export function useListNav<T>(L: ListProps<T>) {
@@ -60,7 +67,8 @@ export function emptyText(L: { q: string; conds: unknown[] }, member: boolean, n
 	return filtered;
 }
 
-function FilterAdd({ fields, onAdd }: { fields: FieldDef[]; onAdd: (c: Cond) => void }) {
+// waiting: fields offered once the filters pin one chat (needs_chat).
+function FilterAdd({ fields, onAdd, waiting = [], chatLabel = 'chat id' }: { fields: FieldDef[]; onAdd: (c: Cond) => void; waiting?: FieldDef[]; chatLabel?: string }) {
 	const first = fields[0] as FieldDef;
 	const [open, setOpen] = useState(false);
 	const [field, setField] = useState(first.key);
@@ -84,6 +92,7 @@ function FilterAdd({ fields, onAdd }: { fields: FieldDef[]; onAdd: (c: Cond) => 
 					<label>Field<select value={field} onChange={(e) => change(e.target.value)}>
 						{more.length ? <><optgroup label="This list">{own.map(opt)}</optgroup><optgroup label="Advanced search">{more.map(opt)}</optgroup></> : fields.map(opt)}
 					</select></label>
+					{waiting.length > 0 && <span className="a-muted sm">{waiting.map((x) => x.label).join(' and ')} can be added once a {chatLabel} = filter is set, joined by AND.</span>}
 					<label>Condition<select value={op} onChange={(e) => setOp(e.target.value as Op)}>{opsOf(f).map((o) => <option key={o}>{o}</option>)}</select></label>
 					{needsValue(op) && (
 						<label>Value
@@ -189,7 +198,9 @@ export function FilterBar<T>({ L, fields: own, placeholder, quick, name }: { L: 
 					</span>
 				</span>
 			))}
-			<FilterAdd fields={fields} onAdd={(c) => L.setConds([...L.conds, c])} />
+			{/* Fields that need one chat are offered once the filters pin one. */}
+			<FilterAdd fields={chatBound(L.conds) ? fields : fields.filter((f) => !f.needsChat)} waiting={chatBound(L.conds) ? [] : fields.filter((f) => f.needsChat)}
+				chatLabel={(fields.find((f) => f.key === 'chat_id')?.label ?? 'chat id').toLowerCase()} onAdd={(c) => L.setConds([...L.conds, c])} />
 			{sortable.length > 0 && (
 				<label className="a-sortpick">Sort
 					<select value={L.sort} onChange={(e) => L.sortBy(e.target.value)} aria-label="Sort by">

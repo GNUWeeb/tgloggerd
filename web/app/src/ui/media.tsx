@@ -12,6 +12,9 @@ const ICON: Record<ContentType, LucideIcon> = {
 	story: CircleDashed, paid_media: Star, invoice: Receipt, giveaway: Gift, call: Phone, rich: LayoutTemplate, widget: AppWindow, expired: TimerOff, unsupported: CircleHelp,
 };
 
+// Every content type, in the archive's order.
+export const CONTENT_TYPES = Object.keys(ICON) as ContentType[];
+
 export function TypeIcon({ type, size = 14 }: { type: ContentType; size?: number }) {
 	const I = ICON[type] ?? FileText;
 	return <I size={size} />;
