@@ -104,6 +104,15 @@ public:
 	/* Ask run() to return. Safe from any thread; safe before run(). */
 	void stop(void);
 
+	/*
+	 * The close Discord sent that made run() return FatalClose or
+	 * AuthFailed: its code and reason, so a caller can tell a refused
+	 * token (4004) from a missing privileged intent (4014) and report
+	 * which. A zero code for any other return. Read it after run() has
+	 * returned, on the thread that called it.
+	 */
+	CloseInfo fatal_close(void) const;
+
 private:
 	struct Impl;
 	std::unique_ptr<Impl> impl_;

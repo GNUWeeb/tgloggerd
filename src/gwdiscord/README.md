@@ -118,7 +118,9 @@ The most likely way to hit this is mundane: forget to enable MESSAGE_CONTENT
 in the Developer Portal, get closed with 4014 on every IDENTIFY, and a naive
 5-second retry loop burns the daily budget in about 83 minutes. So
 `is_fatal_close_code()` is consulted before any reconnect, and `run()` returns
-`StopReason::FatalClose` instead of retrying. `gw_mock_test` covers this
+`StopReason::FatalClose` (or `AuthFailed` for 4004) instead of retrying;
+`Gateway::fatal_close()` then gives the code and reason, so a caller can say
+which misconfiguration it was. `gw_mock_test` covers this
 directly, because provoking it against the live service is exactly the thing
 that costs you the token.
 
