@@ -67,11 +67,12 @@ type fedPersonJSON struct {
 // federationRowJSON is the FederationRow schema.
 type federationRowJSON struct {
 	fedJSON
-	Created    *string            `json:"created"`
-	Groups     []groupSummaryJSON `json:"groups"`
-	GroupCount int                `json:"group_count"`
-	Admins     []fedPersonJSON    `json:"admins"`
-	Members    []fedPersonJSON    `json:"members"`
+	Description string             `json:"description"`
+	Created     *string            `json:"created"`
+	Groups      []groupSummaryJSON `json:"groups"`
+	GroupCount  int                `json:"group_count"`
+	Admins      []fedPersonJSON    `json:"admins"`
+	Members     []fedPersonJSON    `json:"members"`
 }
 
 // federationsPropsJSON is the FederationsProps schema.
@@ -176,7 +177,8 @@ func (s *Server) federationsProps(ctx context.Context, sc scope.Scope) (federati
 		if err != nil {
 			return p, err
 		}
-		row := federationRowJSON{fedJSON: fedOf(f), Groups: []groupSummaryJSON{}, GroupCount: total,
+		row := federationRowJSON{fedJSON: fedOf(f), Description: f.Description,
+			Groups: []groupSummaryJSON{}, GroupCount: total,
 			Admins: people(f.Admins), Members: people(f.Members)}
 		if f.CreatedAt != nil {
 			c := f.CreatedAt.Format(time.RFC3339)

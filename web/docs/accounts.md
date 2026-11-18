@@ -81,7 +81,7 @@ several.
 The federations API (webapi/openapi.yaml, tag accounts) is the
 superadmins'; to anyone else it answers 404:
 
-    POST   /api/federations       {name, group_ids?, admin_ids?}; 201 {id}
+    POST   /api/federations       {name, description?, group_ids?, admin_ids?}; 201 {id}
     PATCH  /api/federations/{id}  the same fields, each optional; 200 {id}
     DELETE /api/federations/{id}  204
 
@@ -89,15 +89,21 @@ superadmins'; to anyone else it answers 404:
   replace the federation's groups; `admin_ids` are accounts with the
   admin role (400 `bad_admin`) and replace its admins. A name is 1 to
   64 characters and unique without regard to case (409 `taken`).
-- Default (id 0) takes `admin_ids` only; groups or a new name answer
-  400 `bad_request`, and it cannot be deleted.
+- `description` (web migration 000011) is free text about the
+  federation, trimmed, at most 2000 characters, with no control
+  characters but newline and tab (CR LF is taken as a newline;
+  otherwise 400 `bad_description`); `""` clears it. The federations
+  page's rows carry it.
+- Default (id 0) takes `description` and `admin_ids` only; groups or
+  a new name answer 400 `bad_request`, and it cannot be deleted.
 - Deleting a federation puts its groups back in Default unless
   another federation holds them, and files a member it was the only
   federation of in Default.
 - New federations get the highest id so far plus one (the ids are not
   AUTO_INCREMENT, see web migration 000006).
 - Audited as `federation_create`, `federation_update` (with what
-  changed: name, groups added and removed, admins before and after)
+  changed: name, whether the description was set or cleared, groups
+  added and removed, admins before and after)
   and `federation_delete`, with the acting superadmin.
 - The groups of a federation are listed by the pickers' chat search,
   `GET /api/chats/search?federation=<id>`; for Default those are the

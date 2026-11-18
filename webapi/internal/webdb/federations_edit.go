@@ -43,10 +43,14 @@ type FedPerson struct {
 // Federation is a web_federations row with its stored groups, admins
 // and members. Default has no stored groups.
 type Federation struct {
-	ID        uint64
-	Name      string
-	CreatedAt *time.Time // nil for Default
-	Groups    []int64    // ascending; never for Default
+	ID          uint64
+	Name        string
+	Description string
+	CreatedAt   *time.Time // nil for Default
+	// CreatedBy is the superadmin that made it; nil for Default and
+	// when that account is gone.
+	CreatedBy *FedPerson
+	Groups    []int64 // ascending; never for Default
 	Admins    []FedPerson
 	Members   []FedPerson
 }
@@ -57,8 +61,36 @@ func (f Federation) Default() bool { return f.ID == DefaultFederation }
 // ListFederations is every federation, Default first, then by name,
 // with their groups, admins and members (active or not, by username).
 func ListFederations(ctx context.Context, db Querier) ([]Federation, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, name, UNIX_TIMESTAMP(created_at) "+
-		"FROM web_federations ORDER BY id <> 0, name, id")
+	return federations(ctx, db, nil)
+}
+
+// GetFederation is one federation as ListFederations has it, or
+// ErrNoFederation.
+func GetFederation(ctx context.Context, db Querier, id uint64) (Federation, error) {
+	fs, err := federations(ctx, db, &id)
+	if err != nil {
+		return Federation{}, err
+	}
+	if len(fs) == 0 {
+		return Federation{}, ErrNoFederation
+	}
+	return fs[0], nil
+}
+
+// federations reads every federation, or only the one with id *only.
+func federations(ctx context.Context, db Querier, only *uint64) ([]Federation, error) {
+	// where narrows a query to the federation, by its column fid.
+	where := func(fid string) (string, []any) {
+		if only == nil {
+			return "", nil
+		}
+		return " WHERE " + fid + " = ?", []any{*only}
+	}
+	w, args := where("f.id")
+	rows, err := db.QueryContext(ctx, "SELECT f.id, f.name, f.description, "+
+		"UNIX_TIMESTAMP(f.created_at), c.id, c.username, c.display_name "+
+		"FROM web_federations f LEFT JOIN web_users c ON c.id = f.created_by"+w+
+		" ORDER BY f.id <> 0, f.name, f.id", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -68,14 +100,22 @@ func ListFederations(ctx context.Context, db Querier) ([]Federation, error) {
 		var (
 			f       Federation
 			created sql.NullFloat64
+			byID    sql.NullInt64
+			byUser  sql.NullString
+			byName  sql.NullString
 		)
-		if err := rows.Scan(&f.ID, &f.Name, &created); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &created, &byID, &byUser,
+			&byName); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		if created.Valid && f.ID != DefaultFederation {
 			t := time.Unix(int64(created.Float64), 0).UTC()
 			f.CreatedAt = &t
+		}
+		if byID.Valid && f.ID != DefaultFederation {
+			f.CreatedBy = &FedPerson{ID: uint64(byID.Int64), Username: byUser.String,
+				DisplayName: byName.String}
 		}
 		at[f.ID] = len(out)
 		out = append(out, f)
@@ -84,9 +124,13 @@ func ListFederations(ctx context.Context, db Querier) ([]Federation, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if len(out) == 0 {
+		return out, nil
+	}
 
-	rows, err = db.QueryContext(ctx, "SELECT federation_id, group_id FROM web_federation_groups "+
-		"ORDER BY federation_id, group_id")
+	w, args = where("federation_id")
+	rows, err = db.QueryContext(ctx, "SELECT federation_id, group_id FROM web_federation_groups"+
+		w+" ORDER BY federation_id, group_id", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -112,9 +156,10 @@ func ListFederations(ctx context.Context, db Querier) ([]Federation, error) {
 		table string
 		admin bool
 	}{{"web_federation_admins", true}, {"web_federation_members", false}} {
+		w, args := where("x.federation_id")
 		rows, err := db.QueryContext(ctx, "SELECT x.federation_id, u.id, u.username, "+
-			"u.display_name FROM "+part.table+" x JOIN web_users u ON u.id = x.web_user_id "+
-			"ORDER BY x.federation_id, u.username")
+			"u.display_name FROM "+part.table+" x JOIN web_users u ON u.id = x.web_user_id"+w+
+			" ORDER BY x.federation_id, u.username", args...)
 		if err != nil {
 			return nil, err
 		}
@@ -146,9 +191,11 @@ func ListFederations(ctx context.Context, db Querier) ([]Federation, error) {
 // FederationWrite is a federation's new state; nil fields stay.
 // Groups are never Default's.
 type FederationWrite struct {
-	Name   *string
-	Groups *[]int64
-	Admins *[]uint64 // web_users.id of admins
+	Name *string
+	// Description is checked and trimmed by the caller; "" clears it.
+	Description *string
+	Groups      *[]int64
+	Admins      *[]uint64 // web_users.id of admins
 }
 
 // fedName maps a duplicate-name insert or update to ErrFederationTaken.
@@ -198,13 +245,20 @@ func createFederation(ctx context.Context, db *sql.DB, actor uint64, w Federatio
 		Scan(&id); err != nil {
 		return 0, nextID(err)
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO web_federations (id, name, created_by) "+
-		"VALUES (?, ?, ?)", id, *w.Name, actor); err != nil {
+	var description string
+	if w.Description != nil {
+		description = *w.Description
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO web_federations (id, name, description, "+
+		"created_by) VALUES (?, ?, ?, ?)", id, *w.Name, description, actor); err != nil {
 		return 0, nextID(fedName(err))
 	}
 	detail, err := writeFederation(ctx, tx, id, w, nil)
 	if err != nil {
 		return 0, nextID(err)
+	}
+	if description != "" {
+		detail = "; description set" + detail
 	}
 	if err := Audit(ctx, tx, &actor, "federation_create", ip,
 		"federation "+strconv.FormatUint(id, 10)+" "+*w.Name+detail); err != nil {
@@ -235,9 +289,9 @@ func UpdateFederation(ctx context.Context, db *sql.DB, actor, id uint64, w Feder
 		return false, err
 	}
 	defer tx.Rollback()
-	var name string
-	err = tx.QueryRowContext(ctx, "SELECT name FROM web_federations WHERE id = ? FOR UPDATE", id).
-		Scan(&name)
+	var name, description string
+	err = tx.QueryRowContext(ctx, "SELECT name, description FROM web_federations "+
+		"WHERE id = ? FOR UPDATE", id).Scan(&name, &description)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, ErrNoFederation
 	}
@@ -254,6 +308,19 @@ func UpdateFederation(ctx context.Context, db *sql.DB, actor, id uint64, w Feder
 			return false, fedName(err)
 		}
 		detail = "; name " + name + "->" + *w.Name
+	}
+	// The audit says that the description changed, not the text, which
+	// would not fit its detail.
+	if w.Description != nil && *w.Description != description {
+		if _, err := tx.ExecContext(ctx, "UPDATE web_federations SET description = ? WHERE id = ?",
+			*w.Description, id); err != nil {
+			return false, err
+		}
+		if *w.Description == "" {
+			detail += "; description cleared"
+		} else {
+			detail += "; description set"
+		}
 	}
 	more, err := writeFederation(ctx, tx, id, w, &name)
 	if err != nil {

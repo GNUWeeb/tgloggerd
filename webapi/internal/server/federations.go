@@ -27,13 +27,15 @@ import (
 // read-only. The contract is in webapi/openapi.yaml (tag accounts);
 // web/docs/accounts.md explains it.
 
-// Limits of a federation write: the name's length in characters
-// (web_federations.name), how many groups one may hold, and the body,
-// which must take that many ids.
+// Limits of a federation write: the name's and the description's
+// lengths in characters (web_federations.name and description), how
+// many groups one may hold, and the body, which must take that many
+// ids.
 const (
-	maxFederationName   = 64
-	maxFederationGroups = 50000
-	maxFederationBody   = 1 << 20
+	maxFederationName        = 64
+	maxFederationDescription = 2000
+	maxFederationGroups      = 50000
+	maxFederationBody        = 1 << 20
 )
 
 // text is a user-facing text in the viewer's language.
@@ -47,9 +49,26 @@ func (s *Server) text(r *http.Request, key string, kv ...string) string {
 
 // federationWrite is the FederationWrite schema; absent fields stay.
 type federationWrite struct {
-	Name     *string   `json:"name"`
-	GroupIDs *[]int64  `json:"group_ids"`
-	AdminIDs *[]uint64 `json:"admin_ids"`
+	Name        *string   `json:"name"`
+	Description *string   `json:"description"`
+	GroupIDs    *[]int64  `json:"group_ids"`
+	AdminIDs    *[]uint64 `json:"admin_ids"`
+}
+
+// federationDescription checks and trims a description: at most
+// maxFederationDescription characters, with no control characters but
+// newlines and tabs. A browser's line ends (CR LF) count as newlines.
+func federationDescription(d string) (string, bool) {
+	d = strings.TrimSpace(strings.ReplaceAll(d, "\r\n", "\n"))
+	if !utf8.ValidString(d) || utf8.RuneCountInString(d) > maxFederationDescription {
+		return "", false
+	}
+	for _, c := range d {
+		if unicode.IsControl(c) && c != '\n' && c != '\t' {
+			return "", false
+		}
+	}
+	return d, true
 }
 
 // federationEditor is the superadmin behind a federation write, after
@@ -66,8 +85,8 @@ func (s *Server) federationEditor(w http.ResponseWriter, r *http.Request) (scope
 }
 
 // readFederation decodes and checks a federation write, answering the
-// request itself when it does not pass: the name, and the groups,
-// which must be groups the logger knows.
+// request itself when it does not pass: the name, the description, and
+// the groups, which must be groups the logger knows.
 func (s *Server) readFederation(w http.ResponseWriter, r *http.Request, sc scope.Scope) (webdb.FederationWrite, bool) {
 	var in federationWrite
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxFederationBody))
@@ -88,6 +107,15 @@ func (s *Server) readFederation(w http.ResponseWriter, r *http.Request, sc scope
 			return out, false
 		}
 		out.Name = &name
+	}
+	if in.Description != nil {
+		d, ok := federationDescription(*in.Description)
+		if !ok {
+			badRequest(w, "bad_description", s.text(r, "federation.description",
+				"max", strconv.Itoa(maxFederationDescription)))
+			return out, false
+		}
+		out.Description = &d
 	}
 	if in.GroupIDs != nil {
 		if len(*in.GroupIDs) > maxFederationGroups {

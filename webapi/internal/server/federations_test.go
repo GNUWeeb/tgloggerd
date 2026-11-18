@@ -697,7 +697,7 @@ func TestFederationsPageProps(t *testing.T) {
 			t.Errorf("FederationsProps keys %s", keys(t, p))
 		}
 		for _, r := range p.Federations {
-			if keys(t, r) != "admins,created,default,group_count,groups,id,members,name" {
+			if keys(t, r) != "admins,created,default,description,group_count,groups,id,members,name" {
 				t.Errorf("FederationRow keys %s", keys(t, r))
 			}
 			if (r.Created == nil) != r.Default {

@@ -2205,7 +2205,9 @@ paths:
           description: >-
             A malformed body or more than 50000 groups (error
             bad_request), a name that is empty, over 64 characters or
-            with control characters (bad_name), an id that is no group
+            with control characters (bad_name), a description over 2000
+            characters or with control characters other than newline
+            and tab (bad_description), an id that is no group
             (bad_group), or an account that is not an admin
             (bad_admin).
           content:
@@ -2235,11 +2237,13 @@ paths:
       description: >-
         Superadmins only; anyone else gets 404, as does a federation
         that does not exist. The fields given replace the federation's
-        name, groups and admins; the others stay. A group taken out of
-        its last federation is back in Default. The Default federation
-        (id 0) is derived, the groups in no other federation, so it
-        takes admin_ids only (and its own name back unchanged).
-        Audited as federation_update, with what changed.
+        name, description, groups and admins; the others stay. A group
+        taken out of its last federation is back in Default. The
+        Default federation (id 0) is derived, the groups in no other
+        federation, so it takes description and admin_ids only (and
+        its own name back unchanged). Audited as federation_update,
+        with what changed (for the description, only that it was set
+        or cleared).
       security:
         - session: []
           csrf: []
@@ -6083,13 +6087,16 @@ components:
           type: string
     FederationRow:
       type: object
-      required: [id, name, default, created, groups, group_count, admins, members]
+      required: [id, name, description, default, created, groups, group_count, admins, members]
       properties:
         id:
           type: integer
           format: int64
         name:
           type: string
+        description:
+          type: string
+          description: Free text about the federation; empty for none.
         default:
           type: boolean
         created:
@@ -6138,6 +6145,13 @@ components:
       properties:
         name:
           type: string
+        description:
+          type: string
+          maxLength: 2000
+          description: >-
+            Free text about the federation, trimmed: at most 2000
+            characters, with no control characters but newline and tab
+            (CR LF counts as a newline). An empty one clears it.
         group_ids:
           type: array
           description: Not for the Default federation.

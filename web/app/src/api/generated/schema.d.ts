@@ -717,7 +717,7 @@ export interface paths {
         head?: never;
         /**
          * Change a federation
-         * @description Superadmins only; anyone else gets 404, as does a federation that does not exist. The fields given replace the federation's name, groups and admins; the others stay. A group taken out of its last federation is back in Default. The Default federation (id 0) is derived, the groups in no other federation, so it takes admin_ids only (and its own name back unchanged). Audited as federation_update, with what changed.
+         * @description Superadmins only; anyone else gets 404, as does a federation that does not exist. The fields given replace the federation's name, description, groups and admins; the others stay. A group taken out of its last federation is back in Default. The Default federation (id 0) is derived, the groups in no other federation, so it takes description and admin_ids only (and its own name back unchanged). Audited as federation_update, with what changed (for the description, only that it was set or cleared).
          */
         patch: operations["updateFederation"];
         trace?: never;
@@ -2349,6 +2349,8 @@ export interface components {
             /** Format: int64 */
             id: number;
             name: string;
+            /** @description Free text about the federation; empty for none. */
+            description: string;
             default: boolean;
             created: string | null;
             /** @description A preview: at most 12 of the federation's groups the viewer can see, busiest first; group_count counts all its groups. Default's are the groups in no other federation. */
@@ -2367,6 +2369,8 @@ export interface components {
         };
         FederationWrite: {
             name?: string;
+            /** @description Free text about the federation, trimmed: at most 2000 characters, with no control characters but newline and tab (CR LF counts as a newline). An empty one clears it. */
+            description?: string;
             /** @description Not for the Default federation. */
             group_ids?: number[];
             admin_ids?: number[];
@@ -4217,7 +4221,7 @@ export interface operations {
                     "application/json": components["schemas"]["Created"];
                 };
             };
-            /** @description A malformed body or more than 50000 groups (error bad_request), a name that is empty, over 64 characters or with control characters (bad_name), an id that is no group (bad_group), or an account that is not an admin (bad_admin). */
+            /** @description A malformed body or more than 50000 groups (error bad_request), a name that is empty, over 64 characters or with control characters (bad_name), a description over 2000 characters or with control characters other than newline and tab (bad_description), an id that is no group (bad_group), or an account that is not an admin (bad_admin). */
             400: {
                 headers: {
                     [name: string]: unknown;
