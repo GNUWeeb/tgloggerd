@@ -4,13 +4,14 @@
 // @ts-nocheck: the mockup data is untyped JavaScript.
 import { users, getUser, getUserHistory, getUsernames, getActivity, queryUsers, TOTAL_USERS } from '../../mockup/src/data/users.js';
 import { groups, getGroupsOfUser, queryGroups, getGroup, getAdmins, getGroupHistory, getTopPosters } from '../../mockup/src/data/groups.js';
-import { queryFiles, files } from '../../mockup/src/data/files.js';
+import { files } from '../../mockup/src/data/files.js';
 import { groupMessages, privateMessages, senderOf, queryMessages, getMessage, chatStream, chatOf } from '../../mockup/src/data/messages.js';
 import { accounts, federations, mySessions, SECURITY_NOTICES, allFeds, fedGroups, fedAdmins, fedMembers, activeSuperadmins, auditFor, fedById } from '../../mockup/src/data/accounts.js';
 import { buildScope, allowed } from '../../mockup/src/data/scope.js';
 import { TOTALS } from '../../mockup/src/data/totals.js';
 import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/data/admin.js';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { queryRows } from '../../mockup/src/data/seed.js';
 import type { PageData, Viewer } from '../src/page.ts';
 
 const NOW = '2026-11-17T16:00:00Z';
@@ -154,17 +155,38 @@ export function chatFor(scope: string, id: string, persona: Persona) {
 // them.
 const orphan = (f) => f.id % 23 === 0;
 
-function fileRow(f) {
-	if (orphan(f)) {
-		return {
-			id: f.id, file_type: f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored,
-			created_at: iso(f.created_at), duration: f.duration, tg_file_id: f.tg_file_id, url: f.stored ? `/files/standin-${f.id}` : null, thumb: null,
-			chat: null, sender: null, message: null,
-		};
-	}
+// The sample files with what the mockup data lacks: a SHA-256 for
+// stored bytes, the last access and the last update (a few days after
+// first seen, by id), and the odd file of unknown type.
+const DAY_MS = 86400000;
+const shift = (at: string, days: number) => new Date(Math.min(Date.parse(iso(at)) + days * DAY_MS, Date.parse(NOW))).toISOString().replace('T', ' ').slice(0, 19);
+let fileData = null;
+function allFiles() {
+	fileData ??= files().map((f) => ({
+		...f,
+		file_type: f.id % 97 === 0 ? 'unknown' : f.file_type,
+		sha256: f.stored ? createHash('sha256').update(`standin-file-${f.id}`).digest('hex') : null,
+		updated_at: shift(f.created_at, (f.id % 5) / 2),
+		accessed_at: shift(f.created_at, f.id % 9),
+	}));
+	return fileData;
+}
+const pictureType = (t: string) => t === 'photo' || t === 'sticker';
+
+// A file as Go sends it (FileRow): url when the bytes are stored or the
+// viewer may have them fetched from Telegram; thumb only for a stored
+// photo or sticker.
+function fileRow(f, fetch: boolean) {
+	const fetchable = !f.stored && fetch;
+	const url = f.stored || fetchable ? `/files/standin-${f.id}` : null;
+	const base = {
+		id: f.id, file_type: f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored, fetchable,
+		created_at: iso(f.created_at), accessed_at: iso(f.accessed_at), duration: f.duration, tg_file_id: f.tg_file_id, sha256: f.sha256,
+		url, thumb: f.stored && pictureType(f.file_type) ? url : null,
+	};
+	if (orphan(f)) return { ...base, chat: null, sender: null, message: null };
 	return {
-		id: f.id, file_type: f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored,
-		created_at: iso(f.created_at), duration: f.duration, tg_file_id: f.tg_file_id, url: f.stored ? `/files/standin-${f.id}` : null, thumb: null,
+		...base,
 		chat: { id: f.msg.chat.id, title: f.chat_title, kind: f.msg.chat.kind }, sender: f.sender_id ? { id: f.sender_id, name: f.sender_name } : null,
 		message: { scope: f.msg.scope, id: f.msg.id },
 	};
@@ -258,10 +280,12 @@ export function load(url: string, persona: Persona): Loaded {
 	if (path === '/files') {
 		const st = listState(u.searchParams, 'created_at');
 		const canSee = (f) => (orphan(f) ? s.role !== 'member' : f.msg.scope === 'group' ? s.group(f.msg.chat) : allowed(s, 'private_messages'));
-		const r = queryFiles({ ...st, per: Number(u.searchParams.get('per')) || 50 }, canSee);
+		// A digest matches in either case, as in Go.
+		const conds = st.conds.map((c) => (c.field === 'sha256' ? { ...c, value: String(c.value).toLowerCase() } : c));
+		const r = queryRows(allFiles().filter(canSee), { ...st, conds, per: Number(u.searchParams.get('per')) || 50 }, (f) => `${f.name} ${f.id}`);
 		const want = u.searchParams.get('file');
-		const pv = want ? files().find((f) => String(f.id) === want && canSee(f)) : null;
-		return { route: 'files', status: 200, props: { ...st, ...r, per: Number(u.searchParams.get('per')) || 50, rows: r.rows.map(fileRow), preview: pv ? fileRow(pv) : null, can_fetch: s.canFetch, archive_total: s.role === 'member' ? undefined : TOTALS.files, stored_bytes: s.role === 'member' ? undefined : Math.round(5.3 * 2 ** 40) } };
+		const pv = want ? allFiles().find((f) => String(f.id) === want && canSee(f)) : null;
+		return { route: 'files', status: 200, props: { ...st, ...r, per: Number(u.searchParams.get('per')) || 50, rows: r.rows.map((f) => fileRow(f, s.canFetch)), preview: pv ? fileRow(pv, s.canFetch) : null, can_fetch: s.canFetch, archive_total: s.role === 'member' ? undefined : TOTALS.files, stored_bytes: s.role === 'member' ? undefined : Math.round(5.3 * 2 ** 40) } };
 	}
 	if (path === '/group_messages' || path === '/private_messages' || path === '/messages/group' || path === '/messages/private') {
 		const scope = path.includes('private') ? 'private' : 'group';
