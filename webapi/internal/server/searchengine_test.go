@@ -260,6 +260,40 @@ func TestEngineSyntaxOnMySQL(t *testing.T) {
 	}
 }
 
+// A full-text value MySQL cannot parse is a refused search, not a
+// failure: the search API answers 400 bad_search, and a list page the
+// whole list with the error in its state, without an engine and when
+// MySQL answers in the engine's place.
+func TestFullTextSyntaxRefused(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		what string
+		e    *searchEnv
+	}{
+		{"without an engine", engineEnv(t, false)},
+		{"engine down", downEngineEnv(t)},
+	} {
+		for _, v := range []string{"+", "-", "kernel +", "~", "((kernel", "kernel)", "a@b",
+			"*", `"a b" @`} {
+			for _, ent := range []string{"group_messages", "private_messages"} {
+				q := fmt.Sprintf(`[{"c":"text","o":"matches","v":%q}]`, v)
+				st, b := c.e.get("superadmin", search(ent, q))
+				msg, _ := b["message"].(string)
+				if st != 400 || b["error"] != "bad_search" ||
+					!strings.HasPrefix(msg, "invalid full-text search: syntax error") {
+					t.Errorf("%s: %s %q: %d %v", c.what, ent, v, st, b)
+				}
+			}
+			p := c.e.props("superadmin", "group_messages", "q", v)
+			err, _ := p["error"].(map[string]any)
+			if err["code"] != "bad_search" || p["q"] != "" || num(p["total"]) == 0 {
+				t.Errorf("%s: list page %q: error %v q %v total %v", c.what, v, p["error"],
+					p["q"], p["total"])
+			}
+		}
+	}
+}
+
 // getAnswer is e.ok that goes on after a failure.
 func getAnswer(t *testing.T, e *searchEnv, role, path string) map[string]any {
 	t.Helper()

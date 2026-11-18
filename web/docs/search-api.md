@@ -41,8 +41,13 @@ webapi/openapi.yaml. Where the two differ:
 - Errors are the Go API's `{"error": <code>, "message": <sentence>}`:
   `bad_search` with this page's messages for a refused search,
   `search_timeout` for one that ran out of time (both 400), and
-  `not_found` (404) for an unknown or hidden entity. A database error
-  that is not a timeout is a 500, not the timeout message.
+  `not_found` (404) for an unknown or hidden entity. A `matches` value
+  MySQL's boolean mode cannot parse (a lone `+`, `-` or `~`, an
+  unbalanced parenthesis, a stray `@`) is a refused search too:
+  `bad_search` with "invalid full-text search: " and MySQL's message,
+  and on a list page the whole list with that error in its state. Any
+  other database error that is not a timeout is a 500, not the timeout
+  message.
 - Everything is read through the request scope (docs/design/
   web-accounts.md section 9). `private_messages` does not exist (404)
   for a viewer who may not see private chats. The rows of the others

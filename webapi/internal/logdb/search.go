@@ -434,6 +434,7 @@ type built struct {
 	sort, order       string
 	limit, offset     int
 	filtered          bool // a WHERE at all, scope included
+	fulltext          bool // a MATCH ... AGAINST in the WHERE
 }
 
 func (e *Entity) field(key string, internal bool) *Field {
@@ -607,7 +608,7 @@ func (e *Entity) build(sc scope.Scope, req SearchRequest) (*built, error) {
 		where = "(" + strings.Join(parts, ") AND (") + ")"
 	}
 
-	b := &built{where: binds, filtered: where != ""}
+	b := &built{where: binds, filtered: where != "", fulltext: ftExpr != ""}
 	sortExpr := e.defSort
 	if req.Sort != "" {
 		if f := e.field(req.Sort, req.Internal); f != nil && f.Sortable &&
@@ -719,6 +720,25 @@ func isTimeout(err error) bool {
 	return errors.As(err, &me) && me.Number == 3024
 }
 
+// isSyntaxError is a statement MySQL could not parse (1064). The
+// search's SQL is fixed and its values are bound, so in a search with
+// a full-text condition it is that condition's value, which MySQL's
+// boolean mode parses when the statement runs and refuses with this
+// error ("syntax error, unexpected $end" for a lone "+", "-" or "~").
+func isSyntaxError(err error) bool {
+	var me *mysql.MySQLError
+	return errors.As(err, &me) && me.Number == 1064
+}
+
+// mysqlMessage is the message of MySQL's error, without its number.
+func mysqlMessage(err error) string {
+	var me *mysql.MySQLError
+	if errors.As(err, &me) {
+		return me.Message
+	}
+	return err.Error()
+}
+
 // Search runs a search of entity within the request scope, its
 // full-text conditions answered by req.Engine when it can
 // (search_engine.go).
@@ -760,6 +780,9 @@ func searchSQL(ctx context.Context, db *sql.DB, sc scope.Scope, e *Entity, req S
 	if err != nil {
 		if isTimeout(err) {
 			return nil, ErrSearchTimeout
+		}
+		if b.fulltext && isSyntaxError(err) {
+			return nil, refuse("invalid full-text search: %s", mysqlMessage(err))
 		}
 		return nil, err
 	}
