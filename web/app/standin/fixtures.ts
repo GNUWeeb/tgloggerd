@@ -88,15 +88,19 @@ function messageRow(m) {
 // fourth video is an animation, and some album items are videos or
 // deleted.
 const STICKER_FORMATS = ['webp', 'webm', 'tgs'];
+// How each content type renders (MediaDetail.render); stickers by format.
+const RENDER = { photo: 'image', video: 'video', animation: 'animation', voice: 'audio', audio: 'audio', document: 'file' };
+const EXT_OF = { photo: 'jpg', video: 'mp4', animation: 'mp4', voice: 'ogg', audio: 'mp3', document: 'bin' };
 export function chatMedia(md, type, fetch = false, extra = {}) {
 	if (!md) return null;
 	const stored = md.stored !== false;
 	const fetchable = !stored && fetch;
 	const url = stored || fetchable ? `/files/standin-${md.fileId}` : null;
 	const format = type === 'sticker' ? STICKER_FORMATS[md.fileId % 3] : undefined;
-	const picture = type === 'photo' || format === 'webp';
+	const render = RENDER[type] ?? (format === 'tgs' ? 'lottie' : format === 'webm' ? 'animation' : 'image');
+	const picture = render === 'image';
 	return {
-		stored, fetchable, thumb: picture ? url : null, url,
+		stored, fetchable, thumb: picture ? url : null, url, render, ext: format ?? md.ext ?? EXT_OF[type],
 		w: md.w, h: md.h, duration: md.duration, name: md.name, size: md.size, emoji: md.emoji,
 		// Telegram's voice waveform is 5-bit: 0 to 31 per bar.
 		wave: md.wave?.map((x) => Math.round(x * 31)),
@@ -106,9 +110,12 @@ export function chatMedia(md, type, fetch = false, extra = {}) {
 
 const typeOf = (m) => (m.content_type === 'video' && m.media && m.media.fileId % 4 === 0 ? 'animation' : m.content_type);
 
+// An album item's own message id: in Telegram the next ids after the
+// album's first, but the sample messages leave no room there, so the
+// stand-in gives them a range of their own.
 function albumItem(a, fetch) {
 	const kind = a.fileId % 5 === 0 ? 'video' : 'photo';
-	const extra = { kind, ...(a.fileId % 7 === 0 ? { deleted_at: iso('2026-11-16 10:00:00') } : {}) };
+	const extra = { kind, message_id: 10_000_000 + a.fileId, ...(a.fileId % 7 === 0 ? { deleted_at: iso('2026-11-16 10:00:00') } : {}) };
 	return chatMedia({ ...a, w: 4, h: 3, stored: a.fileId % 6 !== 0, ...(kind === 'video' ? { duration: 12 + (a.fileId % 50) } : {}) }, kind, fetch, extra);
 }
 
@@ -118,7 +125,7 @@ export function chatMessage(m, fetch = false) {
 	return {
 		id: m.id, message_id: m.message_id, date: iso(m.date), scope: m.scope,
 		sender: m.is_outgoing ? null : userSummary(s, false), content_type: ct, text: m.text || '',
-		media: chatMedia(m.media, ct, fetch, m.album ? { kind: ct } : {}), album: (m.album || []).map((a) => albumItem(a, fetch)),
+		media: chatMedia(m.media, ct, fetch, m.album ? { kind: ct, message_id: m.message_id } : {}), album: (m.album || []).map((a) => albumItem(a, fetch)),
 		reply_to: m.reply_to ? { message_id: m.reply_to.message_id, sender_id: senderOf(m.reply_to)?.id ?? 0, sender_name: senderOf(m.reply_to)?.name ?? 'You', snippet: m.reply_to.text || `[${m.reply_to.content_type}]` } : null,
 		forward: m.forward?.from ?? null, edits: (m.edits || []).map((e) => ({ at: iso(e.at), text: e.text })),
 		edited_at: m.edited_at ? iso(m.edited_at) : null, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
