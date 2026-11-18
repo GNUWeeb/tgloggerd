@@ -17,9 +17,12 @@ import (
 
 // MCPToken is a web_mcp_tokens row, without its digest.
 type MCPToken struct {
-	ID       uint64
-	Name     string
-	Owner    string // the owning account's username
+	ID   uint64
+	Name string
+	// Owner is the owning account's username (web_resource_relations),
+	// or, for a token without an owner row, that of the account it was
+	// made by.
+	Owner    string
 	Created  time.Time
 	LastUsed *time.Time
 	Revoked  *time.Time
@@ -35,10 +38,13 @@ func unixPtr(v sql.NullFloat64) *time.Time {
 
 // ListMCPTokens is every token, newest first.
 func ListMCPTokens(ctx context.Context, db *sql.DB) ([]MCPToken, error) {
-	rows, err := db.QueryContext(ctx, "SELECT t.id, t.name, u.username, "+
+	rows, err := db.QueryContext(ctx, "SELECT t.id, t.name, COALESCE(ou.username, u.username), "+
 		"UNIX_TIMESTAMP(t.created_at), UNIX_TIMESTAMP(t.last_used_at), "+
 		"UNIX_TIMESTAMP(t.revoked_at) FROM web_mcp_tokens t "+
-		"JOIN web_users u ON u.id = t.web_user_id ORDER BY t.id DESC")
+		"JOIN web_users u ON u.id = t.web_user_id "+
+		"LEFT JOIN web_resource_relations o ON o.resource_type = ? AND o.resource_id = t.id "+
+		"AND o.relation = ? LEFT JOIN web_users ou ON ou.id = o.user_id ORDER BY t.id DESC",
+		string(ResMCPToken), string(Owner))
 	if err != nil {
 		return nil, err
 	}

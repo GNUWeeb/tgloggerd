@@ -195,6 +195,44 @@ password change, and page data answers the `password_change` route.
 The gate is one check in the request scope (`Scope.Gate`), applied by
 `RequireSession`; the email gate will be the next one there.
 
+## Ownership
+
+Every resource that can be owned has one owner, an account
+([decision](../../docs/design/decisions/2026-11-18-ownership-and-bots.md),
+[web-accounts.md](../../docs/design/web-accounts.md) section 6). The
+table `web_resource_relations` (web
+migration 000008) records it as a relation between an account and a
+resource, so more relations (sharing) can be added later:
+
+| `resource_type` | `resource_id` |
+|---|---|
+| `mcp_group` | an exposed group, `telegram_public_groups.group_id` |
+| `mcp_token` | an MCP token, `web_mcp_tokens.id` |
+| `telegram_bot` | a Telegram bot, `telegram_bots.id` |
+| `discord_bot` | a Discord bot (reserved for the Discord bots table) |
+| `t2d_webhook` | a Telegram to Discord webhook, `telegram_discord_webhooks.id` |
+| `d2t_route` | a Discord to Telegram route, `discord_telegram_routes.id` |
+
+- The Go service records the account that creates a resource as its
+  owner, and drops the record when it deletes the resource. The
+  resources other than MCP tokens are in the logger's database, so
+  there is no foreign key between them; should the record fail to be
+  written, the resource is left without an owner and the error is
+  logged.
+- A resource without an owner counts as owned by the superadmins:
+  everything made before ownership existed, and whatever the Drogon
+  pages create, which record no owner.
+- Every change writes a `web_audit` row with who made it and, as the
+  target, the owner it concerns: `owner_set` (a first owner),
+  `owner_transfer` (with the previous and the new owner) and
+  `resource_drop`; the detail names the type and id.
+- An account that owns a resource cannot be deleted from the
+  database (accounts are disabled, not deleted); a disabled owner's
+  resources keep working.
+- Who sees and transfers which resource is `forwarding-per-user`'s
+  and `discord-bots-per-user`'s; until then the pages show the owner
+  and every viewer with the ability sees every resource.
+
 ## The Drogon pages
 
 The Drogon pages know only "admin or not":

@@ -82,6 +82,7 @@ func (s *Server) exposeMcpGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAdmin(r, v.ID, "mcp_expose", "group "+strconv.FormatInt(*in.GroupID, 10)+" "+note)
+	s.recordOwner(r, webdb.Resource{Type: webdb.ResMCPGroup, ID: *in.GroupID}, v.ID)
 	writeJSON(w, http.StatusCreated, map[string]int64{"group_id": *in.GroupID})
 }
 
@@ -118,6 +119,7 @@ func (s *Server) unexposeMcpGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAdmin(r, v.ID, "mcp_unexpose", "group "+strconv.FormatInt(id, 10))
+	s.dropOwner(r, webdb.Resource{Type: webdb.ResMCPGroup, ID: id}, v.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -154,6 +156,7 @@ func (s *Server) createMcpToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAdmin(r, v.ID, "mcp_token_create", "token "+strconv.FormatUint(id, 10)+" "+name)
+	s.recordOwner(r, webdb.Resource{Type: webdb.ResMCPToken, ID: int64(id)}, v.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "token": tok})
 }
 

@@ -583,7 +583,7 @@ export interface paths {
         put?: never;
         /**
          * Disable an account
-         * @description Accounts are disabled, never deleted. Its sessions end on both services; it can no longer sign in. Its forwarding keeps running, flagged "owner disabled" (web-ownership). Audited as account_disable; disabling a disabled account changes nothing.
+         * @description Accounts are disabled, never deleted. Its sessions end on both services; it can no longer sign in. Its forwarding keeps running, and the forwarding lists answer it as an owner that is not active ("owner disabled"). Audited as account_disable; disabling a disabled account changes nothing.
          */
         post: operations["disableAccount"];
         delete?: never;
@@ -727,7 +727,7 @@ export interface paths {
         put?: never;
         /**
          * Add a Telegram to Discord webhook
-         * @description For viewers with the forward ability (superadmins and admins today); anyone else gets 404, and so does a chat the logger has not seen or the viewer may not see, or a federation the viewer does not administer. chat_kind must match the chat id (group negative, user positive). federation_id is needed only when more than one of the owner's federations holds the group. The viewer becomes its owner once ownership is stored (web-ownership); until then every configuration is shared. Audited as fwd_t2d_create, without the URL.
+         * @description For viewers with the forward ability (superadmins and admins today); anyone else gets 404, and so does a chat the logger has not seen or the viewer may not see, or a federation the viewer does not administer. chat_kind must match the chat id (group negative, user positive). federation_id is needed only when more than one of the owner's federations holds the group. The viewer becomes its owner. Audited as fwd_t2d_create, without the URL, and owner_set.
          */
         post: operations["createT2D"];
         delete?: never;
@@ -811,7 +811,7 @@ export interface paths {
         put?: never;
         /**
          * Add a Discord to Telegram route
-         * @description The viewer becomes its owner (once web-ownership stores it). The bot token is write-only: the same token reuses its bot, which is enabled again; once bots are owned, a bot of another owner is never reused or shown. Refusals: 400 bad_channel (not a Discord id), bad_token (not shaped <digits>:<secret>), bad_request; 404 for a chat or federation as for webhooks; 409 duplicate when the channel already forwards to the chat. federation_id is needed only when more than one of the owner's federations holds the group. Audited as fwd_d2t_create, without the token.
+         * @description The viewer becomes its owner, and the owner of the bot when the token adds a new one. The bot token is write-only: the same token reuses its bot, which is enabled again and keeps its owner; that a bot of another owner is never reused or shown comes with per-owner visibility (forwarding-per-user). Refusals: 400 bad_channel (not a Discord id), bad_token (not shaped <digits>:<secret>), bad_request; 404 for a chat or federation as for webhooks; 409 duplicate when the channel already forwards to the chat. federation_id is needed only when more than one of the owner's federations holds the group. Audited as fwd_d2t_create, without the token, and owner_set.
          */
         post: operations["createD2T"];
         delete?: never;
@@ -2001,7 +2001,7 @@ export interface components {
             role?: string;
             active?: boolean;
         };
-        /** @description Until web-ownership stores owners, every configuration is shared: owner id 0 (named "Shared", active), the Default federation, and no transfer candidates. */
+        /** @description The owner is the account that created the configuration, with its role and whether it is active (a disabled owner's configurations keep forwarding). One without an owner, made before ownership was recorded, counts as the superadmins' and is answered as shared: owner id 0, named "Shared", active. Federations are not stored yet: every configuration is in Default, with no transfer candidates (forwarding-per-user). */
         Owned: {
             /** Format: int64 */
             id: number;
@@ -2158,6 +2158,7 @@ export interface components {
                 /** Format: int64 */
                 id: number;
                 name: string;
+                /** @description The owning account's username; for a token without an owner record, the account it was made by. */
                 owner: string;
                 created: string;
                 last_used: string | null;

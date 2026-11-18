@@ -193,11 +193,14 @@ func TestT2DOperations(t *testing.T) {
 
 	want := []string{
 		fmt.Sprintf("3 fwd_t2d_create webhook %d chat %d enabled=true types=text,photo", id, rustChat),
+		fmt.Sprintf("3 owner_set t2d_webhook %d", id),
 		fmt.Sprintf("3 fwd_t2d_update webhook %d chat %d enabled=false", id, rustChat),
 		fmt.Sprintf("1 fwd_t2d_update webhook %d chat %d types=other", id, rustChat),
 		fmt.Sprintf("3 fwd_t2d_update webhook %d chat %d url", id, rustChat),
 		fmt.Sprintf("3 fwd_t2d_delete webhook %d chat %d", id, rustChat),
+		fmt.Sprintf("3 resource_drop t2d_webhook %d", id),
 		fmt.Sprintf("1 fwd_t2d_create webhook %d chat 9299000002 enabled=false types=", priv),
+		fmt.Sprintf("1 owner_set t2d_webhook %d", priv),
 	}
 	if got := e.audits(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("audit\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -388,10 +391,15 @@ func TestD2TOperations(t *testing.T) {
 
 	want := []string{
 		fmt.Sprintf("3 fwd_d2t_create route %d channel 710000000000000003 chat %d enabled=true types=text,document", id, rustChat),
+		fmt.Sprintf("3 owner_set d2t_route %d", id),
+		"3 owner_set telegram_bot " + bot,
+		// The same token again reuses the bot, which keeps its owner.
 		fmt.Sprintf("1 fwd_d2t_create route %d channel 710000000000000003 chat %d enabled=true types=text,document", id2, gnuWeeb),
+		fmt.Sprintf("1 owner_set d2t_route %d", id2),
 		fmt.Sprintf("3 fwd_d2t_update route %d chat %d types=sticker enabled=false", id, rustChat),
 		fmt.Sprintf("3 fwd_d2t_update route %d chat %d bot", id, rustChat),
 		fmt.Sprintf("3 fwd_d2t_delete route %d channel 710000000000000003 chat %d", id, rustChat),
+		fmt.Sprintf("3 resource_drop d2t_route %d", id),
 	}
 	if got := e.audits(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("audit\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

@@ -536,10 +536,18 @@ describe each, with what differs from the Drogon pages.
   - The federations a configuration or a joined group may go into
     are the existing ones the viewer administers (fileFederations);
     the accounts and federations pages take their federation data from
-    the federation helpers (federationprops.go). Ownership is not
-    stored yet and is answered as a constant from one place
-    (Server.ownership: shared, Default; web-ownership); filing a
-    joined group comes with join-chat-federations.
+    the federation helpers (federationprops.go). Filing a joined group
+    comes with join-chat-federations.
+  - Every create operation records the account creating the resource
+    as its owner (internal/server/ownership.go, over the helpers of
+    internal/webdb/ownership.go: Owners, OwnerOf, OwnedBy, SetOwner,
+    TransferOwner, DropResource, AssignUnowned), and every delete
+    drops it; each change is audited (owner_set, owner_transfer,
+    resource_drop). The forwarding lists answer the owner through
+    Server.ownership; a resource without one counts as the
+    superadmins' and is answered as shared. The configurations'
+    federation is not stored yet (Default) and the transfers are
+    planned (forwarding-per-user).
 
 # MCP
 
