@@ -127,6 +127,7 @@ Accounts, roles and federations:
 [design/web-accounts.md](design/web-accounts.md).
 
 - [`web-admin-restrictions`](todo/web-admin-restrictions.md): Let a superadmin hide private messages and specific groups from an admin, with 404 everywhere.
+- [`web-hidden-group-totals`](todo/web-hidden-group-totals.md): Leave an admin's hidden groups out of the per-user message totals it sees (low priority).
 - [`web-member-access`](todo/web-member-access.md): Limit a member to its granted groups and show users only as they appear in them.
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
