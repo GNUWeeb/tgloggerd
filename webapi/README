@@ -262,7 +262,8 @@ live.Source, leaving the fan-out as it is.
     (message.new, message.edited, message.deleted, file.stored of one
     chat), messages (the same for every visible chat), user:<id>
     (user.updated), group:<chat_id> (group.updated), stats
-    (stats.changed). Repeats count once; more than 2000 topics, an
+    (stats.changed), bots (bot.updated, to admins and superadmins).
+    Repeats count once; more than 2000 topics, an
     unknown topic or a malformed last is 400 bad_request.
   - Framing: "retry: 3000" first, then one frame per event: "id:" the
     seq, "event:" the kind, "data:" the event's JSON (with seq). The

@@ -29,6 +29,7 @@ const (
 	KindGroupUpdated   = "group.updated"
 	KindFileStored     = "file.stored"
 	KindStatsChanged   = "stats.changed"
+	KindBotUpdated     = "bot.updated"
 )
 
 // Reasons of a session event, after which the stream ends.
@@ -46,6 +47,7 @@ type Event struct {
 	MessageID int64    `json:"message_id,omitempty"`
 	UserID    int64    `json:"user_id,omitempty"`
 	FileID    uint64   `json:"file_id,omitempty"`
+	BotID     uint64   `json:"bot_id,omitempty"`
 	ChatIDs   []int64  `json:"chat_ids,omitempty"`
 	UserIDs   []int64  `json:"user_ids,omitempty"`
 	More      bool     `json:"more,omitempty"`
@@ -58,7 +60,7 @@ func Known(kind string) bool {
 	switch kind {
 	case KindMessageNew, KindMessageEdited, KindMessageDeleted,
 		KindUserUpdated, KindGroupUpdated, KindFileStored,
-		KindStatsChanged:
+		KindStatsChanged, KindBotUpdated:
 		return true
 	}
 	return false
