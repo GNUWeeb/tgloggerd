@@ -100,8 +100,6 @@ touches the list.
 The file store as a capped cache in front of Telegram:
 [design/storage-cache.md](design/storage-cache.md).
 
-- [`storage-cutover`](todo/storage-cutover.md): Deploy the storage cache, dry-run the first sweep, and enable eviction once the owner agrees.
-- [`orphan-blob-audit`](todo/orphan-blob-audit.md): Act on the store audit's list of blobs no row describes, as the owner agrees (optional).
 
 ## Logging
 
