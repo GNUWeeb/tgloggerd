@@ -2412,4 +2412,104 @@ models::Poll extract_poll(const td_api::messagePoll &m)
 	return out;
 }
 
+bool message_topic(const td_api::MessageTopic *t, std::string &kind,
+		   int64_t &id)
+{
+	if (!t)
+		return false;
+	switch (t->get_id()) {
+	case td_api::messageTopicForum::ID:
+		kind = "forum";
+		id = static_cast<const td_api::messageTopicForum &>(*t)
+			.forum_topic_id_;
+		return true;
+	case td_api::messageTopicThread::ID: {
+		/* A TDLib message id; stored ids are server ids. */
+		int64_t root = server_msg_id(
+			static_cast<const td_api::messageTopicThread &>(*t)
+				.message_thread_id_);
+		if (root == 0)
+			return false;
+		kind = "thread";
+		id = root;
+		return true;
+	}
+	case td_api::messageTopicDirectMessages::ID:
+		kind = "direct";
+		id = static_cast<const td_api::messageTopicDirectMessages &>(*t)
+			.direct_messages_chat_topic_id_;
+		return true;
+	case td_api::messageTopicSavedMessages::ID:
+		kind = "saved";
+		id = static_cast<const td_api::messageTopicSavedMessages &>(*t)
+			.saved_messages_topic_id_;
+		return true;
+	default:
+		return false;
+	}
+}
+
+namespace {
+
+void set_creator(models::ForumTopic &t, const td_api::MessageSender *s)
+{
+	if (!s)
+		return;
+	if (s->get_id() == td_api::messageSenderUser::ID)
+		t.creator_user_id =
+			static_cast<const td_api::messageSenderUser &>(*s).user_id_;
+	else if (s->get_id() == td_api::messageSenderChat::ID)
+		t.creator_chat_id =
+			static_cast<const td_api::messageSenderChat &>(*s).chat_id_;
+}
+
+void set_icon(models::ForumTopic &t, const td_api::forumTopicIcon *icon)
+{
+	if (!icon)
+		return;
+	t.icon_color = icon->color_;
+	if (icon->custom_emoji_id_ != 0)
+		t.icon_custom_emoji_id = icon->custom_emoji_id_;
+}
+
+} /* namespace */
+
+models::ForumTopic extract_forum_topic(const td_api::forumTopicInfo &info)
+{
+	models::ForumTopic t;
+	t.chat_id = info.chat_id_;
+	t.topic_id = info.forum_topic_id_;
+	t.name = info.name_;
+	t.is_name_implicit = info.is_name_implicit_;
+	set_icon(t, info.icon_.get());
+	t.creation_date = info.creation_date_;
+	set_creator(t, info.creator_id_.get());
+	t.is_general = info.is_general_;
+	t.is_closed = info.is_closed_;
+	t.is_hidden = info.is_hidden_;
+	return t;
+}
+
+std::optional<models::ForumTopic>
+forum_topic_from_created(const td_api::message &message)
+{
+	if (!message.content_ ||
+	    message.content_->get_id() != td_api::messageForumTopicCreated::ID ||
+	    !message.topic_id_ ||
+	    message.topic_id_->get_id() != td_api::messageTopicForum::ID)
+		return std::nullopt;
+	auto &c = static_cast<const td_api::messageForumTopicCreated &>(
+		*message.content_);
+	models::ForumTopic t;
+	t.chat_id = message.chat_id_;
+	t.topic_id = static_cast<const td_api::messageTopicForum &>(
+		*message.topic_id_).forum_topic_id_;
+	t.name = c.name_;
+	t.is_name_implicit = c.is_name_implicit_;
+	set_icon(t, c.icon_.get());
+	t.creation_date = message.date_;
+	set_creator(t, message.sender_id_.get());
+	return t;
+}
+
 } /* namespace tgloggerd */

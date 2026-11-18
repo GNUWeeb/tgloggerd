@@ -14,6 +14,7 @@
 #include <tgloggerd/models/GroupMessage.hpp>
 #include <tgloggerd/models/LinkPreview.hpp>
 #include <tgloggerd/models/Poll.hpp>
+#include <tgloggerd/models/ForumTopic.hpp>
 #include <tgloggerd/models/GroupAdmin.hpp>
 #include <tgloggerd/models/Backfill.hpp>
 
@@ -435,6 +436,17 @@ public:
 	 * deleted. See models/Poll.cpp.
 	 */
 	void upsertPoll(const models::Poll &p);
+
+	/*
+	 * Store a forum topic. With @only_if_absent (a topic read from its
+	 * "created" service message) it only fills in a topic not stored
+	 * yet; otherwise it replaces the stored state. See
+	 * models/ForumTopic.cpp.
+	 */
+	void upsertForumTopic(const models::ForumTopic &t, bool only_if_absent);
+
+	/* Record whether a forum topic is pinned in the forum's topic list. */
+	void setForumTopicPinned(int64_t chat_id, int32_t topic_id, bool pinned);
 
 	/* Attach a downloaded image to a message's link preview. */
 	void setLinkPreviewPhoto(int64_t chat_id, int64_t message_id,

@@ -7,6 +7,7 @@
 
 #include <tgloggerd/models/Message.hpp>
 #include <tgloggerd/models/Poll.hpp>
+#include <tgloggerd/models/ForumTopic.hpp>
 
 #include <td/telegram/td_api.h>
 
@@ -196,6 +197,28 @@ models::Poll extract_poll(const td_api::poll &p);
 /* The same for the poll of a message, with the poll's own media, which
  * the message carries and updatePoll does not. */
 models::Poll extract_poll(const td_api::messagePoll &m);
+
+/*
+ * The topic of a message (td_api::message.topic_id) as stored on group
+ * messages: @kind "forum", "thread", "direct" or "saved" and @id within the
+ * chat, a thread's as the server id of its first message. Returns false,
+ * leaving both alone, when the message has no topic.
+ */
+bool message_topic(const td_api::MessageTopic *t, std::string &kind,
+		   int64_t &id);
+
+/* A forum topic as TDLib describes it now (updateForumTopicInfo,
+ * getForumTopics). */
+models::ForumTopic extract_forum_topic(const td_api::forumTopicInfo &info);
+
+/*
+ * The forum topic a "topic created" service message describes, as it was
+ * created: its name and icon, the message's date and sender, and the topic
+ * id the message itself carries. nullopt for any other message, or one
+ * without a forum topic id.
+ */
+std::optional<models::ForumTopic>
+forum_topic_from_created(const td_api::message &message);
 
 /* The largest size of a photo, or nullptr. */
 const td_api::file *photo_best_size(const td_api::photo *p);

@@ -484,6 +484,37 @@ int TgLoggerd::start(void)
 				}
 			});
 		});
+	tdlib_->setForumTopicHandlers(
+		[this](const models::ForumTopic &ft, bool only_if_absent) {
+			serial_->post([this, ft, only_if_absent] {
+				try {
+					db_->upsertForumTopic(ft, only_if_absent);
+					pr_debug(l_, "Stored forum topic | chat_id=%lld"
+						 " topic_id=%d name=%.64s%s",
+						 (long long)ft.chat_id, ft.topic_id,
+						 ft.name.c_str(),
+						 only_if_absent ? " (if new)" : "");
+				} catch (const std::exception &e) {
+					pr_error(l_, "Failed to store forum topic"
+						 " chat_id=%lld topic_id=%d: %s",
+						 (long long)ft.chat_id, ft.topic_id,
+						 e.what());
+				}
+			});
+		},
+		[this](int64_t chat_id, int32_t topic_id, bool pinned) {
+			serial_->post([this, chat_id, topic_id, pinned] {
+				try {
+					db_->setForumTopicPinned(chat_id, topic_id,
+								 pinned);
+				} catch (const std::exception &e) {
+					pr_error(l_, "Failed to record pinned forum"
+						 " topic chat_id=%lld topic_id=%d: %s",
+						 (long long)chat_id, topic_id,
+						 e.what());
+				}
+			});
+		});
 	tdlib_->setPollHandler([this](const models::Poll &p) {
 		/* Serialised with the message writes, like everything that
 		 * belongs to a message. */
