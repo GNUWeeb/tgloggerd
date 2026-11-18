@@ -683,7 +683,7 @@ export interface paths {
         put?: never;
         /**
          * Create a federation
-         * @description Superadmins only; anyone else gets 404.
+         * @description Superadmins only; anyone else gets 404. name is required; group_ids are groups of the logger and admin_ids accounts with the admin role (superadmins administer every federation without being listed). A group may be in several federations; the groups put into one leave Default. The new id is the highest so far plus one. Audited as federation_create.
          */
         post: operations["createFederation"];
         delete?: never;
@@ -702,12 +702,16 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a federation
+         * @description Superadmins only; anyone else gets 404, as does a federation that does not exist. Its groups go back to Default unless another federation holds them, its admins stop administering it, and a member it was the only federation of is filed in Default. Default itself cannot be deleted. Audited as federation_delete.
+         */
+        delete: operations["deleteFederation"];
         options?: never;
         head?: never;
         /**
          * Change a federation
-         * @description Superadmins only; anyone else gets 404. The Default federation (id 0) is derived, the groups in no other federation, so it takes admin_ids only.
+         * @description Superadmins only; anyone else gets 404, as does a federation that does not exist. The fields given replace the federation's name, groups and admins; the others stay. A group taken out of its last federation is back in Default. The Default federation (id 0) is derived, the groups in no other federation, so it takes admin_ids only (and its own name back unchanged). Audited as federation_update, with what changed.
          */
         patch: operations["updateFederation"];
         trace?: never;
@@ -3533,16 +3537,68 @@ export interface operations {
             /** @description Created. */
             201: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Created"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description A malformed body or more than 50000 groups (error bad_request), a name that is empty, over 64 characters or with control characters (bad_name), an id that is no group (bad_group), or an account that is not an admin (bad_admin). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            /** @description Another federation has the name (error taken). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    deleteFederation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The Default federation (error bad_request). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     updateFederation: {
@@ -3563,16 +3619,35 @@ export interface operations {
             /** @description Changed. */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["Created"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description As for createFederation, or groups or a new name for Default (error bad_request). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+            /** @description Another federation has the name (error taken). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     createT2D: {

@@ -360,8 +360,8 @@ func federationChange(sc scope.Scope, feds []uint64) *webdb.FederationChange {
 	return &webdb.FederationChange{Set: feds, Within: within, WithinAll: all}
 }
 
-func badFederation(w http.ResponseWriter) {
-	badRequest(w, "bad_federation", "That federation does not exist.")
+func (s *Server) badFederation(w http.ResponseWriter, r *http.Request) {
+	badRequest(w, "bad_federation", s.text(r, "federation.unknown"))
 }
 
 // createAccount answers POST /api/accounts. Until set-password links
@@ -456,7 +456,7 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	}, clientIP(r))
 	switch {
 	case errors.Is(err, webdb.ErrNoFederation):
-		badFederation(w)
+		s.badFederation(w, r)
 		return
 	case errors.Is(err, webdb.ErrTaken):
 		writeError(w, http.StatusConflict, "taken",
@@ -480,7 +480,7 @@ func (s *Server) change(w http.ResponseWriter, r *http.Request, a webdb.Account,
 	_, err := webdb.UpdateAccount(r.Context(), s.app, v.ID, a.ID, c, action, clientIP(r))
 	switch {
 	case errors.Is(err, webdb.ErrNoFederation):
-		badFederation(w)
+		s.badFederation(w, r)
 		return
 	case errors.Is(err, webdb.ErrLastSuperadmin):
 		writeError(w, http.StatusConflict, "last_superadmin", map[string]any{
@@ -580,13 +580,13 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		feds := make([]uint64, 0, len(in.AdminOf))
 		for _, f := range in.AdminOf {
 			if f < 0 {
-				badFederation(w)
+				s.badFederation(w, r)
 				return
 			}
 			feds = append(feds, uint64(f))
 		}
 		if len(feds) != 0 && newRole != scope.Admin {
-			badRequest(w, "bad_request", "Only admins administer federations.")
+			badRequest(w, "bad_request", s.text(r, "federation.admins_only"))
 			return
 		}
 		c.AdminOf = &webdb.FederationChange{Set: feds, WithinAll: true}

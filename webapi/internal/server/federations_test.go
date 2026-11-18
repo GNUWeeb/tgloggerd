@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -361,5 +362,212 @@ func TestFederationsChatSearch(t *testing.T) {
 	// A federation lists groups only.
 	if a := root.call("GET", "/api/chats/search?federation=0&kind=user", nil); pickIDs(a.body) != "" {
 		t.Errorf("Default's users: %v", a.body)
+	}
+}
+
+// Only superadmins create, change and delete federations; to everyone
+// else the operations do not exist. Groups move in and out of Default
+// as federations take and drop them.
+func TestFederationsEditor(t *testing.T) {
+	t.Parallel()
+	h, app := newFedHandler(t)
+	root := newSession(t, h, "fed_root", "password")
+	groupsOf := func(fed int) string {
+		t.Helper()
+		a := root.call("GET", fmt.Sprintf("/api/chats/search?limit=200&federation=%d", fed), nil)
+		if a.status != 200 {
+			t.Fatalf("groups of %d: %d %v", fed, a.status, a.body)
+		}
+		return pickIDs(a.body)
+	}
+	g := func(n ...int) string {
+		var out []string
+		for _, i := range n {
+			out = append(out, fmt.Sprint(-1001000000000-int64(i)))
+		}
+		slices.Sort(out)
+		return strings.Join(out, ",")
+	}
+	gid := func(n int) int64 { return -1001000000000 - int64(n) }
+
+	// Nobody but a superadmin.
+	for _, name := range []string{"kern_admin", "sec_admin", "idle_admin", "kern_member"} {
+		s := newSession(t, h, name, "password")
+		for _, op := range [][2]string{{"POST", "/api/federations"}, {"PATCH", "/api/federations/1"},
+			{"PATCH", "/api/federations/0"}, {"DELETE", "/api/federations/1"}} {
+			if a := s.call(op[0], op[1], map[string]any{"name": "Mine"}); a.status != 404 {
+				t.Errorf("%s %s %s: %d %v", name, op[0], op[1], a.status, a.body)
+			}
+		}
+	}
+	anon := &client{t: t, h: h, cookies: map[string]string{}}
+	if a := anon.do("POST", "/api/federations", "", map[string]any{"name": "x"}); a.status != 401 {
+		t.Errorf("signed out: %d", a.status)
+	}
+	if a := root.do("POST", "/api/federations", "", map[string]any{"name": "x"}); a.status != 403 ||
+		a.body["error"] != "csrf" {
+		t.Errorf("without the CSRF token: %d %v", a.status, a.body)
+	}
+
+	// Refused writes.
+	for _, tc := range []struct {
+		body   map[string]any
+		status int
+		code   string
+	}{
+		{map[string]any{}, 400, "bad_name"},
+		{map[string]any{"name": "  "}, 400, "bad_name"},
+		{map[string]any{"name": strings.Repeat("x", 65)}, 400, "bad_name"},
+		{map[string]any{"name": "a\nb"}, 400, "bad_name"},
+		{map[string]any{"name": "kernel"}, 409, "taken"}, // names compare without case
+		{map[string]any{"name": "R", "group_ids": []int64{-999}}, 400, "bad_group"},
+		{map[string]any{"name": "R", "admin_ids": []int{110}}, 400, "bad_admin"},
+		{map[string]any{"name": "R", "admin_ids": []int{101}}, 400, "bad_admin"},
+		{map[string]any{"name": "R", "admin_ids": []int{9999}}, 400, "bad_admin"},
+		{map[string]any{"name": 5}, 400, "bad_request"},
+	} {
+		if a := root.call("POST", "/api/federations", tc.body); a.status != tc.status || a.body["error"] != tc.code {
+			t.Errorf("create %v: %d %v", tc.body, a.status, a.body)
+		}
+	}
+
+	// A new federation takes its groups out of Default.
+	a := root.call("POST", "/api/federations", map[string]any{"name": " Rust ",
+		"group_ids": []int64{gid(3), gid(5), gid(5)}, "admin_ids": []int{104}})
+	if a.status != 201 || a.body["id"] != float64(3) {
+		t.Fatalf("create Rust: %d %v", a.status, a.body)
+	}
+	if groupsOf(3) != g(3, 5) || groupsOf(0) != g(4, 10) || groupsOf(2) != g(2, 3) {
+		t.Errorf("after Rust: Rust %s, Default %s, Security %s", groupsOf(3), groupsOf(0), groupsOf(2))
+	}
+	// Its admin manages the members filed in it.
+	idle := newSession(t, h, "idle_admin", "password")
+	if a := idle.call("GET", "/api/accounts", nil); len(ids(a)) != 0 {
+		t.Errorf("idle_admin's accounts before: %v", ids(a))
+	}
+	if a := root.call("PATCH", fmt.Sprintf("/api/accounts/%d", fedAccountID("loose_member")),
+		map[string]any{"grants": []any{map[string]any{"fed": 3, "group_ids": []int{}}}}); a.status != 200 {
+		t.Fatalf("loose_member into Rust: %d %v", a.status, a.body)
+	}
+	if a := idle.call("GET", "/api/accounts", nil); strings.Join(ids(a), ",") != "loose_member" {
+		t.Errorf("idle_admin's accounts after: %v", ids(a))
+	}
+
+	// Changing one: the fields given replace, the others stay.
+	if a := root.call("PATCH", "/api/federations/1", map[string]any{"name": "Linux",
+		"group_ids": []int64{gid(1)}}); a.status != 200 || a.body["id"] != float64(1) {
+		t.Fatalf("change Kernel: %d %v", a.status, a.body)
+	}
+	// -1001000000002 is still in Security, so not in Default.
+	if groupsOf(1) != g(1) || groupsOf(0) != g(4, 10) {
+		t.Errorf("after Kernel: %s, Default %s", groupsOf(1), groupsOf(0))
+	}
+	var kernAdmins int
+	if err := app.QueryRow("SELECT COUNT(*) FROM web_federation_admins WHERE federation_id = 1 " +
+		"AND web_user_id = 102").Scan(&kernAdmins); err != nil || kernAdmins != 1 {
+		t.Errorf("Kernel's admin after a change without admin_ids: %d %v", kernAdmins, err)
+	}
+	for _, tc := range []struct {
+		path   string
+		body   map[string]any
+		status int
+		code   string
+	}{
+		{"/api/federations/0", map[string]any{"group_ids": []int64{gid(4)}}, 400, "bad_request"},
+		{"/api/federations/0", map[string]any{"name": "Everything"}, 400, "bad_request"},
+		{"/api/federations/1", map[string]any{"name": "Security"}, 409, "taken"},
+		{"/api/federations/99", map[string]any{"name": "Nowhere"}, 404, "not_found"},
+		{"/api/federations/x", map[string]any{"name": "Nowhere"}, 404, "not_found"},
+	} {
+		if a := root.call("PATCH", tc.path, tc.body); a.status != tc.status || a.body["error"] != tc.code {
+			t.Errorf("PATCH %s %v: %d %v", tc.path, tc.body, a.status, a.body)
+		}
+	}
+	// Default takes admins, with its own name sent back as the page
+	// does.
+	kern := newSession(t, h, "kern_admin", "password")
+	if a := root.call("PATCH", "/api/federations/0", map[string]any{"name": "Default",
+		"admin_ids": []int{102, 103}}); a.status != 200 {
+		t.Fatalf("Default's admins: %d %v", a.status, a.body)
+	}
+	if a := kern.call("GET", "/api/accounts", nil); strings.Join(ids(a), ",") != "both_member,default_member,kern_member" {
+		t.Errorf("kern_admin's accounts as an admin of Default: %v", ids(a))
+	}
+
+	// Deleting Security: -1001000000002 is in no federation now, so
+	// back in Default; -1001000000003 stays in Rust. sec_member, in
+	// Security only, is filed in Default; both_member keeps Kernel.
+	if a := root.call("DELETE", "/api/federations/2", nil); a.status != 204 {
+		t.Fatalf("delete Security: %d %v", a.status, a.body)
+	}
+	if groupsOf(0) != g(2, 4, 10) || groupsOf(2) != "" || groupsOf(3) != g(3, 5) {
+		t.Errorf("after deleting Security: Default %s, Security %s, Rust %s", groupsOf(0), groupsOf(2), groupsOf(3))
+	}
+	for name, want := range map[string]string{"sec_member": "0", "both_member": "1", "sec_admin": "0"} {
+		if a := root.call("GET", fmt.Sprintf("/api/accounts/%d", fedAccountID(name)), nil); feds(a.body) != want {
+			t.Errorf("%s after deleting Security: %q, want %q", name, feds(a.body), want)
+		}
+	}
+	for _, tc := range []struct {
+		path   string
+		status int
+	}{{"/api/federations/0", 400}, {"/api/federations/2", 404}, {"/api/federations/99", 404}} {
+		if a := root.call("DELETE", tc.path, nil); a.status != tc.status {
+			t.Errorf("DELETE %s: %d %v", tc.path, a.status, a.body)
+		}
+	}
+
+	// Every change is audited with who made it.
+	rows, err := app.Query("SELECT action, detail FROM web_audit WHERE action LIKE 'federation_%' " +
+		"AND web_user_id = 101 ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var action, detail string
+		if err := rows.Scan(&action, &detail); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, action+": "+detail)
+	}
+	want := []string{
+		"federation_create: federation 3 Rust; groups +2 -0; admins none->104",
+		"federation_update: federation 1; name Kernel->Linux; groups +0 -1",
+		"federation_update: federation 0; admins 103->102,103",
+		"federation_delete: federation 2 Security; members to Default 112",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("audit:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// Federations made at once get ids of their own.
+func TestFederationsCreateAtOnce(t *testing.T) {
+	t.Parallel()
+	h, _ := newFedHandler(t)
+	root := newSession(t, h, "fed_root", "password")
+	const n = 6
+	got := make([]answer, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got[i] = root.call("POST", "/api/federations", map[string]any{"name": fmt.Sprintf("F%d", i)})
+		}()
+	}
+	wg.Wait()
+	var fids []int
+	for i, a := range got {
+		if a.status != 201 {
+			t.Fatalf("create F%d: %d %v", i, a.status, a.body)
+		}
+		fids = append(fids, int(a.body["id"].(float64)))
+	}
+	slices.Sort(fids)
+	if !slices.Equal(fids, []int{3, 4, 5, 6, 7, 8}) {
+		t.Errorf("ids %v", fids)
 	}
 }

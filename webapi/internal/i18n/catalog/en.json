@@ -1,4 +1,13 @@
 {
+	"federation.admins_only": "Only admins administer federations.",
+	"federation.bad_admin": "Only admins can be given a federation.",
+	"federation.bad_group": "Group {id} is not a known group.",
+	"federation.default_fixed": "The Default federation holds the groups in no other federation; only its admins can be changed.",
+	"federation.malformed": "The body must be a JSON object of name, group_ids and admin_ids.",
+	"federation.name": "A federation's name is 1 to {max} characters, without control characters.",
+	"federation.taken": "Another federation has that name.",
+	"federation.too_many_groups": "A federation holds at most {max} groups.",
+	"federation.unknown": "That federation does not exist.",
 	"landing.chat": "{title} chat",
 	"notice.disabled": "Your account was disabled",
 	"notice.email": "Your email address was changed (sent to the old and the new address)",

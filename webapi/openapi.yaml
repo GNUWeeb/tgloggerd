@@ -1941,11 +1941,16 @@ paths:
 
   /api/federations:
     post:
-      x-tgd-status: planned
       operationId: createFederation
       tags: [accounts]
       summary: Create a federation
-      description: Superadmins only; anyone else gets 404.
+      description: >-
+        Superadmins only; anyone else gets 404. name is required;
+        group_ids are groups of the logger and admin_ids accounts with
+        the admin role (superadmins administer every federation
+        without being listed). A group may be in several federations;
+        the groups put into one leave Default. The new id is the
+        highest so far plus one. Audited as federation_create.
       security:
         - session: []
           csrf: []
@@ -1958,29 +1963,52 @@ paths:
       responses:
         '201':
           description: Created.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Created'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: >-
+            A malformed body or more than 50000 groups (error
+            bad_request), a name that is empty, over 64 characters or
+            with control characters (bad_name), an id that is no group
+            (bad_group), or an account that is not an admin
+            (bad_admin).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Another federation has the name (error taken).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
 
   /api/federations/{id}:
     patch:
-      x-tgd-status: planned
       operationId: updateFederation
       tags: [accounts]
       summary: Change a federation
       description: >-
-        Superadmins only; anyone else gets 404. The Default federation
+        Superadmins only; anyone else gets 404, as does a federation
+        that does not exist. The fields given replace the federation's
+        name, groups and admins; the others stay. A group taken out of
+        its last federation is back in Default. The Default federation
         (id 0) is derived, the groups in no other federation, so it
-        takes admin_ids only.
+        takes admin_ids only (and its own name back unchanged).
+        Audited as federation_update, with what changed.
       security:
         - session: []
           csrf: []
@@ -1995,18 +2023,68 @@ paths:
       responses:
         '200':
           description: Changed.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Created'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: >-
+            As for createFederation, or groups or a new name for
+            Default (error bad_request).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Csrf'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Another federation has the name (error taken).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+    delete:
+      operationId: deleteFederation
+      tags: [accounts]
+      summary: Delete a federation
+      description: >-
+        Superadmins only; anyone else gets 404, as does a federation
+        that does not exist. Its groups go back to Default unless
+        another federation holds them, its admins stop administering
+        it, and a member it was the only federation of is filed in
+        Default. Default itself cannot be deleted. Audited as
+        federation_delete.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          description: The Default federation (error bad_request).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
 
   /api/forwarding/telegram-discord:
     post:
