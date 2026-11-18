@@ -1,8 +1,10 @@
 # Message types: storing every kind of Telegram message faithfully
 
-Status: planned and approved 2026-11-18, not implemented. The items that implement it are in the "Message types" section
-of [../TODO.md](../TODO.md); the decisions behind it are under
-[decisions/](decisions/) (files named `2026-11-18-msg-*.md`).
+Status: approved and built 2026-11-18: the daemon stores every kind
+and the web shows them (web/docs/message-kinds.md). What is left is in
+the "Message types" section of [../TODO.md](../TODO.md); the decisions
+behind it are under [decisions/](decisions/) (files named
+`2026-11-18-msg-*.md`).
 
 ## 1. Problem and goals
 
