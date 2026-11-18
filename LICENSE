@@ -102,7 +102,8 @@ terms, and a binary distribution must carry them.
     nlohmann/json (web/third_party)      MIT
     inja (web/third_party)               MIT
     jQuery, flatpickr, lottie, select2   MIT (texts in web/static/*.LICENSE)
-    stopwords-iso/stopwords-id           MIT (data in web/src/mcp/Stopwords.hpp)
+    stopwords-iso/stopwords-id           MIT (data in web/src/mcp/Stopwords.hpp
+                                         and webapi/internal/mcp/stopwords.go)
     Go standard library and runtime      BSD-3-Clause (linked into webapi)
     go-sql-driver/mysql (webapi/vendor)  MPL-2.0
     edwards25519 (webapi/vendor)         BSD-3-Clause
