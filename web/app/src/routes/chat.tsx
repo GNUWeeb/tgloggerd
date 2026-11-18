@@ -1,8 +1,9 @@
 // The Telegram-like chat view (group or private chat), inside the shell,
 // or on its own as the public page of a group exposed through MCP.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
-import { ArrowLeft, CalendarDays, ChevronDown, ChevronsUp, ExternalLink, CloudOff, Download, Forward, Globe, Info, LogIn, Pencil, Play, Radio, Search, Trash2, X } from 'lucide-react';
-import Shell, { ThemeButton } from '../ui/Shell.tsx';
+import { ArrowLeft, CalendarDays, ChevronDown, ChevronsUp, ExternalLink, CloudOff, Download, Forward, Globe, Info, Pencil, Play, Radio, Search, Trash2, X } from 'lucide-react';
+import Shell from '../ui/Shell.tsx';
+import { PublicFrame } from '../ui/PublicFrame.tsx';
 import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
@@ -381,15 +382,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	);
 	if (publicView) {
 		return (
-			<div className="app c-publicpage">
-				<header className="c-pubtop">
-					<span className="a-logo">tg</span><b>tgloggerd</b><span className="c-sub">public archive</span>
-					<span className="a-grow" />
-					<ThemeButton viewer={v} />
-					<a href={`/login?next=${encodeURIComponent(page.url)}`} className="a-btn a-btn-ghost"><LogIn size={14} />Sign in</a>
-				</header>
-				{body}
-			</div>
+			<PublicFrame viewer={v} url={page.url}>{body}</PublicFrame>
 		);
 	}
 	return <Shell flush crumbs={[[isGroup ? 'Groups' : 'Users', isGroup ? '/groups' : '/users'], [title, back], ['Chat', null]]}>{body}</Shell>;
