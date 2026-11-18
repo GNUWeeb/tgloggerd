@@ -1,7 +1,7 @@
 // The Telegram-like chat view (group or private chat), inside the shell,
 // or on its own as the public page of a group exposed through MCP.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
-import { ArrowLeft, CalendarDays, ChevronDown, CloudOff, Download, Forward, Globe, Info, LogIn, Pencil, Play, Radio, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronDown, ChevronsUp, ExternalLink, CloudOff, Download, Forward, Globe, Info, LogIn, Pencil, Play, Radio, Search, Trash2, X } from 'lucide-react';
 import Shell, { ThemeButton } from '../ui/Shell.tsx';
 import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
@@ -42,6 +42,40 @@ const prefs = (v: Viewer) => ({
 	showService: v.chat?.show_service !== false,
 });
 
+// A chat's page, opened at a message when given: a negative id is a
+// group, a positive one a private chat.
+const chatPath = (id: number, at?: number) => `${id < 0 ? '/groups' : '/users'}/${id}/chat${at !== undefined ? `?at=${at}` : ''}`;
+
+// A service message's type as words, when it came without its text.
+const serviceText = (t?: string) => (t ? t.replace(/_/g, ' ').replace(/^chat /, '') : '');
+
+// Where a forward came from: a link to the user, or to the channel's
+// post (or the channel), else just the name.
+function ForwardLine({ m }: { m: ChatMessage }) {
+	const f = m.forward_from;
+	const name = f?.name ?? m.forward ?? '';
+	const to = f?.user_id !== undefined ? `/users/${f.user_id}` : f?.chat_id !== undefined ? (f.message_id !== undefined ? chatPath(f.chat_id, f.message_id) : `/groups/${f.chat_id}`) : null;
+	return (
+		<div className="c-fwd" title={f?.date ? `Sent ${f.date}` : undefined}>
+			<Forward size={13} />Forwarded from {to ? <Link to={to} className="c-fwdlink"><b>{name}</b></Link> : <b>{name}</b>}
+		</div>
+	);
+}
+
+// A link preview: its site, title and description, and its picture,
+// linking to the page.
+function LinkPreview({ lp }: { lp: NonNullable<ChatMessage['link_preview']> }) {
+	const inner = (
+		<>
+			<b className="c-lp-site">{lp.site}</b><b>{lp.title}</b><span>{lp.desc}</span>
+			{lp.media?.thumb && <img className="c-lp-img" src={lp.media.thumb} alt="" loading="lazy" style={lp.media.w && lp.media.h ? { aspectRatio: `${lp.media.w} / ${lp.media.h}` } : undefined} />}
+		</>
+	);
+	return lp.url
+		? <a className="c-lp" href={lp.url} target="_blank" rel="noopener noreferrer nofollow">{inner}<span className="c-lp-url"><ExternalLink size={11} />{lp.url.replace(/^https?:\/\//, '')}</span></a>
+		: <div className="c-lp">{inner}</div>;
+}
+
 function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage; v: Viewer; isGroup: boolean; first: boolean; last: boolean; flash: boolean; onReply: (id: number) => void }) {
 	const out = !m.sender;
 	const ct = m.content_type;
@@ -50,21 +84,33 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 	const [edits, setEdits] = useState(false);
 	const s = useFreshUser(m.sender);
 	const pref = prefs(v);
+	// A message posted as a chat (a channel, an anonymous admin) links to
+	// that chat, not to a user page.
+	const asChat = m.sender_chat;
+	const senderTo = asChat ? `/groups/${asChat.id}` : s ? `/users/${s.id}` : '';
+	const r = m.reply_to;
+	const replyTo = r?.chat_id !== undefined ? chatPath(r.chat_id, r.message_id) : r ? `?at=${r.message_id}` : '';
 	return (
 		<div id={`m${m.message_id}`} className={`c-row ${out ? 'out' : 'in'} ${last ? 'last' : ''} ${flash ? 'flash' : ''}`}>
-			{isGroup && !out && <div className="c-avslot">{last && s && <Link to={`/users/${s.id}`} aria-label={s.name}><Avatar id={s.id} name={s.name} photo={s.photo} size={34} /></Link>}</div>}
+			{isGroup && !out && <div className="c-avslot">{last && s && <Link to={senderTo} aria-label={asChat ? asChat.title : s.name}>{asChat ? <Avatar id={asChat.id} name={asChat.title} photo={asChat.photo} size={34} square /> : <Avatar id={s.id} name={s.name} photo={s.photo} size={34} />}</Link>}</div>}
 			<div className={`c-bubble ${sticker ? 'sticker' : ''} ${mediaOnly ? 'mediaonly' : ''} ${m.deleted_at ? 'deleted' : ''} ${last ? 'tail' : ''}`}>
-				{isGroup && s && first && !sticker && <Link to={`/users/${s.id}`} className="c-sender" style={{ color: nameColor(s.id) }}>{s.name}</Link>}
-				{m.forward && <div className="c-fwd"><Forward size={13} />Forwarded from <b>{m.forward}</b></div>}
-				{m.reply_to && (
-					<a href={`?at=${m.reply_to.message_id}`} className="c-reply" style={{ ['--rc' as string]: nameColor(m.reply_to.sender_id) }}
-						onClick={(e) => { e.preventDefault(); onReply(m.reply_to!.message_id); }}>
-						<b>{m.reply_to.sender_name}</b><span>{m.reply_to.snippet}</span>
-					</a>
-				)}
+				{isGroup && s && first && !sticker && <Link to={senderTo} className="c-sender" style={{ color: nameColor(s.id) }}>{asChat ? asChat.title : s.name}</Link>}
+				{(m.forward_from || m.forward) && <ForwardLine m={m} />}
+				{r && (r.chat_id !== undefined
+					// A reply to another chat opens that chat at the message.
+					? <Link to={replyTo} className="c-reply c-reply-other" style={{ ['--rc' as string]: nameColor(r.sender_id) }}>
+						<b>{r.resolved === false ? `message #${r.message_id}` : r.sender_name}<span className="c-sub"> . in another chat</span></b><span>{r.snippet}{r.deleted ? ' (deleted)' : ''}</span>
+					</Link>
+					: <a href={replyTo} className="c-reply" style={{ ['--rc' as string]: nameColor(r.sender_id) }}
+						onClick={(e) => { e.preventDefault(); onReply(r.message_id); }}>
+						<b>{r.resolved === false ? `message #${r.message_id}` : r.sender_name}</b>
+						{r.resolved === false ? <span className="c-sub">not in the archive</span> : <span className={r.deleted ? 'c-replydel' : ''}>{r.snippet}{r.deleted ? ' (deleted)' : ''}</span>}
+					</a>)}
 				<MessageMedia msg={m} onClick={pref.mediaOnClick} />
+				{m.content_type === 'unknown' && <div className="c-unknown c-sub">{m.tdlib_type ? `A kind of message this view does not show yet (${m.tdlib_type})` : 'A kind of message this view does not show'}</div>}
 				{m.text && <div className="c-text">{m.text}</div>}
-				{m.link_preview && <div className="c-lp"><b className="c-lp-site">{m.link_preview.site}</b><b>{m.link_preview.title}</b><span>{m.link_preview.desc}</span></div>}
+				{m.link_preview && <LinkPreview lp={m.link_preview} />}
+				{m.author_signature && <div className="c-sign">- {m.author_signature}</div>}
 				<div className="c-meta">
 					{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}
 					{pref.showEdited && m.edits.length > 0 && <button type="button" className="c-edited" onClick={() => setEdits((x) => !x)} aria-expanded={edits}><Pencil size={10} />edited</button>}
@@ -93,7 +139,14 @@ function Feed({ msgs: all, v, isGroup, flash, onReply }: { msgs: ChatMessage[]; 
 			out.push(<div key={'d' + d} className="c-day"><span>{dayLabel(m.date, v)}</span></div>);
 		}
 		if (m.content_type === 'service') {
-			out.push(<div key={m.id} id={`m${m.message_id}`} className="c-service"><span>{m.sender && <Link to={`/users/${m.sender.id}`}>{m.sender.name}</Link>} {m.text}</span></div>);
+			// The actor links to its user, or to its chat when it acted as
+			// one; the text falls back to the action's type.
+			const actor = m.sender_chat ? <Link to={`/groups/${m.sender_chat.id}`}>{m.sender_chat.title}</Link> : m.sender ? <Link to={`/users/${m.sender.id}`}>{m.sender.name}</Link> : null;
+			out.push(
+				<div key={m.id} id={`m${m.message_id}`} className={`c-service ${m.deleted_at ? 'deleted' : ''}`}>
+					<span>{actor} {m.text || serviceText(m.service_type)} <Link to={`/messages/${m.scope}/${m.id}`} className="c-svctime" title={m.date}>{hm(m.date, v)}</Link>{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}</span>
+				</div>,
+			);
 			return;
 		}
 		const same = (a?: ChatMessage) => !!a && a.content_type !== 'service' && dayKey(a.date, v) === d && (a.sender?.id ?? 0) === (m.sender?.id ?? 0);
@@ -138,6 +191,13 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	}, [msgs]);
 	const liveState = useLiveState();
 	const refetch = useRefetcher();
+
+	// The Drogon chat's #msg-<message id> anchors (bookmarks, links from
+	// elsewhere) never reach the server: open the chat at that message.
+	useEffect(() => {
+		const h = /^#msg-(\d+)$/.exec(location.hash);
+		if (h) navigate(setQuery(page.url, { at: Number(h[1]), date: undefined, after: undefined, after_ts: undefined }), { replace: true, scroll: false });
+	}, []);
 
 	// A new page (another chat, or ?at=) replaces the window.
 	useEffect(() => { setMsgs(p.messages); setOlder(p.has_older); setNewer(p.has_newer); setFlash(p.at); setUnseen(0); }, [p]);
@@ -230,10 +290,10 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const onReply = (id: number) => {
 		const t = document.getElementById('m' + id);
 		if (t) { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); setFlash(null); requestAnimationFrame(() => setFlash(id)); }
-		else navigate(setQuery(page.url, { at: id, date: undefined }), { replace: true, scroll: false });
+		else navigate(setQuery(page.url, { at: id, date: undefined, after: undefined, after_ts: undefined }), { replace: true, scroll: false });
 	};
 	const toLatest = () => {
-		if (newer) navigate(setQuery(page.url, { at: undefined, date: undefined }), { replace: true, scroll: false });
+		if (newer) navigate(setQuery(page.url, { at: undefined, date: undefined, after: undefined, after_ts: undefined }), { replace: true, scroll: false });
 		else scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' });
 	};
 
@@ -241,7 +301,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const photo = group ? group.photo : p.chat.kind === 'user' ? p.chat.user.photo : null;
 	const back = isGroup ? `/groups/${chatId}` : `/users/${chatId}`;
 	const sub = p.chat.kind === 'group'
-		? `${TYPE_LABEL[p.chat.group.type]} . ${fmt(p.chat.group.members)} members . ${fmt(group?.msg_count ?? p.chat.group.msg_count)} messages`
+		? `${TYPE_LABEL[p.chat.group.type]}${p.chat.group.members ? ` . ${fmt(p.chat.group.members)} members seen` : ''} . ${fmt(group?.msg_count ?? p.chat.group.msg_count)} messages`
 		: `private chat with the logging account . ${fmt(p.chat.count)} messages`;
 	const body = (
 		<div className={`c-chat ${publicView ? 'public' : ''}`}>
@@ -255,9 +315,11 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 					</button>
 				)}
 				<button type="button" className="c-iconbtn" onClick={() => setSearching((x) => !x)} aria-label="Search in chat"><Search size={19} /></button>
-				<label className="c-iconbtn c-datebtn" aria-label="Jump to date" title="Jump to date">
+				<button type="button" className="c-iconbtn" onClick={() => navigate(setQuery(page.url, { after: 0, at: undefined, date: undefined, after_ts: undefined }), { replace: true, scroll: false })} aria-label="Jump to the oldest messages" title="Oldest messages"><ChevronsUp size={19} /></button>
+				<label className="c-iconbtn c-datebtn" aria-label="Jump to date and time" title="Jump to a date and time">
 					<CalendarDays size={19} />
-					<input type="date" onChange={(e) => e.target.value && navigate(setQuery(page.url, { date: e.target.value, at: undefined }), { replace: true, scroll: false })} />
+					{/* The server reads the time in the viewer's timezone. */}
+					<input type="datetime-local" onChange={(e) => e.target.value && navigate(setQuery(page.url, { date: e.target.value, at: undefined, after: undefined, after_ts: undefined }), { replace: true, scroll: false })} />
 				</label>
 				{!publicView && <Link to={back} className="c-iconbtn c-hide-sm" aria-label="Details"><Info size={19} /></Link>}
 			</header>
