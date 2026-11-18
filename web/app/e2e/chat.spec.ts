@@ -53,3 +53,35 @@ test('without the stream the chat polls, and goes live again when it returns', a
 	await fetch(`${standinUrl}/api/_standin/events`, { method: 'POST', body: JSON.stringify({ off: false }) });
 	await expect(page.locator('.a-livestate.is-live')).toBeVisible({ timeout: 15_000 });
 });
+
+test('a photo opens full size in the viewer above the chat; Esc closes it', async ({ page }) => {
+	await page.goto(`/groups/${G}/chat?at=555422`);
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	const photo = page.locator('#m555422').getByRole('link', { name: 'Photo' }).first();
+	await expect(photo.locator('img')).toHaveJSProperty('complete', true);
+	expect(await photo.locator('img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0);
+	await photo.click();
+	const viewer = page.getByRole('dialog', { name: 'Media viewer' });
+	await expect(viewer.locator('img')).toBeVisible();
+	// Above everything: the image's centre is the topmost element there.
+	const top = await viewer.locator('img').evaluate((i) => {
+		const r = i.getBoundingClientRect();
+		return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === i;
+	});
+	expect(top).toBe(true);
+	await page.keyboard.press('Escape');
+	await expect(viewer).toHaveCount(0);
+});
+
+test('a voice note fetches nothing until it is played', async ({ page }) => {
+	const asked: string[] = [];
+	page.on('request', (r) => r.url().includes('/files/') && asked.push(r.url()));
+	await page.goto(`/groups/${G}/chat?at=555323`);
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	const voice = page.locator('#m555323 .c-voice');
+	await expect(voice.locator('.c-wave span').first()).toBeVisible();
+	const src = await voice.locator('audio').getAttribute('src');
+	expect(asked.filter((u) => u.endsWith(src!))).toEqual([]);
+	await voice.getByRole('button', { name: 'Play' }).click();
+	await expect.poll(() => asked.filter((u) => u.endsWith(src!)).length).toBeGreaterThan(0);
+});

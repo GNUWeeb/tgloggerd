@@ -5,7 +5,7 @@ import { ArrowLeft, CalendarDays, ChevronDown, CloudOff, Download, Forward, Glob
 import Shell, { ThemeButton } from '../ui/Shell.tsx';
 import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
-import { duration } from '../ui/media.tsx';
+import { MessageMedia } from './chat-media.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
 import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
@@ -42,24 +42,11 @@ const prefs = (v: Viewer) => ({
 	showService: v.chat?.show_service !== false,
 });
 
-function Photo({ m, single, onClick = false }: { m: ChatMedia; single?: boolean; onClick?: boolean }) {
-	const [shown, setShown] = useState(!onClick);
-	const ratio = m.w && m.h ? `${m.w} / ${m.h}` : '4 / 3';
-	if (!m.stored) return <div className="c-media c-missing" style={{ aspectRatio: ratio }}><CloudOff size={22} /><span>Not stored</span></div>;
-	// "Load media on click": a placeholder until asked for.
-	if (!shown) return <button type="button" className={`c-media c-missing c-reveal ${single ? 'single' : ''}`} style={{ aspectRatio: ratio }} onClick={() => setShown(true)}><Download size={20} /><span>Show</span></button>;
-	return (
-		<a className={`c-media ${single ? 'single' : ''}`} style={{ aspectRatio: ratio }} href={m.url ?? undefined} target="_blank" rel="noopener">
-			{m.thumb ? <img src={m.thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} /> : null}
-		</a>
-	);
-}
-
 function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage; v: Viewer; isGroup: boolean; first: boolean; last: boolean; flash: boolean; onReply: (id: number) => void }) {
 	const out = !m.sender;
 	const ct = m.content_type;
 	const sticker = ct === 'sticker';
-	const mediaOnly = (ct === 'photo' || ct === 'video') && !m.text && !m.reply_to && !m.forward;
+	const mediaOnly = (ct === 'photo' || ct === 'video' || ct === 'animation') && !m.text && !m.reply_to && !m.forward;
 	const [edits, setEdits] = useState(false);
 	const s = useFreshUser(m.sender);
 	const pref = prefs(v);
@@ -75,29 +62,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply }: { m: ChatMessage
 						<b>{m.reply_to.sender_name}</b><span>{m.reply_to.snippet}</span>
 					</a>
 				)}
-				{ct === 'photo' && m.media && (m.album.length
-					? <div className={`c-album n${Math.min(4, m.album.length + 1)}`}><Photo m={m.media} onClick={pref.mediaOnClick} />{m.album.map((a, i) => <Photo key={i} m={a} onClick={pref.mediaOnClick} />)}</div>
-					: <Photo m={m.media} single onClick={pref.mediaOnClick} />)}
-				{ct === 'video' && m.media && (
-					<div className="c-videowrap">
-						<Photo m={m.media} single onClick={pref.mediaOnClick} />
-						{m.media.stored && <span className="c-playbig"><Play size={22} fill="currentColor" /></span>}
-						{m.media.duration ? <span className="c-dur">{duration(m.media.duration)}{m.media.size ? ' . ' + bytes(m.media.size) : ''}</span> : null}
-					</div>
-				)}
-				{(ct === 'document' || ct === 'audio') && m.media && (
-					<a className="c-doc" href={m.media.url ?? undefined}>
-						<span className="c-docicon">{m.media.stored ? <Download size={18} /> : <CloudOff size={18} />}</span>
-						<span className="c-docmeta"><b>{m.media.name}</b><span className="c-sub">{bytes(m.media.size ?? 0)}{!m.media.stored && ' . not stored'}</span></span>
-					</a>
-				)}
-				{sticker && m.media && <div className="c-sticker" role="img" aria-label="sticker">{m.media.emoji}</div>}
-				{ct === 'voice' && m.media && (
-					<div className="c-voice">
-						<button type="button" className="c-play" aria-label="Play"><Play size={16} fill="currentColor" /></button>
-						<div><div className="c-wave">{(m.media.wave ?? []).map((w, i) => <span key={i} style={{ height: 4 + (w / 31) * 18 }} />)}</div><span className="c-sub">{duration(m.media.duration ?? 0)}</span></div>
-					</div>
-				)}
+				<MessageMedia msg={m} onClick={pref.mediaOnClick} />
 				{m.text && <div className="c-text">{m.text}</div>}
 				{m.link_preview && <div className="c-lp"><b className="c-lp-site">{m.link_preview.site}</b><b>{m.link_preview.title}</b><span>{m.link_preview.desc}</span></div>}
 				<div className="c-meta">
