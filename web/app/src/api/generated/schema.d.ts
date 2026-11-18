@@ -1815,6 +1815,8 @@ export interface components {
             operators: ("=" | "!=" | "<" | ">" | "<=" | ">=" | "LIKE" | "NOT LIKE" | "%LIKE%" | "NOT %LIKE%" | "matches" | "IS NULL" | "IS NOT NULL")[];
             /** @description An enum field's values, comma-separated. */
             enum?: string;
+            /** @description Present (true) for a field without an index of its own (tdlib_type, service_type of the message entities): a search may use it only beside a `chat_id =` condition in a chain whose connectors are all AND, else it is refused (bad_search). */
+            needs_chat?: boolean;
         };
         /** @description A displayed column: its render type, and the field key a click on its header sorts by ("" for none). */
         SearchCol: {

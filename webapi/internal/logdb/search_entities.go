@@ -96,6 +96,12 @@ func internal(f Field) Field {
 	return f
 }
 
+// needsChat marks a field usable only within one chat (Field.NeedsChat).
+func needsChat(f Field) Field {
+	f.NeedsChat = true
+	return f
+}
+
 func enum(f Field, values string) Field {
 	f.Enum = values
 	return f
@@ -514,6 +520,8 @@ var PrivateMessages = &Entity{
 		enum(col("content_type", "m.content_type", Enum, "Content type", enumOps, false),
 			MessageTypes),
 		col("chat_id", "m.chat_id", Int, "User (chat) id", intOps, false),
+		needsChat(col("tdlib_type", "m.tdlib_type", Text, "TDLib type", OpEQ|OpNE, false)),
+		needsChat(col("service_type", "m.service_type", Text, "Service type", OpEQ|OpNE, false)),
 		col("sender_id", "m.sender_id", Int, "Sender id", intOps, false),
 		col("message_id", "m.message_id", Int, "Message id", intOps, false),
 		col("is_outgoing", "m.is_outgoing", Bool, "Outgoing", boolOps, false),
@@ -586,6 +594,8 @@ var GroupMessages = &Entity{
 		enum(col("content_type", "m.content_type", Enum, "Content type", enumOps, false),
 			MessageTypes),
 		col("chat_id", "m.chat_id", Int, "Group id", intOps, false),
+		needsChat(col("tdlib_type", "m.tdlib_type", Text, "TDLib type", OpEQ|OpNE, false)),
+		needsChat(col("service_type", "m.service_type", Text, "Service type", OpEQ|OpNE, false)),
 		col("sender_user_id", "m.sender_user_id", Int, "Sender user id", intOps, false),
 		col("deleted", "m.deleted_at", Bool, "Deleted", nullOps, false),
 		col("date", "m.date", Int, "Sent", intOps, true),

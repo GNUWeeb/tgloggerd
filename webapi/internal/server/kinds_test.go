@@ -510,3 +510,55 @@ func TestKindsInteractionAndTopics(t *testing.T) {
 		t.Errorf("kernel topics %v", ts)
 	}
 }
+
+// The search takes the new content types, and tdlib_type and
+// service_type within one chat.
+func TestKindsSearch(t *testing.T) {
+	t.Parallel()
+	e := kindsEnv(t)
+	chat := fmt.Sprintf(`{"c":"chat_id","o":"=","v":"%d","n":"AND"}`, kindsLab)
+	for cond, want := range map[string]int64{
+		`{"c":"content_type","o":"=","v":"poll"}`:                 1,
+		`{"c":"content_type","o":"=","v":"call"}`:                 2,
+		`{"c":"content_type","o":"=","v":"service"}`:              5,
+		`{"c":"service_type","o":"=","v":"pin_message"}`:          1,
+		`{"c":"service_type","o":"=","v":"chat_add_members"}`:     2,
+		`{"c":"tdlib_type","o":"=","v":"messageStakeDice"}`:       1,
+		`{"c":"tdlib_type","o":"=","v":"messageGroupCall"}`:       1,
+		`{"c":"tdlib_type","o":"!=","v":"messageChatAddMembers"}`: 20, // NULL is no match
+		`{"c":"content_type","o":"=","v":"location","n":"AND"},` +
+			`{"c":"tdlib_type","o":"=","v":"messageLiveLocation"}`: 1,
+	} {
+		for _, role := range []string{"superadmin", "member"} {
+			b := e.want(200, role, "GET", search("group_messages", "["+chat+","+cond+"]", "limit", "50"), nil)
+			if num(b["total"]) != want || len(rows(b)) != int(want) {
+				t.Errorf("%s %s: %v rows, total %v, want %d", role, cond, len(rows(b)), b["total"], want)
+			}
+		}
+	}
+	// The new content types need no chat.
+	b := e.want(200, "superadmin", "GET", search("group_messages", `[{"c":"content_type","o":"=","v":"expired"}]`), nil)
+	if num(b["total"]) != 1 {
+		t.Errorf("expired: %v", b["total"])
+	}
+	for _, conds := range []string{
+		`[{"c":"service_type","o":"=","v":"pin_message"}]`,
+		`[{"c":"chat_id","o":"=","v":"-1001000000040","n":"OR"},{"c":"service_type","o":"=","v":"pin_message"}]`,
+	} {
+		if st, b, _ := e.call("superadmin", "GET", search("group_messages", conds), nil); st != 400 ||
+			b["error"] != "bad_search" {
+			t.Errorf("%s: %d %v", conds, st, b)
+		}
+	}
+	// The fields say which need a chat.
+	b = e.want(200, "superadmin", "GET", search("group_messages", ""), nil)
+	needs := []string{}
+	for _, f := range asList(b["fields"]) {
+		if f := f.(map[string]any); f["needs_chat"] == true {
+			needs = append(needs, f["key"].(string))
+		}
+	}
+	if fmt.Sprint(needs) != "[tdlib_type service_type]" {
+		t.Errorf("needs_chat %v", needs)
+	}
+}
