@@ -23,6 +23,7 @@ package scope
 import (
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // Role is an account's role (web-accounts.md section 2).
@@ -96,6 +97,9 @@ type Viewer struct {
 	// messages are hidden from it (web-admin-restrictions). For clears
 	// it for the other roles.
 	HidePrivate bool
+	// HideGroups are the groups hidden from an admin, by chat id. For
+	// sorts them and clears them for the other roles.
+	HideGroups []int64
 }
 
 // Account is an account the request acts on, as far as the rules of
@@ -153,6 +157,11 @@ func For(v Viewer) Scope {
 	if v.Role != Admin {
 		v.HidePrivate = false
 	}
+	if v.Role == Admin && len(v.HideGroups) > 0 {
+		v.HideGroups = slices.Compact(slices.Sorted(slices.Values(v.HideGroups)))
+	} else {
+		v.HideGroups = nil
+	}
 	return Scope{kind: viewer, v: v}
 }
 
@@ -193,32 +202,43 @@ func (s Scope) Gate() Gate {
 }
 
 // SeesAllGroups is whether every group is visible, so a query needs no
-// group filter. Superadmins and admins see every group (until
-// web-admin-restrictions hides some from an admin); a member sees only
-// its granted groups, none until web-member-access grants any.
+// group filter. Superadmins see every group, and so do admins except
+// those a superadmin hid from them (web-admin-restrictions); a member
+// sees only its granted groups, none until web-member-access grants any.
 func (s Scope) SeesAllGroups() bool {
-	return s.kind == everything || s.is(Superadmin, Admin)
+	return s.kind == everything || s.is(Superadmin) || (s.is(Admin) && len(s.v.HideGroups) == 0)
 }
 
 // GroupFilter is the condition, with its arguments, that a query over
 // rows of groups adds to its WHERE so only visible groups come back.
 // column is the query's own name for the group's chat id column, such
 // as "m.chat_id", a constant of the caller's, never input. The
-// condition is "1 = 1" when every group is visible and "1 = 0" when
-// none is; later an IN list over column, which the chat_id indexes
-// serve.
+// condition is "1 = 1" when every group is visible, "column NOT IN
+// (...)" over an admin's hidden groups, and "1 = 0" when none is.
 func (s Scope) GroupFilter(column string) (string, []any) {
-	_ = column
-	if s.SeesAllGroups() {
+	switch {
+	case s.SeesAllGroups():
 		return "1 = 1", nil
+	case s.is(Admin):
+		args := make([]any, len(s.v.HideGroups))
+		for i, g := range s.v.HideGroups {
+			args[i] = g
+		}
+		return column + " NOT IN (" + strings.TrimSuffix(strings.Repeat("?, ", len(args)), ", ") + ")", args
 	}
 	return "1 = 0", nil
 }
 
 // SeesGroup is whether one group is visible.
 func (s Scope) SeesGroup(chatID int64) bool {
-	_ = chatID
-	return s.SeesAllGroups()
+	switch {
+	case s.SeesAllGroups():
+		return true
+	case s.is(Admin):
+		_, hidden := slices.BinarySearch(s.v.HideGroups, chatID)
+		return !hidden
+	}
+	return false
 }
 
 // SeesChat is whether a chat is visible, by the key the logger uses:

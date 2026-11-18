@@ -661,7 +661,7 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	j := messageFullJSON{
 		ID: m.RowID, Scope: scopeName(group), MessageID: m.MessageID, Date: iso(m.Date),
 		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Snippet: snippet(m),
-		Forwarded: n.forward(m), Edited: m.EditDate > 0, DeletedAt: isoPtr(m.DeletedAt),
+		Forwarded: v.forwardName(n, m), Edited: m.EditDate > 0, DeletedAt: isoPtr(m.DeletedAt),
 		Text: m.Text, Edits: v.edits(m), messageExtraJSON: v.messageExtra(n, m),
 	}
 	if m.EditDate > 0 {

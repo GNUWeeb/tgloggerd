@@ -1925,10 +1925,18 @@ paths:
         search and count answers 404 or leaves them out); it is for an
         account that is, or this change makes, an admin (400
         bad_request otherwise), and it is cleared when an admin becomes
-        another role. Until the other admin restrictions and member
-        group grants and abilities exist, they are accepted only as
-        what they are today (no hidden groups, join_chat off, no groups
-        in grants, no abilities) and anything else answers 400
+        another role. restrict.hide_groups (group ids) replaces the
+        groups hidden from an admin: from its next request they are in
+        no list, search, count or chat search, their pages and APIs
+        answer 404, and messages elsewhere that refer to them (posted
+        as, forwarded from, replying from one) do not name them. A
+        non-empty list is for an admin as hide_private is, a group the
+        archive does not have answers 400 bad_request with field
+        hide_groups, and the list is cleared when an admin becomes
+        another role. Exposed groups stay public. Until join_chat, the
+        member group grants and the abilities exist, they are accepted
+        only as what they are today (join_chat off, no groups in
+        grants, no abilities) and anything else answers 400
         not_supported.
 
 
@@ -6008,10 +6016,10 @@ components:
             web-admin-restrictions, abilities with web-member-access.
             Until then PATCH accepts those fields only unchanged and
             answers 400 not_supported to any change. restrict_private
-            is true: of an admin's restrictions, hide_private alone can
-            be set already, so while restrictions is false the page
-            offers that one only.
-          required: [federations, group_grants, restrictions, restrict_private, abilities]
+            and restrict_groups are true: of an admin's restrictions,
+            hide_private and hide_groups can be set already, so while
+            restrictions is false the page offers those two only.
+          required: [federations, group_grants, restrictions, restrict_private, restrict_groups, abilities]
           properties:
             federations:
               type: boolean
@@ -6020,6 +6028,8 @@ components:
             restrictions:
               type: boolean
             restrict_private:
+              type: boolean
+            restrict_groups:
               type: boolean
             abilities:
               type: boolean

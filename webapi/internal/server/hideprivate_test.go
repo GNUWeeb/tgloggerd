@@ -72,8 +72,8 @@ func TestAdminHidePrivate(t *testing.T) {
 		return map[string]any{"restrict": map[string]any{"hide_private": hide, "hide_groups": []any{}, "join_chat": false}}
 	}
 
-	// Only a superadmin restricts, only an admin, and only hide_private
-	// so far.
+	// Only a superadmin restricts, only an admin, and join_chat is not
+	// built.
 	// An admin does not manage admins: the account is not found.
 	if st, b, _ := e.call("admin", "PATCH", adminPath, restrict(true)); st != 403 && st != 404 {
 		t.Errorf("by an admin: %d %v", st, b)
@@ -82,7 +82,6 @@ func TestAdminHidePrivate(t *testing.T) {
 		t.Errorf("a member: %d %v", st, b)
 	}
 	for _, body := range []map[string]any{
-		{"restrict": map[string]any{"hide_private": true, "hide_groups": []any{-1001000000001}, "join_chat": false}},
 		{"restrict": map[string]any{"hide_private": false, "hide_groups": []any{}, "join_chat": true}},
 	} {
 		if st, b, _ := e.call("superadmin", "PATCH", adminPath, body); st != 400 || b["error"] != "not_supported" {

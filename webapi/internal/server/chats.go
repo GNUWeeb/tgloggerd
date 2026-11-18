@@ -263,9 +263,10 @@ type messageExtraJSON struct {
 }
 
 func (v view) messageExtra(n names, m logdb.Message) messageExtraJSON {
-	j := messageExtraJSON{ForwardFrom: n.forwardFrom(m), AuthorSignature: m.AuthorSignature,
+	j := messageExtraJSON{ForwardFrom: v.forwardFrom(n, m), AuthorSignature: m.AuthorSignature,
 		IsChannelPost: m.IsChannelPost, ServiceType: m.ServiceType, TdlibType: m.TdlibType}
-	if m.SenderChat != 0 && !m.Outgoing {
+	// A chat the viewer may not see is not named, nor linked.
+	if m.SenderChat != 0 && !m.Outgoing && v.sc.SeesChat(m.SenderChat) {
 		g, ok := n.groups[m.SenderChat]
 		if !ok {
 			g = logdb.Group{ID: m.SenderChat, Title: "#" + strconv.FormatInt(m.SenderChat, 10),
@@ -303,6 +304,9 @@ func (v view) sender(n names, m logdb.Message) *userSummaryJSON {
 	switch {
 	case m.Outgoing:
 		return nil
+	case m.SenderChat != 0 && !v.sc.SeesChat(m.SenderChat):
+		// Posted as a chat the viewer may not see: not named.
+		return &userSummaryJSON{Name: hiddenChat, Type: "unknown"}
 	case m.SenderChat != 0:
 		j := userSummaryJSON{ID: m.SenderChat, Name: "#" + strconv.FormatInt(m.SenderChat, 10),
 			Type: "unknown"}
@@ -353,11 +357,29 @@ func (n names) forward(m logdb.Message) *string {
 	return &name
 }
 
-// forwardFrom is the origin with its ids, named as forward names it.
-func (n names) forwardFrom(m logdb.Message) *forwardJSON {
+// forwardName is names.forward for the viewer: an origin chat it may not
+// see is not named.
+func (v view) forwardName(n names, m logdb.Message) *string {
+	if f := m.Forward; f != nil && f.ChatID != 0 && !v.sc.SeesChat(f.ChatID) {
+		s := hiddenChat
+		return &s
+	}
+	return n.forward(m)
+}
+
+// hiddenChat names a chat the viewer may not see, where a message
+// refers to one (posted as it, forwarded from it, replying from it).
+const hiddenChat = "(hidden chat)"
+
+// forwardFrom is the origin with its ids, named as forward names it; an
+// origin chat the viewer may not see keeps only its kind and date.
+func (v view) forwardFrom(n names, m logdb.Message) *forwardJSON {
 	f := m.Forward
 	if f == nil {
 		return nil
+	}
+	if f.ChatID != 0 && !v.sc.SeesChat(f.ChatID) {
+		return &forwardJSON{Type: f.Type, Name: hiddenChat, Date: isoPtr(f.Date)}
 	}
 	j := &forwardJSON{Type: f.Type, Name: *n.forward(m), Date: isoPtr(f.Date)}
 	if f.UserID != 0 {
@@ -403,6 +425,8 @@ func (v view) reply(n names, chatID int64, m logdb.Message) *chatReplyJSON {
 	}
 	j.Resolved, j.Deleted = true, r.Deleted
 	switch {
+	case r.SenderChat != 0 && !v.sc.SeesChat(r.SenderChat):
+		j.SenderName = hiddenChat
 	case r.SenderChat != 0:
 		j.SenderID, j.SenderName = r.SenderChat, n.nameOf(0, r.SenderChat)
 	case r.SenderUser != 0:
@@ -428,7 +452,7 @@ func (v view) chatMessage(n names, group bool, chatID int64, m logdb.Message) ch
 		ID: m.RowID, MessageID: m.MessageID, Date: iso(m.Date), Scope: scopeName(group),
 		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Text: m.Text,
 		Media: v.media(m.ContentType, m.File, m.Extra), Album: []chatMediaJSON{},
-		ReplyTo: v.reply(n, chatID, m), Forward: n.forward(m), Edits: v.edits(m),
+		ReplyTo: v.reply(n, chatID, m), Forward: v.forwardName(n, m), Edits: v.edits(m),
 		DeletedAt: isoPtr(m.DeletedAt), messageExtraJSON: v.messageExtra(n, m),
 	}
 	v.poster(j.Media, m)

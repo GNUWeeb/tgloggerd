@@ -23,9 +23,19 @@ pages treat them while they still serve.
   the dashboard; the scope reads it from the account with the role.
   It is cleared when the account stops being an admin, and each change
   is audited (account_update, "hide_private on" or "off").
-- The other restrictions (hidden groups, the `join_chat` permission)
-  come with `web-admin-restrictions`; until then an admin sees every
-  group and may not join chats (the permission is off by default).
+- A superadmin can also hide groups from an admin
+  (`restrict.hide_groups`, a list of group ids; the "Hide groups" picker
+  on the same tab). From the admin's next request on, those groups are
+  in no list, search, count, chat search, dashboard card, user page or
+  federation card, their pages, chat windows and messages answer 404,
+  and a message elsewhere that was posted as one, forwarded from one
+  or replies from one does not name it ("(hidden chat)"). Exposed
+  groups stay public. The list is stored per admin
+  (web_admin_hidden_groups), read with the role on every request,
+  dropped when the account stops being an admin, and audited
+  ("hide_groups <before>-><after>").
+- The `join_chat` permission comes with `web-admin-restrictions`; until
+  then an admin may not join chats (it is off by default).
 - A member sees only the groups granted to it, and users only as they
   appear there. Grants come with `web-member-access`; until then a
   member sees no group, and every group, user, private chat and file

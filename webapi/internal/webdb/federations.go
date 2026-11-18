@@ -45,7 +45,48 @@ const (
 		"WHERE fa.web_user_id = u.id) "
 	memberOfColumn = "(SELECT JSON_ARRAYAGG(fm.federation_id) FROM web_federation_members fm " +
 		"WHERE fm.web_user_id = u.id) "
+	// hiddenGroupsColumn is an admin's hidden groups (groupList).
+	hiddenGroupsColumn = "(SELECT JSON_ARRAYAGG(hg.group_id) FROM web_admin_hidden_groups hg " +
+		"WHERE hg.web_user_id = u.id) "
 )
+
+// groupList reads hiddenGroupsColumn: the (negative) group ids,
+// ascending, nil for NULL.
+func groupList(s sql.NullString) ([]int64, error) {
+	if !s.Valid {
+		return nil, nil
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(s.String), &ids); err != nil {
+		return nil, fmt.Errorf("group ids %q: %w", s.String, err)
+	}
+	slices.Sort(ids)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return ids, nil
+}
+
+// JoinGroupIDs writes group ids for a Session ("" for none), as
+// JoinIDs does federations.
+func JoinGroupIDs(ids []int64) string {
+	parts := make([]string, len(ids))
+	for i, v := range ids {
+		parts[i] = strconv.FormatInt(v, 10)
+	}
+	return strings.Join(parts, ",")
+}
+
+// SplitGroupIDs reads a JoinGroupIDs list back, nil for "".
+func SplitGroupIDs(s string) []int64 {
+	var out []int64
+	for _, p := range strings.Split(s, ",") {
+		if v, err := strconv.ParseInt(p, 10, 64); err == nil {
+			out = append(out, v)
+		}
+	}
+	return out
+}
 
 // idList reads an id column of adminOfColumn's kind: ascending, nil
 // for NULL.

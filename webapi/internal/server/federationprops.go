@@ -28,9 +28,10 @@ type accountsEditableJSON struct {
 	Federations  bool `json:"federations"`
 	GroupGrants  bool `json:"group_grants"`
 	Restrictions bool `json:"restrictions"`
-	// RestrictPrivate: the hide_private restriction alone can be set,
-	// before the others (hide_groups, join_chat) are built.
+	// RestrictPrivate and RestrictGroups: the hide_private and
+	// hide_groups restrictions can be set, before join_chat is built.
 	RestrictPrivate bool `json:"restrict_private"`
+	RestrictGroups  bool `json:"restrict_groups"`
 	Abilities       bool `json:"abilities"`
 }
 
@@ -40,7 +41,7 @@ type accountsEditableJSON struct {
 // other restrictions and abilities are not yet. Each item that builds
 // one turns its flag on here.
 func accountsEditable() accountsEditableJSON {
-	return accountsEditableJSON{Federations: true, RestrictPrivate: true}
+	return accountsEditableJSON{Federations: true, RestrictPrivate: true, RestrictGroups: true}
 }
 
 // fedJSON is the Fed schema.
@@ -165,7 +166,9 @@ func (s *Server) federationsProps(ctx context.Context, sc scope.Scope) (federati
 			continue
 		}
 		set := sets[f.ID]
-		total, err := logdb.CountGroups(ctx, s.ro, scope.Everything(), set)
+		// Counted within the scope, so groups hidden from an admin are
+		// not counted either.
+		total, err := logdb.CountGroups(ctx, s.ro, sc, set)
 		if err != nil {
 			return p, err
 		}
