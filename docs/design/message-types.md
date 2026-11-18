@@ -687,16 +687,22 @@ keeps the caption's formatting offsets valid:
 A video note forwards its round video as its file, like any other
 media; paid media has no main file and forwards its line only.
 
-## 5. Web impact (Go port; the main session's work)
+## 5. Web impact (Go port)
 
-- The search API's `content_type` field gains the new values
-  (`web/docs/search-api.md`), and `tdlib_type` and `service_type` can
-  be offered as filters.
-- The chat view renders each new kind from `content_extra`, the
-  message-files table and the poll and topic tables; until then the
-  Drogon web shows new kinds like `unknown` (it already falls back to
-  that), so nothing breaks in between.
-- Topics: a topic filter in the chat view of forum groups.
+Done in the Go service (web/docs/message-kinds.md); the Drogon web
+shows the new kinds like `unknown`, as it already fell back to.
+
+- The search API's `content_type` field takes the new values, and
+  `tdlib_type` and `service_type` are filters within one chat
+  (`web/docs/search-api.md`).
+- The chat window and the message page carry each kind's detail from
+  `content_extra`, the message-files table and the poll tables, a
+  service message's action with the people it names (its text rebuilt
+  for the viewer), the forum topic, the pinned state and the
+  interaction totals; every user and chat named goes through the
+  request scope.
+- Topics: a forum group's chat page lists its topics, and the page and
+  the chat window take a topic filter.
 - The MCP exposure allowlist decides separately whether the new
   columns are exposed.
 

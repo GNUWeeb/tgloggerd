@@ -503,10 +503,23 @@ signature, a chat posting as the sender, the service type, whether a
 reply's target is logged or deleted. The detail comes from
 content_extra (daemon migration 000034) and the cover from
 telegram_message_files (000036); older rows fall back to what Drogon
-reads, the content type and the file's extension. The kinds 000034
-added to content_type are answered as unknown, with tdlib_type
-naming them, until the chat view renders them. Both migrations must
-have run before this service reads the logger's database.
+reads, the content type and the file's extension. Both migrations must
+have run before this service reads the logger's database, and so must
+000037 (polls) and 000039 (forum topics).
+
+The kinds 000034 added to content_type (video_note, location, poll,
+call, ...) are answered as they are stored, each with its detail
+(internal/server/kinds.go): a location's position, a poll's results,
+a checklist's tasks, a call's outcome and participants, and so on;
+service messages carry their action and the users and chats it names,
+and their text is rebuilt for the viewer (internal/server/service.go).
+Every user and chat named goes through the request scope in one batch
+per page (logdb.Refs): one the viewer may not see is left out, never
+named; a contact's phone goes only to viewers that see users in full;
+long lists stop at 20 with a total. Each message also carries its forum
+topic, pinned state and latest views, forwards, replies and reactions,
+and a forum's chat page lists its topics, with ?topic= on the page and
+the chat window. web/docs/message-kinds.md describes it.
 
 The chat page's query also takes Drogon's links: ?after=, ?after_ts=
 and ?limit=, and ?date= as a day or a day and time in the viewer's
