@@ -248,6 +248,18 @@ std::optional<std::string> fact_check_json(const td_api::factCheck *fc);
  */
 std::string forward_summary(const td_api::MessageContent &c);
 
+/*
+ * A message's interaction totals (views, forwards, replies, reaction
+ * totals), or nullopt when TDLib reports none. Reactions that are Saved
+ * Messages tags are this account's own labels and are left out.
+ */
+std::optional<models::Interaction>
+extract_interaction(const td_api::messageInteractionInfo *info);
+
+/* Reaction totals as the stored JSON array, or nullopt for none. */
+std::optional<std::string>
+reactions_json(const std::vector<td_api::object_ptr<td_api::messageReaction>> &r);
+
 /* The largest size of a photo, or nullptr. */
 const td_api::file *photo_best_size(const td_api::photo *p);
 

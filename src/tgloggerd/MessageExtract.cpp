@@ -2975,4 +2975,54 @@ std::string forward_summary(const td_api::MessageContent &c)
 	}
 }
 
+std::optional<std::string>
+reactions_json(const std::vector<td_api::object_ptr<td_api::messageReaction>> &r)
+{
+	nlohmann::json out = nlohmann::json::array();
+	for (const auto &x : r) {
+		if (!x || !x->type_)
+			continue;
+		nlohmann::json e = nlohmann::json::object();
+		switch (x->type_->get_id()) {
+		case td_api::reactionTypeEmoji::ID:
+			e["emoji"] = static_cast<const td_api::reactionTypeEmoji &>(
+				*x->type_).emoji_;
+			break;
+		case td_api::reactionTypeCustomEmoji::ID:
+			e["custom_emoji_id"] = std::to_string(
+				static_cast<const td_api::reactionTypeCustomEmoji &>(
+					*x->type_).custom_emoji_id_);
+			break;
+		case td_api::reactionTypePaid::ID:
+			e["paid"] = true;
+			break;
+		default:
+			continue;
+		}
+		e["count"] = x->total_count_;
+		out.push_back(e);
+	}
+	if (out.empty())
+		return std::nullopt;
+	return out.dump();
+}
+
+std::optional<models::Interaction>
+extract_interaction(const td_api::messageInteractionInfo *info)
+{
+	if (!info)
+		return std::nullopt;
+	models::Interaction ia;
+	ia.view_count = info->view_count_;
+	ia.forward_count = info->forward_count_;
+	if (info->reply_info_)
+		ia.reply_count = info->reply_info_->reply_count_;
+	if (info->reactions_ && !info->reactions_->are_tags_)
+		ia.reactions = reactions_json(info->reactions_->reactions_);
+	/* An explicit empty list: the reactions were all withdrawn. */
+	if (info->reactions_ && !info->reactions_->are_tags_ && !ia.reactions)
+		ia.reactions = "[]";
+	return ia;
+}
+
 } /* namespace tgloggerd */
