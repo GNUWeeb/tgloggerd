@@ -136,10 +136,10 @@ func (t *topics) wants(e live.Event) bool {
 
 // eventInScope is the one place the request scope decides which live
 // events a viewer gets; GET /api/events calls it for every event. A
-// chat's events reach only viewers who see that chat, a user's only
-// those who see that user (scope.SeesChat, scope.SeesUser). They run
-// for every event and subscriber under the hub's lock, so the scope
-// answers them from memory.
+// chat's events reach only viewers who see that chat (scope.SeesChat),
+// a user's only those who see users in full. They run for every event
+// and subscriber under the hub's lock, so the scope answers them from
+// memory.
 func eventInScope(sc scope.Scope, e live.Event) (live.Event, bool) {
 	if e.Kind == live.KindBotUpdated {
 		// A bot is the forwarding pages' and, with its owner, the
@@ -149,7 +149,7 @@ func eventInScope(sc scope.Scope, e live.Event) (live.Event, bool) {
 		// own changes.
 		return e, e.BotID != 0 && sc.Can(scope.Forward) && sc.SeesAllBots()
 	}
-	return filterEvent(e, sc.SeesChat, sc.SeesUser)
+	return filterEvent(e, sc.SeesChat, func(int64) bool { return sc.SeesAllUsers() })
 }
 
 // filterEvent applies visibility to one event: chatOK for a chat id

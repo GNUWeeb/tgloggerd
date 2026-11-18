@@ -18,11 +18,13 @@ import (
 // migration 000033; NULL, not seen since, reads as no contact), as
 // "Look up real name" checks before asking the daemon.
 func ContactOf(ctx context.Context, db *sql.DB, sc scope.Scope, id int64) (exists, contact bool, err error) {
-	if id <= 0 || !sc.SeesUser(id) {
+	if id <= 0 {
 		return false, false, nil
 	}
+	cond, args := sc.UserFilter("u.id")
 	var c sql.NullBool
-	err = db.QueryRowContext(ctx, "SELECT is_contact FROM telegram_users WHERE id = ?", id).Scan(&c)
+	err = db.QueryRowContext(ctx, "SELECT u.is_contact FROM telegram_users u WHERE u.id = ? AND "+cond,
+		append([]any{id}, args...)...).Scan(&c)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, false, nil
 	}

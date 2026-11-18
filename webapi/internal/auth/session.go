@@ -41,6 +41,11 @@ type Session struct {
 	// HideGroups are an admin's hidden groups, read like AdminOf and
 	// written by webdb.JoinGroupIDs ("" for none).
 	HideGroups string
+	// GrantedGroups are a member's granted groups, read like AdminOf
+	// and written by webdb.JoinGroupIDs; Abilities its abilities,
+	// written by webdb.JoinAbilities ("" for none).
+	GrantedGroups string
+	Abilities     string
 
 	// Key identifies the session in web_sessions: the SHA-256 of the
 	// cookie value (SessionKey). Row is the session's web_sessions.id,
