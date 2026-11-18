@@ -33,8 +33,8 @@ each with its own Telegram and Discord bots
 
 ## Design notes
 
-- Tokens are stored as the Telegram bot tokens are today. Whether to
-  encrypt bot tokens at rest (both kinds) is a separate decision.
+- Tokens are stored as the Telegram bot tokens are today, in plain
+  text: the owner decided against encrypting bot tokens at rest.
 - The gwdiscord library keeps one connection per client; several bots
   means several clients in discordd, each with its own rate limits.
 - Migration number: the next free daemon one when this starts.
