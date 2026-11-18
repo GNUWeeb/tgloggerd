@@ -15,6 +15,8 @@ add_executable(discordd
 	main.cpp
 	DiscordD.cpp
 	DiscordD.hpp
+	DiscordBots.cpp
+	DiscordBots.hpp
 	DB.cpp
 	DB.hpp
 	TelegramSender.cpp
@@ -41,3 +43,15 @@ target_link_libraries(discordd PRIVATE
 	connector-jdbc
 	Td::TdStatic
 	Threads::Threads)
+
+# The Discord bot runner over gwdiscord's mock transport: no network, no
+# database, no TDLib. Not part of the default build;
+#   cmake --build build --target discordd_bots_test && build/discordd_bots_test
+add_executable(discordd_bots_test EXCLUDE_FROM_ALL
+	tests/discord_bots_test.cpp
+	DiscordBots.cpp
+	DiscordBots.hpp)
+set_target_properties(discordd_bots_test PROPERTIES
+	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+target_compile_options(discordd_bots_test PRIVATE -Wall -Wextra)
+target_link_libraries(discordd_bots_test PRIVATE gwdiscord Threads::Threads)

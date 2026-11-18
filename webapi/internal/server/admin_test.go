@@ -138,7 +138,7 @@ func (f *fakeDiscord) sent() []string {
 
 func newAdminEnv(t *testing.T, loggerFixtures ...string) *adminEnv {
 	t.Helper()
-	lg := testdb.New(t, testdb.Logger, append([]string{"sample", "forwarding"}, loggerFixtures...)...)
+	lg := testdb.New(t, testdb.Logger, append([]string{"sample", "forwarding", "bots"}, loggerFixtures...)...)
 	web := testdb.New(t, testdb.Web, "accounts", "admin")
 	signer := auth.NewSigner(testKey)
 	ck := &auth.Cookies{Signer: signer, Timeout: 3600, Secure: true}

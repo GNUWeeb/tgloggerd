@@ -91,6 +91,24 @@ std::vector<int64_t> DB::loadForwardingBotUserIds(void)
 	return out;
 }
 
+std::map<uint64_t, std::string> DB::loadBotSignatures(void)
+{
+	static const char *COLS =
+		"id, CONCAT_WS('|', name, enabled, status, "
+		"COALESCE(status_detail, ''), COALESCE(status_at, ''), "
+		"bot_user_id, username, updated_at)";
+	auto rows = db_.query(std::string("SELECT ") + COLS +
+			      " FROM telegram_bots UNION ALL SELECT " + COLS +
+			      " FROM discord_bots");
+	std::map<uint64_t, std::string> out;
+	for (const auto &r : rows) {
+		if (!r[0].has_value())
+			continue;
+		out[std::stoull(*r[0])] = r[1].value_or("");
+	}
+	return out;
+}
+
 std::optional<SenderUser> DB::getSenderUser(int64_t user_id)
 {
 	auto rows = db_.query(

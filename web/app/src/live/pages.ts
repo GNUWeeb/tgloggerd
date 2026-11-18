@@ -7,6 +7,7 @@
 // The chat view handles its own events.
 import type { PageData } from '../page.ts';
 import type { LiveEvent } from './events.ts';
+import type { S } from '../api/schema.ts';
 
 export interface PageLive {
 	topics: string[];
@@ -52,6 +53,11 @@ export function pageLive(page: PageData): PageLive | null {
 		}
 		case 'bots':
 			return { topics: ['bots'], mode: 'refresh', interval: 1000, match: (e) => e.kind === 'bot.updated' };
+		case 'fwd_discord_telegram': {
+			// The routes show their bots' status: follow the bots they use.
+			const ids = new Set((page.props as S['D2TProps']).routes.flatMap((r) => [r.discord_bot?.id, r.telegram_bot.id]));
+			return { topics: ['bots'], mode: 'refresh', interval: 1000, match: (e) => e.kind === 'bot.updated' && e.bot_id !== undefined && ids.has(e.bot_id) };
+		}
 		case 'files':
 			return { topics: ['messages'], mode: 'notice', interval: 2000, match: (e) => e.kind === 'file.stored' && firstPage(page.url) };
 		default:

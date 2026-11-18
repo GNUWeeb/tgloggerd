@@ -23,6 +23,7 @@
 #include <string>
 #include <cstdint>
 #include <mutex>
+#include <map>
 #include <optional>
 #include <unordered_map>
 
@@ -205,6 +206,15 @@ public:
 	 * therefore not forwarded.
 	 */
 	std::vector<int64_t> loadForwardingBotUserIds(void);
+
+	/*
+	 * Every bot of both kinds (telegram_bots, discord_bots) as id -> a
+	 * string of what the web shows of it (name, enabled, status and its
+	 * detail and time, identity, last change), never the token: two
+	 * reads that differ for a bot mean it changed. The ids of the two
+	 * tables never meet (migration 000040).
+	 */
+	std::map<uint64_t, std::string> loadBotSignatures(void);
 
 	/*
 	 * (chat_id, message_id) of every live message whose content is a media

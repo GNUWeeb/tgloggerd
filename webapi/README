@@ -262,7 +262,8 @@ live.Source, leaving the fan-out as it is.
     (message.new, message.edited, message.deleted, file.stored of one
     chat), messages (the same for every visible chat), user:<id>
     (user.updated), group:<chat_id> (group.updated), stats
-    (stats.changed). Repeats count once; more than 2000 topics, an
+    (stats.changed), bots (bot.updated, to admins and superadmins).
+    Repeats count once; more than 2000 topics, an
     unknown topic or a malformed last is 400 bad_request.
   - Framing: "retry: 3000" first, then one frame per event: "id:" the
     seq, "event:" the kind, "data:" the event's JSON (with seq). The
@@ -572,6 +573,7 @@ describe each, with what differs from the Drogon pages.
 
     /api/forwarding/telegram-discord[/{id}|/test]   webhooks
     /api/forwarding/discord-telegram[/{id}]         routes
+    /api/bots[/{id}|/{id}/transfer]                 their bots
     POST /api/join-chat/preview, /api/join-chat/join
     POST /api/users/{id}/lookup-name
     /api/mcp/groups[/{group_id}], /api/mcp/tokens[/{id}/revoke]
@@ -585,8 +587,13 @@ describe each, with what differs from the Drogon pages.
     and contact_lookup are worded as the Drogon pages word them, so
     both services' rows read alike.
   - Secrets are write-only: webhook URLs are answered with their token
-    cut off, bots by name, MCP tokens once at creation; no answer, log
-    line or audit row carries one. A webhook URL must be Discord's on
+    cut off, bots by name and identity, MCP tokens once at creation; no
+    answer, log line or audit row carries one. A route names its bots
+    by id; a bot token is typed only on the bots page, checked in shape.
+  - Bots (internal/server/bots.go): a member with forward sees and
+    uses its own bots only, admins and superadmins every bot, with its
+    owner (Scope.SeesAllBots); the others are 404, also as a route's
+    bot. Transfers are for admins and superadmins. A webhook URL must be Discord's on
     save and on test (parseWebhook), so the service never posts
     elsewhere; the test's client follows no redirect.
   - The daemon is reached through internal/daemon (POST
@@ -841,7 +848,7 @@ pools' settings, and WEB_APP_KEY like the service). Exit status 0 done,
 
 gives every resource without an owner (MCP exposed groups, MCP tokens,
 Telegram bots, Telegram to Discord webhooks, Discord to Telegram
-routes; Discord bots once their table exists) to that account, which
+routes, Discord bots) to that account, which
 must be an active superadmin (web/docs/accounts.md, Ownership); MCP
 tokens go to the account that minted each instead. It is
 idempotent: resources that have an owner are left alone, so a second
@@ -854,13 +861,27 @@ owner as its target. It prints what it assigned by type:
     mcp_group     2 assigned: -1001000000010 -1001000000003; 1 owned already
     mcp_token     1 assigned to their creators: 2; 1 owned already
     ...
-    discord_bot   not stored yet
-    Assigned 8 resources.
+    discord_bot   1 assigned: 1000000000; 0 owned already
+    Assigned 9 resources.
 
 In the compose deployment, run it in the webapi container once web
 migration 000008 is applied and the account exists:
 
     docker compose exec webapi webapi/build/webapi assign-owner superadmin
+
+    webapi import-discord-bot <username>
+
+moves the Discord bot of DISCORD_BOT_TOKEN into the database, once, at
+the deployment that makes discordd read its bots from discord_bots
+(web/docs/platform-forwarding.md, Bots): it stores the bot, owned by
+that account (an active superadmin), points every Discord to Telegram
+route that names no Discord bot at it, and prints what it did, never
+the token. A second run changes nothing. It is the web service's
+command because the owner lives in the web's schema, which discordd
+does not reach. Run it in the webapi container, whose environment
+holds the variable until it is removed from .env:
+
+    docker compose exec webapi webapi/build/webapi import-discord-bot superadmin
 
 # Tests
 

@@ -6,6 +6,7 @@ import {
 	LayoutDashboard, Users, UsersRound, MessagesSquare, MessageCircle, FileText,
 	ArrowLeftRight, Bot, Settings, Search, Menu, LogOut, Sun, Moon, Monitor,
 	PanelLeftClose, PanelLeftOpen, UserCog, LogIn, Network, RefreshCw, X,
+	BotMessageSquare,
 } from 'lucide-react';
 import { Link, useNav } from '../nav.tsx';
 import { Avatar } from './primitives.tsx';
@@ -26,6 +27,7 @@ const NAV: { label: string | null; items: Item[] }[] = [
 	] },
 	{ label: 'Integrations', items: [
 		['/platform-fwd', 'Platform forwarding', ArrowLeftRight, 'platform_fwd'],
+		['/platform-fwd/bots', 'Bots', BotMessageSquare, 'platform_fwd'],
 		['/join-chat', 'Join chat', LogIn, 'join_chat'],
 		['/mcp-admin', 'MCP', Bot, 'mcp'],
 	] },
@@ -44,6 +46,8 @@ function isOn(path: string, href: string): boolean {
 	if (href === '/') return path === '/';
 	if (href === '/group_messages') return path.startsWith('/group_messages') || path.startsWith('/messages/group');
 	if (href === '/private_messages') return path.startsWith('/private_messages') || path.startsWith('/messages/private');
+	// The Bots page has its own entry under Platform forwarding.
+	if (href === '/platform-fwd') return path.startsWith('/platform-fwd') && !path.startsWith('/platform-fwd/bots');
 	if (href === '/settings') return ['/settings', '/settings/preferences', '/settings/sessions'].includes(path);
 	return path === href || path.startsWith(href + '/');
 }

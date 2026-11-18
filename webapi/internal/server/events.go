@@ -54,12 +54,12 @@ const (
 
 // topics is what one stream asked for (web-live-client.md section 3).
 type topics struct {
-	messages, stats bool
-	chats, users    map[int64]struct{}
-	groups          map[int64]struct{}
+	messages, stats, bots bool
+	chats, users          map[int64]struct{}
+	groups                map[int64]struct{}
 }
 
-// parseTopics reads "chat:<id>,user:<id>,group:<id>,messages,stats".
+// parseTopics reads "chat:<id>,user:<id>,group:<id>,messages,stats,bots".
 // Repeats count once.
 func parseTopics(s string) (topics, error) {
 	t := topics{chats: map[int64]struct{}{}, users: map[int64]struct{}{},
@@ -80,6 +80,9 @@ func parseTopics(s string) (topics, error) {
 			continue
 		case "stats":
 			t.stats = true
+			continue
+		case "bots":
+			t.bots = true
 			continue
 		}
 		name, id, ok := strings.Cut(f, ":")
@@ -125,6 +128,8 @@ func (t *topics) wants(e live.Event) bool {
 		return has(t.groups, e.ChatID)
 	case live.KindStatsChanged:
 		return t.stats
+	case live.KindBotUpdated:
+		return t.bots
 	}
 	return false
 }
@@ -136,6 +141,14 @@ func (t *topics) wants(e live.Event) bool {
 // for every event and subscriber under the hub's lock, so the scope
 // answers them from memory.
 func eventInScope(sc scope.Scope, e live.Event) (live.Event, bool) {
+	if e.Kind == live.KindBotUpdated {
+		// A bot is the forwarding pages' and, with its owner, the
+		// admins' and superadmins' (bots.go). A member with forward
+		// sees its own bots only, which takes the ownership records:
+		// it gets no bot events, and its page refetches after its
+		// own changes.
+		return e, e.BotID != 0 && sc.Can(scope.Forward) && sc.SeesAllBots()
+	}
 	return filterEvent(e, sc.SeesChat, sc.SeesUser)
 }
 

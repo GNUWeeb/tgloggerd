@@ -161,6 +161,9 @@ static void test_fatal_close_does_not_reconnect(void)
 	CHECK(why == StopReason::FatalClose, "run() reports FatalClose");
 	CHECK(rec->connect_attempts == 1,
 	      "connected exactly once (no retry storm)");
+	CHECK(gw.fatal_close().code == 4014 &&
+		      gw.fatal_close().reason == "Disallowed intent(s)",
+	      "fatal_close() names the code and reason");
 }
 
 static void test_auth_failure(void)
@@ -179,6 +182,7 @@ static void test_auth_failure(void)
 	Gateway gw(cfg, mock_transport(script, rec), quiet_log());
 	CHECK(gw.run() == StopReason::AuthFailed, "run() reports AuthFailed");
 	CHECK(rec->connect_attempts == 1, "no retry on a bad token");
+	CHECK(gw.fatal_close().code == 4004, "fatal_close() is 4004");
 }
 
 /* A recoverable close must retry, and must stop when told to. */
@@ -199,6 +203,7 @@ static void test_recoverable_close_retries(void)
 	Gateway gw(cfg, mock_transport(script, rec), quiet_log());
 	CHECK(gw.run() == StopReason::Exhausted, "run() reports Exhausted");
 	CHECK(rec->connect_attempts == 3, "retried exactly max_attempts times");
+	CHECK(gw.fatal_close().code == 0, "no fatal close when exhausted");
 }
 
 int main(void)

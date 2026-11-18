@@ -104,6 +104,9 @@ struct Gateway::Impl {
 	std::mutex		sleep_mtx;
 	std::condition_variable	sleep_cv;
 
+	/* The close that stopped run() for good; see fatal_close(). */
+	CloseInfo	fatal;
+
 	/* Session state that survives a reconnect. */
 	std::string	session_id;
 	std::string	resume_url;
@@ -362,6 +365,7 @@ Outcome Gateway::Impl::run_once(void)
 					    "for this application; enable MESSAGE_CONTENT "
 					    "in the Developer Portal");
 				}
+				fatal = ci;
 				oc.next = Next::Stop;
 				oc.reason = (ci.code == 4004)
 						    ? StopReason::AuthFailed
@@ -534,9 +538,16 @@ void Gateway::stop(void)
 		sock->disconnect(); /* unblocks a read() in run_once() */
 }
 
+CloseInfo Gateway::fatal_close(void) const
+{
+	return impl_->fatal;
+}
+
 StopReason Gateway::run(void)
 {
 	Impl &m = *impl_;
+
+	m.fatal = CloseInfo{};
 
 	if (!m.tp.valid()) {
 		m.log(LogLevel::Error, "no transport configured");

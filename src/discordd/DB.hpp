@@ -5,6 +5,8 @@
 #ifndef DISCORDD__DB_HPP
 #define DISCORDD__DB_HPP
 
+#include "DiscordBots.hpp"
+
 #include <mysql/Database.hpp>
 
 #include <cstdint>
@@ -28,9 +30,10 @@ enum : unsigned {
 	FWD_DOCUMENT = 1u << 4,	/* every other attachment */
 };
 
-/* One enabled Discord channel -> Telegram chat route, with its bot. */
+/* One enabled Discord channel -> Telegram chat route, with its bots. */
 struct Route {
 	uint64_t	id = 0;
+	uint64_t	discord_bot_id = 0;	/* the bot that reads the channel */
 	uint64_t	discord_channel_id = 0;
 	int64_t		telegram_chat_id = 0;
 	uint64_t	telegram_bot_id = 0;
@@ -38,6 +41,14 @@ struct Route {
 	int64_t		bot_user_id = 0;
 	std::string	bot_username;	/* as last recorded; may be empty */
 	unsigned	types = 0;	/* FWD_* bits this route forwards */
+};
+
+/* An enabled Telegram bot, as loaded from telegram_bots. */
+struct TelegramBotRow {
+	uint64_t	id = 0;
+	std::string	token;
+	int64_t		bot_user_id = 0;
+	std::string	username;
 };
 
 /* A Telegram message a Discord reply should be threaded onto. */
@@ -70,8 +81,38 @@ public:
 
 	void ping(void);
 
-	/* Every enabled route, joined to its bot credentials. */
-	std::vector<Route> loadRoutes(void);
+	/*
+	 * Every route that is enabled, as are both its bots, joined to the
+	 * Telegram bot's credentials. A route that names no Discord bot comes
+	 * with discord_bot_id 0 (LEGACY_BOT_ID), for the environment's bot of
+	 * the transition; so does every route before migration 000040, when
+	 * bots_table is false.
+	 */
+	std::vector<Route> loadRoutes(bool bots_table);
+
+	/*
+	 * Whether discord_bots exists, i.e. whether tgloggerd has applied
+	 * migration 000040. Before it, routes name no Discord bot and the
+	 * bots have no status columns.
+	 */
+	bool hasBotsTable(void);
+
+	/* Enabled routes that name no Discord bot yet (made before 000040). */
+	uint64_t countRoutesWithoutDiscordBot(void);
+
+	/* The enabled bots of each kind. */
+	std::vector<DiscordBotRow> loadDiscordBots(void);
+	std::vector<TelegramBotRow> loadTelegramBots(void);
+
+	/*
+	 * Write what discordd saw of a bot to its row: status, detail, time,
+	 * the identity if known, and enabled = 0 when it was refused. Only an
+	 * enabled row that still holds the reported token is changed, so a
+	 * late report neither overrides the owner switching the bot off nor
+	 * lands on a replaced token. Throws on a database error.
+	 */
+	void reportDiscordBot(const BotReport &r);
+	void reportTelegramBot(const BotReport &r);
 
 	/* Record the bot's own Telegram user id, learned at login. */
 	void setBotUserId(uint64_t bot_row_id, int64_t user_id,

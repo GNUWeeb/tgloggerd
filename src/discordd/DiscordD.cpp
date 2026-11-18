@@ -5,6 +5,7 @@
 #include "DiscordD.hpp"
 
 #include "DB.hpp"
+#include "DiscordBots.hpp"
 #include "TelegramSender.hpp"
 
 #include <gwdiscord/Gateway.hpp>
@@ -14,6 +15,8 @@
 #include <condition_variable>
 #include <cstdio>
 #include <map>
+#include <set>
+#include <stdexcept>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -36,13 +39,43 @@ struct DiscordD::Impl {
 	Config				cfg;
 	std::unique_ptr<DB>		db;
 	std::unique_ptr<TelegramSender>	tg;
-	std::unique_ptr<gwdiscord::Gateway> gw;
+	std::unique_ptr<DiscordBots>	bots;
 
-	/* Route cache, reloaded periodically so web/DB edits take effect. */
+	/*
+	 * Route cache, reloaded periodically so web/DB edits take effect,
+	 * keyed by the Discord bot that reads the route and its channel.
+	 */
+	using RouteKey = std::pair<uint64_t, uint64_t>;
 	std::mutex				routes_mtx;
-	std::map<uint64_t, std::vector<Route>>	routes_by_channel;
-	/* Bot user ids we send as; used to ignore our own echo. */
+	std::map<RouteKey, std::vector<Route>>	routes_by_channel;
+	/* Telegram bot user ids we send as; used to ignore our own echo. */
 	std::vector<int64_t>			our_bot_user_ids;
+
+	/*
+	 * Telegram bots, touched by the refresh thread only: the status last
+	 * written for each (with the token it was about), the refusals not
+	 * stored yet, and the bots logged in.
+	 */
+	struct TgState {
+		std::string	token;
+		BotStatus	status = BotStatus::Connecting;
+		std::string	detail;
+	};
+	std::map<uint64_t, TgState>	tg_written;
+	std::map<uint64_t, BotReport>	tg_refused;
+	std::set<uint64_t>		tg_known;
+	uint64_t			unbound_routes = 0;
+
+	/*
+	 * The transition from DISCORD_BOT_TOKEN to the bots table, read by
+	 * the refresh thread: whether the table exists (migration 000040),
+	 * and whether the environment's bot runs. legacy_refused is set from
+	 * that bot's gateway thread when Discord refuses it; it stays set,
+	 * since the environment cannot change while discordd runs.
+	 */
+	bool				bots_table = false;
+	bool				legacy_running = false;
+	std::atomic<bool>		legacy_refused{false};
 
 	std::thread			refresh_thr;
 	std::atomic<bool>		stopping{false};
@@ -58,77 +91,252 @@ struct DiscordD::Impl {
 		fflush(stderr);
 	}
 
-	std::vector<Route> routes_for(uint64_t channel_id)
+	std::vector<Route> routes_for(uint64_t bot, uint64_t channel_id)
 	{
 		std::lock_guard<std::mutex> lk(routes_mtx);
-		auto it = routes_by_channel.find(channel_id);
+		auto it = routes_by_channel.find({bot, channel_id});
 		if (it == routes_by_channel.end())
 			return {};
 		return it->second;
 	}
 
-	void reload_routes(void);
+	bool report_discord(const BotReport &r);
+	void report_telegram(const TelegramBotRow &row, BotStatus st,
+			     const std::string &detail);
+	void reload(void);
+	void reload_discord_bots(void);
+	bool reload_telegram_bots(std::set<uint64_t> &live,
+				  std::vector<int64_t> &user_ids);
+	void reload_routes(const std::set<uint64_t> &live,
+			   std::vector<int64_t> user_ids);
 	void refresh_loop(void);
 
-	void on_message(const gwdiscord::Message &m, bool edited);
-	void on_delete(const gwdiscord::MessageDelete &d);
+	void on_message(uint64_t bot, const gwdiscord::Message &m, bool edited);
+	void on_delete(uint64_t bot, const gwdiscord::MessageDelete &d);
 
 	/* Render a Discord message as the Telegram text to send. */
 	std::string render(const gwdiscord::Message &m, unsigned types) const;
 };
 
-/*
- * Load every enabled route and make sure each distinct bot is logged in.
- * A bot that fails to authorize has its routes dropped for this cycle rather
- * than taking the whole daemon down: the other routes still work.
- */
-void DiscordD::Impl::reload_routes(void)
+bool DiscordD::Impl::report_discord(const BotReport &r)
 {
-	std::vector<Route> rows;
+	if (r.id == LEGACY_BOT_ID) {
+		/* No row to write to; a refusal stops it for good. */
+		if (r.disable) {
+			legacy_refused = true;
+			log(LOG_ERROR, "DISCORD_BOT_TOKEN: " + r.detail +
+					       " Not retried.");
+		}
+		return true;
+	}
 	try {
-		rows = db->loadRoutes();
+		db->reportDiscordBot(r);
+		return true;
 	} catch (const std::exception &e) {
-		log(LOG_WARN, std::string("route reload failed: ") + e.what());
+		log(LOG_WARN, "discord bot " + std::to_string(r.id) +
+				      ": could not record its status: " +
+				      e.what());
+		return false;
+	}
+}
+
+/* Write a Telegram bot's status, when it differs from what was written. */
+void DiscordD::Impl::report_telegram(const TelegramBotRow &row, BotStatus st,
+				     const std::string &detail)
+{
+	auto it = tg_written.find(row.id);
+	if (it != tg_written.end() && it->second.token == row.token &&
+	    it->second.status == st && it->second.detail == detail)
+		return;
+	if (!bots_table)
+		return; /* before migration 000040: no status columns */
+	BotReport r;
+	r.id = row.id;
+	r.token = row.token;
+	r.status = st;
+	r.detail = detail;
+	try {
+		db->reportTelegramBot(r);
+		tg_written[row.id] = TgState{row.token, st, detail};
+	} catch (const std::exception &e) {
+		log(LOG_WARN, "telegram bot " + std::to_string(row.id) +
+				      ": could not record its status: " +
+				      e.what());
+	}
+}
+
+/* Bring the Discord gateways in line with the enabled discord_bots rows. */
+void DiscordD::Impl::reload_discord_bots(void)
+{
+	const auto loaded_at = DiscordBots::Clock::now();
+	std::vector<DiscordBotRow> rows;
+	try {
+		bots_table = db->hasBotsTable();
+		if (bots_table)
+			rows = db->loadDiscordBots();
+	} catch (const std::exception &e) {
+		log(LOG_WARN, std::string("discord bot reload failed: ") +
+				      e.what());
 		return;
 	}
+	const auto run = bots_to_run(rows, cfg.legacy_discord_bot_token,
+				     legacy_refused.load());
+	const bool legacy = !run.empty() && run[0].id == LEGACY_BOT_ID;
+	if (legacy && !legacy_running) {
+		log(LOG_WARN, std::string("DEPRECATED: running the Discord bot of "
+					  "DISCORD_BOT_TOKEN for the routes that "
+					  "name no Discord bot, because ") +
+				      (bots_table ? "discord_bots holds no enabled bot"
+						  : "discord_bots does not exist yet") +
+				      ". Run webapi import-discord-bot, then "
+				      "remove the variable.");
+	} else if (!legacy && legacy_running) {
+		log(LOG_INFO, "a Discord bot is stored: DISCORD_BOT_TOKEN is "
+			      "ignored from now on");
+	}
+	legacy_running = legacy;
+	bots->sync(run, loaded_at);
+}
 
-	std::map<uint64_t, std::vector<Route>> next;
-	std::vector<int64_t> bot_ids;
+/*
+ * Log every enabled Telegram bot in, and record what came of it. A token
+ * Telegram refuses disables its bot, so it is not tried again on every
+ * reload; anything else is reported as connecting and retried. Fills `live`
+ * with the bots that can send and `user_ids` with their Telegram user ids.
+ * False when the bots could not be read at all.
+ */
+bool DiscordD::Impl::reload_telegram_bots(std::set<uint64_t> &live,
+					  std::vector<int64_t> &user_ids)
+{
+	std::vector<TelegramBotRow> rows;
+	try {
+		rows = db->loadTelegramBots();
+	} catch (const std::exception &e) {
+		log(LOG_WARN, std::string("telegram bot reload failed: ") +
+				      e.what());
+		return false;
+	}
 
-	for (auto &r : rows) {
+	/* Refusals a database error kept from being stored, first. */
+	for (auto it = tg_refused.begin(); bots_table && it != tg_refused.end();) {
+		try {
+			db->reportTelegramBot(it->second);
+			it = tg_refused.erase(it);
+		} catch (const std::exception &) {
+			++it;
+		}
+	}
+
+	std::set<uint64_t> seen;
+	for (const auto &row : rows) {
+		seen.insert(row.id);
+		auto rf = tg_refused.find(row.id);
+		if (rf != tg_refused.end() && rf->second.token == row.token)
+			continue; /* refused; stays stopped until stored */
+
 		std::string err;
-		const int64_t uid =
-			tg->addBot(r.telegram_bot_id, r.bot_token, &err);
+		bool refused = false;
+		tg_known.insert(row.id);
+		const int64_t uid = tg->addBot(row.id, row.token, &err, &refused);
 		if (!uid) {
-			log(LOG_WARN,
-			    "bot " + std::to_string(r.telegram_bot_id) +
-				    " unavailable, skipping its routes: " + err);
+			if (!refused) {
+				log(LOG_WARN, "telegram bot " +
+						      std::to_string(row.id) +
+						      " unavailable, skipping its "
+						      "routes: " + err);
+				report_telegram(row, BotStatus::Connecting, err);
+				continue;
+			}
+			BotReport r;
+			r.id = row.id;
+			r.token = row.token;
+			r.status = BotStatus::TokenRefused;
+			r.disable = true;
+			r.detail = "Telegram refused the token (" + err +
+				   "). Replace the token, then enable the bot.";
+			log(LOG_ERROR, "telegram bot " + std::to_string(row.id) +
+					       ": token refused; disabled");
+			tg->removeBot(row.id);
+			tg_known.erase(row.id);
+			tg_written.erase(row.id);
+			try {
+				if (!bots_table)
+					throw std::runtime_error("no status columns");
+				db->reportTelegramBot(r);
+			} catch (const std::exception &) {
+				/* Stays stopped until stored, or until restart
+				 * before migration 000040. */
+				tg_refused[row.id] = r;
+			}
 			continue;
 		}
 		/*
 		 * Record the identity on first login, when the token is
 		 * repointed at a different bot, or when the username is still
 		 * missing -- the last case backfills rows created before the
-		 * username was captured, and rows the web UI inserted (it can
+		 * username was captured, and rows the web inserted (it can
 		 * only store the token; only a login reveals who the bot is).
 		 */
-		const std::string uname = tg->botUsername(r.telegram_bot_id);
-		if (r.bot_user_id != uid ||
-		    (r.bot_username.empty() && !uname.empty())) {
+		const std::string uname = tg->botUsername(row.id);
+		if (row.bot_user_id != uid ||
+		    (row.username.empty() && !uname.empty())) {
 			try {
-				/* The username is what /routes labels the bot
-				 * with; without it the page can only show a
-				 * bare numeric id. */
-				db->setBotUserId(r.telegram_bot_id, uid, uname);
+				db->setBotUserId(row.id, uid, uname);
 			} catch (const std::exception &e) {
 				log(LOG_WARN,
 				    std::string("could not record bot user id: ") +
 					    e.what());
 			}
-			r.bot_user_id = uid;
 		}
-		bot_ids.push_back(uid);
-		next[r.discord_channel_id].push_back(r);
+		report_telegram(row, BotStatus::Connected, "");
+		live.insert(row.id);
+		user_ids.push_back(uid);
+	}
+
+	/* Disabled or removed since: close their sessions. */
+	for (auto it = tg_known.begin(); it != tg_known.end();) {
+		if (seen.count(*it)) {
+			++it;
+			continue;
+		}
+		tg->removeBot(*it);
+		tg_written.erase(*it);
+		it = tg_known.erase(it);
+	}
+	return true;
+}
+
+/*
+ * Load every enabled route whose bots are both enabled, keeping those whose
+ * Telegram bot is logged in. A bot that fails to authorize has its routes
+ * dropped for this cycle rather than taking the whole daemon down: the other
+ * routes still work.
+ */
+void DiscordD::Impl::reload_routes(const std::set<uint64_t> &live,
+				   std::vector<int64_t> bot_ids)
+{
+	std::vector<Route> rows;
+	try {
+		rows = db->loadRoutes(bots_table);
+		const uint64_t unbound =
+			bots_table ? db->countRoutesWithoutDiscordBot() : 0;
+		if (unbound != unbound_routes && unbound && !legacy_running) {
+			log(LOG_WARN, std::to_string(unbound) +
+					      " enabled route(s) name no Discord "
+					      "bot and are not served; run the "
+					      "Discord bot import");
+		}
+		unbound_routes = unbound;
+	} catch (const std::exception &e) {
+		log(LOG_WARN, std::string("route reload failed: ") + e.what());
+		return;
+	}
+
+	std::map<RouteKey, std::vector<Route>> next;
+	for (auto &r : rows) {
+		if (!live.count(r.telegram_bot_id))
+			continue;
+		next[{r.discord_bot_id, r.discord_channel_id}].push_back(r);
 	}
 
 	size_t n = 0;
@@ -140,9 +348,18 @@ void DiscordD::Impl::reload_routes(void)
 		routes_by_channel.swap(next);
 		our_bot_user_ids.swap(bot_ids);
 	}
-	log(LOG_INFO, "loaded " + std::to_string(n) + " route(s) across " +
-			      std::to_string(routes_by_channel.size()) +
-			      " channel(s)");
+	log(LOG_DEBUG, "loaded " + std::to_string(n) + " route(s) across " +
+			       std::to_string(routes_by_channel.size()) +
+			       " bot channel(s)");
+}
+
+void DiscordD::Impl::reload(void)
+{
+	reload_discord_bots();
+	std::set<uint64_t> live;
+	std::vector<int64_t> ids;
+	if (reload_telegram_bots(live, ids))
+		reload_routes(live, std::move(ids));
 }
 
 void DiscordD::Impl::refresh_loop(void)
@@ -155,7 +372,7 @@ void DiscordD::Impl::refresh_loop(void)
 		if (stopping.load())
 			return;
 		lk.unlock();
-		reload_routes();
+		reload();
 	}
 }
 
@@ -277,9 +494,12 @@ std::string DiscordD::Impl::render(const gwdiscord::Message &m,
 	return who + ":\n" + body;
 }
 
-void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
+void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
+				 bool edited)
 {
-	auto routes = routes_for(m.channel_id);
+	/* Only the routes this bot reads: another bot in the guild has its
+	 * own. */
+	auto routes = routes_for(bot, m.channel_id);
 	if (routes.empty())
 		return; /* not a configured channel: nothing to log or send */
 
@@ -337,15 +557,21 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 	 *  - webhook_id set: the message was posted by a webhook, which is how
 	 *    the Telegram -> Discord forwarder writes into Discord. Sending it
 	 *    back would loop forever.
-	 *  - the author is one of OUR Telegram bots: not currently reachable,
-	 *    since discordd never posts to Discord, but it costs nothing and
-	 *    closes the hole if it ever does. A bot's own message carries
-	 *    bot=true and webhook_id=0, so the first check does not cover it.
+	 *  - the author is one of OUR bots: not currently reachable, since
+	 *    discordd never posts to Discord, but it costs nothing and closes
+	 *    the hole if it ever does. A bot's own message carries bot=true
+	 *    and webhook_id=0, so the first check does not cover it.
 	 */
 	if (m.from_webhook()) {
 		log(LOG_DEBUG, "skipping webhook message " +
 				       std::to_string(m.id) + " (loop guard)");
 		return;
+	}
+	for (uint64_t uid : bots->user_ids()) {
+		if (uid == m.author.id) {
+			log(LOG_DEBUG, "skipping our own Discord bot's message");
+			return;
+		}
 	}
 	{
 		std::lock_guard<std::mutex> lk(routes_mtx);
@@ -486,10 +712,14 @@ void DiscordD::Impl::on_message(const gwdiscord::Message &m, bool edited)
 	}
 }
 
-void DiscordD::Impl::on_delete(const gwdiscord::MessageDelete &d)
+void DiscordD::Impl::on_delete(uint64_t bot, const gwdiscord::MessageDelete &d)
 {
-	if (routes_for(d.channel_id).empty())
+	const auto routes = routes_for(bot, d.channel_id);
+	if (routes.empty())
 		return;
+	std::set<uint64_t> mine;
+	for (const auto &r : routes)
+		mine.insert(r.id);
 
 	try {
 		db->markMessageDeleted(d.id);
@@ -499,6 +729,8 @@ void DiscordD::Impl::on_delete(const gwdiscord::MessageDelete &d)
 		 * the same choice the Telegram -> Discord direction makes.
 		 */
 		for (const auto &f : db->getForwarded(d.id)) {
+			if (!mine.count(f.route_id))
+				continue; /* another bot's route */
 			std::string err;
 			if (!tg->editText(f.telegram_bot_id, f.telegram_chat_id,
 					  f.telegram_message_id,
@@ -524,14 +756,17 @@ DiscordD::~DiscordD(void)
 	stop();
 	if (impl_->refresh_thr.joinable())
 		impl_->refresh_thr.join();
+	if (impl_->bots)
+		impl_->bots->stop_all();
 }
 
 void DiscordD::stop(void)
 {
-	impl_->stopping = true;
+	{
+		std::lock_guard<std::mutex> lk(impl_->wake_mtx);
+		impl_->stopping = true;
+	}
 	impl_->wake_cv.notify_all();
-	if (impl_->gw)
-		impl_->gw->stop();
 }
 
 int DiscordD::run(void)
@@ -554,59 +789,34 @@ int DiscordD::run(void)
 		});
 	m.tg->start();
 
-	m.reload_routes();
-	m.refresh_thr = std::thread([&m] { m.refresh_loop(); });
-
 	gwdiscord::GatewayConfig gcfg;
-	gcfg.token = m.cfg.discord_bot_token;
 	gcfg.intents = gwdiscord::intents::MESSAGE_LOGGING;
 
-	m.gw = std::make_unique<gwdiscord::Gateway>(
-		gcfg, gwdiscord::beast_transport(),
-		[&m](gwdiscord::LogLevel lvl, const std::string &msg) {
-			int l = LOG_INFO;
-			switch (lvl) {
-			case gwdiscord::LogLevel::Error: l = LOG_ERROR; break;
-			case gwdiscord::LogLevel::Warn:  l = LOG_WARN;  break;
-			case gwdiscord::LogLevel::Info:  l = LOG_INFO;  break;
-			case gwdiscord::LogLevel::Debug: l = LOG_DEBUG; break;
-			}
-			m.log(l, "gateway: " + msg);
-		});
+	DiscordBots::Handlers h;
+	h.message = [&m](uint64_t bot, const gwdiscord::Message &msg,
+			 bool edited) { m.on_message(bot, msg, edited); };
+	h.deleted = [&m](uint64_t bot, const gwdiscord::MessageDelete &d) {
+		m.on_delete(bot, d);
+	};
+	m.bots = std::make_unique<DiscordBots>(
+		gcfg,
+		[](const DiscordBotRow &) { return gwdiscord::beast_transport(); },
+		[&m](const BotReport &r) { return m.report_discord(r); }, h,
+		[&m](int lvl, const std::string &msg) { m.log(lvl, msg); });
 
-	m.gw->on_ready([&m](const gwdiscord::Ready &r) {
-		m.log(LOG_INFO, "connected to Discord as " + r.user.username);
-	});
-	m.gw->on_message_create(
-		[&m](const gwdiscord::Message &msg) { m.on_message(msg, false); });
-	m.gw->on_message_update(
-		[&m](const gwdiscord::Message &msg) { m.on_message(msg, true); });
-	m.gw->on_message_delete(
-		[&m](const gwdiscord::MessageDelete &d) { m.on_delete(d); });
+	m.reload();
+	m.refresh_thr = std::thread([&m] { m.refresh_loop(); });
 
-	const gwdiscord::StopReason why = m.gw->run();
+	{
+		std::unique_lock<std::mutex> lk(m.wake_mtx);
+		m.wake_cv.wait(lk, [&m] { return m.stopping.load(); });
+	}
 
-	m.stopping = true;
-	m.wake_cv.notify_all();
 	if (m.refresh_thr.joinable())
 		m.refresh_thr.join();
+	m.bots->stop_all();
 	m.tg->stop();
-
-	switch (why) {
-	case gwdiscord::StopReason::Requested:
-		m.log(LOG_INFO, "shutting down");
-		return 0;
-	case gwdiscord::StopReason::AuthFailed:
-		m.log(LOG_ERROR, "Discord rejected the bot token");
-		return 2;
-	case gwdiscord::StopReason::FatalClose:
-		m.log(LOG_ERROR,
-		      "Discord closed the connection with a non-retryable code");
-		return 3;
-	case gwdiscord::StopReason::Exhausted:
-		m.log(LOG_ERROR, "gave up reconnecting to Discord");
-		return 4;
-	}
+	m.log(LOG_INFO, "shutting down");
 	return 0;
 }
 

@@ -42,8 +42,8 @@ const (
 	// ResTelegramBot is a bot Discord to Telegram routes send through,
 	// telegram_bots.id.
 	ResTelegramBot ResourceType = "telegram_bot"
-	// ResDiscordBot is a Discord bot; its table comes with
-	// discord-bots-per-user, the name is reserved here.
+	// ResDiscordBot is a Discord bot discordd reads Discord channels
+	// with, discord_bots.id.
 	ResDiscordBot ResourceType = "discord_bot"
 	// ResT2DWebhook is a Telegram to Discord webhook,
 	// telegram_discord_webhooks.id.

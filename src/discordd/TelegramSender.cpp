@@ -9,6 +9,7 @@
 #include <td/telegram/td_api.hpp>
 
 #include <atomic>
+#include <cstdio>
 #include <chrono>
 #include <condition_variable>
 #include <future>
@@ -45,6 +46,7 @@ struct Bot {
 	int64_t		user_id = 0;
 	std::string	username;
 	std::string	error;
+	bool		refused = false; /* Telegram rejected the token */
 
 	enum State { Authorizing, Ready, Failed } state = Authorizing;
 
@@ -101,10 +103,32 @@ struct TelegramSender::Impl {
 			log_sink(lvl, msg);
 	}
 
-	/* One TDLib session directory per bot, so tokens never share state. */
-	std::string data_dir_for(uint64_t key) const
+	/*
+	 * One TDLib session directory per bot and token, so tokens never
+	 * share state. The token is part of it because a bot row's token can
+	 * be replaced: TDLib would otherwise find the old token's session in
+	 * the directory and log in as that bot without ever reading the new
+	 * one. FNV-1a, not a secret: it only tells tokens apart.
+	 */
+	std::string data_dir_for(uint64_t key, const std::string &token) const
 	{
-		return data_dir + "/bot-" + std::to_string(key);
+		uint64_t h = 1469598103934665603ULL;
+		for (unsigned char c : token) {
+			h ^= c;
+			h *= 1099511628211ULL;
+		}
+		char hex[17];
+		snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)h);
+		return data_dir + "/bot-" + std::to_string(key) + "-" + hex;
+	}
+
+	/* Close a bot's client and forget it. */
+	void close_bot(const std::shared_ptr<Bot> &b)
+	{
+		send_query(b->client_id, td_api::make_object<td_api::close>(),
+			   {});
+		std::lock_guard<std::mutex> blk(bots_mtx);
+		by_client.erase(b->client_id);
 	}
 
 	uint64_t
@@ -161,8 +185,8 @@ void TelegramSender::Impl::on_auth_state(const std::shared_ptr<Bot> &b,
 	switch (st.get_id()) {
 	case td_api::authorizationStateWaitTdlibParameters::ID: {
 		auto p = td_api::make_object<td_api::setTdlibParameters>();
-		/* One session directory per bot, keyed by its row id. */
-		p->database_directory_ = data_dir_for(b->key);
+		/* One session directory per bot row and token. */
+		p->database_directory_ = data_dir_for(b->key, b->token);
 		/*
 		 * A sender needs no local message database: it never reads
 		 * history, and keeping one would grow without bound.
@@ -186,6 +210,18 @@ void TelegramSender::Impl::on_auth_state(const std::shared_ptr<Bot> &b,
 				   if (o && o->get_id() == td_api::error::ID) {
 					   auto e = td::move_tl_object_as<
 						   td_api::error>(o);
+					   /*
+					    * 400 (ACCESS_TOKEN_INVALID and
+					    * the like) and 401 are the token
+					    * itself; 429 and the rest pass.
+					    */
+					   {
+						   std::lock_guard<std::mutex>
+							   lk(b->mtx);
+						   b->refused =
+							   e->code_ == 400 ||
+							   e->code_ == 401;
+					   }
 					   settle(b, Bot::Failed,
 						  "bot token rejected: " +
 							  e->message_);
@@ -381,15 +417,23 @@ void TelegramSender::stop(void)
 }
 
 int64_t TelegramSender::addBot(uint64_t key, const std::string &token,
-			       std::string *err)
+			       std::string *err, bool *refused)
 {
+	if (refused)
+		*refused = false;
 	if (!impl_->cm) {
 		if (err)
 			*err = "TelegramSender not started";
 		return 0;
 	}
 
-	if (auto existing = impl_->bot_for_key(key)) {
+	auto existing = impl_->bot_for_key(key);
+	if (existing && existing->token != token) {
+		/* The row's token was replaced: the old session goes. */
+		impl_->close_bot(existing);
+		existing.reset();
+	}
+	if (existing) {
 		std::unique_lock<std::mutex> lk(existing->mtx);
 		if (existing->state == Bot::Ready)
 			return existing->user_id;
@@ -422,12 +466,7 @@ int64_t TelegramSender::addBot(uint64_t key, const std::string &token,
 		 * drops the registration.
 		 */
 		lk.unlock();
-		impl_->send_query(existing->client_id,
-				  td_api::make_object<td_api::close>(), {});
-		{
-			std::lock_guard<std::mutex> blk(impl_->bots_mtx);
-			impl_->by_client.erase(existing->client_id);
-		}
+		impl_->close_bot(existing);
 	}
 
 	auto b = std::make_shared<Bot>();
@@ -460,9 +499,27 @@ int64_t TelegramSender::addBot(uint64_t key, const std::string &token,
 		if (err)
 			*err = b->error.empty() ? "authorization failed"
 						: b->error;
+		if (refused)
+			*refused = b->refused;
 		return 0;
 	}
 	return b->user_id;
+}
+
+void TelegramSender::removeBot(uint64_t key)
+{
+	if (!impl_->cm)
+		return;
+	std::shared_ptr<Bot> b;
+	{
+		std::lock_guard<std::mutex> lk(impl_->bots_mtx);
+		auto it = impl_->bots.find(key);
+		if (it == impl_->bots.end())
+			return;
+		b = it->second;
+		impl_->bots.erase(it);
+	}
+	impl_->close_bot(b);
 }
 
 std::string TelegramSender::botUsername(uint64_t key)

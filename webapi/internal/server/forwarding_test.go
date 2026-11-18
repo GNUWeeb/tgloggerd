@@ -22,7 +22,9 @@ const (
 	d2tBase  = "/api/forwarding/discord-telegram"
 	rustChat = int64(-1001000000003)
 	newHook  = "https://discord.com/api/webhooks/1100000000000000099/testSecretNewHook"
-	newToken = "7000000099:testSecretNewBot"
+	newToken = "7000000099:testSecretNewBotAAAAAAAAAAAAAAAAAAAAAA"
+	// The "bots" fixture's connected Discord bot.
+	discordBot = uint64(1000000001)
 )
 
 func TestParseWebhook(t *testing.T) {
@@ -100,13 +102,28 @@ func TestForwardingPages(t *testing.T) {
 	}
 	r1, r2 := routes[1].(map[string]any), routes[0].(map[string]any)
 	if r1["channel_id"] != "710000000000000001" || r1["channel_name"] != "general" ||
-		r1["bot"] != "@gw_bridge_bot" || r1["sent"] != float64(2) ||
+		r1["sent"] != float64(2) ||
 		js(r1["chat"]) != canon(`{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup","photo":null}`) {
 		t.Errorf("route 1 %s", js(r1))
 	}
-	if r2["channel_name"] != "" || r2["bot"] != "bot #2 (not connected yet)" ||
+	if got := js(r1["telegram_bot"]); got != canon(`{"id":1,"kind":"telegram","name":"@gw_bridge_bot",`+
+		`"identity":{"user_id":"7000000001","username":"gw_bridge_bot"},"status":"connecting","enabled":true}`) {
+		t.Errorf("route 1 telegram bot %s", got)
+	}
+	if got := js(r1["discord_bot"]); got != canon(`{"id":1000000001,"kind":"discord","name":"Main reader",`+
+		`"identity":{"user_id":"1000000000000000001","username":"gw_reader"},"status":"connected","enabled":true}`) {
+		t.Errorf("route 1 discord bot %s", got)
+	}
+	// Route 2: its Telegram bot is switched off, and it names no
+	// Discord bot yet; the page can tell both.
+	if r2["channel_name"] != "" || r2["discord_bot"] != nil ||
+		js(r2["telegram_bot"]) != canon(`{"id":2,"kind":"telegram","name":"Bot 2","identity":null,`+
+			`"status":"disabled","enabled":false}`) ||
 		js(r2["types"]) != `["sticker","text","document"]` {
 		t.Errorf("route 2 %s", js(r2))
+	}
+	if _, ok := r1["bot"]; ok {
+		t.Error("the route still answers bot")
 	}
 
 	// To a member the pages do not exist.
@@ -345,41 +362,48 @@ func TestD2TOperations(t *testing.T) {
 	e := newAdminEnv(t)
 
 	create := map[string]any{"discord_channel_id": "710000000000000003", "chat_id": rustChat,
-		"bot_token": newToken, "types": []string{"text", "document"}, "enabled": true}
+		"discord_bot_id": discordBot, "telegram_bot_id": 1,
+		"types": []string{"text", "document"}, "enabled": true}
 	b := e.want(201, "admin", "POST", d2tBase, create)
-	noSecrets(t, "create", b, "testSecretNewBot")
 	id := uint64(b["id"].(float64))
-	bot := e.one("SELECT telegram_bot_id FROM discord_telegram_routes WHERE id = ?", id)
-	if got := e.one("SELECT CONCAT_WS(' ', r.discord_channel_id, r.telegram_chat_id, r.enabled, "+
-		"r.fwd_sticker, r.fwd_text, r.fwd_photo, r.fwd_video, r.fwd_document, b.token) "+
-		"FROM discord_telegram_routes r JOIN telegram_bots b ON b.id = r.telegram_bot_id "+
-		"WHERE r.id = ?", id); got != fmt.Sprintf("710000000000000003 %d 1 0 1 0 0 1 %s", rustChat, newToken) {
+	if got := e.one("SELECT CONCAT_WS(' ', discord_channel_id, telegram_chat_id, enabled, "+
+		"fwd_sticker, fwd_text, fwd_photo, fwd_video, fwd_document, telegram_bot_id, discord_bot_id) "+
+		"FROM discord_telegram_routes WHERE id = ?", id); got !=
+		fmt.Sprintf("710000000000000003 %d 1 0 1 0 0 1 1 %d", rustChat, discordBot) {
 		t.Errorf("stored %q", got)
 	}
-
 	// The same channel and chat again: refused.
 	if st, b, _ := e.call("admin", "POST", d2tBase, create); st != 409 || b["error"] != "duplicate" {
 		t.Errorf("duplicate %d %v", st, b)
 	}
-	// The same token again reuses its bot.
-	create["chat_id"] = gnuWeeb
+
+	// A private chat is a target too, as on the Drogon page.
+	create["chat_id"] = 9299000001
 	b = e.want(201, "superadmin", "POST", d2tBase, create)
-	id2 := uint64(b["id"].(float64))
-	if got := e.one("SELECT telegram_bot_id FROM discord_telegram_routes WHERE id = ?", id2); got != bot {
-		t.Errorf("bot %s, want %s", got, bot)
+	priv := uint64(b["id"].(float64))
+	if got := e.one("SELECT telegram_chat_id FROM discord_telegram_routes WHERE id = ?", priv); got != "9299000001" {
+		t.Errorf("private route chat %s", got)
 	}
 
-	// Change what is given; a token replaces the bot, the old one stays.
+	// Change what is given: state, types, the bots, the channel and the
+	// chat.
 	e.want(204, "admin", "PATCH", fmt.Sprintf("%s/%d", d2tBase, id), map[string]any{
 		"enabled": false, "types": []string{"sticker"}})
 	e.want(204, "admin", "PATCH", fmt.Sprintf("%s/%d", d2tBase, id), map[string]any{
-		"bot_token": "7000000001:fixtureBotSecretOne"})
-	if got := e.one("SELECT CONCAT_WS(' ', enabled, fwd_sticker, fwd_text, telegram_bot_id) "+
-		"FROM discord_telegram_routes WHERE id = ?", id); got != "0 1 0 1" {
+		"telegram_bot_id": 2, "discord_bot_id": 1000000002,
+		"discord_channel_id": "710000000000000005", "chat_id": gnuWeeb})
+	if got := e.one("SELECT CONCAT_WS(' ', enabled, fwd_sticker, fwd_text, telegram_bot_id, "+
+		"discord_bot_id, discord_channel_id, telegram_chat_id) FROM discord_telegram_routes "+
+		"WHERE id = ?", id); got != fmt.Sprintf("0 1 0 2 1000000002 710000000000000005 %d", gnuWeeb) {
 		t.Errorf("after patch %q", got)
 	}
+	// Onto a channel and chat another route has: refused, unchanged.
+	if st, b, _ := e.call("admin", "PATCH", fmt.Sprintf("%s/%d", d2tBase, id), map[string]any{
+		"discord_channel_id": "710000000000000001"}); st != 409 || b["error"] != "duplicate" {
+		t.Errorf("patch onto route 1 %d %v", st, b)
+	}
 	_, page := e.page("admin", "/platform-fwd/discord-telegram")
-	noSecrets(t, "page", page, "testSecretNewBot")
+	noSecrets(t, "page", page)
 
 	// A route that has sent messages is refused; one that has not goes.
 	if st, b, _ := e.call("admin", "DELETE", d2tBase+"/1", nil); st != 409 || b["error"] != "in_use" ||
@@ -390,28 +414,28 @@ func TestD2TOperations(t *testing.T) {
 	e.want(404, "admin", "DELETE", fmt.Sprintf("%s/%d", d2tBase, id), nil)
 
 	want := []string{
-		fmt.Sprintf("3 fwd_d2t_create route %d channel 710000000000000003 chat %d enabled=true types=text,document", id, rustChat),
+		fmt.Sprintf("3 fwd_d2t_create route %d channel 710000000000000003 chat %d discord_bot %d "+
+			"telegram_bot 1 enabled=true types=text,document", id, rustChat, discordBot),
 		fmt.Sprintf("3 owner_set d2t_route %d", id),
-		"3 owner_set telegram_bot " + bot,
-		// The same token again reuses the bot, which keeps its owner.
-		fmt.Sprintf("1 fwd_d2t_create route %d channel 710000000000000003 chat %d enabled=true types=text,document", id2, gnuWeeb),
-		fmt.Sprintf("1 owner_set d2t_route %d", id2),
+		fmt.Sprintf("1 fwd_d2t_create route %d channel 710000000000000003 chat 9299000001 discord_bot %d "+
+			"telegram_bot 1 enabled=true types=text,document", priv, discordBot),
+		fmt.Sprintf("1 owner_set d2t_route %d", priv),
 		fmt.Sprintf("3 fwd_d2t_update route %d chat %d types=sticker enabled=false", id, rustChat),
-		fmt.Sprintf("3 fwd_d2t_update route %d chat %d bot", id, rustChat),
-		fmt.Sprintf("3 fwd_d2t_delete route %d channel 710000000000000003 chat %d", id, rustChat),
+		fmt.Sprintf("3 fwd_d2t_update route %d chat %d channel=710000000000000005 "+
+			"discord_bot=1000000002 telegram_bot=2 chat=%d", id, gnuWeeb, gnuWeeb),
+		fmt.Sprintf("3 fwd_d2t_delete route %d channel 710000000000000005 chat %d", id, gnuWeeb),
 		fmt.Sprintf("3 resource_drop d2t_route %d", id),
 	}
 	if got := e.audits(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("audit\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	noSecrets(t, "audit", e.audits(), "testSecretNewBot")
 }
 
 func TestD2TRefusals(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t)
 	base := map[string]any{"discord_channel_id": "710000000000000009", "chat_id": gnuWeeb,
-		"bot_token": newToken, "types": []string{"text"}, "enabled": true}
+		"discord_bot_id": discordBot, "telegram_bot_id": 1, "types": []string{"text"}, "enabled": true}
 	with := func(k string, v any) map[string]any {
 		m := map[string]any{}
 		for a, b := range base {
@@ -432,11 +456,15 @@ func TestD2TRefusals(t *testing.T) {
 		{with("discord_channel_id", "abc"), 400, "bad_channel"},
 		{with("discord_channel_id", "0"), 400, "bad_channel"},
 		{with("discord_channel_id", "123456789012345678901"), 400, "bad_channel"},
-		{with("bot_token", "not-a-token"), 400, "bad_token"},
-		{with("bot_token", ":secret"), 400, "bad_token"},
-		{with("bot_token", "12ab:secret"), 400, "bad_token"},
 		{with("types", []string{"other"}), 400, "bad_request"},
-		{with("bot_token", nil), 400, "bad_request"},
+		{with("discord_bot_id", nil), 400, "bad_request"},
+		{with("telegram_bot_id", nil), 400, "bad_request"},
+		// A bot of the other kind in either place.
+		{with("discord_bot_id", 1), 400, "bad_request"},
+		{with("telegram_bot_id", discordBot), 400, "bad_request"},
+		// Bots and chats that do not exist.
+		{with("telegram_bot_id", 99), 404, "not_found"},
+		{with("discord_bot_id", 1000000099), 404, "not_found"},
 		{with("chat_id", int64(-1009999999999)), 404, "not_found"},
 		{with("federation_id", 3), 404, "not_found"},
 	} {
@@ -444,11 +472,25 @@ func TestD2TRefusals(t *testing.T) {
 		if st != c.status || b["error"] != c.code {
 			t.Errorf("%v: %d %v, want %d %s", c.body, st, b, c.status, c.code)
 		}
-		noSecrets(t, "refusal", b, "testSecretNewBot")
 	}
-	if st, b, _ := e.call("admin", "PATCH", d2tBase+"/2", map[string]any{"bot_token": "x"}); st != 400 ||
-		b["error"] != "bad_token" {
-		t.Errorf("patch bad token %d %v", st, b)
+	// A token is not taken on a route any more.
+	noBot := with("telegram_bot_id", nil)
+	noBot["bot_token"] = newToken
+	if st, b, _ := e.call("admin", "POST", d2tBase, noBot); st != 400 || b["error"] != "bad_request" {
+		t.Errorf("route with a token: %d %v", st, b)
+	}
+	for _, c := range []struct {
+		body   map[string]any
+		status int
+	}{
+		{map[string]any{"discord_channel_id": "x"}, 400},
+		{map[string]any{"chat_id": -1009999999999}, 404},
+		{map[string]any{"telegram_bot_id": discordBot}, 400},
+		{map[string]any{"discord_bot_id": 1000000099}, 404},
+	} {
+		if st, _, _ := e.call("admin", "PATCH", d2tBase+"/2", c.body); st != c.status {
+			t.Errorf("patch %v: %d, want %d", c.body, st, c.status)
+		}
 	}
 	for _, op := range [][2]string{{"POST", d2tBase}, {"PATCH", d2tBase + "/2"}, {"DELETE", d2tBase + "/2"}} {
 		if st, _, _ := e.call("member", op[0], op[1], base); st != 404 {
@@ -466,6 +508,33 @@ func TestD2TRefusals(t *testing.T) {
 	}
 	if a := e.audits(); len(a) != 0 {
 		t.Errorf("refusals audited: %v", a)
+	}
+}
+
+// The chat of a webhook changes with its kind, as on creation.
+func TestT2DChangeChat(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t)
+	e.want(204, "admin", "PATCH", t2dBase+"/3", map[string]any{"chat_id": 9299000002, "chat_kind": "user"})
+	if got := e.one("SELECT CONCAT_WS(' ', telegram_chat_id, telegram_chat_type, enabled) " +
+		"FROM telegram_discord_webhooks WHERE id = 3"); got != "9299000002 private 0" {
+		t.Errorf("after patch %q", got)
+	}
+	for _, c := range []struct {
+		body   map[string]any
+		status int
+	}{
+		{map[string]any{"chat_id": gnuWeeb}, 400},
+		{map[string]any{"chat_id": gnuWeeb, "chat_kind": "user"}, 400},
+		{map[string]any{"chat_id": -1009999999999, "chat_kind": "group"}, 404},
+	} {
+		if st, _, _ := e.call("admin", "PATCH", t2dBase+"/3", c.body); st != c.status {
+			t.Errorf("%v: %d, want %d", c.body, st, c.status)
+		}
+	}
+	want := []string{"3 fwd_t2d_update webhook 3 chat 9299000002 chat=9299000002"}
+	if got := e.audits(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("audit %v", got)
 	}
 }
 

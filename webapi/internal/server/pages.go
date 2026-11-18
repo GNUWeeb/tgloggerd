@@ -120,6 +120,7 @@ func defaultPages() []pageRoute {
 		{id: "platform_fwd", pattern: "/platform-fwd", load: loadPlatformFwd},
 		{id: "fwd_telegram_discord", pattern: "/platform-fwd/telegram-discord", load: loadT2D},
 		{id: "fwd_discord_telegram", pattern: "/platform-fwd/discord-telegram", load: loadD2T},
+		{id: "bots", pattern: "/platform-fwd/bots", load: loadBots},
 		{id: "join_chat", pattern: "/join-chat", load: loadJoinChat},
 		{id: "mcp", pattern: "/mcp-admin", load: loadMcp},
 		{id: "mcp_groups", pattern: "/mcp-admin/groups", load: loadMcpGroups},

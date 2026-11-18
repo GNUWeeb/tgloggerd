@@ -85,6 +85,8 @@ add_executable(tgloggerd
 	src/tgloggerd/InternalApi.hpp
 	src/tgloggerd/FileApi.cpp
 	src/tgloggerd/FileApi.hpp
+	src/tgloggerd/BotWatch.cpp
+	src/tgloggerd/BotWatch.hpp
 	src/tgloggerd/EventBus.cpp
 	src/tgloggerd/EventBus.hpp
 	src/tgloggerd/EventApi.cpp
@@ -155,6 +157,16 @@ endif()
 find_package(nlohmann_json 3 REQUIRED)
 target_link_libraries(tgloggerd PRIVATE Td::TdStatic tdjson_private connector-jdbc OpenSSL::Crypto CURL::libcurl ${SODIUM_LIBRARIES} Threads::Threads nlohmann_json::nlohmann_json)
 target_include_directories(tgloggerd PRIVATE ${SODIUM_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
+
+# BotWatch over a fake read of the bots; not part of the default build:
+#   cmake --build build --target bot_watch_test && build/bot_watch_test
+add_executable(bot_watch_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/bot_watch_test.cpp
+	src/tgloggerd/BotWatch.cpp
+	src/tgloggerd/helpers/log.c)
+target_include_directories(bot_watch_test PRIVATE src)
+target_link_libraries(bot_watch_test PRIVATE connector-jdbc
+	nlohmann_json::nlohmann_json Threads::Threads)
 
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
 # Telegram). Added last: it links Td::TdStatic and connector-jdbc from the

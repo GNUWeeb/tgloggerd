@@ -12,6 +12,7 @@
 #include <tgloggerd/FileFetcher.hpp>
 #include <tgloggerd/ChatApi.hpp>
 #include <tgloggerd/ContactApi.hpp>
+#include <tgloggerd/BotWatch.hpp>
 #include <tgloggerd/EventBus.hpp>
 #include <tgloggerd/EventApi.hpp>
 #include <stdexcept>
@@ -268,6 +269,8 @@ int TgLoggerd::start(void)
 	 */
 	events_ = std::make_unique<EventBus>();
 	events_->start();
+	bot_watch_ = std::make_unique<BotWatch>(db_.get(), events_.get(), l_);
+	bot_watch_->start();
 	serial_ = std::make_unique<ThreadPool>(1, queue_max, l_);
 	files_ = std::make_unique<ThreadPool>(file_threads, queue_max, l_);
 	pr_debug(l_, "workers: serial=1 files=%zu queue_max=%zu",
@@ -861,6 +864,7 @@ int TgLoggerd::start(void)
 	janitor_->stop();
 	files_->shutdown();
 	serial_->shutdown();
+	bot_watch_->stop();
 	events_->stop();
 	/* The event loop has exited, so no more forward() calls arrive; stop the
 	 * refresh thread and drain in-flight webhook POSTs. */

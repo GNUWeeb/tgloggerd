@@ -36,16 +36,24 @@ Bodies are JSON, every write carries the session's CSRF token in
 `X-CSRF-Token`, and errors are `{"error": "<code>", "message": "..."}`.
 
     POST   /api/forwarding/telegram-discord        create; 201 {id}
-    PATCH  /api/forwarding/telegram-discord/{id}   types, enabled, webhook_url
+    PATCH  /api/forwarding/telegram-discord/{id}   chat_id with chat_kind, types,
+                                                   enabled, webhook_url
     DELETE /api/forwarding/telegram-discord/{id}
     POST   /api/forwarding/telegram-discord/test   {id} or {webhook_url}; 204
     POST   /api/forwarding/discord-telegram        create; 201 {id}
-    PATCH  /api/forwarding/discord-telegram/{id}   types, enabled, bot_token
+    PATCH  /api/forwarding/discord-telegram/{id}   discord_channel_id, chat_id,
+                                                   discord_bot_id, telegram_bot_id,
+                                                   types, enabled
     DELETE /api/forwarding/discord-telegram/{id}
+    GET    /api/bots?kind=                         {bots: BotRef[]}
+    POST   /api/bots                               {kind, name, token}; 201 Bot
+    PATCH  /api/bots/{id}                          name, enabled, token; 200 Bot
+    DELETE /api/bots/{id}                          204
+    POST   /api/bots/{id}/transfer                 {owner_id}; 204
 
 The pages' data (`/platform-fwd`, `/platform-fwd/telegram-discord`,
-`/platform-fwd/discord-telegram`) lists the configurations with their
-counts of what was sent.
+`/platform-fwd/discord-telegram`, `/platform-fwd/bots`) lists the
+configurations with their counts of what was sent, and the bots.
 
 - Who: viewers with the `forward` ability of the request scope
   (superadmins and admins today; members once granted it, with
@@ -65,16 +73,27 @@ counts of what was sent.
   with its token cut off (`url_masked`) and a bot by its username, and
   no answer, log line or audit row carries a URL or a token.
 - Discord to Telegram refuses a channel id that is not a snowflake
-  (`bad_channel`), a token not shaped `<digits>:<secret>`
-  (`bad_token`), a duplicate channel and chat (409 `duplicate`) and
-  deleting a route that has sent messages (409 `in_use`).
+  (`bad_channel`), a bot of the wrong kind (`bad_request`) or one the
+  viewer may not use (404), a duplicate channel and chat, on create
+  and on a change of either (409 `duplicate`), and deleting a route
+  that has sent messages (409 `in_use`). The chat may be a group, a
+  channel or a private chat, as on the Drogon page.
+- A route names its two bots by id, `discord_bot_id` (the Discord bot
+  that reads the channel) and `telegram_bot_id` (the Telegram bot that
+  sends); no token is typed on a route. The route answers them as
+  `discord_bot` and `telegram_bot` with their name, identity, status
+  and `enabled`, so a route whose bot is switched off or refused shows
+  as such. `discord_bot` is null for a route made before the Discord
+  bots were stored, until the deployment's import gives it one; such a
+  route forwards nothing. The index counts a route as active while it
+  and both its bots are enabled.
 - Every change writes a `web_audit` row: `fwd_t2d_create`,
   `fwd_t2d_update`, `fwd_t2d_delete`, `fwd_d2t_create`,
-  `fwd_d2t_update`, `fwd_d2t_delete`, with the id, the chat and what
-  changed. Tests change nothing and are not audited.
-- Every configuration created here is owned by the account that
-  created it, and so is a bot a new token adds (a token of a bot
-  already stored reuses the bot and leaves its owner);
+  `fwd_d2t_update`, `fwd_d2t_delete`, `bot_create`, `bot_update`,
+  `bot_delete`, `bot_transfer`, with the id, the chat and what
+  changed, never a token. Tests change nothing and are not audited.
+- Every configuration and every bot created here is owned by the
+  account that created it;
   `web_resource_relations`, see *Ownership* in
   [accounts.md](accounts.md). Lists answer the owner with its role and
   whether it is active. A configuration without an owner, made before
@@ -84,6 +103,84 @@ counts of what was sent.
   planned (`forwarding-per-user`). The Go service writes through the
   same read-only account and grants as the Drogon pages (see
   *Grants*).
+
+## Bots
+
+Discord to Telegram forwarding uses two kinds of bot, kept in the
+logger's schema (daemon migration `000040`): Telegram bots
+(`telegram_bots`) send into Telegram chats, Discord bots
+(`discord_bots`) read Discord channels. Each account may have its own
+of both (decisions/2026-11-18-ownership-and-bots.md). The bots page,
+`/platform-fwd/bots`, lists them with their owner, status and how many
+routes use each.
+
+- Who: a member with `forward` sees and uses its own bots only
+  (ownership records); superadmins and admins every bot, with its
+  owner (`show_owner`). Any other bot does not exist for the viewer
+  (404), in the lists, the operations and a route's bot ids.
+- Tokens are write-only: checked in shape on the way in, stored in
+  plain text like the Telegram ones (the owner decided against
+  encrypting them at rest), never answered, logged or audited. A
+  Telegram token is `<digits>:<secret>` with a secret of 30 or more of
+  `[A-Za-z0-9_-]`; a Discord token is three dot-separated base64url
+  parts, the first decoding to the bot's id. Anything else is 400
+  `bad_token`. Whether a token works shows in the status.
+- Adding a token that is stored already answers the bot to its owner
+  (and a bot without an owner to a superadmin); anyone else gets 409
+  `token_in_use`, without being told whose it is.
+- The ids of the two tables never meet: Discord bots count from
+  1000000000, so `/api/bots/{id}` names one bot of one kind.
+- Status, as discordd last saw the bot: `connecting`, `connected`,
+  `intent_missing` (Discord only: the Message Content intent is off in
+  the Developer Portal), `token_refused`, or `disabled` (switched off
+  by its owner). `status_detail` is discordd's own sentence and
+  `status_at` its time. A refused bot is switched off by discordd and
+  not retried in a loop: each Discord IDENTIFY spends one of a daily
+  budget whose exhaustion resets the token. Enabling it again (PATCH
+  `enabled: true`) or giving it a new token sets it `connecting`, and
+  discordd tries it once more on its next reload. A new token also
+  forgets the identity, which discordd learns again at login.
+- A bot routes use cannot be deleted (409 `bot_in_use`); give the
+  routes another bot first.
+- Transfer: admins and superadmins give a bot to one of its
+  `transfer_candidates` (for a superadmin any active account, for an
+  admin the active admins and superadmins and the members it
+  manages); anyone else is 400, and to a member the operation does not
+  exist. Routes using the bot keep working.
+- Live: `bot.updated {bot_id}` on the topic `bots`, to admins and
+  superadmins, at most 5 seconds after a bot row changes (the daemon
+  reads the bots tables, docs/internal-api.md). A member's page
+  refetches after its own changes.
+
+### Moving the environment's Discord bot into the database
+
+discordd used to read one Discord bot token from `DISCORD_BOT_TOKEN`.
+Now it runs every enabled row of `discord_bots`. The variable is
+deprecated and read only for the transition: while `discord_bots` does
+not exist yet (tgloggerd has not applied migration `000040`) or holds
+no enabled bot (the import has not run), discordd runs the bot of
+`DISCORD_BOT_TOKEN` as before, for the routes that name no Discord bot,
+and logs a deprecation warning saying so. Its state is not written
+anywhere, since it has no row; a refusal stops it until discordd
+restarts. As soon as an enabled bot is stored the variable is ignored,
+so a restart of discordd at any point of the deployment keeps
+forwarding.
+
+At the deployment that brings this, once the daemon has applied
+migration `000040`, run once in the webapi container (whose
+environment still holds the variable):
+
+    docker compose exec webapi webapi/build/webapi import-discord-bot superadmin
+
+It stores the bot of the token, named "Discord bot", owned by the
+account named (an active superadmin), points every route that names no
+Discord bot at it, and prints what it did; the token is never printed.
+A second run changes nothing. discordd switches to the imported bot on
+its next reload by itself; then remove `DISCORD_BOT_TOKEN` from `.env`
+and recreate discordd, so the variable is gone from its environment.
+`.env.example` no longer lists it. Routes made on the Drogon page get the
+oldest Discord bot, the imported one, since that page has no Discord
+bot picker.
 
 ## Content-type filters
 
@@ -248,24 +345,28 @@ makes replies and edits resolve.
 ## Grants
 
 The web app reaches the logger's schema through the read-only `web_ro` user, so
-this page needs DML on exactly two more tables:
+this page needs DML on exactly three more tables:
 
 ```sql
 GRANT INSERT, UPDATE, DELETE ON `tgloggerd`.discord_telegram_routes TO 'web_ro'@'%';
 GRANT INSERT, UPDATE, DELETE ON `tgloggerd`.telegram_bots TO 'web_ro'@'%';
+GRANT INSERT, UPDATE, DELETE ON `tgloggerd`.discord_bots TO 'web_ro'@'%';
 FLUSH PRIVILEGES;
 ```
 
-`docker/mysql/init/10-web-users.sh` issues these, but that hook only runs on a
-**fresh** MySQL data directory. On an existing deployment they must be applied
-once as root; until then the page lists routes but every save and delete fails.
+`run.sh` applies them as root from `docker/mysql/web-grants.sql` after every
+`migrate up` of the daemon, so a deployment that applies migration `000040` gets
+the `discord_bots` grant with it. Until a grant is in place the page lists
+routes but every save and delete fails.
 
 ## Propagation
 
-`discordd` re-reads the route table every `DISCORDD_ROUTE_REFRESH_SECS`
-(default 30, floor 5), so changes take effect without a restart. A route is live
-only when both `discord_telegram_routes.enabled` and `telegram_bots.enabled` are
-set, which is why the page distinguishes *Disabled* from *Bot disabled*.
+`discordd` re-reads the bots and the route table every
+`DISCORDD_ROUTE_REFRESH_SECS` (default 30, floor 5), so changes take effect
+without a restart: it starts a gateway for a new Discord bot, stops one switched
+off, reconnects one given a new token, and logs every enabled Telegram bot in. A
+route is live only when `discord_telegram_routes.enabled` and both its bots are
+enabled, which is why the page distinguishes *Disabled* from *Bot disabled*.
 
 One ordering caveat: a **newly added bot** has `bot_user_id = 0` until `discordd`
 logs it in, and the Telegram → Discord forwarder's loop guard matches on that id.

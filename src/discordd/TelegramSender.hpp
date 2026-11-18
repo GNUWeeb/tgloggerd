@@ -43,11 +43,17 @@ public:
 	 * Bring up a bot session and block until it is authorized. `key` is
 	 * the caller's own handle for the bot (telegram_bots.id), used to
 	 * address it in later calls. Returns the bot's Telegram user id, or 0
-	 * on failure with `err` set. Calling it twice for the same key is a
-	 * no-op that returns the known user id.
+	 * on failure with `err` set; `refused` (when given) then says whether
+	 * Telegram refused the token itself, as opposed to a failure worth
+	 * trying again. Calling it twice for the same key and token is a
+	 * no-op that returns the known user id; a new token for a key closes
+	 * the old session and logs in with the new one.
 	 */
 	int64_t addBot(uint64_t key, const std::string &token,
-		       std::string *err);
+		       std::string *err, bool *refused = nullptr);
+
+	/* Close the bot's session, if it has one. */
+	void removeBot(uint64_t key);
 
 	/* The bot's @username as TDLib reported it, or "" if it has none. */
 	std::string botUsername(uint64_t key);

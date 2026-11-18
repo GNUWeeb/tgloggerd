@@ -28,9 +28,9 @@ func (e *adminEnv) ownerOf(t webdb.ResourceType, id int64) uint64 {
 }
 
 // Every create operation makes the account creating the resource its
-// owner: webhooks, routes, the bot a new token adds, exposed groups and
-// MCP tokens. A token naming a stored bot reuses it without touching
-// its owner, and deleting a resource drops its owner.
+// owner: webhooks, routes, bots, exposed groups and MCP tokens. Using
+// a bot in a route leaves its owner, and deleting a resource drops its
+// owner.
 func TestOwnerOnCreation(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t)
@@ -43,41 +43,27 @@ func TestOwnerOnCreation(t *testing.T) {
 		t.Errorf("webhook owner %d", o)
 	}
 
-	b = e.want(201, "admin", "POST", d2tBase, map[string]any{"discord_channel_id": "710000000000000003",
-		"chat_id": rustChat, "bot_token": newToken, "types": []string{"text"}, "enabled": true})
-	route := int64(b["id"].(float64))
-	var bot int64
-	fmt.Sscan(e.one("SELECT telegram_bot_id FROM discord_telegram_routes WHERE id = ?", route), &bot)
-	if o := e.ownerOf(webdb.ResD2TRoute, route); o != admin {
-		t.Errorf("route owner %d", o)
-	}
+	// A new bot is its creator's; a route through it too.
+	b = e.want(201, "admin", "POST", "/api/bots", map[string]any{"kind": "telegram",
+		"name": "mine", "token": newToken})
+	bot := int64(b["id"].(float64))
 	if o := e.ownerOf(webdb.ResTelegramBot, bot); o != admin {
 		t.Errorf("new bot owner %d", o)
 	}
-
+	b = e.want(201, "admin", "POST", d2tBase, map[string]any{"discord_channel_id": "710000000000000003",
+		"chat_id": rustChat, "discord_bot_id": discordBot, "telegram_bot_id": bot,
+		"types": []string{"text"}, "enabled": true})
+	route := int64(b["id"].(float64))
+	if o := e.ownerOf(webdb.ResD2TRoute, route); o != admin {
+		t.Errorf("route owner %d", o)
+	}
 	// The superadmin routes through the admin's bot: the bot stays the
-	// admin's. A token of the fixture's (unowned) bot leaves it unowned.
-	b = e.want(201, "superadmin", "POST", d2tBase, map[string]any{"discord_channel_id": "710000000000000004",
-		"chat_id": rustChat, "bot_token": newToken, "types": []string{"text"}, "enabled": true})
-	route2 := int64(b["id"].(float64))
-	if o := e.ownerOf(webdb.ResD2TRoute, route2); o != e.uids["superadmin"] {
-		t.Errorf("second route owner %d", o)
-	}
+	// admin's.
+	e.want(201, "superadmin", "POST", d2tBase, map[string]any{"discord_channel_id": "710000000000000004",
+		"chat_id": rustChat, "discord_bot_id": discordBot, "telegram_bot_id": bot,
+		"types": []string{"text"}, "enabled": true})
 	if o := e.ownerOf(webdb.ResTelegramBot, bot); o != admin {
-		t.Errorf("reused bot owner %d", o)
-	}
-	e.want(204, "superadmin", "PATCH", fmt.Sprintf("%s/%d", d2tBase, route2),
-		map[string]any{"bot_token": "7000000001:fixtureBotSecretOne"})
-	if o := e.ownerOf(webdb.ResTelegramBot, 1); o != 0 {
-		t.Errorf("fixture bot owner %d", o)
-	}
-	// A new token on a route adds a bot owned by who gave it.
-	e.want(204, "superadmin", "PATCH", fmt.Sprintf("%s/%d", d2tBase, route2),
-		map[string]any{"bot_token": "7000000098:testSecretPatchedBot"})
-	var bot2 int64
-	fmt.Sscan(e.one("SELECT telegram_bot_id FROM discord_telegram_routes WHERE id = ?", route2), &bot2)
-	if o := e.ownerOf(webdb.ResTelegramBot, bot2); bot2 == bot || o != e.uids["superadmin"] {
-		t.Errorf("patched bot %d owner %d", bot2, o)
+		t.Errorf("used bot owner %d", o)
 	}
 
 	const kernel = -1001000000002

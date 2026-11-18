@@ -272,7 +272,9 @@ web)
 discord)
 	: "${TG_DB_HOST:?TG_DB_HOST is not set}" "${TG_DB_PORT:?TG_DB_PORT is not set}"
 	: "${TG_DB_USER:?}" "${TG_DB_PASSWORD:?}" "${TG_DB_NAME:?}"
-	: "${DISCORD_BOT_TOKEN:?DISCORD_BOT_TOKEN is not set}"
+	# The Discord bots are rows of discord_bots, not a setting. A
+	# DISCORD_BOT_TOKEN still set is read only for the transition, until
+	# the bot is imported (web/docs/platform-forwarding.md).
 	# discordd mints no /files/ links, so it needs no WEB_APP_KEY.
 	unset MYSQL_ROOT_PASSWORD MYSQL_PASSWORD WEB_DB_RO_PASSWORD \
 		WEB_DB_APP_PASSWORD WEB_APP_KEY

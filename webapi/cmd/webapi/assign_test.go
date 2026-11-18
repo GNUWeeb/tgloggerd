@@ -60,7 +60,7 @@ mcp_token     1 assigned to their creators: 2; 1 owned already
 telegram_bot  2 assigned: 1 2; 0 owned already
 t2d_webhook   2 assigned: 2 3; 1 owned already
 d2t_route     1 assigned: 2; 1 owned already
-discord_bot   not stored yet
+discord_bot   0 assigned; 0 owned already
 Assigned 8 resources.
 `
 	if out.String() != want {
@@ -109,7 +109,7 @@ mcp_token     0 assigned to their creators; 2 owned already
 telegram_bot  0 assigned; 2 owned already
 t2d_webhook   0 assigned; 3 owned already
 d2t_route     0 assigned; 2 owned already
-discord_bot   not stored yet
+discord_bot   0 assigned; 0 owned already
 Assigned 0 resources.
 `
 	if out.String() != want {
@@ -127,10 +127,14 @@ Assigned 0 resources.
 	if _, err := ro.Exec("INSERT INTO telegram_bots (id, token) VALUES (100, '7000000100:testSecretLater')"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := ro.Exec("INSERT INTO discord_bots (id, token) VALUES (1000000100, 'MTAw.a.testSecretLater')"); err != nil {
+		t.Fatal(err)
+	}
 	out.Reset()
 	if err := assignOwner(ctx, ro.DB, app.DB, "admin", &out); err != nil ||
 		!strings.Contains(out.String(), "telegram_bot  1 assigned: 100; 2 owned already\n") ||
-		!strings.HasSuffix(out.String(), "Assigned 1 resources.\n") {
+		!strings.Contains(out.String(), "discord_bot   1 assigned: 1000000100; 0 owned already\n") ||
+		!strings.HasSuffix(out.String(), "Assigned 2 resources.\n") {
 		t.Errorf("later run %v\n%s", err, out.String())
 	}
 }
