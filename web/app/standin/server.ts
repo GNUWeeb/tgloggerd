@@ -143,6 +143,16 @@ const csrfOk = (req: IncomingMessage) => csrfTokens.has(String(req.headers['x-cs
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
 	const url = new URL(req.url || '/', 'http://x');
+	// A file's bytes (/files/<token>): a picture in a colour of its id,
+	// whatever the file's type, so the media in the pages have something
+	// to show. Videos and audio do not play.
+	const fm = url.pathname.match(/^\/files\/standin-(\d+)$/);
+	if (fm) {
+		const hue = (Number(fm[1]) * 47) % 360;
+		res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' });
+		res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="400" height="300" fill="hsl(${hue} 55% 60%)"/><circle cx="300" cy="80" r="40" fill="hsl(${hue} 70% 85%)"/><path d="M0 300 L140 150 L240 250 L300 200 L400 300 Z" fill="hsl(${hue} 45% 35%)"/></svg>`);
+		return;
+	}
 	if (url.pathname.startsWith('/app/') || url.pathname.startsWith('/@') || url.pathname.startsWith('/node_modules/')) {
 		vite.middlewares(req, res);
 		return;
@@ -309,7 +319,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		const chat = fx.chatFor(cm[1], cm[2], who);
 		if (!chat) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"not_found"}'); return; }
 		const num = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
-		const w = fx.chatWindow(chat, { before: num('before'), after: num('after'), at: num('around') }, num('limit') || 60);
+		const w = fx.chatWindow(chat, { before: num('before'), after: num('after'), at: num('around') }, num('limit') || 60, fx.canFetch(who));
 		res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
 		res.end(JSON.stringify(w));
 		return;

@@ -80,22 +80,44 @@ function messageRow(m) {
 	};
 }
 
-function chatMedia(md, type) {
+// A message's media as Go sends it (ChatMedia): url when the bytes are
+// stored or, for a viewer who may fetch files, fetchable from Telegram;
+// thumb with the same URL for a picture. The sample data is varied by
+// file id: a third of the stickers each are webp, webm and tgs, every
+// fourth video is an animation, and some album items are videos or
+// deleted.
+const STICKER_FORMATS = ['webp', 'webm', 'tgs'];
+export function chatMedia(md, type, fetch = false, extra = {}) {
 	if (!md) return null;
+	const stored = md.stored !== false;
+	const fetchable = !stored && fetch;
+	const url = stored || fetchable ? `/files/standin-${md.fileId}` : null;
+	const format = type === 'sticker' ? STICKER_FORMATS[md.fileId % 3] : undefined;
+	const picture = type === 'photo' || format === 'webp';
 	return {
-		stored: md.stored !== false, thumb: null, url: md.stored !== false ? `/files/standin-${md.fileId}` : null,
+		stored, fetchable, thumb: picture ? url : null, url,
 		w: md.w, h: md.h, duration: md.duration, name: md.name, size: md.size, emoji: md.emoji,
 		// Telegram's voice waveform is 5-bit: 0 to 31 per bar.
 		wave: md.wave?.map((x) => Math.round(x * 31)),
+		...(format ? { format } : {}), ...extra,
 	};
 }
 
-export function chatMessage(m) {
+const typeOf = (m) => (m.content_type === 'video' && m.media && m.media.fileId % 4 === 0 ? 'animation' : m.content_type);
+
+function albumItem(a, fetch) {
+	const kind = a.fileId % 5 === 0 ? 'video' : 'photo';
+	const extra = { kind, ...(a.fileId % 7 === 0 ? { deleted_at: iso('2026-11-16 10:00:00') } : {}) };
+	return chatMedia({ ...a, w: 4, h: 3, stored: a.fileId % 6 !== 0, ...(kind === 'video' ? { duration: 12 + (a.fileId % 50) } : {}) }, kind, fetch, extra);
+}
+
+export function chatMessage(m, fetch = false) {
 	const s = senderOf(m);
+	const ct = typeOf(m);
 	return {
 		id: m.id, message_id: m.message_id, date: iso(m.date), scope: m.scope,
-		sender: m.is_outgoing ? null : userSummary(s, false), content_type: m.content_type, text: m.text || '',
-		media: chatMedia(m.media, m.content_type), album: (m.album || []).map((a) => chatMedia({ ...a, w: 4, h: 3, stored: true })),
+		sender: m.is_outgoing ? null : userSummary(s, false), content_type: ct, text: m.text || '',
+		media: chatMedia(m.media, ct, fetch, m.album ? { kind: ct } : {}), album: (m.album || []).map((a) => albumItem(a, fetch)),
 		reply_to: m.reply_to ? { message_id: m.reply_to.message_id, sender_id: senderOf(m.reply_to)?.id ?? 0, sender_name: senderOf(m.reply_to)?.name ?? 'You', snippet: m.reply_to.text || `[${m.reply_to.content_type}]` } : null,
 		forward: m.forward?.from ?? null, edits: (m.edits || []).map((e) => ({ at: iso(e.at), text: e.text })),
 		edited_at: m.edited_at ? iso(m.edited_at) : null, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
@@ -105,7 +127,7 @@ export function chatMessage(m) {
 
 // A window of a chat: the latest messages, or those around a message
 // id or the start of a day, oldest first.
-export function chatWindow(chat, anchor: { at?: number; date?: string; before?: number; after?: number }, limit = 60) {
+export function chatWindow(chat, anchor: { at?: number; date?: string; before?: number; after?: number }, limit = 60, fetch = false) {
 	const all = chatStream(chat);
 	let from = Math.max(0, all.length - limit), to = all.length;
 	if (anchor.before !== undefined) { to = all.findIndex((m) => m.message_id >= anchor.before); if (to < 0) to = all.length; from = Math.max(0, to - limit); }
@@ -114,8 +136,10 @@ export function chatWindow(chat, anchor: { at?: number; date?: string; before?: 
 		const i = anchor.at !== undefined ? all.findIndex((m) => m.message_id === anchor.at) : all.findIndex((m) => iso(m.date).slice(0, 10) >= anchor.date);
 		if (i >= 0) { from = Math.max(0, i - limit / 2); to = Math.min(all.length, from + limit); }
 	}
-	return { messages: all.slice(from, to).map(chatMessage), has_older: from > 0, has_newer: to < all.length };
+	return { messages: all.slice(from, to).map((m) => chatMessage(m, fetch)), has_older: from > 0, has_newer: to < all.length };
 }
+
+export const canFetch = (persona: Persona) => !!scopeOf(persona).canFetch;
 
 export function chatFor(scope: string, id: string, persona: Persona) {
 	const s = scopeOf(persona);
@@ -267,7 +291,7 @@ export function load(url: string, persona: Persona): Loaded {
 		const c = chatFor(kind, m[2], persona);
 		if (!c) return notFound;
 		const at = u.searchParams.get('at') ? Number(u.searchParams.get('at')) : undefined;
-		const w = chatWindow(c, { at, date: u.searchParams.get('date') || undefined });
+		const w = chatWindow(c, { at, date: u.searchParams.get('date') || undefined }, 60, scopeOf(persona).canFetch);
 		return {
 			route: kind === 'group' ? 'group_chat' : 'user_chat', status: 200, props: {
 				chat: kind === 'group'
