@@ -41,9 +41,9 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		" is_channel_post, author_signature, date,"
 		" edit_date, content_type, text, entities, service_type,"
 		" tdlib_type, content_extra,"
-		" is_forwarded, media_album_id, topic_kind, topic_id"
+		" is_forwarded, media_album_id, topic_kind, topic_id, meta, is_pinned"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_user_id = new.sender_user_id,"
 		" sender_chat_id = new.sender_chat_id,"
@@ -52,6 +52,10 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		" date = new.date,"
 		" is_forwarded = new.is_forwarded,"
 		" media_album_id = new.media_album_id,"
+		/* What the copy says now: a fact check can be removed, a
+		 * message unpinned. Not content, so no edit_date guard. */
+		" meta = new.meta,"
+		" is_pinned = new.is_pinned,"
 		/* A copy without a topic leaves a stored one in place. */
 		" topic_kind = COALESCE(new.topic_kind, telegram_group_messages.topic_kind),"
 		" topic_id = COALESCE(new.topic_id, telegram_group_messages.topic_id),"
@@ -141,6 +145,10 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 		if (msg.media_album_id.has_value())
 			album_param = (int64_t)*msg.media_album_id;
 
+		mysql::Param meta_param = std::monostate{};
+		if (msg.meta.has_value())
+			meta_param = *msg.meta;
+
 		mysql::Param topic_kind_param = std::monostate{};
 		mysql::Param topic_id_param = std::monostate{};
 		if (msg.topic_kind.has_value() && msg.topic_id.has_value()) {
@@ -170,6 +178,8 @@ MsgCountRefetch DB::upsertGroupMessage(const models::GroupMessage &msg)
 				album_param,
 				topic_kind_param,
 				topic_id_param,
+				meta_param,
+				b(msg.is_pinned),
 			};
 		};
 

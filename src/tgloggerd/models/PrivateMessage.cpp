@@ -44,15 +44,19 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		" chat_id, message_id, sender_id, is_outgoing, date,"
 		" edit_date, content_type, text, entities, service_type,"
 		" tdlib_type, content_extra,"
-		" is_forwarded, media_album_id"
+		" is_forwarded, media_album_id, meta, is_pinned"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_id = new.sender_id,"
 		" is_outgoing = new.is_outgoing,"
 		" date = new.date,"
 		" is_forwarded = new.is_forwarded,"
 		" media_album_id = new.media_album_id,"
+		/* What the copy says now: a fact check can be removed, a
+		 * message unpinned. Not content, so no edit_date guard. */
+		" meta = new.meta,"
+		" is_pinned = new.is_pinned,"
 		/*
 		 * The content columns are only taken from a copy that is at
 		 * least as recent as the stored one. Two getMessage replies for
@@ -129,6 +133,10 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		if (msg.media_album_id.has_value())
 			album_param = (int64_t)*msg.media_album_id;
 
+		mysql::Param meta_param = std::monostate{};
+		if (msg.meta.has_value())
+			meta_param = *msg.meta;
+
 		std::string new_ct = models::to_string(msg.content.content_type);
 
 		if (old_rows.empty()) {
@@ -158,6 +166,8 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 				extra_param,
 				b(msg.forward_info.has_value()),
 				album_param,
+				meta_param,
+				b(msg.is_pinned),
 			});
 
 			/*
@@ -287,6 +297,8 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			extra_param,
 			b(msg.forward_info.has_value()),
 			album_param,
+			meta_param,
+			b(msg.is_pinned),
 		});
 
 		/*
