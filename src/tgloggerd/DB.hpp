@@ -547,6 +547,18 @@ private:
 					  int64_t new_edit_date,
 					  bool entities_same,
 					  bool extra_same);
+	/*
+	 * Whether a version of a location message was recorded less than a
+	 * minute ago, so the next one is skipped: a live location moves
+	 * every few seconds, and a version per movement would flood the
+	 * edits table. The live row still takes every position.
+	 */
+	bool locationVersionTooSoon(mysql::Transaction &tx,
+				    const char *edits_table,
+				    const char *fk_column,
+				    uint64_t message_row_id,
+				    const models::MessageContent &old_content,
+				    const models::MessageContent &new_content);
 	void appendMessageVersion(mysql::Transaction &tx,
 				  const char *edits_table,
 				  const char *fk_column,
