@@ -206,34 +206,38 @@ func scanUsers(rows *sql.Rows) (map[int64]User, error) {
 // total, and a subquery per row over half a million users ran past the
 // statement time limit. The groups are inlined: they are our own
 // integers, from the account's settings.
-func userTotal(sc scope.Scope) (expr, joins string) {
+//
+// only, when not nil, is the users the query reads (a lookup by id):
+// the derived tables then count those users' messages alone, as MySQL
+// does not push the join's user ids into a grouped derived table, and
+// counting every sender of a big group took over a second for a page
+// of a chat. The ids are inlined like the groups: they are integers.
+func userTotal(sc scope.Scope, only []int64) (expr, joins string) {
+	senders := func(col string) string {
+		if only == nil {
+			return " AND " + col + " IS NOT NULL"
+		}
+		return " AND " + col + " IN (" + inlineIDs(only) + ")"
+	}
 	if !sc.SeesAllUsers() {
 		granted := sc.GrantedGroups()
 		if len(granted) == 0 {
 			return "0", ""
 		}
-		ids := make([]string, len(granted))
-		for i, g := range granted {
-			ids[i] = strconv.FormatInt(g, 10)
-		}
 		return "COALESCE(mg.n, 0)", " LEFT JOIN (SELECT sender_user_id AS uid, COUNT(*) AS n" +
-			" FROM telegram_group_messages WHERE chat_id IN (" + strings.Join(ids, ",") + ")" +
-			" AND sender_user_id IS NOT NULL GROUP BY sender_user_id) mg ON mg.uid = u.id"
+			" FROM telegram_group_messages WHERE chat_id IN (" + inlineIDs(granted) + ")" +
+			senders("sender_user_id") + " GROUP BY sender_user_id) mg ON mg.uid = u.id"
 	}
 	minus := ""
 	if hidden := sc.HiddenGroups(); len(hidden) > 0 {
-		ids := make([]string, len(hidden))
-		for i, g := range hidden {
-			ids[i] = strconv.FormatInt(g, 10)
-		}
 		joins += " LEFT JOIN (SELECT sender_user_id AS uid, COUNT(*) AS n FROM telegram_group_messages" +
-			" WHERE chat_id IN (" + strings.Join(ids, ",") + ") AND sender_user_id IS NOT NULL" +
+			" WHERE chat_id IN (" + inlineIDs(hidden) + ")" + senders("sender_user_id") +
 			" GROUP BY sender_user_id) hg ON hg.uid = u.id"
 		minus += " - COALESCE(hg.n, 0)"
 	}
 	if !sc.SeesPrivate() && sc.SeesAllUsers() {
 		joins += " LEFT JOIN (SELECT sender_id AS uid, COUNT(*) AS n FROM telegram_private_messages" +
-			" WHERE sender_id IS NOT NULL GROUP BY sender_id) hp ON hp.uid = u.id"
+			" WHERE 1 = 1" + senders("sender_id") + " GROUP BY sender_id) hp ON hp.uid = u.id"
 		minus += " - COALESCE(hp.n, 0)"
 	}
 	if minus == "" {
@@ -242,13 +246,23 @@ func userTotal(sc scope.Scope) (expr, joins string) {
 	return "GREATEST(CAST(u.msg_count AS SIGNED)" + minus + ", 0)", joins
 }
 
+// inlineIDs is ids as a comma-separated SQL list.
+func inlineIDs(ids []int64) string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = strconv.FormatInt(id, 10)
+	}
+	return strings.Join(out, ",")
+}
+
 // scopedTotals rewrites a query over users aliased u so it reads the
 // scope's userTotal wherever it reads u.msg_count, joining what that
 // reads right after each telegram_users u it selects from (a query and
 // the page subquery the users search may nest in it). A query that does
-// not read the total is left alone, so it pays for no join.
-func scopedTotals(sc scope.Scope, q string) string {
-	t, joins := userTotal(sc)
+// not read the total is left alone, so it pays for no join. only is
+// as for userTotal.
+func scopedTotals(sc scope.Scope, q string, only []int64) string {
+	t, joins := userTotal(sc, only)
 	if t == "u.msg_count" || !strings.Contains(q, "u.msg_count") {
 		return q
 	}
@@ -266,7 +280,7 @@ func usersByID(ctx context.Context, db *sql.DB, sc scope.Scope, ids []int64) (ma
 	if len(ids) == 0 {
 		return map[int64]User{}, nil
 	}
-	rows, err := db.QueryContext(ctx, scopedTotals(sc, userQuery)+"WHERE u.id IN ("+placeholders(len(ids))+")",
+	rows, err := db.QueryContext(ctx, scopedTotals(sc, userQuery, ids)+"WHERE u.id IN ("+placeholders(len(ids))+")",
 		int64Args(ids)...)
 	if err != nil {
 		return nil, err

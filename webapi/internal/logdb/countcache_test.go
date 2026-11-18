@@ -136,17 +136,39 @@ func TestUsersCountFrom(t *testing.T) {
 func TestScopedTotalsJoin(t *testing.T) {
 	t.Parallel()
 	sc := scope.For(scope.Viewer{ID: 3, Role: scope.Admin, HidePrivate: true, HideGroups: []int64{-10}})
-	q := scopedTotals(sc, "SELECT u.id, u.msg_count AS msg_count FROM telegram_users u WHERE u.msg_count > 1 ORDER BY u.msg_count DESC")
+	q := scopedTotals(sc, "SELECT u.id, u.msg_count AS msg_count FROM telegram_users u WHERE u.msg_count > 1 ORDER BY u.msg_count DESC", nil)
 	if strings.Count(q, " hg ON hg.uid = u.id") != 1 || strings.Count(q, " hp ON hp.uid = u.id") != 1 ||
 		!strings.Contains(q, "FROM telegram_users u LEFT JOIN (SELECT sender_user_id") ||
 		strings.Contains(q, "SELECT COUNT(*) FROM telegram_private_messages hp WHERE") ||
 		!strings.Contains(q, " AS msg_count FROM") {
 		t.Errorf("rewritten: %s", q)
 	}
-	if q := scopedTotals(sc, "SELECT COUNT(*) FROM telegram_users u"); strings.Contains(q, "JOIN") {
+	if q := scopedTotals(sc, "SELECT COUNT(*) FROM telegram_users u", nil); strings.Contains(q, "JOIN") {
 		t.Errorf("a query without the total got the joins: %s", q)
 	}
-	if q := scopedTotals(scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin}), "SELECT u.msg_count FROM telegram_users u"); q != "SELECT u.msg_count FROM telegram_users u" {
+	if q := scopedTotals(scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin}), "SELECT u.msg_count FROM telegram_users u", nil); q != "SELECT u.msg_count FROM telegram_users u" {
 		t.Errorf("a superadmin's query changed: %s", q)
+	}
+}
+
+// A lookup by id counts only the looked-up users' messages in the
+// derived tables, so a page of a chat does not count every sender of
+// a big group.
+func TestScopedTotalsOnlyIDs(t *testing.T) {
+	t.Parallel()
+	q := "SELECT u.id, u.msg_count FROM telegram_users u WHERE u.id IN (?, ?)"
+	admin := scope.For(scope.Viewer{ID: 3, Role: scope.Admin, HidePrivate: true, HideGroups: []int64{-10}})
+	got := scopedTotals(admin, q, []int64{5, 7})
+	if strings.Count(got, "sender_user_id IN (5,7)") != 1 || strings.Count(got, "sender_id IN (5,7)") != 1 ||
+		strings.Contains(got, "IS NOT NULL") {
+		t.Errorf("admin lookup: %s", got)
+	}
+	member := scope.For(scope.Viewer{ID: 4, Role: scope.Member, GrantedGroups: []int64{-20, -21}})
+	got = scopedTotals(member, q, []int64{5})
+	if !strings.Contains(got, "chat_id IN (-21,-20) AND sender_user_id IN (5) GROUP BY") {
+		t.Errorf("member lookup: %s", got)
+	}
+	if got := scopedTotals(admin, q, nil); !strings.Contains(got, "sender_user_id IS NOT NULL") {
+		t.Errorf("list query: %s", got)
 	}
 }
