@@ -57,11 +57,13 @@ export function DayBars({ data, now, start, height = 140, noun = 'messages' }: {
 					</span>
 				))}
 			</div>
-			<table className="a-sr">
+			{/* Hidden by its wrapper: a table will not shrink to the hidden
+			    size itself, and its rows would make the page taller. */}
+			<div className="a-sr"><table>
 				<caption>{noun[0]!.toUpperCase() + noun.slice(1)} per day{start ? '' : ', UTC days'}</caption>
 				<thead><tr><th scope="col">Day</th><th scope="col">{noun[0]!.toUpperCase() + noun.slice(1)}</th></tr></thead>
 				<tbody>{data.map((v, i) => <tr key={i}><td>{long(i)}</td><td>{fmt(v)}</td></tr>)}</tbody>
-			</table>
+			</table></div>
 		</div>
 	);
 }

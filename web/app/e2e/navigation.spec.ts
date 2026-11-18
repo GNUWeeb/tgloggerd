@@ -78,3 +78,12 @@ test('the dashboard\'s per-day bars give the day and count on hover', async ({ p
 	expect(box!.x + box!.width).toBeLessThanOrEqual(card!.x + card!.width + 1);
 	await expect(page.locator('.a-daybars-axis')).toContainText('Today');
 });
+
+test('the dashboard fits the window: nothing hidden makes the page taller', async ({ page }) => {
+	await page.setViewportSize({ width: 1920, height: 1080 });
+	await page.goto('/');
+	await expect(page.getByRole('img', { name: /^Today, / })).toBeVisible();
+	// The shell fills the window and scrolls inside; the page itself
+	// never does.
+	expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
+});
