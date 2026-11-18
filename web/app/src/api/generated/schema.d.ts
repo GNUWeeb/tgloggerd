@@ -376,10 +376,16 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Pin a group */
+        /**
+         * Pin a group
+         * @description Pins a group the viewer may see to the top of its menu (Viewer.pinned), after the ones pinned before. A group that does not exist or that the request scope hides answers 404. An account keeps at most 50 pins (400 too_many); a pin of a group the viewer can no longer see is kept, counts, and shows nowhere.
+         */
         put: operations["pinGroup"];
         post?: never;
-        /** Unpin a group */
+        /**
+         * Unpin a group
+         * @description 404 when the group is not pinned, or when the request scope hides it, like a group that does not exist.
+         */
         delete: operations["unpinGroup"];
         options?: never;
         head?: never;
@@ -395,7 +401,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Save a search */
+        /**
+         * Save a search
+         * @description title is trimmed and must keep 1 to 128 characters; url must be a path on this site (one leading slash, no backslash or control character) of at most 2048 bytes. Otherwise 400 bad_request names the field. An account keeps at most 100 (400 too_many). The preferences page lists them.
+         */
         post: operations["saveSearch"];
         delete?: never;
         options?: never;
@@ -2814,12 +2823,21 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Pinned (also when it already was). */
+            /** @description Pinned (also when it already was; it keeps its place). */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The account has 50 pins already (error too_many). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
@@ -2876,7 +2894,15 @@ export interface operations {
                     "application/json": components["schemas"]["Created"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description A refused title or url (error bad_request, with field), or the account has 100 already (error too_many). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldError"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
         };

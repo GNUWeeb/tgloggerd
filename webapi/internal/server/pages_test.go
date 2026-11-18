@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/render/rendertest"
 	"tgloggerd/webapi/internal/scope"
@@ -89,6 +90,9 @@ func newPagesEnv(t *testing.T, o pagesOpts) *pagesEnv {
 		pages:      o.pages,
 		prefs: func(context.Context, uint64) (settings.Prefs, error) {
 			return settings.Prefs{}, nil
+		},
+		pins: func(context.Context, uint64, scope.Scope) ([]logdb.PinnedGroup, error) {
+			return nil, nil
 		},
 		state: func(_ context.Context, uid uint64, _ [32]byte) (webdb.SessionState, error) {
 			if e.epochErr != nil {

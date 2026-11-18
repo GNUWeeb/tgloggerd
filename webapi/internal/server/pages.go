@@ -318,6 +318,13 @@ func (s *Server) pageViewer(ctx context.Context, sess *auth.Session, sc scope.Sc
 		Role: sess.Role,
 	}
 	v.Nav = pageNav(sc)
+	pins, err := s.viewerPins(ctx, sess.UID, sc)
+	if err != nil {
+		return render.Viewer{}, err
+	}
+	for _, g := range pins {
+		v.Pinned = append(v.Pinned, render.Pin{ID: g.ID, Title: g.Title})
+	}
 	return v, nil
 }
 

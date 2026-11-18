@@ -1173,10 +1173,15 @@ paths:
 
   /api/account/pinned/{group_id}:
     put:
-      x-tgd-status: planned
       operationId: pinGroup
       tags: [account]
       summary: Pin a group
+      description: >-
+        Pins a group the viewer may see to the top of its menu
+        (Viewer.pinned), after the ones pinned before. A group that
+        does not exist or that the request scope hides answers 404. An
+        account keeps at most 50 pins (400 too_many); a pin of a group
+        the viewer can no longer see is kept, counts, and shows nowhere.
       security:
         - session: []
           csrf: []
@@ -1184,7 +1189,13 @@ paths:
         - $ref: '#/components/parameters/GroupId'
       responses:
         '204':
-          description: Pinned (also when it already was).
+          description: Pinned (also when it already was; it keeps its place).
+        '400':
+          description: The account has 50 pins already (error too_many).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -1192,10 +1203,12 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     delete:
-      x-tgd-status: planned
       operationId: unpinGroup
       tags: [account]
       summary: Unpin a group
+      description: >-
+        404 when the group is not pinned, or when the request scope
+        hides it, like a group that does not exist.
       security:
         - session: []
           csrf: []
@@ -1213,10 +1226,15 @@ paths:
 
   /api/account/saved-searches:
     post:
-      x-tgd-status: planned
       operationId: saveSearch
       tags: [account]
       summary: Save a search
+      description: >-
+        title is trimmed and must keep 1 to 128 characters; url must be
+        a path on this site (one leading slash, no backslash or control
+        character) of at most 2048 bytes. Otherwise 400 bad_request
+        names the field. An account keeps at most 100 (400 too_many).
+        The preferences page lists them.
       security:
         - session: []
           csrf: []
@@ -1241,7 +1259,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Created'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: >-
+            A refused title or url (error bad_request, with field), or
+            the account has 100 already (error too_many).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldError'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -1249,7 +1273,6 @@ paths:
 
   /api/account/saved-searches/{id}:
     delete:
-      x-tgd-status: planned
       operationId: deleteSavedSearch
       tags: [account]
       summary: Delete a saved search

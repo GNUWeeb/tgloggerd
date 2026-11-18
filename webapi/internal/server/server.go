@@ -22,6 +22,7 @@ import (
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/live"
+	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/settings"
@@ -65,11 +66,12 @@ type Deps struct {
 	Defaults settings.Defaults
 
 	// pages replaces the page table, state the database's account
-	// state behind a session, and prefs the accounts' stored
-	// preferences, for tests.
+	// state behind a session, prefs the accounts' stored preferences
+	// and pins their pinned groups, for tests.
 	pages []pageRoute
 	state auth.StateFunc
 	prefs func(ctx context.Context, uid uint64) (settings.Prefs, error)
+	pins  func(ctx context.Context, uid uint64, sc scope.Scope) ([]logdb.PinnedGroup, error)
 }
 
 // Server carries what the handlers share.
@@ -95,8 +97,10 @@ type Server struct {
 	assets     render.Assets
 	assetFiles *os.Root
 	defaults   settings.Defaults
-	// viewerPrefs reads an account's preferences (settings.Load).
+	// viewerPrefs reads an account's preferences (settings.Load),
+	// viewerPins its pinned groups in the scope (pinnedGroups).
 	viewerPrefs func(ctx context.Context, uid uint64) (settings.Prefs, error)
+	viewerPins  func(ctx context.Context, uid uint64, sc scope.Scope) ([]logdb.PinnedGroup, error)
 	pages       []pageRoute
 	clock       func() time.Time
 }
@@ -139,6 +143,10 @@ func New(d Deps) http.Handler {
 	if d.prefs != nil {
 		s.viewerPrefs = d.prefs
 	}
+	s.viewerPins = s.pinnedGroups
+	if d.pins != nil {
+		s.viewerPins = d.pins
+	}
 
 	mux := http.NewServeMux()
 	for _, rt := range s.routes() {
@@ -179,6 +187,10 @@ func (s *Server) routes() []route {
 		{"POST /api/accounts/{id}/password-reset", s.RequireSession(s.resetAccountPassword)},
 		{"POST /api/accounts/{id}/sign-out-everywhere", s.RequireSession(s.signOutAccountEverywhere)},
 		{"PUT /api/account/preferences", s.RequireSession(s.putPreferences)},
+		{"PUT /api/account/pinned/{group_id}", s.RequireSession(s.pinGroup)},
+		{"DELETE /api/account/pinned/{group_id}", s.RequireSession(s.unpinGroup)},
+		{"POST /api/account/saved-searches", s.RequireSession(s.saveSearch)},
+		{"DELETE /api/account/saved-searches/{id}", s.RequireSession(s.deleteSavedSearch)},
 	}
 }
 
