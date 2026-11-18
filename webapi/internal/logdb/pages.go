@@ -568,3 +568,9 @@ func LoadDashboard(ctx context.Context, db *sql.DB, sc scope.Scope, now int64,
 	}
 	return d, nil
 }
+
+// GroupUsernames are a group's usernames, as its page lists them. The
+// caller decides the group may be shown.
+func GroupUsernames(ctx context.Context, db *sql.DB, id int64) ([]Username, error) {
+	return usernames(ctx, db, "telegram_group_usernames", "group_id", id)
+}

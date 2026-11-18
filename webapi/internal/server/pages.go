@@ -100,7 +100,9 @@ func defaultPages() []pageRoute {
 		{id: "user_history", pattern: "/users/{id}/history", load: loadUserHistory},
 		{id: "user_chat", pattern: "/users/{id}/chat", load: loadUserChat},
 		{id: "groups", pattern: "/groups", load: loadGroups},
-		{id: "group", pattern: "/groups/{id}", load: loadGroup},
+		// The details of an exposed group are public, as its chat is;
+		// its admins and history tabs are not (loadGroup).
+		{id: "group", pattern: "/groups/{id}", public: true, load: loadGroupPage},
 		{id: "group_admins", pattern: "/groups/{id}/admins", load: loadGroup},
 		{id: "group_history", pattern: "/groups/{id}/history", load: loadGroup},
 		// The chats of groups exposed through MCP are public; the

@@ -254,13 +254,73 @@ func TestPageGroup(t *testing.T) {
 		if len(p.Activity) != 30 || p.Activity[29] != 8 {
 			t.Errorf("%s: activity %v", route, p.Activity)
 		}
-		notFoundPage(e, path, "researcher")
+		// A member does not see the group: its tabs answer 404, and the
+		// group route itself only the public details (it is exposed).
+		if route == "group" {
+			if p := page[map[string]any](e, path, "researcher", 200, "group"); p["public"] != true {
+				t.Errorf("member: %v", p)
+			}
+		} else {
+			notFoundPage(e, path, "researcher")
+		}
 	}
 	notFoundPage(e, "/groups/-1009999999999", "admin")
-	// A group page is not public, even for an exposed group.
-	code, _, _ := e.get(fmt.Sprintf("/api/page/groups/%d", gnuWeeb), "")
-	if code != http.StatusUnauthorized {
-		t.Errorf("signed out: %d", code)
+	// An exposed group's details are public (TestPublicGroupPage); its
+	// admins and history tabs are not.
+	for _, tab := range []string{"admins", "history"} {
+		if code, _, _ := e.get(fmt.Sprintf("/api/page/groups/%d/%s", gnuWeeb, tab), ""); code != http.StatusUnauthorized {
+			t.Errorf("signed out %s: %d", tab, code)
+		}
+	}
+}
+
+// An exposed group's details are as public as its chat: its summary and
+// counts, to a viewer whose scope does not see it; a group that is not
+// exposed stays hidden; a viewer that sees the group gets its page.
+func TestPublicGroupPage(t *testing.T) {
+	t.Parallel()
+	e := newChatEnv(t, false)
+	get := func(id int64, cookie string) (int, map[string]any) {
+		t.Helper()
+		code, _, body := e.get(fmt.Sprintf("/api/page/groups/%d", id), cookie)
+		var p map[string]any
+		_ = json.Unmarshal(body, &p)
+		return code, p
+	}
+	for _, who := range []string{"", "researcher"} { // signed out; a member
+		cookie := ""
+		if who != "" {
+			cookie = e.as(who)
+		}
+		code, p := get(openLab, cookie)
+		props, _ := p["props"].(map[string]any)
+		if code != 200 || p["route"] != "group" || props["public"] != true {
+			t.Fatalf("%q exposed: %d %v", who, code, p)
+		}
+		g := props["group"].(map[string]any)
+		for _, k := range []string{"id", "title", "type", "description", "members", "msg_count", "created_at", "usernames"} {
+			if _, ok := g[k]; !ok {
+				t.Errorf("%q: group lacks %s: %v", who, k, g)
+			}
+		}
+		for _, k := range []string{"admins", "history", "top_posters", "activity", "history_next"} {
+			if _, ok := props[k]; ok {
+				t.Errorf("%q: public props carry %s", who, k)
+			}
+		}
+		// Not exposed: a sign-in to a visitor, 404 to a member.
+		want := http.StatusNotFound
+		if who == "" {
+			want = http.StatusUnauthorized
+		}
+		if code, _ := get(pagingLab, cookie); code != want {
+			t.Errorf("%q not exposed: %d, want %d", who, code, want)
+		}
+	}
+	// An admin sees the full page of an exposed group.
+	code, p := get(openLab, e.as("admin"))
+	if props := p["props"].(map[string]any); code != 200 || props["public"] != nil || props["admins"] == nil {
+		t.Errorf("admin: %d %v", code, p)
 	}
 }
 

@@ -400,6 +400,58 @@ type groupProps struct {
 	Activity    []int64          `json:"activity"`
 }
 
+// groupPublicProps is GroupPublicProps: an exposed group's details for a
+// viewer whose scope does not see the group (signed out, a member, an
+// admin it is hidden from), as public as its chat: the group's own
+// summary and counts, none of its admins, history, posters or files.
+type groupPublicProps struct {
+	Public bool            `json:"public"`
+	Group  groupPublicJSON `json:"group"`
+}
+
+type groupPublicJSON struct {
+	groupSummaryJSON
+	Usernames   []usernameJSON `json:"usernames"`
+	Description string         `json:"description"`
+	Members     int64          `json:"members"`
+	MsgCount    uint64         `json:"msg_count"`
+	CreatedAt   string         `json:"created_at"`
+}
+
+// loadGroupPage is the group route: the group's page for a viewer that
+// sees it, else the public details of an exposed group; anything else
+// asks a signed-out visitor to sign in and answers 404 to the others,
+// whether or not it exists.
+func loadGroupPage(ctx context.Context, pr *pageRequest) (any, error) {
+	if pr.sess != nil && pr.scope.SeesGroup(pr.pathID()) {
+		return loadGroup(ctx, pr)
+	}
+	c, err := logdb.OpenChat(ctx, pr.s.ro, pr.scope, true, pr.pathID())
+	switch {
+	case errors.Is(err, logdb.ErrNotFound) || (err == nil && !c.Exposed):
+		if pr.sess == nil {
+			return nil, errPageSignIn
+		}
+		return nil, errPageNotFound
+	case err != nil:
+		return nil, err
+	}
+	members, err := c.KnownMembers(ctx, pr.s.ro)
+	if err != nil {
+		return nil, err
+	}
+	names, err := logdb.GroupUsernames(ctx, pr.s.ro, pr.pathID())
+	if err != nil {
+		return nil, err
+	}
+	g := c.GroupInfo
+	gs := pr.view().group(g)
+	gs.MsgCount = nil
+	return groupPublicProps{Public: true, Group: groupPublicJSON{groupSummaryJSON: gs,
+		Usernames: usernamesJSON(names), Description: g.Description, Members: members,
+		MsgCount: g.MsgCount, CreatedAt: iso(g.CreatedAt)}}, nil
+}
+
 func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 	p, err := logdb.LoadGroupPage(ctx, pr.s.ro, pr.scope, pr.pathID(), pr.now(),
 		pr.historyCursor(logdb.ValidGroupCursor))

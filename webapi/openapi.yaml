@@ -4109,7 +4109,9 @@ components:
             route:
               enum: [group, group_admins, group_history]
             props:
-              $ref: '#/components/schemas/GroupProps'
+              oneOf:
+                - $ref: '#/components/schemas/GroupProps'
+                - $ref: '#/components/schemas/GroupPublicProps'
     PageFiles:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -5792,6 +5794,40 @@ components:
                       updated_at:
                         type: string
                         description: Always sent by the service.
+    GroupPublicProps:
+      type: object
+      description: >-
+        The group route (/groups/{id}, not its admins or history tabs)
+        for an exposed group the viewer's scope does not see: signed
+        out, a member without it, an admin it is hidden from. As public
+        as the group's chat: its summary and counts, with none of its
+        admins, history, posters, activity or files. A group neither
+        visible nor exposed answers a sign-in to a visitor and 404 to
+        the others.
+      required: [public, group]
+      properties:
+        public:
+          type: boolean
+          const: true
+        group:
+          allOf:
+            - $ref: '#/components/schemas/GroupSummary'
+            - type: object
+              required: [usernames, description, members, msg_count, created_at]
+              properties:
+                usernames:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Username'
+                description:
+                  type: string
+                members:
+                  type: integer
+                  description: The people the archive has seen in the group, as GroupFull.members.
+                msg_count:
+                  type: integer
+                created_at:
+                  type: string
     GroupProps:
       type: object
       required: [group, admins, history, top_posters, activity, history_next]
