@@ -476,8 +476,12 @@ func filesFilter(sc scope.Scope) (string, []any) {
 
 // --- messages ----------------------------------------------------------
 
-// MessageTypes are the content types of both message tables.
-const MessageTypes = "text,photo,video,document,audio,voice,sticker,animation,service,unknown"
+// MessageTypes are the content types of both message tables, in the
+// order of their ENUM (daemon migration 000034 appended video_note to
+// unsupported).
+const MessageTypes = "text,photo,video,document,audio,voice,sticker,animation,service,unknown," +
+	"video_note,location,venue,contact,dice,game,poll,checklist,story,paid_media,invoice," +
+	"giveaway,call,rich,widget,expired,unsupported"
 
 func nameCols(r Row, first, last string) string {
 	return esc(DisplayName(r.Str(first), r.Str(last)))

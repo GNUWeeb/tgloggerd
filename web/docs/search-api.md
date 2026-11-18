@@ -56,6 +56,9 @@ webapi/openapi.yaml. Where the two differ:
   estimate (`total_exact` false on a browse without conditions) is
   only given to a viewer who sees the whole table.
 - `debug=1` is honoured for superadmins and admins.
+- `content_type` takes the kinds daemon migration 000034 appended
+  (`video_note` to `unsupported`, docs/design/message-types.md section
+  4.1) besides the ten the Drogon registry lists.
 
 The React list pages (users, groups, files, group_messages,
 private_messages) read their rows through the same search, from the
@@ -233,7 +236,7 @@ index-backed columns are searchable so a query never scans the table.
 | key | label | type | operators |
 |---|---|---|---|
 | `text` | Text | fulltext | `matches` |
-| `content_type` | Content type | enum | `= !=` (text,photo,video,document,audio,voice,sticker,animation,service,unknown) |
+| `content_type` | Content type | enum | `= !=` (text,photo,video,document,audio,voice,sticker,animation,service,unknown,video_note,location,venue,contact,dice,game,poll,checklist,story,paid_media,invoice,giveaway,call,rich,widget,expired,unsupported) |
 | `chat_id` | User (chat) id | int | `= != < > <= >=` |
 | `sender_id` | Sender id | int | `= != < > <= >=` |
 | `message_id` | Message id | int | `= != < > <= >=` |

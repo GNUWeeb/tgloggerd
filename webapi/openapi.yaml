@@ -874,6 +874,16 @@ paths:
           schema:
             type: integer
             format: int64
+        - name: topic
+          in: query
+          required: false
+          description: >-
+            Only the messages of this forum topic (ChatTopic.id) of a
+            group; the cursors and has_older and has_newer then count
+            within the topic. A private chat takes no topic (400).
+          schema:
+            type: integer
+            format: int64
         - name: limit
           in: query
           required: false
@@ -4817,7 +4827,40 @@ components:
       enum: [group, private]
     ContentType:
       type: string
-      enum: [text, photo, video, document, audio, voice, sticker, animation, service, unknown]
+      description: >-
+        A message's kind, as the logger stores it (daemon migration
+        000034 appended video_note to unsupported; content_type of
+        docs/design/message-types.md section 4.1). unknown is a TDLib
+        class newer than the daemon's code, or a row logged before the
+        daemon knew the kind. New values may be appended.
+      enum:
+        - text
+        - photo
+        - video
+        - document
+        - audio
+        - voice
+        - sticker
+        - animation
+        - service
+        - unknown
+        - video_note
+        - location
+        - venue
+        - contact
+        - dice
+        - game
+        - poll
+        - checklist
+        - story
+        - paid_media
+        - invoice
+        - giveaway
+        - call
+        - rich
+        - widget
+        - expired
+        - unsupported
     ChatRef:
       type: object
       required: [id, title, kind, photo]
@@ -5212,10 +5255,10 @@ components:
         tdlib_type:
           type: string
           description: >-
-            The exact TDLib class (messageVideoNote, ...), recorded for
-            rows logged since daemon migration 000034. The kinds that
-            migration added to content_type are shown as unknown until
-            the chat view renders them, so this says what they are.
+            The exact TDLib class (messageVideoNote, messageStakeDice,
+            ...), recorded for rows logged since daemon migration
+            000034; it tells apart classes that share a content_type,
+            and names a class newer than the daemon's code (unknown).
     MediaDetail:
       type: object
       description: >-
@@ -5285,10 +5328,525 @@ components:
             A video's cover photo (telegram_message_files, role cover),
             its /files/<token> URL, when it is stored or may be
             fetched.
+        round:
+          type: boolean
+          description: >-
+            Present (true) for a video note, which Telegram shows as a
+            round video (content_type video_note).
+    MessageKinds:
+      type: object
+      description: >-
+        What ChatMessage and MessageFull show of a message beyond its
+        text and media (docs/design/message-types.md sections 4.2 to
+        4.7): the kind's structured detail, a service message's action
+        and the people and chats it names, its forum topic, and the
+        latest interaction totals. Rows logged before daemon migration
+        000034 have none of the detail: detail is null and service has
+        no refs, so they render as before. Every user and chat named
+        is resolved through the request scope, by the same rules as
+        the senders: one the viewer may not see is left out (null, or
+        absent from its list), never named.
+      required: [detail, service, topic_id, pinned, views, forwards, replies, reactions]
+      properties:
+        detail:
+          description: >-
+            The kind's detail, by content_type (its kind); null for
+            text, the media kinds (photo, video, video_note, document,
+            audio, voice, sticker, animation), service, unknown, rows
+            without content_extra, and a poll whose poll was never
+            stored.
+          oneOf:
+            - $ref: '#/components/schemas/MessageDetail'
+            - type: 'null'
+        service:
+          description: A service message's action; null for every other kind.
+          oneOf:
+            - $ref: '#/components/schemas/ServiceInfo'
+            - type: 'null'
+        topic_id:
+          type: [integer, 'null']
+          format: int64
+          description: >-
+            The forum topic of a group message (ChatProps.topics), null
+            outside forums and for rows logged before the daemon
+            recorded topics.
+        pinned:
+          type: boolean
+          description: The message is pinned in its chat, as last observed.
+        views:
+          type: [integer, 'null']
+          description: Latest view count; null when never observed.
+        forwards:
+          type: [integer, 'null']
+          description: Latest forward count; null when never observed.
+        replies:
+          type: [integer, 'null']
+          description: Latest reply (comment) count; null when never observed.
+        reactions:
+          type: array
+          description: >-
+            The latest reaction totals, most first as Telegram orders
+            them; empty when there are none or none were observed.
+          items:
+            $ref: '#/components/schemas/Reaction'
+    Reaction:
+      type: object
+      description: >-
+        One reaction's total: an emoji, a custom emoji (its id; the web
+        does not have its image), or the paid star reaction.
+      required: [count]
+      properties:
+        emoji:
+          type: string
+        custom_emoji_id:
+          type: string
+        paid:
+          type: boolean
+        count:
+          type: integer
+    ServiceInfo:
+      type: object
+      description: >-
+        A service message's action. The message's text is its
+        description for this viewer: rebuilt from the action's stored
+        detail to name the users and chats in refs (e.g. "added Dewi
+        Kusuma and 2 other members"), and otherwise the logger's own
+        description, which names nobody. A user or chat the viewer may
+        not see is never named in either.
+      required: [type, refs]
+      properties:
+        type:
+          type: string
+          description: >-
+            The action (service_type: chat_add_members, pin_message,
+            ...; docs/design/message-types.md section 4.2.3).
+        refs:
+          $ref: '#/components/schemas/ServiceRefs'
+    ServiceRefs:
+      type: object
+      description: >-
+        Who and what the action names, for links: the users (kind user)
+        and chats (kind group) the viewer may see, in the order the
+        action names them; the others are left out. message_id is the
+        message of this chat the action is about (the pinned message, a
+        poll or checklist that changed, a giveaway), for ?at= links;
+        null when none.
+      required: [users, chats, message_id]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatRef'
+        chats:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatRef'
+        message_id:
+          type: [integer, 'null']
+          format: int64
+    MessageDetail:
+      description: >-
+        A message kind's detail, from content_extra
+        (docs/design/message-types.md section 4.2.2), the poll tables
+        and telegram_message_files. Lists that can be long (poll
+        options, checklist tasks, giveaway chats, group call
+        participants) hold at most the first 20, with the full count
+        in the matching *_total; a total counts the people and chats
+        left out as hidden too, which says how many there were but not
+        who. A user or a chat is a ChatRef (kind user or group).
+      oneOf:
+        - $ref: '#/components/schemas/LocationDetail'
+        - $ref: '#/components/schemas/VenueDetail'
+        - $ref: '#/components/schemas/ContactDetail'
+        - $ref: '#/components/schemas/DiceDetail'
+        - $ref: '#/components/schemas/GameDetail'
+        - $ref: '#/components/schemas/PollDetail'
+        - $ref: '#/components/schemas/ChecklistDetail'
+        - $ref: '#/components/schemas/StoryDetail'
+        - $ref: '#/components/schemas/InvoiceDetail'
+        - $ref: '#/components/schemas/GiveawayDetail'
+        - $ref: '#/components/schemas/CallDetail'
+        - $ref: '#/components/schemas/PaidMediaDetail'
+        - $ref: '#/components/schemas/PlaceholderDetail'
+      discriminator:
+        propertyName: kind
+        mapping:
+          location: '#/components/schemas/LocationDetail'
+          venue: '#/components/schemas/VenueDetail'
+          contact: '#/components/schemas/ContactDetail'
+          dice: '#/components/schemas/DiceDetail'
+          game: '#/components/schemas/GameDetail'
+          poll: '#/components/schemas/PollDetail'
+          checklist: '#/components/schemas/ChecklistDetail'
+          story: '#/components/schemas/StoryDetail'
+          invoice: '#/components/schemas/InvoiceDetail'
+          giveaway: '#/components/schemas/GiveawayDetail'
+          call: '#/components/schemas/CallDetail'
+          paid_media: '#/components/schemas/PaidMediaDetail'
+          rich: '#/components/schemas/PlaceholderDetail'
+          widget: '#/components/schemas/PlaceholderDetail'
+          expired: '#/components/schemas/PlaceholderDetail'
+          unsupported: '#/components/schemas/PlaceholderDetail'
+    LocationDetail:
+      type: object
+      description: >-
+        A location, in degrees. A live location shows its latest
+        position, with how many times it moved (its edit versions; the
+        logger keeps at most one a minute), not a track.
+      required: [kind, lat, lon, accuracy, live]
+      properties:
+        kind:
+          const: location
+        lat:
+          type: number
+        lon:
+          type: number
+        accuracy:
+          type: [number, 'null']
+          description: Horizontal accuracy in metres; null when unknown.
+        live:
+          oneOf:
+            - type: object
+              required: [period, heading, proximity_radius, updates]
+              properties:
+                period:
+                  type: integer
+                  description: Seconds it is shared for (0x7FFFFFFF is "until stopped").
+                heading:
+                  type: integer
+                  description: Direction of travel in degrees, 0 when unknown.
+                proximity_radius:
+                  type: integer
+                  description: Metres of the proximity alert, 0 when none.
+                updates:
+                  type: integer
+                  description: How many earlier positions the logger kept.
+            - type: 'null'
+    VenueDetail:
+      type: object
+      required: [kind, lat, lon, title, address, provider, venue_id, venue_type]
+      properties:
+        kind:
+          const: venue
+        lat:
+          type: number
+        lon:
+          type: number
+        title:
+          type: string
+        address:
+          type: string
+        provider:
+          type: string
+          description: The venue database (foursquare, gplaces), or "".
+        venue_id:
+          type: string
+        venue_type:
+          type: string
+    ContactDetail:
+      type: object
+      description: >-
+        A shared contact. phone and vcard (which holds the number too)
+        follow the rule for users' phones: only viewers that see users
+        in full get them; for others they are null. user is the
+        Telegram user the contact is, when the viewer may see it.
+      required: [kind, first_name, last_name, phone, vcard, user]
+      properties:
+        kind:
+          const: contact
+        first_name:
+          type: string
+        last_name:
+          type: string
+        phone:
+          type: [string, 'null']
+        vcard:
+          type: [string, 'null']
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/ChatRef'
+            - type: 'null'
+    DiceDetail:
+      type: object
+      required: [kind, emoji, value, stake]
+      properties:
+        kind:
+          const: dice
+        emoji:
+          type: string
+          description: The dice's emoji; "" for a stake dice.
+        value:
+          type: integer
+          description: The value thrown; 0 while it was still rolling.
+        stake:
+          type: boolean
+          description: A dice played for a stake.
+    GameDetail:
+      type: object
+      description: A game; its text is the message text.
+      required: [kind, title, description, short_name, photo]
+      properties:
+        kind:
+          const: game
+        title:
+          type: string
+        description:
+          type: string
+        short_name:
+          type: string
+        photo:
+          description: The game's photo, or else its animation (telegram_message_files, role game).
+          oneOf:
+            - $ref: '#/components/schemas/ChatMedia'
+            - type: 'null'
+    PollDetail:
+      type: object
+      description: >-
+        A poll or quiz with its latest results (telegram_polls and its
+        options; removed options are left out). The message text is
+        the poll's description.
+      required: [kind, question, type, anonymous, multiple, closed, total_voters, close_date, explanation, options, options_total]
+      properties:
+        kind:
+          const: poll
+        question:
+          type: string
+        type:
+          type: string
+          enum: [regular, quiz]
+        anonymous:
+          type: boolean
+        multiple:
+          type: boolean
+          description: More than one option may be chosen.
+        closed:
+          type: boolean
+        total_voters:
+          type: integer
+        close_date:
+          type: [string, 'null']
+          description: When it closes or closed, if a date was set.
+        explanation:
+          type: [string, 'null']
+          description: A quiz's explanation, if any.
+        options:
+          type: array
+          description: The first 20 options, in order.
+          items:
+            type: object
+            required: [text, voters, percent, correct]
+            properties:
+              text:
+                type: string
+              voters:
+                type: integer
+              percent:
+                type: integer
+              correct:
+                type: boolean
+                description: A quiz's correct option.
+        options_total:
+          type: integer
+    ChecklistDetail:
+      type: object
+      description: A checklist; its title is the message text.
+      required: [kind, tasks, tasks_total, others_can_add, others_can_mark]
+      properties:
+        kind:
+          const: checklist
+        tasks:
+          type: array
+          description: The first 20 tasks, in order.
+          items:
+            type: object
+            required: [id, text, done, done_by, done_at]
+            properties:
+              id:
+                type: integer
+              text:
+                type: string
+              done:
+                type: boolean
+              done_by:
+                description: Who marked it done, when the viewer may see them.
+                oneOf:
+                  - $ref: '#/components/schemas/ChatRef'
+                  - type: 'null'
+              done_at:
+                type: [string, 'null']
+        tasks_total:
+          type: integer
+        others_can_add:
+          type: boolean
+        others_can_mark:
+          type: boolean
+    StoryDetail:
+      type: object
+      description: A shared story, kept as a reference only (stories are not archived).
+      required: [kind, poster, story_id]
+      properties:
+        kind:
+          const: story
+        poster:
+          description: Whose story it is, when the viewer may see them.
+          oneOf:
+            - $ref: '#/components/schemas/ChatRef'
+            - type: 'null'
+        story_id:
+          type: integer
+    InvoiceDetail:
+      type: object
+      required: [kind, title, description, currency, total_amount, is_test, photo]
+      properties:
+        kind:
+          const: invoice
+        title:
+          type: string
+        description:
+          type: string
+        currency:
+          type: string
+          description: ISO 4217 code, or XTR for Telegram Stars.
+        total_amount:
+          type: integer
+          format: int64
+          description: In the currency's smallest unit.
+        is_test:
+          type: boolean
+        photo:
+          description: The product photo (telegram_message_files, role invoice).
+          oneOf:
+            - $ref: '#/components/schemas/ChatMedia'
+            - type: 'null'
+    GiveawayDetail:
+      type: object
+      required: [kind, prize, winner_count, winners_selection_date, only_new_members, prize_description, chats, chats_total]
+      properties:
+        kind:
+          const: giveaway
+        prize:
+          oneOf:
+            - type: object
+              required: [premium_months]
+              properties:
+                premium_months:
+                  type: integer
+            - type: object
+              required: [stars]
+              properties:
+                stars:
+                  type: integer
+                  format: int64
+            - type: 'null'
+        winner_count:
+          type: integer
+        winners_selection_date:
+          type: [string, 'null']
+        only_new_members:
+          type: boolean
+        prize_description:
+          type: string
+        chats:
+          type: array
+          description: >-
+            The chats taking part (the boosted chat first) that the
+            viewer may see, at most 20.
+          items:
+            $ref: '#/components/schemas/ChatRef'
+        chats_total:
+          type: integer
+    CallDetail:
+      type: object
+      description: >-
+        A call. outcome: missed, declined, disconnected, hung_up or
+        upgraded (to a group call) for a private call, ended when
+        Telegram gave no reason; for a group call active, missed or
+        ended.
+      required: [kind, video, group, duration, outcome, participants, participants_total]
+      properties:
+        kind:
+          const: call
+        video:
+          type: boolean
+        group:
+          type: boolean
+        duration:
+          type: integer
+          description: Seconds; 0 when it did not take place or is still going.
+        outcome:
+          type: string
+          enum: [missed, declined, disconnected, hung_up, upgraded, ended, active]
+        participants:
+          type: array
+          description: >-
+            A group call's other participants the viewer may see, at
+            most 20; empty for a private call.
+          items:
+            $ref: '#/components/schemas/ChatRef'
+        participants_total:
+          type: integer
+    PaidMediaDetail:
+      type: object
+      description: Paid media; its caption is the message text.
+      required: [kind, star_count, items]
+      properties:
+        kind:
+          const: paid_media
+        star_count:
+          type: integer
+          format: int64
+        items:
+          type: array
+          items:
+            type: object
+            required: [kind, media]
+            properties:
+              kind:
+                type: string
+                enum: [photo, video, preview, unsupported]
+                description: >-
+                  preview: not paid for by the logging account, so only
+                  its size and blurred preview are known.
+              media:
+                description: The item's file (telegram_message_files, role paid), when one is known.
+                oneOf:
+                  - $ref: '#/components/schemas/ChatMedia'
+                  - type: 'null'
+    PlaceholderDetail:
+      type: object
+      description: >-
+        A kind the chat shows as a one-line placeholder: a rich message
+        or a widget (not rendered by this archive), expired
+        self-destructing media, or content TDLib itself could not read.
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [rich, widget, expired, unsupported]
+    ChatTopic:
+      type: object
+      description: A forum topic, as last seen (telegram_forum_topics).
+      required: [id, name, icon_color, closed, hidden]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The topic id, as ChatMessage.topic_id and ?topic= take it.
+        name:
+          type: string
+        icon_color:
+          type: integer
+          description: The icon's colour, RGB.
+        closed:
+          type: boolean
+        hidden:
+          type: boolean
+          description: The General topic is hidden from the topic list.
     MessageFull:
       allOf:
         - $ref: '#/components/schemas/MessageRow'
         - $ref: '#/components/schemas/MessageExtra'
+        - $ref: '#/components/schemas/MessageKinds'
         - type: object
           required: [text, reply_to, edits, edited_at, media]
           properties:
@@ -5390,6 +5948,7 @@ components:
     ChatMessage:
       allOf:
         - $ref: '#/components/schemas/MessageExtra'
+        - $ref: '#/components/schemas/MessageKinds'
         - $ref: '#/components/schemas/ChatMessageBase'
     ChatMessageBase:
       type: object
@@ -5994,8 +6553,9 @@ components:
         the newest messages. `at` names the message opened at: the
         found one, or for ?after= the window's first. The Drogon
         page's #msg-<message id> anchors name message_id, so a client
-        maps them to it.
-      required: [chat, messages, has_older, has_newer, at]
+        maps them to it. ?topic=<topic id> limits the window to one
+        forum topic's messages, as the chat window's topic does.
+      required: [chat, messages, has_older, has_newer, at, topics, topic]
       properties:
         chat:
           oneOf:
@@ -6051,6 +6611,17 @@ components:
           type: [integer, 'null']
           format: int64
           description: The message the page was opened at, if any.
+        topics:
+          type: array
+          description: >-
+            A forum group's topics, pinned ones first, then the newest;
+            empty for other chats.
+          items:
+            $ref: '#/components/schemas/ChatTopic'
+        topic:
+          type: [integer, 'null']
+          format: int64
+          description: The topic ?topic= limits the window to, or null.
     SettingsProps:
       type: object
       required: [account, notices]

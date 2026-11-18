@@ -8,6 +8,7 @@ package server
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 
 	"tgloggerd/webapi/internal/logdb"
 )
@@ -64,6 +65,8 @@ type mediaDetailJSON struct {
 	Minithumb string `json:"minithumb,omitempty"`
 	// Poster is a video's cover photo, its /files/<token> URL.
 	Poster *string `json:"poster,omitempty"`
+	// Round marks a video note, shown as a round video.
+	Round bool `json:"round,omitempty"`
 }
 
 // stickerFormat is a sticker's file format: content_extra's, else the
@@ -136,6 +139,7 @@ func mediaDetail(ctype string, f logdb.FileRef, extra []byte) mediaDetailJSON {
 		d.Emoji = x.Emoji
 	}
 	d.Render = renderOf(ctype, d.Format, f)
+	d.Round = ctype == "video_note"
 	if x.Length > 0 && d.W == 0 && d.H == 0 {
 		d.W, d.H = x.Length, x.Length
 	}
@@ -150,15 +154,20 @@ func mediaDetail(ctype string, f logdb.FileRef, extra []byte) mediaDetailJSON {
 	return d
 }
 
-// chatTypes are the content types of the API's ContentType: the kinds
-// the daemon gained with migration 000034 (video_note, location, ...)
-// are shown as unknown until the chat view renders them
-// (docs/todo/web-message-types.md), as the Drogon web shows them, and
-// tdlib_type says what they are.
-var chatTypes = map[string]bool{"text": true, "photo": true, "video": true,
-	"document": true, "audio": true, "voice": true, "sticker": true, "animation": true,
-	"service": true, "unknown": true}
+// chatTypes are the content types of the API's ContentType, which are
+// those of the message tables (daemon migration 000034 appended
+// video_note to unsupported).
+var chatTypes = map[string]bool{}
 
+func init() {
+	for _, t := range strings.Split(logdb.MessageTypes, ",") {
+		chatTypes[t] = true
+	}
+}
+
+// chatType is a stored content type as the API names it: a value the
+// daemon may append later, which this service does not know yet, is
+// unknown.
 func chatType(ctype string) string {
 	if chatTypes[ctype] {
 		return ctype
