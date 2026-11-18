@@ -22,6 +22,7 @@
 namespace tgloggerd {
 
 class InternalApi;
+class BotWatch;
 class EventBus;
 class StorageJanitor;
 class FileFetcher;
@@ -104,6 +105,9 @@ private:
 	 * the API, which publish to and read from it, so it outlives them.
 	 */
 	std::unique_ptr<EventBus> events_;
+
+	/* Publishes bot.updated when a bot row changes (BotWatch.hpp). */
+	std::unique_ptr<BotWatch> bot_watch_;
 
 	/*
 	 * Mirrors live messages to Discord; owns its own HTTP pool and a refresh

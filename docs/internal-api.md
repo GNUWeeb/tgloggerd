@@ -578,6 +578,7 @@ groups and the other user's id for private chats; `message_id` is the
 | `group.updated` | `chat_id`, `fields`? | A group's row, administrators or photo was written. |
 | `file.stored` | `file_id`, `chat_id`?, `message_id`? | A message's media or link-preview image was linked to its file row (with `chat_id` and `message_id`), or a user's or group's photo was stored (`file_id` alone). |
 | `stats.changed` | `chat_ids`, `user_ids`, `more`? | Counters moved; at most one per second. |
+| `bot.updated` | `bot_id` | A bot of either kind (`telegram_bots`, `discord_bots`) was added, changed (name, enabled, status, identity) or removed. |
 
 - Each event is published after its row is committed, by the worker
   that wrote it, so a refetch finds the change. A message upsert that
@@ -597,6 +598,11 @@ groups and the other user's id for private chats; `message_id` is the
   `user_ids`, the senders whose message counts moved. Each list holds
   at most 1000 ids; past that it is cut and `"more": true` says to treat
   every counter as changed.
+- `bot.updated` is found by reading the bots every 5 seconds, since
+  discordd (the status) and the web (the rest) write them without the
+  daemon: one event per bot that differs from the last read, at most
+  5 seconds late. The ids of the two tables never meet (migration
+  000040), so `bot_id` names one bot. Nothing of the token is read.
 - New kinds may be added; a client skips kinds it does not know.
 
 Errors: 400 if `since` is not decimal digits, 503 with too many
