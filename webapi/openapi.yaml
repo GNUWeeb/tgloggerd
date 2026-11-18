@@ -1455,7 +1455,8 @@ paths:
         key does not take, refuses the whole body with 400 bad_request
         naming the key in `field`: timezone an IANA zone name,
         date_format 24h, 12h or iso, lang en or id, theme system, light
-        or dark, sidebar open or collapsed, rows_per_page 25, 50 or 100,
+        or dark, sidebar open or collapsed, dashboard_numbers exact or
+        compact, rows_per_page 25, 50 or 100,
         landing a path on this
         site (one leading slash, at most 255 bytes), chat_media auto or
         click, the chat_* switches booleans. The viewer of the next page
@@ -3928,6 +3929,10 @@ components:
           type: string
           enum: [open, collapsed]
           description: Whether the menu starts open or collapsed (the sidebar preference, else open).
+        dashboard_numbers:
+          type: string
+          enum: [exact, compact]
+          description: How the dashboard shows its figures (the dashboard_numbers preference, else exact).
         rows_per_page:
           type: integer
         nav:
@@ -5989,6 +5994,10 @@ components:
           type: [string, 'null']
           enum: [open, collapsed, null]
           description: Whether the menu starts open or collapsed; null is open.
+        dashboard_numbers:
+          type: [string, 'null']
+          enum: [exact, compact, null]
+          description: The dashboard's figures in full (12,345) or shortened (12k); null is exact.
         rows_per_page:
           type: [integer, 'null']
         landing:

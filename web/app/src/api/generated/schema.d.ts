@@ -390,7 +390,7 @@ export interface paths {
         get: operations["getPreferences"];
         /**
          * Save the account's preferences
-         * @description Replaces every preference; null (or a missing field) is the site default. A field that is not a preference, or a value its key does not take, refuses the whole body with 400 bad_request naming the key in `field`: timezone an IANA zone name, date_format 24h, 12h or iso, lang en or id, theme system, light or dark, sidebar open or collapsed, rows_per_page 25, 50 or 100, landing a path on this site (one leading slash, at most 255 bytes), chat_media auto or click, the chat_* switches booleans. The viewer of the next page data carries the settings in effect (web/docs/settings.md).
+         * @description Replaces every preference; null (or a missing field) is the site default. A field that is not a preference, or a value its key does not take, refuses the whole body with 400 bad_request naming the key in `field`: timezone an IANA zone name, date_format 24h, 12h or iso, lang en or id, theme system, light or dark, sidebar open or collapsed, dashboard_numbers exact or compact, rows_per_page 25, 50 or 100, landing a path on this site (one leading slash, at most 255 bytes), chat_media auto or click, the chat_* switches booleans. The viewer of the next page data carries the settings in effect (web/docs/settings.md).
          */
         put: operations["putPreferences"];
         post?: never;
@@ -1301,6 +1301,11 @@ export interface components {
              * @enum {string}
              */
             sidebar?: "open" | "collapsed";
+            /**
+             * @description How the dashboard shows its figures (the dashboard_numbers preference, else exact).
+             * @enum {string}
+             */
+            dashboard_numbers?: "exact" | "compact";
             rows_per_page?: number;
             /** @description The route ids of the pages the menu shows. */
             nav?: string[];
@@ -2298,6 +2303,11 @@ export interface components {
              * @enum {string|null}
              */
             sidebar?: "open" | "collapsed" | null;
+            /**
+             * @description The dashboard's figures in full (12,345) or shortened (12k); null is exact.
+             * @enum {string|null}
+             */
+            dashboard_numbers?: "exact" | "compact" | null;
             rows_per_page?: number | null;
             landing?: string | null;
             chat_auto_load?: boolean | null;
