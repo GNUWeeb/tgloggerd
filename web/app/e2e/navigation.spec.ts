@@ -147,3 +147,25 @@ test('a slow page shows a loading pill at the top, and a fast one does not', asy
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Users');
 	await expect(pill).toHaveCount(0);
 });
+
+test('preferences change what the next pages show: rows per page, service messages', async ({ page }) => {
+	const groups = (await (await page.request.get('/api/page/groups')).json()).props.rows as { id: number }[];
+	const chat = `/groups/${groups[0]!.id}/chat`;
+	await page.goto(chat);
+	await expect(page.locator('.c-bubble').first()).toBeVisible();
+	expect(await page.locator('.c-service').count()).toBeGreaterThan(0);
+	await page.goto('/users');
+	await expect(page.locator('.a-table tbody tr')).toHaveCount(25);
+	await page.goto('/settings/preferences');
+	const pref = (label: string) => page.locator('.a-pref').filter({ has: page.locator('b', { hasText: new RegExp(`^${label}$`) }) });
+	await pref('Rows per page').locator('select').selectOption('50');
+	await pref('Show service messages').locator('input.a-switch').click();
+	const saved = page.waitForResponse((r) => r.url().endsWith('/api/account/preferences') && r.request().method() === 'PUT');
+	await page.getByRole('button', { name: 'Save preferences' }).click();
+	expect((await saved).status()).toBe(200);
+	await page.goto('/users');
+	await expect(page.locator('.a-table tbody tr')).toHaveCount(50);
+	await page.goto(chat);
+	await expect(page.locator('.c-bubble').first()).toBeVisible();
+	await expect(page.locator('.c-service')).toHaveCount(0);
+});
