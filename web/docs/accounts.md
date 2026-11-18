@@ -154,6 +154,17 @@ accounts); every write carries the session's CSRF token.
 - The address given at creation is recorded only; it is verified,
   and used, once `web-email` exists.
 
+## The accounts and federations pages
+
+The Go service loads the data of the accounts page
+(`/settings/accounts`, AccountsProps) and of the federations page
+(`/settings/federations`, FederationsProps), for superadmins and
+admins; to a member they do not exist. The accounts are those of
+`GET /api/accounts`; the federations part, and which parts of an
+account are `editable` yet, come from the federation helpers
+(`webapi/internal/server/federationprops.go`), the same ones the
+federations operations use.
+
 ## Temporary passwords
 
 Until set-password links exist (`web-email`), a new account gets its

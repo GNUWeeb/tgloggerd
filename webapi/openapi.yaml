@@ -646,9 +646,13 @@ paths:
 
         So far the service loads the data of login, dashboard, user,
         user_history, user_chat, group, group_admins, group_history,
-        group_chat and message, and of the list pages users, groups,
-        files, group_messages and private_messages (and not_found);
-        every other route answers {"reload": true}. A signed-out
+        group_chat and message, of the list pages users, groups,
+        files, group_messages and private_messages, of the settings
+        pages, of the administration pages accounts, federations,
+        platform_fwd, fwd_telegram_discord, fwd_discord_telegram,
+        join_chat, mcp, mcp_groups and mcp_tokens (each only for a
+        viewer whose menu has it, not_found otherwise), and not_found;
+        the three link pages answer {"reload": true}. A signed-out
         visitor asking for the group_chat of a group that is not
         exposed is asked to sign in (401 here, the redirect for the
         document), whether or not the group exists. A list page reads
