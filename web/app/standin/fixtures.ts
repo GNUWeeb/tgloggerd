@@ -501,7 +501,7 @@ export function load(url: string, persona: Persona): Loaded {
 	if (path === '/join-chat') {
 		if (!allowed(s, 'join_chat')) return notFound;
 		const feds = s.role === 'superadmin' ? federations : s.manageableFeds.filter((f) => f.id !== 0);
-		return { route: 'join_chat', status: 200, props: { federations: feds.map((f) => ({ id: f.id, name: f.name })), recent: JOIN_LOG } };
+		return { route: 'join_chat', status: 200, props: { federations: feds.map((f) => ({ id: f.id, name: f.name })), recent: JOIN_LOG, api_configured: true } };
 	}
 	if (path.startsWith('/mcp-admin')) {
 		if (!allowed(s, 'mcp')) return notFound;

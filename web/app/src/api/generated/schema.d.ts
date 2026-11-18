@@ -2559,6 +2559,8 @@ export interface components {
             retry_after?: number;
         };
         JoinChatProps: {
+            /** @description Whether the service reaches the daemon's API (WEB_TGLOGGERD_API); false means no chat can be joined from here, and the page says so before anything is tried. */
+            api_configured: boolean;
             /** @description Federations the viewer may file a joined group into. */
             federations: components["schemas"]["FedRef"][];
             recent: {

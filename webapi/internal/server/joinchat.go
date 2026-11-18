@@ -294,6 +294,9 @@ func parseJoinDetail(e webdb.AuditEntry) joinAttempt {
 type joinChatProps struct {
 	Federations []fedRef      `json:"federations"`
 	Recent      []joinAttempt `json:"recent"`
+	// APIConfigured is whether this service reaches the daemon's API;
+	// without it no chat can be joined, and the page says so up front.
+	APIConfigured bool `json:"api_configured"`
 }
 
 func loadJoinChat(ctx context.Context, pr *pageRequest) (any, error) {
@@ -309,7 +312,7 @@ func loadJoinChat(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := joinChatProps{Federations: feds, Recent: []joinAttempt{}}
+	p := joinChatProps{Federations: feds, Recent: []joinAttempt{}, APIConfigured: s.daemon != nil}
 	for _, e := range rows {
 		p.Recent = append(p.Recent, parseJoinDetail(e))
 	}

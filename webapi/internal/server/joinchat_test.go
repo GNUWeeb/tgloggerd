@@ -115,6 +115,9 @@ func TestJoinChatJoin(t *testing.T) {
 		t.Fatalf("page %d %v", st, p)
 	}
 	props := p["props"].(map[string]any)
+	if props["api_configured"] != true {
+		t.Errorf("api_configured %v", props["api_configured"])
+	}
 	recent := props["recent"].([]any)
 	if js(props["federations"]) != `[{"id":0,"name":"Default"}]` || len(recent) != 6 ||
 		js(recent[0]) != canon(`{"at": "`+recent[0].(map[string]any)["at"].(string)+
@@ -208,4 +211,16 @@ func TestJoinChatFederations(t *testing.T) {
 		map[string]any{"ref": "@gnuweeb", "federation_ids": []int{9}})
 	e.want(404, "superadmin", "POST", "/api/join-chat/join",
 		map[string]any{"ref": "@gnuweeb", "federation_ids": []int{10}})
+}
+
+// Without the daemon's API the page says so up front.
+func TestJoinChatWithoutDaemon(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t)
+	e.deps.Daemon = nil
+	e.h = New(e.deps)
+	st, p := e.page("superadmin", "/join-chat")
+	if st != 200 || p["props"].(map[string]any)["api_configured"] != false {
+		t.Fatalf("page %d %v", st, p)
+	}
 }
