@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { adminApi, badPref, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { adminApi, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 
 const spec = loadSpec();
@@ -193,6 +193,14 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		} finally {
 			if (was === undefined) delete prefs.timezone; else prefs.timezone = was;
 		}
+	});
+
+	it('the photos of a user and of a group', () => {
+		const [us, ub] = userPhotos(String(sampleContacts()[0]), 'superadmin');
+		ok(us, ub, '/api/users/{id}/photos');
+		const [gs, gb] = groupPhotos(String(groupId), 'superadmin');
+		ok(gs, gb, '/api/groups/{id}/photos');
+		expect(userPhotos(String(sampleContacts()[0]), 'member')[0]).toBe(404);
 	});
 
 	it('a name lookup', () => {

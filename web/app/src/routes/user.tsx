@@ -5,6 +5,7 @@ import { Link } from '../nav.tsx';
 import { Avatar, Btn, Card, KV, Pill, Stat, Tabs, Empty } from '../ui/primitives.tsx';
 import { Flags, Sparkline, userFlags } from '../ui/bits.tsx';
 import { LookupName } from './lookupname.tsx';
+import { PhotoCarousel } from '../ui/PhotoCarousel.tsx';
 import { OlderChanges, UsernamePill, useHistoryPages, usernameTitle } from '../ui/history.tsx';
 import { api, ok } from '../api/client.ts';
 import { ago, dateTime, fmt } from '../format.ts';
@@ -27,10 +28,15 @@ const KIND = {
 	phone: [Phone, 'Phone changed'], photo: [Image, 'Profile photo'],
 } as const;
 
-function HistItem({ e, v }: { e: HistoryEntry; v: Viewer }) {
+function HistItem({ e, v, onPhoto }: { e: HistoryEntry; v: Viewer; onPhoto?: (id: number) => void }) {
 	const [I, title] = KIND[e.kind];
 	let body;
-	if (e.kind === 'photo') body = e.removed || !e.photo ? <span className="a-muted">Photo removed</span> : <img className="a-tl-photo" src={e.photo} alt="" width={72} height={72} />;
+	if (e.kind === 'photo') {
+		const img = e.photo ? <img className="a-tl-photo" src={e.photo} alt="" width={72} height={72} /> : null;
+		// A photo set opens the carousel at it.
+		body = e.removed || !img ? <span className="a-muted">Photo removed</span>
+			: e.photo_id !== undefined && onPhoto ? <button type="button" className="a-tl-photobtn" onClick={() => onPhoto(e.photo_id!)} aria-label={`Show this photo, set ${dateTime(e.at, v)}`}>{img}</button> : img;
+	}
 	else if (e.kind === 'username') body = <span className={e.action === 'removed' ? 'strike' : ''}>{e.collectible && <Gem size={12} aria-label="collectible" />}@{e.detail}{e.username_kind === 'disabled' ? ' (off)' : ''}</span>;
 	else body = e.detail ? <span className="a-multiline">{e.detail}</span> : <span className="a-muted">(cleared)</span>;
 	return (
@@ -72,6 +78,8 @@ function UserPage({ page }: { page: PageData<UserProps> }) {
 function Full({ page, tab }: { page: PageData<Extract<UserProps, { limited?: false }>>; tab: 'user' | 'history' }) {
 	const { user: u, groups, history: first, history_next, activity, can_private, can_lookup_name: canLookup, lookup_pending: pending } = page.props;
 	const [lookup, setLookup] = useState(false);
+	// The photo carousel: undefined is closed, null opens at the current photo.
+	const [photos, setPhotos] = useState<number | null | undefined>(undefined);
 	const v = page.viewer;
 	const load = useCallback((before: string) => ok(api.GET('/api/users/{id}/history', { params: { path: { id: u.id }, query: { before } } })), [u.id]);
 	const h = useHistoryPages(first, history_next, load);
@@ -84,7 +92,9 @@ function Full({ page, tab }: { page: PageData<Extract<UserProps, { limited?: fal
 	return (
 		<Shell crumbs={crumbs}>
 			<div className="a-profilehead">
-				<Avatar id={u.id} name={u.name} photo={u.photo} size={64} deleted={u.type === 'deleted'} />
+				{u.photo
+					? <button type="button" className="a-photobtn" onClick={() => setPhotos(null)} aria-label={`Show the photos of ${u.name}`}><Avatar id={u.id} name={u.name} photo={u.photo} size={64} deleted={u.type === 'deleted'} /></button>
+					: <Avatar id={u.id} name={u.name} photo={u.photo} size={64} deleted={u.type === 'deleted'} />}
 				<div className="a-ph-main">
 					<h1>{u.name} {u.is_verified && <BadgeCheck size={18} className="a-verified" aria-label="verified" />}</h1>
 					<div className="a-ph-meta">
@@ -109,6 +119,7 @@ function Full({ page, tab }: { page: PageData<Extract<UserProps, { limited?: fal
 				</span></div>
 			)}
 			{u.is_contact && u.own_name_known === false && !pending && <div className="a-banner info" role="note"><CircleAlert size={15} /><span>The name shown is the one the logging account saved this contact under: the user was a contact before logging began, and no name they set has been seen yet.</span></div>}
+			{photos !== undefined && <PhotoCarousel kind="users" id={u.id} start={photos} title={u.name} viewer={v} onClose={() => setPhotos(undefined)} />}
 			{lookup && <LookupName id={u.id} name={u.name} contactName={u.contact_name} onClose={() => setLookup(false)} />}
 			<Tabs items={[['Overview', base, tab === 'user'], ['History', `${base}/history`, tab === 'history', h.hasMore ? `${history.length}+` : history.length]]} />
 			{tab === 'user' ? (
@@ -141,7 +152,7 @@ function Full({ page, tab }: { page: PageData<Extract<UserProps, { limited?: fal
 						</Card>
 						<div className="a-stack">
 							<Card title="Recent changes" action={<Link to={`${base}/history`} className="a-link">View all</Link>}>
-								{history.length ? <ol className="a-timeline compact">{history.slice(0, 4).map((e, i) => <HistItem key={i} e={e} v={v} />)}</ol> : <p className="a-muted">No changes recorded.</p>}
+								{history.length ? <ol className="a-timeline compact">{history.slice(0, 4).map((e, i) => <HistItem key={i} e={e} v={v} onPhoto={setPhotos} />)}</ol> : <p className="a-muted">No changes recorded.</p>}
 							</Card>
 							<Card title="Most active in">
 								{groups.length ? (
@@ -160,7 +171,7 @@ function Full({ page, tab }: { page: PageData<Extract<UserProps, { limited?: fal
 							<button key={k} type="button" role="tab" aria-selected={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>{k === 'all' ? 'All' : k[0]!.toUpperCase() + k.slice(1)}</button>
 						))}
 					</div>
-					<ol className="a-timeline">{shown.map((e, i) => <HistItem key={i} e={e} v={v} />)}</ol>
+					<ol className="a-timeline">{shown.map((e, i) => <HistItem key={i} e={e} v={v} onPhoto={setPhotos} />)}</ol>
 					{!shown.length && <Empty>No changes of this kind recorded{h.hasMore ? ' in these pages' : ''}.</Empty>}
 					<OlderChanges h={h} />
 				</div>

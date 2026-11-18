@@ -235,6 +235,10 @@ type historyJSON struct {
 	UsernameKind string `json:"username_kind,omitempty"`
 	Collectible  bool   `json:"collectible,omitempty"`
 	Status       string `json:"status,omitempty"`
+	// PhotoID is a photo change's photo, the id of its item in GET
+	// /api/users/{id}/photos or /api/groups/{id}/photos; absent
+	// elsewhere.
+	PhotoID *uint64 `json:"photo_id,omitempty"`
 }
 
 type userProps struct {
@@ -270,6 +274,7 @@ func (v view) history(e logdb.HistoryEntry) historyJSON {
 			j.Removed = true
 		} else {
 			j.Photo = v.photo(e.Photo)
+			j.PhotoID = ptrTo(e.RowID())
 		}
 	}
 	return j

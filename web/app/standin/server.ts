@@ -337,6 +337,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		res.end(JSON.stringify(out));
 		return;
 	}
+	// Signed out is 401, even for an exposed group's photos.
+	const ph = url.pathname.match(/^\/api\/(users|groups)\/(-?\d+)\/photos$/);
+	if (ph && req.method === 'GET') {
+		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+		const [status, out] = ph[1] === 'users' ? fx.userPhotos(ph[2], who) : fx.groupPhotos(ph[2], who);
+		send(res, status, out);
+		return;
+	}
 	const hm = url.pathname.match(/^\/api\/(users|groups)\/(-?\d+)\/history$/);
 	if (hm && req.method === 'GET') {
 		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }

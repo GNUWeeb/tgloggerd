@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/scope"
 )
 
 // The change timelines of users and groups, page by page: GET
@@ -80,17 +81,7 @@ func (s *Server) getUserHistory(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !sc.SeesAllUsers() {
-		notFound(w)
-		return
-	}
-	us, err := logdb.VisibleUsers(r.Context(), s.ro, sc, []int64{id})
-	if err != nil {
-		s.internalError(w, "history", err)
-		return
-	}
-	if len(us) == 0 {
-		notFound(w)
+	if _, ok := s.userInFull(w, r, sc, id, "history"); !ok {
 		return
 	}
 	h, err := logdb.UserHistory(r.Context(), s.ro, id, before, limit)
@@ -104,6 +95,121 @@ func (s *Server) getUserHistory(w http.ResponseWriter, r *http.Request) {
 		a.Entries = append(a.Entries, v.history(e))
 	}
 	writeJSON(w, http.StatusOK, a)
+}
+
+// userInFull is the user for a viewer who sees users in full, as a
+// member sees no one's history (web-accounts.md section 5); to anyone
+// else, as for a user the scope hides or the logger never saw, it
+// answers 404 and false. what names the answer in a failure's log.
+func (s *Server) userInFull(w http.ResponseWriter, r *http.Request, sc scope.Scope, id int64,
+	what string) (logdb.User, bool) {
+	if !sc.SeesAllUsers() {
+		notFound(w)
+		return logdb.User{}, false
+	}
+	us, err := logdb.VisibleUsers(r.Context(), s.ro, sc, []int64{id})
+	if err != nil {
+		s.internalError(w, what, err)
+		return logdb.User{}, false
+	}
+	if len(us) == 0 {
+		notFound(w)
+		return logdb.User{}, false
+	}
+	return us[0], true
+}
+
+// photoJSON is one recorded photo of a user or group (logdb.Photo).
+type photoJSON struct {
+	ID     uint64  `json:"id"`
+	At     string  `json:"at"`
+	URL    *string `json:"url"`
+	FileID *uint64 `json:"file_id"`
+}
+
+// photosAnswer is UserPhotos and GroupPhotos: the photos, and which is
+// the current one.
+type photosAnswer struct {
+	Items     []photoJSON `json:"items"`
+	CurrentID *uint64     `json:"current_id"`
+}
+
+// photos turns the recorded photos into their answer; current is the
+// file of the photo now (0 for none).
+func (v view) photos(ps []logdb.Photo, current uint64) photosAnswer {
+	a := photosAnswer{Items: []photoJSON{}}
+	for _, p := range ps {
+		a.Items = append(a.Items, photoJSON{ID: p.ID, At: iso(p.At), URL: v.photo(p.File),
+			FileID: ptrTo(p.File.ID)})
+		// The current photo is the newest time its file was set; the
+		// same file may have been the photo before.
+		if a.CurrentID == nil && current != 0 && p.File.ID == current {
+			a.CurrentID = ptrTo(p.ID)
+		}
+	}
+	return a
+}
+
+// photoOwnerID is the path's id; false, having answered 404, when it
+// is no number.
+func photoOwnerID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		notFound(w)
+		return 0, false
+	}
+	return id, true
+}
+
+// getUserPhotos answers GET /api/users/{id}/photos: every recorded
+// profile photo of the user, newest first, for the user page's
+// carousel. The ids are the history's photo_id, so a photo change on
+// the timeline opens the carousel at its photo. The same access as
+// the history.
+func (s *Server) getUserPhotos(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	sc := ScopeFrom(r.Context())
+	id, ok := photoOwnerID(w, r)
+	if !ok {
+		return
+	}
+	u, ok := s.userInFull(w, r, sc, id, "photos")
+	if !ok {
+		return
+	}
+	ps, err := logdb.UserPhotos(r.Context(), s.ro, id)
+	if err != nil {
+		s.internalError(w, "photos", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.viewFor(sc, true).photos(ps, u.Photo.ID))
+}
+
+// getGroupPhotos answers GET /api/groups/{id}/photos, the group page's
+// carousel, as getUserPhotos does for users: for a group the scope
+// sees, as the group's history.
+func (s *Server) getGroupPhotos(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	sc := ScopeFrom(r.Context())
+	id, ok := photoOwnerID(w, r)
+	if !ok {
+		return
+	}
+	gs, err := logdb.VisibleGroups(r.Context(), s.ro, sc, []int64{id})
+	if err != nil {
+		s.internalError(w, "photos", err)
+		return
+	}
+	if len(gs) == 0 {
+		notFound(w)
+		return
+	}
+	ps, err := logdb.GroupPhotos(r.Context(), s.ro, id)
+	if err != nil {
+		s.internalError(w, "photos", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.viewFor(sc, true).photos(ps, gs[0].Photo.ID))
 }
 
 // getGroupHistory answers GET /api/groups/{id}/history, for a group the

@@ -228,3 +228,60 @@ func HistoryUsers(ctx context.Context, db *sql.DB, sc scope.Scope, h HistoryPage
 	}
 	return usersByID(ctx, db, sc, ids)
 }
+
+// RowID is the entry's id in its own history table; for a photo
+// change, the photo's id in UserPhotos or GroupPhotos.
+func (e HistoryEntry) RowID() uint64 {
+	return e.rowID
+}
+
+// MaxPhotos is the most photos UserPhotos and GroupPhotos read.
+const MaxPhotos = 500
+
+// Photo is one recorded profile photo of a user, or photo of a group.
+type Photo struct {
+	ID   uint64 // the history table's row
+	At   int64
+	File FileRef
+}
+
+// photos are the recorded photos in a photo history table (its owner
+// column owner), newest first (as the timeline orders them), at most
+// MaxPhotos; the removals (rows without a file) are left out.
+func photos(ctx context.Context, db *sql.DB, table, owner string, id int64) ([]Photo, error) {
+	rows, err := db.QueryContext(ctx, "SELECT p.id, UNIX_TIMESTAMP(p.created_at), p.file_id, "+
+		fileColumnsOf("f")+" FROM "+table+" p "+
+		"LEFT JOIN telegram_files f ON f.id = p.file_id "+
+		"WHERE p."+owner+" = ? AND p.file_id IS NOT NULL "+
+		"ORDER BY p.created_at DESC, p.id DESC LIMIT ?", id, MaxPhotos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Photo{}
+	for rows.Next() {
+		var (
+			p    Photo
+			file uint64
+			f    nullFile
+		)
+		if err := rows.Scan(append([]any{&p.ID, &p.At, &file}, f.dest()...)...); err != nil {
+			return nil, err
+		}
+		p.File = f.ref(file)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// UserPhotos are the user's recorded profile photos (see photos). Only
+// for a viewer who sees users in full; the caller checks.
+func UserPhotos(ctx context.Context, db *sql.DB, id int64) ([]Photo, error) {
+	return photos(ctx, db, "telegram_user_hist_profile_photo", "user_id", id)
+}
+
+// GroupPhotos are the group's recorded photos (see photos). Only for a
+// group the viewer's scope sees; the caller checks.
+func GroupPhotos(ctx context.Context, db *sql.DB, id int64) ([]Photo, error) {
+	return photos(ctx, db, "telegram_group_hist_photo", "group_id", id)
+}
