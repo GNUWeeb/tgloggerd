@@ -355,7 +355,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * The account's preferences, pins and saved searches
+         * @description The preferences page's data: the preferences as stored (null is the site default), the time zones offered (any IANA zone is accepted), the landing pages the viewer may open, its pinned groups that it may see and its saved searches.
+         */
+        get: operations["getPreferences"];
         /**
          * Save the account's preferences
          * @description Replaces every preference; null (or a missing field) is the site default. A field that is not a preference, or a value its key does not take, refuses the whole body with 400 bad_request naming the key in `field`: timezone an IANA zone name, date_format 24h, 12h or iso, lang en or id, theme system, light or dark, rows_per_page 25, 50 or 100, landing a path on this site (one leading slash, at most 255 bytes), chat_media auto or click, the chat_* switches booleans. The viewer of the next page data carries the settings in effect (web/docs/settings.md).
@@ -2797,6 +2801,28 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    getPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The preferences. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesProps"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     putPreferences: {

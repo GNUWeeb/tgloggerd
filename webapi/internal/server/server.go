@@ -187,6 +187,7 @@ func (s *Server) routes() []route {
 		{"POST /api/accounts/{id}/password-reset", s.RequireSession(s.resetAccountPassword)},
 		{"POST /api/accounts/{id}/sign-out-everywhere", s.RequireSession(s.signOutAccountEverywhere)},
 		{"PUT /api/account/preferences", s.RequireSession(s.putPreferences)},
+		{"GET /api/account/preferences", s.RequireSession(s.getPreferences)},
 		{"PUT /api/account/pinned/{group_id}", s.RequireSession(s.pinGroup)},
 		{"DELETE /api/account/pinned/{group_id}", s.RequireSession(s.unpinGroup)},
 		{"POST /api/account/saved-searches", s.RequireSession(s.saveSearch)},

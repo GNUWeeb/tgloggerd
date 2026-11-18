@@ -5,8 +5,25 @@ section 7), kept by the Go service (`webapi/`) in the web database
 (web migration 000005) and described in webapi/openapi.yaml (tag
 account). Every write carries the session's CSRF token.
 
+## The pages
+
+The three settings pages are served by the Go service, each with its
+loader (`/api/page/settings...`):
+
+- `/settings` (route settings): the account (login name, display name
+  or else the login name, role, email address, not verified until
+  web-email) and the security notices it is sent, through the text
+  lookup.
+- `/settings/preferences` (settings_preferences): the stored
+  preferences, the time zones offered, the landing pages the menu
+  shows plus the chats of the pinned groups, the pinned groups the
+  scope sees with their photo links, and the saved searches. GET
+  /api/account/preferences answers the same data.
+- `/settings/sessions` (settings_sessions): see Sessions.
+
 ## Preferences
 
+    GET /api/account/preferences    the preferences page's data
     PUT /api/account/preferences    replace every preference; 200 {prefs}
 
 | Key | Values | Site default |

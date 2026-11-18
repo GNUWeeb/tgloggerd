@@ -51,8 +51,9 @@ func TestCatalogues(t *testing.T) {
 }
 
 // keyUse finds the keys the service looks up by a literal: i18n.T(lang,
-// "key" ...), and through the server's badField(w, lang, "key", ...).
-var keyUse = regexp.MustCompile(`(?:i18n\.T\(|badField\([^,()]+,)[^,()]+, "([^"]+)"`)
+// "key" ...), and through the server's badField(w, lang, "key", ...);
+// a key built at run time ("page."+key) is its caller's test's to check.
+var keyUse = regexp.MustCompile(`(?:i18n\.T\(|badField\([^,()]+,)[^,()]+, "([^"]+)"[,)]`)
 
 // Every key the code looks up has an English text.
 func TestKeysUsedExist(t *testing.T) {

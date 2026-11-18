@@ -1124,6 +1124,26 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   /api/account/preferences:
+    get:
+      operationId: getPreferences
+      tags: [account]
+      summary: The account's preferences, pins and saved searches
+      description: >-
+        The preferences page's data: the preferences as stored (null is
+        the site default), the time zones offered (any IANA zone is
+        accepted), the landing pages the viewer may open, its pinned
+        groups that it may see and its saved searches.
+      responses:
+        '200':
+          description: The preferences.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferencesProps'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
     put:
       operationId: putPreferences
       tags: [account]
