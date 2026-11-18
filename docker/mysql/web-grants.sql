@@ -20,6 +20,9 @@ GRANT INSERT, UPDATE, DELETE ON `@TG_DB_NAME@`.telegram_discord_webhooks TO '@WE
 -- for display -- see web/src/dao/Routes.hpp.
 GRANT INSERT, UPDATE, DELETE ON `@TG_DB_NAME@`.discord_telegram_routes TO '@WEB_DB_RO_USER@'@'%';
 GRANT INSERT, UPDATE, DELETE ON `@TG_DB_NAME@`.telegram_bots TO '@WEB_DB_RO_USER@'@'%';
+-- The Discord bots that read the channels of those routes, with their tokens
+-- (migration 000040); never SELECTed for display either.
+GRANT INSERT, UPDATE, DELETE ON `@TG_DB_NAME@`.discord_bots TO '@WEB_DB_RO_USER@'@'%';
 
 -- The MCP exposure allowlist, managed from the admin UI. Rows are added and
 -- removed, never updated, so UPDATE is deliberately not granted -- this table
