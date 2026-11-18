@@ -170,7 +170,7 @@ describe('accounts', () => {
 
 	it('shows and sends only what the server lets it change yet', async () => {
 		const p = fixture<AccountsProps>('/settings/accounts').props;
-		const props = { ...p, editable: { federations: false, group_grants: false, restrictions: false, abilities: false } };
+		const props = { ...p, editable: { federations: false, group_grants: false, restrictions: false, restrict_private: false, abilities: false } };
 		const member = p.accounts.find((x) => x.role === 'member' && x.active)!;
 		const admin = p.accounts.find((x) => x.role === 'admin')!;
 		// Saving fetches the page data again: keep answering with these flags.
@@ -198,6 +198,70 @@ describe('accounts', () => {
 		const ab = callsTo(calls, 'PATCH', `/api/accounts/${admin.id}`)[0]!.body as Record<string, unknown>;
 		expect(ab).not.toHaveProperty('admin_of');
 		expect(ab).not.toHaveProperty('restrict');
+	});
+
+	describe('hiding private messages alone', () => {
+		const flags = { federations: true, group_grants: true, restrictions: false, restrict_private: true, abilities: true };
+		const setup2 = () => {
+			const p = fixture<AccountsProps>('/settings/accounts').props;
+			const props = { ...p, editable: flags };
+			const admin = p.accounts.find((x) => x.role === 'admin' && x.active)!;
+			const member = p.accounts.find((x) => x.role === 'member' && x.active)!;
+			const calls = fakeApi('superadmin', { 'PATCH /api/accounts/:id': () => ({}), 'GET /api/page/settings/accounts': () => ({ ...fixture('/settings/accounts'), props }) });
+			renderPage('/settings/accounts', 'superadmin', { props });
+			return { admin, member, calls };
+		};
+		const access = (username: string) => {
+			fireEvent.click(screen.getByRole('button', { name: `Edit ${username}` }));
+			fireEvent.click(within(dialog()).getByRole('tab', { name: 'Access' }));
+		};
+
+		it('offers an admin only the private-messages restriction', () => {
+			const { admin } = setup2();
+			access(admin.username);
+			expect(within(dialog()).getByText('Restrictions')).toBeTruthy();
+			expect(within(dialog()).getByRole('checkbox', { name: /Hide private messages/ })).toBeTruthy();
+			expect(within(dialog()).queryByText('Hide groups')).toBeNull();
+			expect(within(dialog()).queryByText('Allow Join chat')).toBeNull();
+			expect(within(dialog()).getByRole('note').textContent).toBe('Hidden groups and Join chat are not available yet.');
+		});
+
+		it('sends the private-messages restriction alone', async () => {
+			const { admin, calls } = setup2();
+			access(admin.username);
+			const box = within(dialog()).getByRole('checkbox', { name: /Hide private messages/ }) as HTMLInputElement;
+			const was = box.checked;
+			fireEvent.click(box);
+			fireEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
+			await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/accounts/${admin.id}`)).toHaveLength(1));
+			const body = callsTo(calls, 'PATCH', `/api/accounts/${admin.id}`)[0]!.body as { restrict: unknown };
+			expect(body.restrict).toEqual({ hide_private: !was, hide_groups: [], join_chat: false });
+		});
+
+		it('sends it for a member made admin in the same save', async () => {
+			const { member, calls } = setup2();
+			fireEvent.click(screen.getByRole('button', { name: `Edit ${member.username}` }));
+			fireEvent.click(within(dialog()).getByRole('radio', { name: /^Admin/ }));
+			fireEvent.click(within(dialog()).getByRole('tab', { name: 'Access' }));
+			fireEvent.click(within(dialog()).getByRole('checkbox', { name: /Hide private messages/ }));
+			fireEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
+			await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/accounts/${member.id}`)).toHaveLength(1));
+			expect(callsTo(calls, 'PATCH', `/api/accounts/${member.id}`)[0]!.body).toMatchObject({ role: 'admin', restrict: { hide_private: true, hide_groups: [], join_chat: false } });
+		});
+
+		it('offers no restriction to a member', () => {
+			const { member } = setup2();
+			access(member.username);
+			expect(within(dialog()).queryByRole('checkbox', { name: /Hide private messages/ })).toBeNull();
+		});
+
+		it('offers nothing without the flag', () => {
+			const p = fixture<AccountsProps>('/settings/accounts').props;
+			const admin = p.accounts.find((x) => x.role === 'admin' && x.active)!;
+			renderPage('/settings/accounts', 'superadmin', { props: { ...p, editable: { ...flags, restrict_private: false } } });
+			access(admin.username);
+			expect(within(dialog()).queryByText('Restrictions')).toBeNull();
+		});
 	});
 
 	it('sends an admin\'s restrictions with hidden groups as ids', async () => {
