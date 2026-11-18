@@ -10,16 +10,16 @@ reader cannot tell them apart.
 
 ## Scope
 
-- Additive migration: `topic_kind`, `topic_id` on
-  `telegram_group_messages` with an index on (`chat_id`, `topic_kind`,
-  `topic_id`); `telegram_forum_topics`.
+- Additive migration: `telegram_forum_topics`. The `topic_kind` and
+  `topic_id` columns and their index on `telegram_group_messages`
+  exist since migration 000034.
 - Fill from `message.topic_id`, `updateForumTopicInfo`, one
   `getForumTopics` per forum, and the topic service messages.
 
 ## Design notes
 
-message-types.md section 4.5. The index must be built online; measure
-on a copy of the table first.
+message-types.md section 4.5. Do not ALTER the message tables again
+(decision 2026-11-18-msg-message-table-ddl).
 
 ## Depends on
 

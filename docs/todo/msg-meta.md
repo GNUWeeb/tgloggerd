@@ -11,8 +11,7 @@ message-types.md section 3.6.
 
 ## Scope
 
-- Additive migration: `is_pinned` and `meta JSON` on both message
-  tables.
+- Write `is_pinned` and `meta` (columns added by migration 000034).
 - `updateMessageIsPinned` and `updateMessageFactCheck` handled.
 - Not in scope: views and reactions (`msg-interaction`).
 

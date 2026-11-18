@@ -272,10 +272,20 @@ A new column `tdlib_type VARCHAR(64)` holds the exact TDLib class name
 change, so no row is ever ambiguous again, and a later TDLib with new
 classes is still recorded by name.
 
-On MySQL 8.0.29 and later, both changes are instant metadata changes
-even on the largest table (appending ENUM members that fit the same
-storage size; adding a nullable column). See decision
+See decision
 [2026-11-18-msg-content-kinds](decisions/2026-11-18-msg-content-kinds.md).
+
+Both message tables have a FULLTEXT index on `text`, and with it
+InnoDB can neither append ENUM members nor add a column in place: only
+a copy of the table works, which took about ten hours on a synthetic
+table of the archive's size. Migration 000034 therefore drops the
+FULLTEXT index, makes the changes (the ENUM append is then a metadata
+change and the new columns an online rebuild), and builds the index
+again. It also adds every other column this design puts on the two
+message tables (sections 4.5 to 4.7), so they are rebuilt only once.
+See decision
+[2026-11-18-msg-message-table-ddl](decisions/2026-11-18-msg-message-table-ddl.md).
+The edit tables and `telegram_files` change instantly.
 
 `telegram_files.file_type` gains `video_note`, and `thumbnail` for
 covers and previews (section 4.3).
@@ -360,29 +370,29 @@ decision [2026-11-18-msg-polls](decisions/2026-11-18-msg-polls.md).
 
 ### 4.5 Forum topics
 
-Group rows gain `topic_kind ENUM('forum','thread','direct','saved')
-NULL` and `topic_id BIGINT NULL` from `message.topic_id`, indexed with
-`chat_id`. A table `telegram_forum_topics (chat_id, topic_id, name,
+Group rows have `topic_kind ENUM('forum','thread','direct','saved')
+NULL` and `topic_id BIGINT NULL` for `message.topic_id`, indexed with
+`chat_id` (added by migration 000034). A table `telegram_forum_topics (chat_id, topic_id, name,
 icon_color, icon_custom_emoji_id, is_closed, is_hidden, creation_date,
 creator_user_id NULL, ...)` is filled from `updateForumTopicInfo`,
 `getForumTopics` once per forum, and the topic service messages.
 
 ### 4.6 Message-level metadata (`meta`)
 
-A nullable `meta JSON` column on both message tables (not snapshotted
-on edits) for the fields of section 3.6 that are rare and not queried:
+A nullable `meta JSON` column on both message tables (added by
+migration 000034; not snapshotted on edits) for the fields of section 3.6 that are rare and not queried:
 via bot, reply quote, reply to a story or a checklist task or poll
 option, cross-chat reply origin, forward source, reply markup, effect,
 self-destruct timer, paid star count, sender boosts and tag, fact
-check, import info, restriction info. `is_pinned TINYINT` becomes a
-column, kept current by `updateMessageIsPinned`.
+check, import info, restriction info. The `is_pinned` column (also
+000034) is kept current by `updateMessageIsPinned`.
 
 ### 4.7 Views and reactions
 
 `interaction_info` (views, forwards, reply count, reaction totals)
-changes constantly on busy channels. Columns `view_count`,
+changes constantly on busy channels. The columns `view_count`,
 `forward_count`, `reply_count` and `reactions JSON` (latest totals per
-reaction) updated in place from `updateMessageInteractionInfo` and
+reaction; added by migration 000034) are updated in place from `updateMessageInteractionInfo` and
 `updateMessageReactions`, coalesced per message so a busy channel
 causes at most one write per message per minute. Who reacted with what
 is available only through `getMessageAddedReactions` and only where

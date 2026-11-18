@@ -14,6 +14,5 @@ project owner the same day, for
 - Reason: one column cannot serve both. A per-class ENUM would need a
   migration for every TDLib release and make the coarse filters long
   lists; a coarse ENUM alone is what lost the identity of tens of
-  thousands of rows. Appending ENUM members and adding a nullable
-  column are instant on MySQL 8.0.29 and later, so neither touches the
-  large tables' data.
+  thousands of rows. (How the large tables are changed is decision
+  [2026-11-18-msg-message-table-ddl](2026-11-18-msg-message-table-ddl.md).)

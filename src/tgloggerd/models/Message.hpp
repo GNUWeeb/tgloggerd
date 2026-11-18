@@ -14,7 +14,10 @@ namespace models {
 
 /*
  * Coarse content type of a message. Shared by private and group
- * messages, which store it in the identical content_type ENUM column.
+ * messages, which store it in the identical content_type ENUM column;
+ * the order follows the ENUM (migration 000034 appended the kinds after
+ * Unknown). docs/design/message-types.md section 3 says which TDLib
+ * classes map to which kind.
  */
 enum class MessageContentType {
 	Text,
@@ -26,7 +29,24 @@ enum class MessageContentType {
 	Sticker,
 	Animation,
 	Service,	/* a system message (member joined, title changed, ...) */
-	Unknown,
+	Unknown,	/* a TDLib class newer than this code */
+	VideoNote,
+	Location,	/* static or live */
+	Venue,
+	Contact,
+	Dice,
+	Game,
+	Poll,
+	Checklist,
+	Story,		/* a shared story */
+	PaidMedia,
+	Invoice,
+	Giveaway,
+	Call,		/* a private call or a group call */
+	Rich,		/* messageRichMessage */
+	Widget,
+	Expired,	/* self-destructed media, first seen already expired */
+	Unsupported,	/* messageUnsupported: TDLib cannot read it either */
 };
 
 /*
