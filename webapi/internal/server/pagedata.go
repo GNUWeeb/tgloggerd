@@ -518,7 +518,17 @@ type chatHeadJSON struct {
 type chatProps struct {
 	Chat chatHeadJSON `json:"chat"`
 	chatWindowJSON
-	At *int64 `json:"at"`
+	At     *int64      `json:"at"`
+	Topics []topicJSON `json:"topics"`
+	Topic  *int64      `json:"topic"`
+}
+
+type topicJSON struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	IconColor int64  `json:"icon_color"`
+	Closed    bool   `json:"closed"`
+	Hidden    bool   `json:"hidden"`
 }
 
 // chatDateLayouts are the forms ?date= takes, read in the viewer's
@@ -623,6 +633,11 @@ func loadChat(ctx context.Context, pr *pageRequest, group bool) (any, error) {
 	if err != nil {
 		return nil, notFoundOr(err)
 	}
+	// A topic that is not one shows the whole chat, as an unknown
+	// anchor does.
+	if t, err := chatTopic(pr.query.Get("topic"), c); err == nil {
+		c.Topic = t
+	}
 	a, at, err := chatPageAnchor(ctx, pr, c)
 	if err != nil {
 		return nil, err
@@ -644,7 +659,19 @@ func loadChat(ctx context.Context, pr *pageRequest, group bool) (any, error) {
 		return nil, err
 	}
 	v := pr.view()
-	p := chatProps{chatWindowJSON: v.window(c, w, k), At: at}
+	p := chatProps{chatWindowJSON: v.window(c, w, k), At: at, Topics: []topicJSON{}}
+	if c.Topic != 0 {
+		t := c.Topic
+		p.Topic = &t
+	}
+	ts, err := c.Topics(ctx, pr.s.ro)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range ts {
+		p.Topics = append(p.Topics, topicJSON{ID: t.ID, Name: t.Name, IconColor: t.Color,
+			Closed: t.Closed, Hidden: t.Hidden})
+	}
 	if group {
 		gs := v.group(c.GroupInfo)
 		gs.MsgCount = nil

@@ -6,6 +6,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -251,15 +252,57 @@ type chatMessageJSON struct {
 }
 
 // messageKindsJSON are the fields of MessageKinds, which ChatMessage
-// and MessageFull share: the kind's detail (kinds.go) and a service
-// message's action (service.go).
+// and MessageFull share: the kind's detail (kinds.go), a service
+// message's action (service.go), the forum topic, and the pinned state
+// and latest interaction totals (docs/design/message-types.md
+// sections 4.5 to 4.7).
 type messageKindsJSON struct {
-	Detail  any          `json:"detail"`
-	Service *serviceJSON `json:"service"`
+	Detail    any            `json:"detail"`
+	Service   *serviceJSON   `json:"service"`
+	TopicID   *int64         `json:"topic_id"`
+	Pinned    bool           `json:"pinned"`
+	Views     *int64         `json:"views"`
+	Forwards  *int64         `json:"forwards"`
+	Replies   *int64         `json:"replies"`
+	Reactions []reactionJSON `json:"reactions"`
+}
+
+// reactionJSON is one reaction's total, as the reactions column
+// stores it: {emoji | custom_emoji_id | paid: true, count}.
+type reactionJSON struct {
+	Emoji         string `json:"emoji,omitempty"`
+	CustomEmojiID string `json:"custom_emoji_id,omitempty"`
+	Paid          bool   `json:"paid,omitempty"`
+	Count         int64  `json:"count"`
+}
+
+// reactions reads the reactions column; nil, malformed or withdrawn
+// all give none.
+func reactions(raw []byte) []reactionJSON {
+	out := []reactionJSON{}
+	if len(raw) == 0 {
+		return out
+	}
+	var rs []reactionJSON
+	if json.Unmarshal(raw, &rs) != nil {
+		return out
+	}
+	for _, r := range rs {
+		if r.Count > 0 && (r.Emoji != "" || r.CustomEmojiID != "" || r.Paid) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (v view) messageKinds(k kinds, m logdb.Message) messageKindsJSON {
-	return messageKindsJSON{Detail: v.detail(k, m), Service: v.service(k, m)}
+	j := messageKindsJSON{Detail: v.detail(k, m), Service: v.service(k, m), Pinned: m.Pinned,
+		Views: m.Views, Forwards: m.Forwards, Replies: m.Replies, Reactions: reactions(m.Reactions)}
+	if m.TopicID != 0 {
+		id := m.TopicID
+		j.TopicID = &id
+	}
+	return j
 }
 
 // text is a message's text for the viewer: its text or caption, and
@@ -597,6 +640,21 @@ func chatAnchor(q map[string][]string) (logdb.Anchor, int, error) {
 	return a, limit, nil
 }
 
+// chatTopic reads ?topic=, a forum topic of a group: 0 without one.
+func chatTopic(v string, c logdb.Chat) (int64, error) {
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, errors.New("topic is not a topic id")
+	}
+	if !c.Group {
+		return 0, errors.New("a private chat has no topics")
+	}
+	return n, nil
+}
+
 // errServer wraps a database error of chatTimeAnchor.
 var errServer = errors.New("server error")
 
@@ -681,6 +739,9 @@ func (s *Server) getChatMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	a, limit, err := chatAnchor(q)
+	if err == nil {
+		c.Topic, err = chatTopic(q.Get("topic"), c)
+	}
 	if err == nil {
 		err = s.chatTimeAnchor(r, c, q.Get("after_ts"), &a)
 	}

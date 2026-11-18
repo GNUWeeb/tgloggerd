@@ -33,6 +33,7 @@
 --  21  service chat_add_members logged before migration 000034 (no
 --      tdlib_type, no content_extra)
 --  22  service chat_delete_member: Dewi removed Bima
+-- Its topics and the interaction totals are at the end.
 
 INSERT INTO telegram_files (id, tg_file_id, tg_unique_id, file_type, file_size, on_disk,
 	sha256, file_ext, orig_file_name, created_at, accessed_at) VALUES
@@ -101,3 +102,26 @@ SELECT 5550001, CONCAT('o', n), n - 1, CONCAT('Option ', n), n, 4 FROM seq;
 INSERT INTO telegram_poll_options (poll_id, option_id, position, text, voter_count,
 	vote_percentage, deleted_at) VALUES
 	(5550001, 'gone', 25, 'Removed option', 0, 0, '2026-11-17 10:00:00');
+
+-- Kinds Lab is a forum: General (1), Releases (5, pinned) and
+-- Off-topic (9, closed). Messages 1 - 5 are in Releases, 6 in General;
+-- the others name no topic, as rows logged before the daemon recorded
+-- topics. A thread's id (topic_kind thread) is no forum topic.
+INSERT INTO telegram_forum_topics (chat_id, topic_id, name, icon_color, creation_date,
+	creator_user_id, is_general, is_closed, is_hidden, is_pinned) VALUES
+	(-1001000000040, 1, 'General', 0, 1794900000, 9299000001, 1, 0, 1, 0),
+	(-1001000000040, 5, 'Releases', 7322096, 1794910000, 9299000001, 0, 0, 0, 1),
+	(-1001000000040, 9, 'Off-topic', 16749490, 1794920000, 9299000004, 0, 1, 0, 0);
+UPDATE telegram_group_messages SET topic_kind = 'forum', topic_id = 5
+	WHERE id BETWEEN 4001 AND 4005;
+UPDATE telegram_group_messages SET topic_kind = 'forum', topic_id = 1 WHERE id = 4006;
+UPDATE telegram_group_messages SET topic_kind = 'thread', topic_id = 5 WHERE id = 4007;
+
+-- Interaction: message 1 was seen, forwarded, replied to and reacted
+-- to (an emoji, a custom emoji, the paid reaction); message 3 is the
+-- pinned one; message 2's reactions were all withdrawn.
+UPDATE telegram_group_messages SET view_count = 120, forward_count = 3, reply_count = 2,
+	reactions = '[{"emoji":"\\ud83d\\udc4d","count":5},{"custom_emoji_id":"5368324170671202286","count":2},{"paid":true,"count":1}]'
+	WHERE id = 4001;
+UPDATE telegram_group_messages SET is_pinned = 1 WHERE id = 4003;
+UPDATE telegram_group_messages SET view_count = 0, reactions = '[]' WHERE id = 4002;

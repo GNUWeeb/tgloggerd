@@ -425,3 +425,88 @@ func TestServiceRefs(t *testing.T) {
 		}
 	}
 }
+
+// The interaction totals and the pinned state, and a forum's topics:
+// the chat page lists them, and ?topic= keeps the chat window and the
+// page to one topic's messages, with has_older and has_newer within it.
+func TestKindsInteractionAndTopics(t *testing.T) {
+	t.Parallel()
+	e := kindsEnv(t)
+	ms := kindsWindow(t, e, "superadmin", "")
+	m1 := ms[4001]
+	rs := asList(m1["reactions"])
+	if num(m1["views"]) != 120 || num(m1["forwards"]) != 3 || num(m1["replies"]) != 2 ||
+		m1["pinned"] != false || num(m1["topic_id"]) != 5 || len(rs) != 3 {
+		t.Fatalf("message 1 %v", m1)
+	}
+	if js(rs) != js([]map[string]any{{"count": 5, "emoji": "\U0001F44D"},
+		{"count": 2, "custom_emoji_id": "5368324170671202286"}, {"count": 1, "paid": true}}) {
+		t.Errorf("reactions %s", js(rs))
+	}
+	if m := ms[4002]; num(m["views"]) != 0 || m["views"] == nil || len(asList(m["reactions"])) != 0 {
+		t.Errorf("message 2 %v", m)
+	}
+	if ms[4003]["pinned"] != true {
+		t.Errorf("message 3 pinned %v", ms[4003]["pinned"])
+	}
+	// No topic, a thread's, and a row without interaction.
+	for _, row := range []int{4007, 4021} {
+		m := ms[row]
+		if m["topic_id"] != nil || m["views"] != nil || m["forwards"] != nil || m["replies"] != nil ||
+			m["pinned"] != false || len(asList(m["reactions"])) != 0 {
+			t.Errorf("row %d %v", row, m)
+		}
+	}
+
+	// The window of one topic.
+	in := kindsWindow(t, e, "superadmin", "&topic=5")
+	if len(in) != 5 {
+		t.Errorf("topic 5: %d messages", len(in))
+	}
+	for row := range in {
+		if row < 4001 || row > 4005 {
+			t.Errorf("topic 5 has row %d", row)
+		}
+	}
+	b := e.want(200, "superadmin", "GET", fmt.Sprintf("/api/chats/group/%d/messages?topic=5&limit=2&before=%d",
+		kindsLab, 700004), nil)
+	if ids := asList(b["messages"]); len(ids) != 2 || b["has_older"] != true || b["has_newer"] != true {
+		t.Errorf("topic 5 before 4: %v", b)
+	}
+	b = e.want(200, "superadmin", "GET", fmt.Sprintf("/api/chats/group/%d/messages?topic=5&limit=2&before=%d",
+		kindsLab, 700003), nil)
+	if ids := asList(b["messages"]); len(ids) != 2 || b["has_older"] != false {
+		t.Errorf("topic 5 before 3: %v", b)
+	}
+	if b := e.want(200, "superadmin", "GET", fmt.Sprintf("/api/chats/group/%d/messages?topic=9",
+		kindsLab), nil); len(asList(b["messages"])) != 0 || b["has_older"] != false {
+		t.Errorf("topic 9: %v", b)
+	}
+	for _, q := range []string{"topic=x", "topic=0", "topic=-1"} {
+		e.want(400, "superadmin", "GET", fmt.Sprintf("/api/chats/group/%d/messages?%s", kindsLab, q), nil)
+	}
+	e.want(400, "superadmin", "GET", "/api/chats/private/9299000002/messages?topic=5", nil)
+
+	// The chat page: the topics, pinned first, then the newest, and
+	// the topic it is limited to.
+	_, p := e.page("superadmin", fmt.Sprintf("/groups/%d/chat?topic=5", kindsLab))
+	props := p["props"].(map[string]any)
+	if num(props["topic"]) != 5 || len(asList(props["messages"])) != 5 {
+		t.Errorf("page topic %v, %d messages", props["topic"], len(asList(props["messages"])))
+	}
+	want := `[{"closed":false,"hidden":false,"icon_color":7322096,"id":5,"name":"Releases"},` +
+		`{"closed":true,"hidden":false,"icon_color":16749490,"id":9,"name":"Off-topic"},` +
+		`{"closed":false,"hidden":true,"icon_color":0,"id":1,"name":"General"}]`
+	if got := js(props["topics"]); got != want {
+		t.Errorf("topics %s", got)
+	}
+	_, p = e.page("superadmin", fmt.Sprintf("/groups/%d/chat", kindsLab))
+	if props := p["props"].(map[string]any); props["topic"] != nil || len(asList(props["messages"])) != 22 {
+		t.Errorf("page without topic: %v", props["topic"])
+	}
+	// Another group has no topics.
+	_, p = e.page("superadmin", fmt.Sprintf("/groups/%d/chat", kernelChat))
+	if ts := p["props"].(map[string]any)["topics"]; ts == nil || len(asList(ts)) != 0 {
+		t.Errorf("kernel topics %v", ts)
+	}
+}
