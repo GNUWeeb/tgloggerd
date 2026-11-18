@@ -255,12 +255,7 @@ var Users = &Entity{
 		if sc.SeesAllUsers() {
 			return "", nil
 		}
-		gm, a := sc.GroupFilter("sm.chat_id")
-		ga, b := sc.GroupFilter("sa.group_id")
-		return "EXISTS (SELECT 1 FROM telegram_group_messages sm " +
-			"WHERE sm.sender_user_id = u.id AND " + gm + ") OR " +
-			"EXISTS (SELECT 1 FROM telegram_group_admins sa " +
-			"WHERE sa.user_id = u.id AND " + ga + ")", both(a, b)
+		return sc.UserFilter("u.id")
 	},
 	full: func(sc scope.Scope) bool { return sc.SeesAllUsers() },
 	limited: map[string]bool{

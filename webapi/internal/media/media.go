@@ -189,6 +189,9 @@ const (
 	Off
 	// NeedsSession: a big file, and the request is not signed in.
 	NeedsSession
+	// Denied: the request's account may not have files fetched (a
+	// member without fetch_files); the caller decides, not the Policy.
+	Denied
 )
 
 // IsSmall reports whether a file of this size is stored whole by a

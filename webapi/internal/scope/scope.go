@@ -284,10 +284,9 @@ func (s Scope) UserFilter(column string) (string, []any) {
 	case s.is(Member) && len(s.v.GrantedGroups) > 0:
 		in := marks(len(s.v.GrantedGroups))
 		args := append(groupArgs(s.v.GrantedGroups), groupArgs(s.v.GrantedGroups)...)
-		return "(EXISTS (SELECT 1 FROM telegram_group_messages uf_m WHERE uf_m.sender_user_id = " +
-			column + " AND uf_m.chat_id IN (" + in + ")) OR EXISTS (SELECT 1 FROM " +
-			"telegram_group_admins uf_a WHERE uf_a.user_id = " + column +
-			" AND uf_a.group_id IN (" + in + ")))", args
+		return "(" + column + " IN (SELECT uf_m.sender_user_id FROM telegram_group_messages uf_m " +
+			"WHERE uf_m.chat_id IN (" + in + ")) OR " + column + " IN (SELECT uf_a.user_id FROM " +
+			"telegram_group_admins uf_a WHERE uf_a.group_id IN (" + in + ")))", args
 	}
 	return "1 = 0", nil
 }

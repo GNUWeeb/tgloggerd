@@ -18,6 +18,7 @@ import (
 
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/live"
+	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/scope"
 )
 
@@ -137,10 +138,15 @@ func (t *topics) wants(e live.Event) bool {
 // eventInScope is the one place the request scope decides which live
 // events a viewer gets; GET /api/events calls it for every event. A
 // chat's events reach only viewers who see that chat (scope.SeesChat),
-// a user's only those who see users in full. They run for every event
-// and subscriber under the hub's lock, so the scope answers them from
-// memory.
+// a user's only those who see that user. They run for every event and
+// subscriber under the hub's lock, so they answer from memory: users
+// is the set of users the stream may hear of when the viewer does not
+// see users in full (a member: liveUsers), nil for one that does.
 func eventInScope(sc scope.Scope, e live.Event) (live.Event, bool) {
+	return eventFor(sc, nil, e)
+}
+
+func eventFor(sc scope.Scope, users map[int64]bool, e live.Event) (live.Event, bool) {
 	if e.Kind == live.KindBotUpdated {
 		// A bot is the forwarding pages' and, with its owner, the
 		// admins' and superadmins' (bots.go). A member with forward
@@ -149,7 +155,8 @@ func eventInScope(sc scope.Scope, e live.Event) (live.Event, bool) {
 		// own changes.
 		return e, e.BotID != 0 && sc.Can(scope.Forward) && sc.SeesAllBots()
 	}
-	return filterEvent(e, sc.SeesChat, func(int64) bool { return sc.SeesAllUsers() })
+	userOK := func(id int64) bool { return sc.SeesAllUsers() || users[id] }
+	return filterEvent(e, sc.SeesChat, userOK)
 }
 
 // filterEvent applies visibility to one event: chatOK for a chat id
@@ -259,7 +266,14 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	sc := s.requestScope(r, &sess)
 	filter := s.liveFilter
 	if filter == nil {
-		filter = eventInScope
+		users, err := s.liveUsers(r, sc, t)
+		if err != nil {
+			s.internalError(w, "live users", err)
+			return
+		}
+		filter = func(sc scope.Scope, e live.Event) (live.Event, bool) {
+			return eventFor(sc, users, e)
+		}
 	}
 	sub, st, err := s.live.Subscribe(last, func(e live.Event) (live.Event, bool) {
 		if !t.wants(e) {
@@ -341,6 +355,24 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// liveUsers is the users a stream of a viewer that does not see users
+// in full may hear of: those of its user topics it sees
+// (logdb.VisibleUserIDs), checked once when the stream opens, as the
+// hub's filter cannot query. A user that appears in a member's groups
+// only later is heard of after the next reconnect; the ids of other
+// users in a stats.changed are dropped. nil for a viewer that sees
+// every user.
+func (s *Server) liveUsers(r *http.Request, sc scope.Scope, t topics) (map[int64]bool, error) {
+	if sc.SeesAllUsers() {
+		return nil, nil
+	}
+	ids := make([]int64, 0, len(t.users))
+	for id := range t.users {
+		ids = append(ids, id)
+	}
+	return logdb.VisibleUserIDs(r.Context(), s.ro, sc, ids)
 }
 
 // liveRecheck checks an open stream's session again: "revoked" when it

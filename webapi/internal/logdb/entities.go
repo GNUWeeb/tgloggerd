@@ -198,11 +198,25 @@ func scanUsers(rows *sql.Rows) (map[int64]User, error) {
 // userTotal is the SQL expression of a user's message total as the
 // scope may see it: telegram_users.msg_count counts every group and
 // private message the user sent, so a scope that hides groups or
-// private chats gets it less the user's messages there. Only such a
-// scope pays for the subqueries, which the (sender_user_id, chat_id)
-// and (sender_id) indexes answer. The hidden groups are inlined: they
-// are our own integers, from the account's settings.
+// private chats gets it less the user's messages there, and a member
+// only the user's messages in its granted groups (never the global
+// count, web-accounts.md section 5). Only such a scope pays for the
+// subqueries, which the (sender_user_id, chat_id) and (sender_id)
+// indexes answer. The groups are inlined: they are our own integers,
+// from the account's settings.
 func userTotal(sc scope.Scope) string {
+	if !sc.SeesAllUsers() {
+		granted := sc.GrantedGroups()
+		if len(granted) == 0 {
+			return "0"
+		}
+		ids := make([]string, len(granted))
+		for i, g := range granted {
+			ids[i] = strconv.FormatInt(g, 10)
+		}
+		return "(SELECT COUNT(*) FROM telegram_group_messages gm WHERE gm.sender_user_id = u.id" +
+			" AND gm.chat_id IN (" + strings.Join(ids, ",") + "))"
+	}
 	minus := ""
 	if hidden := sc.HiddenGroups(); len(hidden) > 0 {
 		ids := make([]string, len(hidden))
@@ -344,28 +358,34 @@ func inOrder[T any](ids []int64, m map[int64]T) []T {
 	return out
 }
 
-// usersInVisibleGroups is the users among ids that appear in a group
-// the scope sees: as a sender of a message there or as one of its
-// admins. It is how a viewer without SeesAllUsers sees users
-// (web-accounts.md section 5); the sender and admin indexes serve both
-// halves.
-func usersInVisibleGroups(ctx context.Context, db *sql.DB, sc scope.Scope, ids []int64) (map[int64]bool, error) {
+// VisibleUserIDs is the users among ids that the scope sees: every
+// user that exists for a viewer that sees users in full, else those
+// that appear in its visible groups, as a sender of a message there or
+// as one of their admins (web-accounts.md section 5), as
+// scope.UserFilter has it. It is the scoped check of one or a few
+// users, for the callers that need a yes or no without the rows, and
+// is driven by the ids themselves: the (sender_user_id, chat_id) index
+// of the messages and the admins' user index answer it with a lookup
+// per id, however big the groups are, where UserFilter's subqueries
+// may read a group's senders whole to filter a list.
+func VisibleUserIDs(ctx context.Context, db *sql.DB, sc scope.Scope, ids []int64) (map[int64]bool, error) {
 	ids = uniq(ids)
 	out := map[int64]bool{}
 	if len(ids) == 0 {
 		return out, nil
 	}
-	mcond, margs := sc.GroupFilter("m.chat_id")
-	acond, aargs := sc.GroupFilter("a.group_id")
 	in := placeholders(len(ids))
-	args := append(int64Args(ids), margs...)
-	args = append(args, int64Args(ids)...)
-	args = append(args, aargs...)
-	rows, err := db.QueryContext(ctx,
-		"SELECT DISTINCT m.sender_user_id FROM telegram_group_messages m "+
-			"WHERE m.sender_user_id IN ("+in+") AND "+mcond+
-			" UNION SELECT a.user_id FROM telegram_group_admins a "+
-			"WHERE a.user_id IN ("+in+") AND "+acond, args...)
+	q, args := "SELECT u.id FROM telegram_users u WHERE u.id IN ("+in+")", int64Args(ids)
+	if !sc.SeesAllUsers() {
+		mcond, margs := sc.GroupFilter("m.chat_id")
+		acond, aargs := sc.GroupFilter("a.group_id")
+		q = "SELECT DISTINCT m.sender_user_id FROM telegram_group_messages m " +
+			"WHERE m.sender_user_id IN (" + in + ") AND " + mcond +
+			" UNION SELECT a.user_id FROM telegram_group_admins a " +
+			"WHERE a.user_id IN (" + in + ") AND " + acond
+		args = append(append(append(args, margs...), int64Args(ids)...), aargs...)
+	}
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +413,7 @@ func VisibleUsers(ctx context.Context, db *sql.DB, sc scope.Scope, ids []int64) 
 		for id := range m {
 			keys = append(keys, id)
 		}
-		vis, err := usersInVisibleGroups(ctx, db, sc, keys)
+		vis, err := VisibleUserIDs(ctx, db, sc, keys)
 		if err != nil {
 			return nil, err
 		}

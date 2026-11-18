@@ -34,8 +34,11 @@ import (
 // (ownership.go), as is each bot (bots.go); one without an owner, made before
 // ownership existed or by the Drogon pages, counts as the superadmins'
 // and is answered as shared. The federation of a configuration is not
-// stored yet: every one is in Default, visible to every viewer with the
-// ability, and transferring is not served (forwarding-per-user).
+// stored yet: every one is in Default, and transferring is not served
+// (forwarding-per-user). An admin or superadmin with the ability sees
+// every configuration of the chats it sees; a member with forward sees
+// and changes only those it owns (web-accounts.md section 6): any other
+// does not exist for it (fwdVisible).
 //
 // The webhook URL is write-only: an answer carries it with its secret
 // part cut off. A webhook URL must be Discord's, on save and on test,
@@ -218,6 +221,92 @@ func d2tLive(d logdb.D2TRoute, bots map[uint64]logdb.BotRow) bool {
 		bots[d.DiscordBotID].Enabled
 }
 
+// fwdVisible is which configurations of type t the viewer may see and
+// change, besides the scope's chat filter: every one for a viewer that
+// sees all forwarding (scope.SeesAllForwarding), else those it owns.
+func (s *Server) fwdVisible(ctx context.Context, sc scope.Scope, t webdb.ResourceType) (func(uint64) bool, error) {
+	if sc.SeesAllForwarding() {
+		return func(uint64) bool { return true }, nil
+	}
+	v, ok := sc.Viewer()
+	if !ok {
+		return func(uint64) bool { return false }, nil
+	}
+	ids, err := webdb.OwnedBy(ctx, s.app, t, v.ID)
+	if err != nil {
+		return nil, err
+	}
+	owned := map[uint64]bool{}
+	for _, id := range ids {
+		owned[uint64(id)] = true
+	}
+	return func(id uint64) bool { return owned[id] }, nil
+}
+
+// listT2D is the webhooks the viewer sees (logdb.ListT2D, fwdVisible).
+func (s *Server) listT2D(ctx context.Context, sc scope.Scope) ([]logdb.T2DWebhook, error) {
+	ws, err := logdb.ListT2D(ctx, s.ro, sc)
+	if err != nil {
+		return nil, err
+	}
+	vis, err := s.fwdVisible(ctx, sc, webdb.ResT2DWebhook)
+	if err != nil {
+		return nil, err
+	}
+	out := ws[:0]
+	for _, w := range ws {
+		if vis(w.ID) {
+			out = append(out, w)
+		}
+	}
+	return out, nil
+}
+
+// getT2D is one webhook the viewer sees.
+func (s *Server) getT2D(ctx context.Context, sc scope.Scope, id uint64) (logdb.T2DWebhook, bool, error) {
+	h, ok, err := logdb.GetT2D(ctx, s.ro, sc, id)
+	if err != nil || !ok {
+		return h, false, err
+	}
+	vis, err := s.fwdVisible(ctx, sc, webdb.ResT2DWebhook)
+	if err != nil {
+		return h, false, err
+	}
+	return h, vis(h.ID), nil
+}
+
+// listD2T is the routes the viewer sees (logdb.ListD2T, fwdVisible).
+func (s *Server) listD2T(ctx context.Context, sc scope.Scope) ([]logdb.D2TRoute, error) {
+	rs, err := logdb.ListD2T(ctx, s.ro, sc)
+	if err != nil {
+		return nil, err
+	}
+	vis, err := s.fwdVisible(ctx, sc, webdb.ResD2TRoute)
+	if err != nil {
+		return nil, err
+	}
+	out := rs[:0]
+	for _, r := range rs {
+		if vis(r.ID) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+// getD2T is one route the viewer sees.
+func (s *Server) getD2T(ctx context.Context, sc scope.Scope, id uint64) (logdb.D2TRoute, bool, error) {
+	d, ok, err := logdb.GetD2T(ctx, s.ro, sc, id)
+	if err != nil || !ok {
+		return d, false, err
+	}
+	vis, err := s.fwdVisible(ctx, sc, webdb.ResD2TRoute)
+	if err != nil {
+		return d, false, err
+	}
+	return d, vis(d.ID), nil
+}
+
 // fwdTarget checks the chat and federation of a new configuration: the
 // chat must be one the logger has seen and the scope sees, the
 // federation one the viewer administers. Either missing answers 404.
@@ -313,7 +402,7 @@ func (s *Server) t2dOf(w http.ResponseWriter, r *http.Request, sc scope.Scope) (
 		notFound(w)
 		return logdb.T2DWebhook{}, false
 	}
-	h, ok, err := logdb.GetT2D(r.Context(), s.ro, sc, id)
+	h, ok, err := s.getT2D(r.Context(), sc, id)
 	if err != nil {
 		s.internalError(w, "webhook", err)
 		return h, false
@@ -433,7 +522,7 @@ func (s *Server) testT2D(w http.ResponseWriter, r *http.Request) {
 	case in.WebhookURL != nil:
 		target = *in.WebhookURL
 	case in.ID != nil:
-		h, ok, err := logdb.GetT2D(r.Context(), s.ro, sc, *in.ID)
+		h, ok, err := s.getT2D(r.Context(), sc, *in.ID)
 		if err != nil {
 			s.internalError(w, "webhook", err)
 			return
@@ -560,7 +649,7 @@ func (s *Server) d2tOf(w http.ResponseWriter, r *http.Request, sc scope.Scope) (
 		notFound(w)
 		return logdb.D2TRoute{}, false
 	}
-	d, ok, err := logdb.GetD2T(r.Context(), s.ro, sc, id)
+	d, ok, err := s.getD2T(r.Context(), sc, id)
 	if err != nil {
 		s.internalError(w, "route", err)
 		return d, false
@@ -706,11 +795,11 @@ func loadPlatformFwd(ctx context.Context, pr *pageRequest) (any, error) {
 		return nil, err
 	}
 	s := pr.s
-	ws, err := logdb.ListT2D(ctx, s.ro, pr.scope)
+	ws, err := s.listT2D(ctx, pr.scope)
 	if err != nil {
 		return nil, err
 	}
-	rs, err := logdb.ListD2T(ctx, s.ro, pr.scope)
+	rs, err := s.listD2T(ctx, pr.scope)
 	if err != nil {
 		return nil, err
 	}
@@ -748,7 +837,7 @@ func loadT2D(ctx context.Context, pr *pageRequest) (any, error) {
 		return nil, err
 	}
 	s := pr.s
-	ws, err := logdb.ListT2D(ctx, s.ro, pr.scope)
+	ws, err := s.listT2D(ctx, pr.scope)
 	if err != nil {
 		return nil, err
 	}
@@ -782,7 +871,7 @@ func loadD2T(ctx context.Context, pr *pageRequest) (any, error) {
 		return nil, err
 	}
 	s := pr.s
-	rs, err := logdb.ListD2T(ctx, s.ro, pr.scope)
+	rs, err := s.listD2T(ctx, pr.scope)
 	if err != nil {
 		return nil, err
 	}

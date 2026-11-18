@@ -21,10 +21,11 @@ func ContactOf(ctx context.Context, db *sql.DB, sc scope.Scope, id int64) (exist
 	if id <= 0 {
 		return false, false, nil
 	}
-	cond, args := sc.UserFilter("u.id")
+	if vis, err := VisibleUserIDs(ctx, db, sc, []int64{id}); err != nil || !vis[id] {
+		return false, false, err
+	}
 	var c sql.NullBool
-	err = db.QueryRowContext(ctx, "SELECT u.is_contact FROM telegram_users u WHERE u.id = ? AND "+cond,
-		append([]any{id}, args...)...).Scan(&c)
+	err = db.QueryRowContext(ctx, "SELECT is_contact FROM telegram_users WHERE id = ?", id).Scan(&c)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, false, nil
 	}

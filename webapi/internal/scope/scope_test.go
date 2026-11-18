@@ -278,8 +278,10 @@ func TestMemberGrants(t *testing.T) {
 		t.Errorf("group filter %q %v", cond, args)
 	}
 	cond, args := m.UserFilter("u.id")
-	if !strings.Contains(cond, "uf_m.sender_user_id = u.id AND uf_m.chat_id IN (?, ?)") ||
-		!strings.Contains(cond, "uf_a.user_id = u.id AND uf_a.group_id IN (?, ?)") ||
+	if !strings.Contains(cond, "u.id IN (SELECT uf_m.sender_user_id FROM telegram_group_messages uf_m "+
+		"WHERE uf_m.chat_id IN (?, ?))") ||
+		!strings.Contains(cond, "u.id IN (SELECT uf_a.user_id FROM telegram_group_admins uf_a "+
+			"WHERE uf_a.group_id IN (?, ?))") ||
 		!reflect.DeepEqual(args, []any{int64(-12), int64(-10), int64(-12), int64(-10)}) {
 		t.Errorf("user filter %q %v", cond, args)
 	}
