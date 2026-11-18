@@ -2199,6 +2199,7 @@ export interface components {
             anonymous: boolean;
             /** @description More than one option may be chosen. */
             multiple: boolean;
+            /** @description Closed, or past its close_date: Telegram does not always send the update that closes a poll whose time ran out. */
             closed: boolean;
             total_voters: number;
             /** @description When it closes or closed, if a date was set. */

@@ -5794,6 +5794,9 @@ components:
           description: More than one option may be chosen.
         closed:
           type: boolean
+          description: >-
+            Closed, or past its close_date: Telegram does not always
+            send the update that closes a poll whose time ran out.
         total_voters:
           type: integer
         close_date:

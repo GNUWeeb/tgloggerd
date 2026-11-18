@@ -562,3 +562,24 @@ func TestKindsSearch(t *testing.T) {
 		t.Errorf("needs_chat %v", needs)
 	}
 }
+
+// A poll past its close date is closed, even when the update closing it
+// never came and the stored flag still says open.
+func TestPollClosed(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		closed         bool
+		closeDate, now int64
+		want           bool
+	}{
+		{true, 0, 100, true},
+		{false, 0, 100, false},
+		{false, 200, 100, false},
+		{false, 100, 100, true},
+		{false, 50, 100, true},
+	} {
+		if got := pollClosed(c.closed, c.closeDate, c.now); got != c.want {
+			t.Errorf("pollClosed(%v, %d, %d) = %v, want %v", c.closed, c.closeDate, c.now, got, c.want)
+		}
+	}
+}

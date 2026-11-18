@@ -197,6 +197,13 @@ type kinds struct {
 	groups  map[int64]logdb.Group // the visible ones, and the chat itself
 }
 
+// pollClosed is whether a poll is closed: stored as closed, or past its
+// close date, as Telegram does not always send the update that closes
+// a poll whose time ran out, and the stored flag then stays open.
+func pollClosed(closed bool, closeDate, now int64) bool {
+	return closed || (closeDate != 0 && closeDate <= now)
+}
+
 // loadKinds parses the content_extra of the messages that have a
 // detail and loads, in one batch for all of them, the polls they show
 // and the users and groups they name, as sc may see them.
@@ -543,8 +550,9 @@ func (v view) detail(k kinds, m logdb.Message) any {
 			return nil
 		}
 		j := pollJSON{Kind: ctype, Question: p.Question, Type: p.Type, Anonymous: p.Anonymous,
-			Multiple: p.Multiple, Closed: p.Closed, TotalVoters: p.TotalVoters,
-			CloseDate: isoPtr(p.CloseDate), Options: []pollOptionJSON{}, OptionsTotal: len(p.Options)}
+			Multiple: p.Multiple, Closed: pollClosed(p.Closed, p.CloseDate, v.s.clock().Unix()),
+			TotalVoters: p.TotalVoters, CloseDate: isoPtr(p.CloseDate), Options: []pollOptionJSON{},
+			OptionsTotal: len(p.Options)}
 		if p.Explanation != "" {
 			e := p.Explanation
 			j.Explanation = &e
