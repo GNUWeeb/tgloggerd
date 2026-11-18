@@ -376,6 +376,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dashboard/kpis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The dashboard's cards alone
+         * @description The kpis of the dashboard's page data, the same keys and scope, for a dashboard that keeps its cards current without loading the rest again. The counts come from a cache that keeps them for WEBAPI_COUNT_CACHE_SECS (60 by default), so asking more often than that gives the same answer.
+         */
+        get: operations["getDashboardKPIs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/account/preferences": {
         parameters: {
             query?: never;
@@ -2121,15 +2141,17 @@ export interface components {
             /** @description Where to go after signing in; same-site paths only. */
             next: string | null;
         };
+        /** @description One dashboard card: a total and today's count (today being the viewer's calendar day in its timezone), within the viewer's scope. */
+        KPI: {
+            /** @enum {string} */
+            key: "users" | "groups" | "group_messages" | "private_messages" | "files";
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            today: number;
+        };
         DashboardProps: {
-            kpis: {
-                /** @enum {string} */
-                key: "users" | "groups" | "group_messages" | "private_messages" | "files";
-                /** Format: int64 */
-                total: number;
-                /** Format: int64 */
-                today: number;
-            }[];
+            kpis: components["schemas"]["KPI"][];
             /** @description Messages logged per day over the last 30 days, oldest first, ending with today. Each count is one calendar day in the viewer's timezone (its own setting, else the site's), so a day with a daylight saving change is 23 or 25 hours long. The kpis' today counts are the same day as the last one. */
             per_day: number[];
             /** @description The date of per_day's first day, YYYY-MM-DD in the viewer's timezone; the others follow it day by day. */
@@ -3768,6 +3790,30 @@ export interface operations {
                 };
             };
             500: components["responses"]["Internal"];
+        };
+    };
+    getDashboardKPIs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        kpis: components["schemas"]["KPI"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     getPreferences: {

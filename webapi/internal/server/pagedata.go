@@ -492,14 +492,24 @@ func parseChatDate(v string, loc *time.Location) (time.Time, bool) {
 // viewerLocation is the timezone the viewer reads times in: its own
 // preference, else the site's default (pageViewer's timezone).
 func (pr *pageRequest) viewerLocation(ctx context.Context) (*time.Location, error) {
-	var prefs settings.Prefs
+	var uid uint64
 	if pr.sess != nil {
+		uid = pr.sess.UID
+	}
+	return pr.s.locationOf(ctx, uid)
+}
+
+// locationOf is the timezone of the account uid (0 for none): its own
+// preference, else the site's default.
+func (s *Server) locationOf(ctx context.Context, uid uint64) (*time.Location, error) {
+	var prefs settings.Prefs
+	if uid != 0 {
 		var err error
-		if prefs, err = pr.s.viewerPrefs(ctx, pr.sess.UID); err != nil {
+		if prefs, err = s.viewerPrefs(ctx, uid); err != nil {
 			return nil, err
 		}
 	}
-	loc, err := time.LoadLocation(settings.Resolve(prefs, pr.s.defaults).Timezone)
+	loc, err := time.LoadLocation(settings.Resolve(prefs, s.defaults).Timezone)
 	if err != nil {
 		return time.UTC, nil
 	}

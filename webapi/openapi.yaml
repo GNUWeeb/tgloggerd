@@ -1424,6 +1424,37 @@ paths:
         '500':
           $ref: '#/components/responses/Internal'
 
+  /api/dashboard/kpis:
+    get:
+      operationId: getDashboardKPIs
+      tags: [pages]
+      summary: The dashboard's cards alone
+      description: >-
+        The kpis of the dashboard's page data, the same keys and scope,
+        for a dashboard that keeps its cards current without loading
+        the rest again. The counts come from a cache that keeps them
+        for WEBAPI_COUNT_CACHE_SECS (60 by default), so asking more
+        often than that gives the same answer.
+      security:
+        - session: []
+      responses:
+        '200':
+          description: The cards.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kpis]
+                properties:
+                  kpis:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/KPI'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
   /api/account/preferences:
     get:
       operationId: getPreferences
@@ -5549,6 +5580,23 @@ components:
         next:
           type: [string, 'null']
           description: Where to go after signing in; same-site paths only.
+    KPI:
+      type: object
+      description: >-
+        One dashboard card: a total and today's count (today being the
+        viewer's calendar day in its timezone), within the viewer's
+        scope.
+      required: [key, total, today]
+      properties:
+        key:
+          type: string
+          enum: [users, groups, group_messages, private_messages, files]
+        total:
+          type: integer
+          format: int64
+        today:
+          type: integer
+          format: int64
     DashboardProps:
       type: object
       required: [kpis, per_day, per_day_start, busiest, deleted]
@@ -5556,18 +5604,7 @@ components:
         kpis:
           type: array
           items:
-            type: object
-            required: [key, total, today]
-            properties:
-              key:
-                type: string
-                enum: [users, groups, group_messages, private_messages, files]
-              total:
-                type: integer
-                format: int64
-              today:
-                type: integer
-                format: int64
+            $ref: '#/components/schemas/KPI'
         per_day:
           type: array
           description: >-
