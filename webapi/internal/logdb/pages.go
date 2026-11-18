@@ -413,10 +413,9 @@ func LoadDashboard(ctx context.Context, db *sql.DB, sc scope.Scope, now int64) (
 	today := dayStart(now)
 	cond, cargs := sc.GroupFilter("m.chat_id")
 	gcond, gargs := sc.GroupFilter("g.id")
+	// The archive's totals: through the count cache (countcache.go).
 	count := func(q string, args ...any) (int64, error) {
-		var n sql.NullInt64
-		err := db.QueryRowContext(ctx, q, args...).Scan(&n)
-		return n.Int64, err
+		return countInt(ctx, db, q, args...)
 	}
 	type kq struct {
 		key          string

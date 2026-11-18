@@ -37,6 +37,7 @@ import (
 	"tgloggerd/webapi/internal/config"
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/live"
+	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/mail"
 	"tgloggerd/webapi/internal/media"
 	"tgloggerd/webapi/internal/render"
@@ -194,6 +195,7 @@ func run(log *slog.Logger, cfg *config.Config) error {
 		Proxies:    server.TrustedProxies(cfg.TrustedProxies),
 		Live:       hub,
 		LiveCfg:    server.LiveConfig{Recheck: cfg.LiveRecheck},
+		Counts:     logdb.NewCountCache(cfg.CountCache),
 		Render:     renderer,
 		Assets:     assets,
 		AssetFiles: assetFiles,

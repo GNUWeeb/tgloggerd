@@ -580,10 +580,7 @@ func (e *Entity) build(sc scope.Scope, req SearchRequest) (*built, error) {
 	if where != "" {
 		whereClause = " WHERE " + where
 	}
-	countFrom := e.countFrom
-	if countFrom == "" {
-		countFrom = e.from
-	}
+	countFrom := e.countFromFor(where)
 	hint := "SELECT /*+ MAX_EXECUTION_TIME(" + strconv.Itoa(statementMS) + ") */ "
 	b.countSQL = hint + "COUNT(*) AS n FROM " + countFrom + whereClause
 	sel := e.sel
@@ -660,8 +657,8 @@ func Search(ctx context.Context, db *sql.DB, sc scope.Scope, e *Entity, req Sear
 	// The count only feeds the pager, so it never fails the request:
 	// when it fails or runs out of time, the total is estimated below.
 	if b.filtered || !e.estimateBrowse {
-		if err := db.QueryRowContext(ctx, b.countSQL, b.where...).Scan(&res.Total); err == nil {
-			res.TotalExact = true
+		if n, err := countInt(ctx, db, b.countSQL, b.where...); err == nil {
+			res.Total, res.TotalExact = n, true
 		} else if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -760,6 +757,18 @@ func explain(ctx context.Context, db *sql.DB, b *built) (*SearchDebug, error) {
 		d.Explain.Rows = append(d.Explain.Rows, row)
 	}
 	return d, nil
+}
+
+// countFromFor is the FROM of the entity's count under where: the
+// join-free one when where does not name the joined table.
+func (e *Entity) countFromFor(where string) string {
+	if e.countBare != "" && !e.joinAlias.MatchString(where) {
+		return e.countBare
+	}
+	if e.countFrom != "" {
+		return e.countFrom
+	}
+	return e.from
 }
 
 // countTable is the table an entity counts: the first word of its

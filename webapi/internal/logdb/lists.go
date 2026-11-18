@@ -29,14 +29,9 @@ func ArchiveTotal(ctx context.Context, db *sql.DB, sc scope.Scope, e *Entity) (i
 	if cond, _ := e.filter(sc); cond != "" {
 		return 0, false, nil
 	}
-	var n int64
 	if !e.estimateBrowse {
-		from := e.countFrom
-		if from == "" {
-			from = e.from
-		}
-		err := db.QueryRowContext(ctx, "SELECT /*+ MAX_EXECUTION_TIME("+
-			strconv.Itoa(statementMS)+") */ COUNT(*) FROM "+from).Scan(&n)
+		n, err := countInt(ctx, db, "SELECT /*+ MAX_EXECUTION_TIME("+
+			strconv.Itoa(statementMS)+") */ COUNT(*) FROM "+e.countFromFor(""))
 		if err == nil {
 			return n, true, nil
 		}
@@ -60,13 +55,13 @@ func StoredBytes(ctx context.Context, db *sql.DB, sc scope.Scope) (int64, bool) 
 	if cond, _ := Files.filter(sc); cond != "" || !Files.visible(sc) {
 		return 0, false
 	}
-	var n sql.NullInt64
-	if err := db.QueryRowContext(ctx, "SELECT /*+ MAX_EXECUTION_TIME("+
+	n, err := countInt(ctx, db, "SELECT /*+ MAX_EXECUTION_TIME("+
 		strconv.Itoa(statementMS)+") */ SUM(file_size) FROM telegram_files "+
-		"WHERE on_disk = 1").Scan(&n); err != nil {
+		"WHERE on_disk = 1")
+	if err != nil {
 		return 0, false
 	}
-	return n.Int64, true
+	return n, true
 }
 
 // FileOrigin is the first message a file was sent in, among those the

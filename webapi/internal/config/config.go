@@ -98,6 +98,9 @@ type Config struct {
 	// LiveRecheck is how often an open stream checks its session again
 	// (WEBAPI_LIVE_RECHECK, seconds).
 	LiveRecheck time.Duration
+	// CountCache is how long whole-table and list counts are kept
+	// (WEBAPI_COUNT_CACHE_SECS, default 60; 0 counts on every request).
+	CountCache time.Duration
 	// RenderSocket is the render service's Unix socket (RENDER_SOCKET);
 	// RenderTimeout bounds a render, connect and answer together
 	// (RENDER_TIMEOUT), and RenderBackoff is how long the service is
@@ -326,6 +329,12 @@ func FromEnv() (*Config, error) {
 		return nil, err
 	}
 	c.LiveRecheck = time.Duration(recheck) * time.Second
+	counts, err := integer("WEBAPI_COUNT_CACHE_SECS", "60")
+	if err != nil || counts < 0 {
+		return nil, fmt.Errorf("WEBAPI_COUNT_CACHE_SECS: %q is not a number of seconds",
+			env("WEBAPI_COUNT_CACHE_SECS", "60"))
+	}
+	c.CountCache = time.Duration(counts) * time.Second
 	// The render service and the bundle it was built with
 	// (docs/design/web-ssr.md sections 4.5 and 6).
 	c.RenderSocket = env("RENDER_SOCKET", "/run/tgloggerd-render/render.sock")
