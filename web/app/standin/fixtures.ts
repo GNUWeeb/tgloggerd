@@ -334,6 +334,15 @@ function searchList(st, registry: string, rows: Record<string, unknown>[], keep:
 	return { st: applied, r: exact ? r : { ...r, total: Math.round(r.total / 100) * 100 || r.total }, extra: { total_exact: exact, fields: fieldsOf(fields), ...(error ? { error } : {}) } };
 }
 
+// The first per-day bar's date, as Go gives it: the calendar day 29 days
+// before the viewer's today, in its timezone (its own, else the site's).
+export const SITE_TIMEZONE = 'Asia/Jakarta';
+export function perDayStart(persona: Persona, days: number): string {
+	const tz = (persona !== 'public' && settingsState(persona).prefs.timezone) || SITE_TIMEZONE;
+	const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(NOW));
+	return new Date(Date.parse(today + 'T00:00:00Z') - (days - 1) * 86400000).toISOString().slice(0, 10);
+}
+
 // Path -> route and props, with the viewer's scope applied: hidden things
 // answer exactly like missing ones.
 export function load(url: string, persona: Persona): Loaded {
@@ -368,6 +377,7 @@ export function load(url: string, persona: Persona): Loaded {
 					: [['users', TOTALS.users, 412], ['groups', TOTALS.groups, 3], ['group_messages', TOTALS.group_messages, 38211], ['private_messages', TOTALS.private_messages, 1290], ['files', TOTALS.files, 2406]]
 				).filter(([k]) => allowed(s, k)).map(([key, total, today]) => ({ key, total, today })),
 				per_day: getActivity(31337, 38000 * 900 / 30),
+				per_day_start: perDayStart(persona, 30),
 				busiest: vis.sort((a, b) => b.msg_count - a.msg_count).slice(0, 6).map((g) => ({ ...groupSummary(g), msg_count: g.msg_count })),
 				deleted: groupMessages().filter((x) => x.deleted_at && s.group(x.chat)).slice(0, 5).map((x) => ({
 					id: x.id, scope: 'group', chat: groupSummary(x.chat), sender: userSummary(senderOf(x), false),
