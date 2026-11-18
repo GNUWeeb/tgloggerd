@@ -62,3 +62,19 @@ test('the theme chosen in the top bar is kept across a reload', async ({ page })
 	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 	await expect(page.getByRole('button', { name: 'Theme: light' })).toBeVisible();
 });
+
+test('the dashboard\'s per-day bars give the day and count on hover', async ({ page }) => {
+	await page.goto('/');
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	const today = page.getByRole('img', { name: /^Today, / });
+	await today.hover();
+	const tip = page.locator('.a-daybars-tip');
+	await expect(tip).toBeVisible();
+	await expect(tip).toContainText('Today');
+	await expect(tip).toContainText('messages');
+	// Inside the card, not cut off at its right edge.
+	const card = await page.locator('.a-bigchart').boundingBox();
+	const box = await tip.boundingBox();
+	expect(box!.x + box!.width).toBeLessThanOrEqual(card!.x + card!.width + 1);
+	await expect(page.locator('.a-daybars-axis')).toContainText('Today');
+});

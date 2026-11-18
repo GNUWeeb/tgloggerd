@@ -2,7 +2,8 @@ import { Users, UsersRound, MessagesSquare, MessageCircle, FileText, Activity, H
 import Shell from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
 import { Avatar, Card, PageHead } from '../ui/primitives.tsx';
-import { Bar, Sparkline } from '../ui/bits.tsx';
+import { Bar } from '../ui/bits.tsx';
+import { DayBars } from '../ui/daybars.tsx';
 import { ago, compact, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { GroupSummary, UserSummary } from '../types.ts';
@@ -42,8 +43,8 @@ function Dashboard({ page }: { page: PageData<DashboardProps> }) {
 				})}
 			</div>
 			<div className={`a-dash ${p.status ? '' : 'member'}`}>
-				<Card title="Messages logged per day" action={<span className="a-muted sm">last 30 days</span>} className="a-dash-wide">
-					<div className="a-bigchart"><Sparkline data={p.per_day} bars height={140} /></div>
+				<Card title="Messages logged per day" action={<span className="a-muted sm" title="Each day runs from midnight to midnight UTC">last 30 days, UTC</span>} className="a-dash-wide">
+					<div className="a-bigchart"><DayBars data={p.per_day} now={v.now} height={140} /></div>
 				</Card>
 				{p.status && (
 					<Card title="Logger status" className="a-status">

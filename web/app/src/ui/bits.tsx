@@ -50,20 +50,11 @@ export function Bar({ value, max }: { value: number; max: number }) {
 	return <span className="a-bar"><span style={{ width: `${(value / Math.max(1, max)) * 100}%` }} /></span>;
 }
 
-export function Sparkline({ data, height = 44, bars = false }: { data: number[]; height?: number; bars?: boolean }) {
+// A small line of daily counts, for the profile pages' stat cards. The
+// dashboard's labelled per-day bars are DayBars (ui/daybars.tsx).
+export function Sparkline({ data, height = 44 }: { data: number[]; height?: number }) {
 	const width = 220;
 	const max = Math.max(1, ...data);
-	if (bars) {
-		const w = width / Math.max(1, data.length);
-		return (
-			<svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
-				{data.map((v, i) => {
-					const h = Math.max(1, (v / max) * (height - 2));
-					return <rect key={i} x={i * w + 1} y={height - h} width={Math.max(1, w - 2)} height={h} rx="1.5" fill="currentColor" opacity={i === data.length - 1 ? 1 : 0.55} />;
-				})}
-			</svg>
-		);
-	}
 	const pts = data.map((v, i) => [(i / Math.max(1, data.length - 1)) * width, height - 2 - (v / max) * (height - 6)] as const);
 	const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
 	return (
