@@ -36,6 +36,8 @@ type Session struct {
 	// cookie either, as webdb.JoinIDs writes them ("" for none), so a
 	// Session stays comparable.
 	AdminOf string
+	// HidePrivate is an admin's restriction, read like AdminOf.
+	HidePrivate bool
 
 	// Key identifies the session in web_sessions: the SHA-256 of the
 	// cookie value (SessionKey). Row is the session's web_sessions.id,

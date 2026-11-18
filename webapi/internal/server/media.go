@@ -120,6 +120,7 @@ func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
 		Role:               role,
 		MustChangePassword: sess.MustChangePassword,
 		AdminOf:            webdb.SplitIDs(sess.AdminOf),
+		HidePrivate:        sess.HidePrivate,
 	})
 }
 

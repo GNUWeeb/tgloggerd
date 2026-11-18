@@ -8,6 +8,13 @@ admin, enforced everywhere with 404.
 A superadmin needs to keep some data from some admins
 (docs/design/web-accounts.md section 4).
 
+## Done so far
+
+- Hiding private messages (`hide_private`, web migration 000009):
+  stored per admin, read into the request scope with the role, set
+  with PATCH /api/accounts/{id} by a superadmin, offered on the
+  accounts page through AccountsProps.editable.restrict_private.
+
 ## Scope
 
 - Per-admin restriction list: hide private messages, hide groups,
