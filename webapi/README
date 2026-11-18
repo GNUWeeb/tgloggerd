@@ -793,7 +793,7 @@ pools' settings, and WEB_APP_KEY like the service). Exit status 0 done,
 
 gives every resource without an owner (MCP exposed groups, MCP tokens,
 Telegram bots, Telegram to Discord webhooks, Discord to Telegram
-routes; Discord bots once their table exists) to that account, which
+routes, Discord bots) to that account, which
 must be an active superadmin (web/docs/accounts.md, Ownership); MCP
 tokens go to the account that minted each instead. It is
 idempotent: resources that have an owner are left alone, so a second
@@ -806,13 +806,27 @@ owner as its target. It prints what it assigned by type:
     mcp_group     2 assigned: -1001000000010 -1001000000003; 1 owned already
     mcp_token     1 assigned to their creators: 2; 1 owned already
     ...
-    discord_bot   not stored yet
-    Assigned 8 resources.
+    discord_bot   1 assigned: 1000000000; 0 owned already
+    Assigned 9 resources.
 
 In the compose deployment, run it in the webapi container once web
 migration 000008 is applied and the account exists:
 
     docker compose exec webapi webapi/build/webapi assign-owner superadmin
+
+    webapi import-discord-bot <username>
+
+moves the Discord bot of DISCORD_BOT_TOKEN into the database, once, at
+the deployment that makes discordd read its bots from discord_bots
+(web/docs/platform-forwarding.md, Bots): it stores the bot, owned by
+that account (an active superadmin), points every Discord to Telegram
+route that names no Discord bot at it, and prints what it did, never
+the token. A second run changes nothing. It is the web service's
+command because the owner lives in the web's schema, which discordd
+does not reach. Run it in the webapi container, whose environment
+holds the variable until it is removed from .env:
+
+    docker compose exec webapi webapi/build/webapi import-discord-bot superadmin
 
 # Tests
 

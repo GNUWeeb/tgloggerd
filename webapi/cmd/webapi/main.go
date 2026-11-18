@@ -9,8 +9,11 @@
 // With arguments it runs a one-off command instead and exits:
 //
 //	webapi assign-owner <username>
+//	webapi import-discord-bot <username>
 //
-// gives every resource without an owner to that account (assign.go).
+// give every resource without an owner to that account (assign.go),
+// and store the Discord bot of DISCORD_BOT_TOKEN, owned by that
+// account, for the routes that name none (importbot.go).
 package main
 
 import (
@@ -252,10 +255,12 @@ const commandTimeout = 5 * time.Minute
 // status: 0 done, 1 failed or refused, 2 a usage error.
 func command(args []string) int {
 	usage := func() int {
-		fmt.Fprintln(os.Stderr, "usage: webapi assign-owner <username>")
+		fmt.Fprintln(os.Stderr, "usage: webapi assign-owner <username>\n"+
+			"       webapi import-discord-bot <username>")
 		return 2
 	}
-	if args[0] != "assign-owner" || len(args) != 2 || args[1] == "" {
+	name := args[0]
+	if name != "assign-owner" && name != "import-discord-bot" || len(args) != 2 || args[1] == "" {
 		return usage()
 	}
 	cfg, err := config.FromEnv()
@@ -266,24 +271,29 @@ func command(args []string) int {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	ro, err := openPool(log, cfg.RO)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "assign-owner:", err)
+		fmt.Fprintln(os.Stderr, name+":", err)
 		return 1
 	}
 	defer ro.Close()
 	app, err := openPool(log, cfg.App)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "assign-owner:", err)
+		fmt.Fprintln(os.Stderr, name+":", err)
 		return 1
 	}
 	defer app.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	defer cancel()
-	if err := assignOwner(ctx, ro, app, args[1], os.Stdout); err != nil {
+	if name == "assign-owner" {
+		err = assignOwner(ctx, ro, app, args[1], os.Stdout)
+	} else {
+		err = importDiscordBot(ctx, ro, app, args[1], os.Getenv("DISCORD_BOT_TOKEN"), os.Stdout)
+	}
+	if err != nil {
 		var refused errRefused
 		if errors.As(err, &refused) {
-			fmt.Fprintln(os.Stderr, "assign-owner: refused:", err)
+			fmt.Fprintln(os.Stderr, name+": refused:", err)
 		} else {
-			fmt.Fprintln(os.Stderr, "assign-owner:", err)
+			fmt.Fprintln(os.Stderr, name+":", err)
 		}
 		return 1
 	}

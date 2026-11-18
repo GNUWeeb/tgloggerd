@@ -30,8 +30,7 @@ import (
 // command) and with the owner as its target.
 
 // ownable is where the ids of each resource type come from: the
-// logger's schema (ro) or the web's (app). The Discord bots get their
-// line with their table (discord-bots-per-user).
+// logger's schema (ro) or the web's (app).
 // creators, when set, names the owner of each resource instead of the
 // account the command is given.
 var ownable = []struct {
@@ -53,6 +52,9 @@ var ownable = []struct {
 	}, nil},
 	{webdb.ResD2TRoute, func(ctx context.Context, ro, _ *sql.DB) ([]int64, error) {
 		return logdb.AllD2TIDs(ctx, ro)
+	}, nil},
+	{webdb.ResDiscordBot, func(ctx context.Context, ro, _ *sql.DB) ([]int64, error) {
+		return logdb.AllDiscordBotIDs(ctx, ro)
 	}, nil},
 }
 
@@ -127,7 +129,6 @@ func assignOwner(ctx context.Context, ro, app *sql.DB, username string, out io.W
 		}
 		fmt.Fprintf(out, "%s; %d owned already\n", line, len(ids)-len(given))
 	}
-	fmt.Fprintf(out, "%-13s not stored yet\n", webdb.ResDiscordBot)
 	fmt.Fprintf(out, "Assigned %d resources.\n", total)
 	return nil
 }
