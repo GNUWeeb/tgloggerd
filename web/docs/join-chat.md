@@ -82,6 +82,30 @@ configured), `no_answer` (refused connection or timeout) or `http_<status>`,
 followed by the ref as the admin typed it. `detail` is cut to 255 characters.
 Previews are not audited: they change nothing.
 
+## The JSON API (Go service)
+
+The Go service serves the same two actions as JSON operations
+(`webapi/openapi.yaml`, tag `join-chat`), with the session's CSRF
+token in `X-CSRF-Token`:
+
+    POST /api/join-chat/preview   {"ref": "..."}
+    POST /api/join-chat/join      {"ref": "...", "federation_ids": [0]}
+
+Both answer `{outcome, message, chat, ref}` (and `retry_after` with
+`flood_wait`) on a daemon outcome, `chat_id` 0 where the daemon has
+null (the account cannot see the chat before joining). Failures are
+400 `bad_request` (empty, over 256 bytes, or refused by the daemon)
+and 502 `daemon`
+with the sentences above. They are for superadmins and for admins
+granted `join_chat` (`web-admin-restrictions`); to anyone else they do
+not exist (404). `federation_ids` must be existing federations the
+viewer administers (404 otherwise, before anything is joined); the
+page offers those. Filing the joined group into them comes with
+`join-chat-federations`; until then it is in Default, as when none is
+chosen. Each join writes the same `chat_join` row as above, so
+the page's list (`/join-chat`'s data, the last 20 attempts) reads the
+rows of both services.
+
 ## Configuration
 
 `WEB_TGLOGGERD_API` (`http://host:port`, in the compose deployment

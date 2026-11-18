@@ -102,13 +102,13 @@ func defaultPages() []pageRoute {
 		{id: "settings_sessions", pattern: "/settings/sessions", load: loadSessions},
 		{id: "accounts", pattern: "/settings/accounts"},
 		{id: "federations", pattern: "/settings/federations"},
-		{id: "join_chat", pattern: "/join-chat"},
 		{id: "mcp", pattern: "/mcp-admin"},
 		{id: "mcp_groups", pattern: "/mcp-admin/groups"},
 		{id: "mcp_tokens", pattern: "/mcp-admin/tokens"},
 		{id: "platform_fwd", pattern: "/platform-fwd", load: loadPlatformFwd},
 		{id: "fwd_telegram_discord", pattern: "/platform-fwd/telegram-discord", load: loadT2D},
 		{id: "fwd_discord_telegram", pattern: "/platform-fwd/discord-telegram", load: loadD2T},
+		{id: "join_chat", pattern: "/join-chat", load: loadJoinChat},
 		// The link pages change nothing on GET (the token is in the
 		// URL's fragment); their actions are not served here yet.
 		{id: "password_forgot", pattern: "/password/forgot", public: true, link: true},

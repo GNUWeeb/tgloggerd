@@ -895,7 +895,7 @@ export interface paths {
         put?: never;
         /**
          * Join a group or channel
-         * @description Writes one chat_join audit row whatever comes of it. A joined group is added to the chosen federations, which must be ones the viewer administers; none leaves it in Default (web-accounts.md section 3).
+         * @description For superadmins and admins holding join_chat; anyone else gets 404. Writes one chat_join audit row whatever comes of it, once the request passes its checks (web/docs/join-chat.md). A joined group is added to the chosen federations, which must be ones the viewer administers (404 otherwise, before anything is joined); none leaves it in Default (web-accounts.md section 3). Filing the group into the chosen ones comes with join-chat-federations; until then it stays in Default.
          */
         post: operations["joinChat"];
         delete?: never;
@@ -2029,8 +2029,12 @@ export interface components {
             /** Format: int64 */
             owner_id: number;
         };
+        /** @description The chat as the daemon resolved it (docs/internal-api.md, POST /v1/chats/resolve); username is empty when it has none. */
         JoinChat: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description 0 when the account cannot see the chat before joining (the daemon's null).
+             */
             chat_id: number;
             title: string;
             type: string;

@@ -227,6 +227,8 @@ func (s *Server) routes() []route {
 		{"POST /api/forwarding/discord-telegram", s.RequireSession(s.createD2T)},
 		{"PATCH /api/forwarding/discord-telegram/{id}", s.RequireSession(s.updateD2T)},
 		{"DELETE /api/forwarding/discord-telegram/{id}", s.RequireSession(s.deleteD2T)},
+		{"POST /api/join-chat/preview", s.RequireSession(s.previewJoin)},
+		{"POST /api/join-chat/join", s.RequireSession(s.joinChat)},
 	}
 }
 
