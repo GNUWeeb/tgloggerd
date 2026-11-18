@@ -517,8 +517,8 @@ paths:
         message.deleted and file.stored of one chat), `messages` (the
         same for every chat the viewer may see), `user:<id>`
         (user.updated), `group:<chat_id>` (group.updated), `stats`
-        (stats.changed) and, planned with discord-bots-per-user, `bots`
-        (bot.updated, for the bots the viewer may see). Repeats count once; at most 2000 topics, and
+        (stats.changed) and `bots` (bot.updated, for the bots the
+        viewer may see). Repeats count once; at most 2000 topics, and
         the request line may run to tens of kilobytes. Kinds may be
         added; a client skips kinds it does not know.
       parameters:
@@ -626,7 +626,7 @@ paths:
         platform_fwd /platform-fwd;
         fwd_telegram_discord /platform-fwd/telegram-discord;
         fwd_discord_telegram /platform-fwd/discord-telegram;
-        bots /platform-fwd/bots (planned: discord-bots-per-user);
+        bots /platform-fwd/bots;
         join_chat /join-chat;
         mcp /mcp-admin;
         mcp_groups /mcp-admin/groups;
@@ -2321,9 +2321,10 @@ paths:
       tags: [forwarding]
       summary: Change a Telegram to Discord webhook
       description: >-
-        The fields given change, the others stay; the chat cannot
-        change. The webhook URL is write-only; leave it out to keep it.
-        Audited as fwd_t2d_update.
+        The fields given change, the others stay. A new chat comes with
+        its chat_kind, checked as on creation (404 for one the logger
+        has not seen or the viewer may not see). The webhook URL is
+        write-only; leave it out to keep it. Audited as fwd_t2d_update.
       security:
         - session: []
           csrf: []
@@ -2336,6 +2337,12 @@ paths:
             schema:
               type: object
               properties:
+                chat_id:
+                  type: integer
+                  format: int64
+                chat_kind:
+                  type: string
+                  enum: [group, user]
                 types:
                   $ref: '#/components/schemas/T2DTypes'
                 enabled:
@@ -2411,17 +2418,17 @@ paths:
       tags: [forwarding]
       summary: Add a Discord to Telegram route
       description: >-
-        The viewer becomes its owner, and the owner of the bot when the
-        token adds a new one. The bot token is write-only: the same
-        token reuses its bot, which is enabled again and keeps its
-        owner; that a bot of another owner is never reused or shown
-        comes with per-owner visibility (forwarding-per-user). Refusals: 400 bad_channel (not
-        a Discord id), bad_token (not shaped <digits>:<secret>),
-        bad_request; 404 for a chat or federation as for webhooks; 409
-        duplicate when the channel already forwards to the chat.
-        federation_id is needed only when more than one of the owner's
-        federations holds the group. Audited as fwd_d2t_create, without
-        the token, and owner_set.
+        The viewer becomes its owner. The route is read by the Discord
+        bot discord_bot_id and sent through the Telegram bot
+        telegram_bot_id, both bots the viewer may use (GET /api/bots);
+        no token is typed on a route. The chat is a group, a channel or
+        a private chat (a positive chat_id). Refusals: 400 bad_channel
+        (not a Discord id), bad_request (a bot of the other kind, a
+        missing field); 404 for a chat, a federation or a bot the viewer
+        may not use; 409 duplicate when the channel already forwards to
+        the chat. federation_id is needed only when more than one of
+        the owner's federations holds the group. Audited as
+        fwd_d2t_create and owner_set.
       security:
         - session: []
           csrf: []
@@ -2455,10 +2462,11 @@ paths:
       tags: [forwarding]
       summary: Change a Discord to Telegram route
       description: >-
-        The fields given change, the others stay; the channel and the
-        chat cannot change. The bot token is write-only; leave it out
-        to keep the bot, give one to send through that bot instead.
-        Audited as fwd_d2t_update.
+        The fields given change, the others stay: the channel, the chat
+        and either bot too, each checked as on creation (409 duplicate
+        when the channel already forwards to the new chat). The bots
+        the route had stay, for other routes. Audited as
+        fwd_d2t_update.
       security:
         - session: []
           csrf: []
@@ -2471,20 +2479,21 @@ paths:
             schema:
               type: object
               properties:
+                discord_channel_id:
+                  type: string
+                chat_id:
+                  type: integer
+                  format: int64
                 types:
                   $ref: '#/components/schemas/D2TTypes'
                 enabled:
                   type: boolean
-                bot_token:
-                  type: string
                 discord_bot_id:
                   type: integer
                   format: int64
-                  description: Planned (discord-bots-per-user), as on creation.
                 telegram_bot_id:
                   type: integer
                   format: int64
-                  description: Planned (discord-bots-per-user), as on creation.
       responses:
         '204':
           description: Changed.
@@ -2555,7 +2564,6 @@ paths:
 
   /api/bots:
     get:
-      x-tgd-status: planned
       operationId: listBots
       tags: [forwarding]
       summary: The bots the viewer may use
@@ -2587,7 +2595,6 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     post:
-      x-tgd-status: planned
       operationId: createBot
       tags: [forwarding]
       summary: Add a bot
@@ -2627,7 +2634,6 @@ paths:
 
   /api/bots/{id}:
     patch:
-      x-tgd-status: planned
       operationId: updateBot
       tags: [forwarding]
       summary: Rename, enable or disable a bot, or replace its token
@@ -2663,7 +2669,6 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
     delete:
-      x-tgd-status: planned
       operationId: deleteBot
       tags: [forwarding]
       summary: Remove a bot
@@ -2690,7 +2695,6 @@ paths:
 
   /api/bots/{id}/transfer:
     post:
-      x-tgd-status: planned
       operationId: transferBot
       tags: [forwarding]
       summary: Give a bot to another owner
@@ -3841,7 +3845,6 @@ components:
             props:
               $ref: '#/components/schemas/D2TProps'
     PageBots:
-      x-tgd-status: planned
       allOf:
         - $ref: '#/components/schemas/PageBase'
         - type: object
@@ -3932,8 +3935,10 @@ components:
           type: integer
           format: int64
           description: >-
-            bot.updated (planned, discord-bots-per-user): a bot the viewer
-            may see changed (its status, name, or enabled state).
+            bot.updated: a bot the viewer may see was added, changed (its
+            status, name, enabled state or identity) or removed; at most
+            5 seconds late. To admins and superadmins; a member with
+            forward refetches its bots itself.
         fields:
           type: array
           items:
@@ -5569,7 +5574,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/Owned'
         - type: object
-          required: [channel_id, channel_name, chat, bot, types, enabled, sent]
+          required: [channel_id, channel_name, chat, discord_bot, telegram_bot, types, enabled, sent]
           properties:
             channel_id:
               type: string
@@ -5577,19 +5582,21 @@ components:
               type: string
             chat:
               $ref: '#/components/schemas/PickItem'
-            bot:
-              type: string
-              description: The sending bot's username; never its token.
             discord_bot:
-              $ref: '#/components/schemas/BotRef'
               description: >-
-                Planned (discord-bots-per-user): the Discord bot that
-                reads the channel; becomes required, and bot goes.
+                The Discord bot that reads the channel, with its state;
+                null for a route made before the Discord bots were
+                stored, until the deployment's import gives it one (it
+                forwards nothing meanwhile).
+              oneOf:
+                - $ref: '#/components/schemas/BotRef'
+                - type: 'null'
             telegram_bot:
               $ref: '#/components/schemas/BotRef'
               description: >-
-                Planned (discord-bots-per-user): the Telegram bot that
-                sends into the chat; becomes required, and bot goes.
+                The Telegram bot that sends into the chat, with its
+                state. A route forwards only while it and both its bots
+                are enabled.
             types:
               $ref: '#/components/schemas/D2TTypes'
             enabled:
@@ -5662,15 +5669,13 @@ components:
           format: int64
     D2TCreate:
       type: object
-      required: [discord_channel_id, chat_id, bot_token, types, enabled]
+      required: [discord_channel_id, chat_id, discord_bot_id, telegram_bot_id, types, enabled]
       properties:
         discord_channel_id:
           type: string
         chat_id:
           type: integer
           format: int64
-        bot_token:
-          type: string
         types:
           $ref: '#/components/schemas/D2TTypes'
         enabled:
@@ -5681,26 +5686,18 @@ components:
         discord_bot_id:
           type: integer
           format: int64
-          description: >-
-            Planned (discord-bots-per-user): the Discord bot to read the
-            channel with, one the viewer may use; becomes required, and
-            bot_token goes.
+          description: The Discord bot to read the channel with, one the viewer may use.
         telegram_bot_id:
           type: integer
           format: int64
-          description: >-
-            Planned (discord-bots-per-user): the Telegram bot to send
-            with, one the viewer may use; becomes required, and
-            bot_token goes.
+          description: The Telegram bot to send with, one the viewer may use.
     BotKind:
-      x-tgd-status: planned
       type: string
       enum: [telegram, discord]
       description: >-
         A Telegram bot sends into Telegram chats (Discord to Telegram
         routes); a Discord bot reads Discord channels for them.
     BotStatus:
-      x-tgd-status: planned
       type: string
       enum: [connected, connecting, intent_missing, token_refused, disabled]
       description: >-
@@ -5711,7 +5708,6 @@ components:
         the token; the bot is disabled and not retried in a loop);
         disabled (switched off by its owner).
     BotIdentity:
-      x-tgd-status: planned
       type: object
       description: >-
         Who the bot is on its platform, once it has logged in: the
@@ -5725,7 +5721,6 @@ components:
         username:
           type: [string, 'null']
     BotRef:
-      x-tgd-status: planned
       type: object
       description: A bot as pickers and routes show it.
       required: [id, kind, name, identity, status, enabled]
@@ -5746,7 +5741,6 @@ components:
         enabled:
           type: boolean
     Bot:
-      x-tgd-status: planned
       description: >-
         A bot on the Bots page. Its token is write-only: no answer,
         page or attribute carries it once it is saved
@@ -5782,7 +5776,6 @@ components:
               type: integer
               description: How many Discord to Telegram routes use the bot.
     BotsProps:
-      x-tgd-status: planned
       type: object
       description: >-
         The viewer's bots: a member with `forward` sees its own only;
@@ -5797,7 +5790,6 @@ components:
         show_owner:
           type: boolean
     BotCreate:
-      x-tgd-status: planned
       type: object
       required: [kind, name, token]
       properties:
@@ -5814,7 +5806,6 @@ components:
             more of [A-Za-z0-9_-]; Discord three dot-separated base64url
             parts, the first decoding to a Discord id.
     BotUpdate:
-      x-tgd-status: planned
       type: object
       description: >-
         The fields given change. A token replaces the bot's credential

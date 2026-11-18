@@ -263,6 +263,14 @@ func (s Scope) Can(a Ability) bool {
 	return false
 }
 
+// SeesAllBots is whether every forwarding bot, with its owner, is the
+// viewer's to see and use (decisions/2026-11-18-ownership-and-bots.md):
+// superadmins' and admins'. A member with Forward sees and uses only
+// the bots it owns, which the caller asks the ownership records about.
+func (s Scope) SeesAllBots() bool {
+	return s.is(Superadmin, Admin)
+}
+
 // The menu's page keys (decisions/2026-11-18-web-accounts-details.md),
 // in menu order.
 var pageKeys = []string{

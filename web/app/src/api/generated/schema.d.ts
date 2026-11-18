@@ -125,7 +125,7 @@ export interface paths {
          *
          *     To resume, reconnect with the last seq seen, as `last` or as the Last-Event-ID header the browser sends on its own reconnect (the header wins). Recent events are kept, so a short disconnect loses nothing; a longer one, or one across a restart of the daemon, starts with a resync.
          *
-         *     Topics: `chat:<chat_id>` (message.new, message.edited, message.deleted and file.stored of one chat), `messages` (the same for every chat the viewer may see), `user:<id>` (user.updated), `group:<chat_id>` (group.updated), `stats` (stats.changed) and, planned with discord-bots-per-user, `bots` (bot.updated, for the bots the viewer may see). Repeats count once; at most 2000 topics, and the request line may run to tens of kilobytes. Kinds may be added; a client skips kinds it does not know.
+         *     Topics: `chat:<chat_id>` (message.new, message.edited, message.deleted and file.stored of one chat), `messages` (the same for every chat the viewer may see), `user:<id>` (user.updated), `group:<chat_id>` (group.updated), `stats` (stats.changed) and `bots` (bot.updated, for the bots the viewer may see). Repeats count once; at most 2000 topics, and the request line may run to tens of kilobytes. Kinds may be added; a client skips kinds it does not know.
          */
         get: operations["getEvents"];
         put?: never;
@@ -147,7 +147,7 @@ export interface paths {
          * A page's data
          * @description The data of the page at /<path>, the same object the server embeds in the page's HTML on a first load (web-ssr.md sections 5 and 7), for navigation in the browser. `path` is the page's path without its leading slash (empty for the dashboard at /); its slashes may be sent as they are or encoded as %2F. The page's query string (search, filters, sort, page) is passed on as the query string of this request.
          *
-         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; bots /platform-fwd/bots (planned: discord-bots-per-user); join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
+         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; bots /platform-fwd/bots; join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
          *
          *     password_forgot, password_set and email_verify are served to signed-out and signed-in visitors alike, and their GETs change nothing: the link token travels in the URL's fragment, which never reaches the server, and is posted only when the person acts on the page.
          *
@@ -775,7 +775,7 @@ export interface paths {
         head?: never;
         /**
          * Change a Telegram to Discord webhook
-         * @description The fields given change, the others stay; the chat cannot change. The webhook URL is write-only; leave it out to keep it. Audited as fwd_t2d_update.
+         * @description The fields given change, the others stay. A new chat comes with its chat_kind, checked as on creation (404 for one the logger has not seen or the viewer may not see). The webhook URL is write-only; leave it out to keep it. Audited as fwd_t2d_update.
          */
         patch: operations["updateT2D"];
         trace?: never;
@@ -811,7 +811,7 @@ export interface paths {
         put?: never;
         /**
          * Add a Discord to Telegram route
-         * @description The viewer becomes its owner, and the owner of the bot when the token adds a new one. The bot token is write-only: the same token reuses its bot, which is enabled again and keeps its owner; that a bot of another owner is never reused or shown comes with per-owner visibility (forwarding-per-user). Refusals: 400 bad_channel (not a Discord id), bad_token (not shaped <digits>:<secret>), bad_request; 404 for a chat or federation as for webhooks; 409 duplicate when the channel already forwards to the chat. federation_id is needed only when more than one of the owner's federations holds the group. Audited as fwd_d2t_create, without the token, and owner_set.
+         * @description The viewer becomes its owner. The route is read by the Discord bot discord_bot_id and sent through the Telegram bot telegram_bot_id, both bots the viewer may use (GET /api/bots); no token is typed on a route. The chat is a group, a channel or a private chat (a positive chat_id). Refusals: 400 bad_channel (not a Discord id), bad_request (a bot of the other kind, a missing field); 404 for a chat, a federation or a bot the viewer may not use; 409 duplicate when the channel already forwards to the chat. federation_id is needed only when more than one of the owner's federations holds the group. Audited as fwd_d2t_create and owner_set.
          */
         post: operations["createD2T"];
         delete?: never;
@@ -839,7 +839,7 @@ export interface paths {
         head?: never;
         /**
          * Change a Discord to Telegram route
-         * @description The fields given change, the others stay; the channel and the chat cannot change. The bot token is write-only; leave it out to keep the bot, give one to send through that bot instead. Audited as fwd_d2t_update.
+         * @description The fields given change, the others stay: the channel, the chat and either bot too, each checked as on creation (409 duplicate when the channel already forwards to the new chat). The bots the route had stay, for other routes. Audited as fwd_d2t_update.
          */
         patch: operations["updateD2T"];
         trace?: never;
@@ -1390,7 +1390,7 @@ export interface components {
             file_id?: number;
             /**
              * Format: int64
-             * @description bot.updated (planned, discord-bots-per-user): a bot the viewer may see changed (its status, name, or enabled state).
+             * @description bot.updated: a bot the viewer may see was added, changed (its status, name, enabled state or identity) or removed; at most 5 seconds late. To admins and superadmins; a member with forward refetches its bots itself.
              */
             bot_id?: number;
             /** @description user.updated and group.updated, when present: the parts that may have changed (users: name, photo, bio, birthday, personal_chat; groups: photo, admins). Absent: anything. */
@@ -2126,12 +2126,10 @@ export interface components {
             channel_id: string;
             channel_name: string;
             chat: components["schemas"]["PickItem"];
-            /** @description The sending bot's username; never its token. */
-            bot: string;
-            /** @description Planned (discord-bots-per-user): the Discord bot that reads the channel; becomes required, and bot goes. */
-            discord_bot?: components["schemas"]["BotRef"];
-            /** @description Planned (discord-bots-per-user): the Telegram bot that sends into the chat; becomes required, and bot goes. */
-            telegram_bot?: components["schemas"]["BotRef"];
+            /** @description The Discord bot that reads the channel, with its state; null for a route made before the Discord bots were stored, until the deployment's import gives it one (it forwards nothing meanwhile). */
+            discord_bot: components["schemas"]["BotRef"] | null;
+            /** @description The Telegram bot that sends into the chat, with its state. A route forwards only while it and both its bots are enabled. */
+            telegram_bot: components["schemas"]["BotRef"];
             types: components["schemas"]["D2TTypes"];
             enabled: boolean;
             /** Format: int64 */
@@ -2171,21 +2169,20 @@ export interface components {
             discord_channel_id: string;
             /** Format: int64 */
             chat_id: number;
-            bot_token: string;
             types: components["schemas"]["D2TTypes"];
             enabled: boolean;
             /** Format: int64 */
             federation_id?: number | null;
             /**
              * Format: int64
-             * @description Planned (discord-bots-per-user): the Discord bot to read the channel with, one the viewer may use; becomes required, and bot_token goes.
+             * @description The Discord bot to read the channel with, one the viewer may use.
              */
-            discord_bot_id?: number;
+            discord_bot_id: number;
             /**
              * Format: int64
-             * @description Planned (discord-bots-per-user): the Telegram bot to send with, one the viewer may use; becomes required, and bot_token goes.
+             * @description The Telegram bot to send with, one the viewer may use.
              */
-            telegram_bot_id?: number;
+            telegram_bot_id: number;
         };
         /**
          * @description A Telegram bot sends into Telegram chats (Discord to Telegram routes); a Discord bot reads Discord channels for them.
@@ -4095,6 +4092,10 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** Format: int64 */
+                    chat_id?: number;
+                    /** @enum {string} */
+                    chat_kind?: "group" | "user";
                     types?: components["schemas"]["T2DTypes"];
                     enabled?: boolean;
                     webhook_url?: string;
@@ -4208,18 +4209,14 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    discord_channel_id?: string;
+                    /** Format: int64 */
+                    chat_id?: number;
                     types?: components["schemas"]["D2TTypes"];
                     enabled?: boolean;
-                    bot_token?: string;
-                    /**
-                     * Format: int64
-                     * @description Planned (discord-bots-per-user), as on creation.
-                     */
+                    /** Format: int64 */
                     discord_bot_id?: number;
-                    /**
-                     * Format: int64
-                     * @description Planned (discord-bots-per-user), as on creation.
-                     */
+                    /** Format: int64 */
                     telegram_bot_id?: number;
                 };
             };

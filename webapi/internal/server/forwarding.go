@@ -30,17 +30,18 @@ import (
 // need the forward ability (Scope.Can); a configuration whose Telegram
 // chat the scope hides does not exist for the request.
 //
-// Each configuration and each new bot is owned by the account that
-// created it (ownership.go); one without an owner, made before
+// Each configuration is owned by the account that created it
+// (ownership.go), as is each bot (bots.go); one without an owner, made before
 // ownership existed or by the Drogon pages, counts as the superadmins'
 // and is answered as shared. The federation of a configuration is not
 // stored yet: every one is in Default, visible to every viewer with the
 // ability, and transferring is not served (forwarding-per-user).
 //
-// The webhook URL and the bot token are write-only: an answer carries
-// the URL with its secret part cut off and the bot's name, never the
-// token. A webhook URL must be Discord's, on save and on test, so the
-// service cannot be made to post to another host.
+// The webhook URL is write-only: an answer carries it with its secret
+// part cut off. A webhook URL must be Discord's, on save and on test,
+// so the service cannot be made to post to another host. A Discord to
+// Telegram route names its two bots by id (bots.go); no token is ever
+// typed on a route.
 
 // webhookMax is the column's length.
 const webhookMax = 512
@@ -85,22 +86,6 @@ func maskWebhook(u string) string {
 	rest := strings.TrimPrefix(pathq, "/api/webhooks/")
 	id := rest[:strings.IndexByte(rest, '/')]
 	return "https://" + host + "/api/webhooks/" + id + "/****"
-}
-
-// looksLikeBotToken checks a Telegram bot token's shape,
-// <bot user id>:<secret>, as the Drogon page does; whether it works is
-// discordd's to find out when it logs the bot in.
-func looksLikeBotToken(t string) bool {
-	colon := strings.IndexByte(t, ':')
-	if colon <= 0 || colon+1 >= len(t) || len(t) > 255 {
-		return false
-	}
-	for _, c := range t[:colon] {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return !strings.ContainsAny(t, " \t\r\n")
 }
 
 // parseSnowflake reads a Discord id: 1 to 20 digits, not 0.
@@ -183,37 +168,54 @@ func (s *Server) t2dJSON(ctx context.Context, v scope.Viewer, h logdb.T2DWebhook
 		Enabled: h.Enabled, Sent: h.Sent, LastSent: isoPtr(h.LastSent)}
 }
 
-// d2tRoute is a route as the page shows it (D2TRoute).
+// d2tRoute is a route as the page shows it (D2TRoute): its bots with
+// their state, so the page can tell a route whose bot is switched off
+// or refused. DiscordBot is null for a route made before the Discord
+// bots were stored, until the deployment's import gives it one.
 type d2tRoute struct {
 	owned
 	ChannelID   string   `json:"channel_id"`
 	ChannelName string   `json:"channel_name"`
 	Chat        pickItem `json:"chat"`
-	Bot         string   `json:"bot"`
+	DiscordBot  *botRef  `json:"discord_bot"`
+	TelegramBot botRef   `json:"telegram_bot"`
 	Types       []string `json:"types"`
 	Enabled     bool     `json:"enabled"`
 	Sent        int64    `json:"sent"`
 }
 
-// botLabel names a bot without its token: @username once discordd has
-// logged it in, its user id, or its row while it has not.
-func (s *Server) botLabel(ctx context.Context, v scope.Viewer, d logdb.D2TRoute) string {
-	switch {
-	case d.BotUsername != "":
-		return "@" + d.BotUsername
-	case d.BotUserID != 0:
-		return strconv.FormatInt(d.BotUserID, 10)
+// botsByID is every bot by id, for the routes' answers.
+func (s *Server) botsByID(ctx context.Context) (map[uint64]logdb.BotRow, error) {
+	all, err := logdb.ListBots(ctx, s.ro, "")
+	if err != nil {
+		return nil, err
 	}
-	return s.textFor(ctx, v, "fwd.bot_pending", "id", strconv.FormatUint(d.BotID, 10))
+	m := make(map[uint64]logdb.BotRow, len(all))
+	for _, b := range all {
+		m[b.ID] = b
+	}
+	return m, nil
 }
 
 func (s *Server) d2tJSON(ctx context.Context, v scope.Viewer, d logdb.D2TRoute,
-	owners map[int64]webdb.OwnerInfo) d2tRoute {
-	return d2tRoute{owned: s.ownership(ctx, v, d.ID, owners),
+	owners map[int64]webdb.OwnerInfo, bots map[uint64]logdb.BotRow) d2tRoute {
+	out := d2tRoute{owned: s.ownership(ctx, v, d.ID, owners),
 		// A snowflake does not fit a JavaScript number exactly.
 		ChannelID: strconv.FormatUint(d.ChannelID, 10), ChannelName: d.ChannelName,
-		Chat: fwdPick(d.Chat), Bot: s.botLabel(ctx, v, d),
-		Types: d.Types.Keys(logdb.D2TTypeCount), Enabled: d.Enabled, Sent: d.Sent}
+		Chat:        fwdPick(d.Chat),
+		TelegramBot: s.botRefOf(ctx, v, bots[d.TelegramBotID]),
+		Types:       d.Types.Keys(logdb.D2TTypeCount), Enabled: d.Enabled, Sent: d.Sent}
+	if b, ok := bots[d.DiscordBotID]; ok && d.DiscordBotID != 0 {
+		ref := s.botRefOf(ctx, v, b)
+		out.DiscordBot = &ref
+	}
+	return out
+}
+
+// d2tLive is whether a route forwards: it and both its bots enabled.
+func d2tLive(d logdb.D2TRoute, bots map[uint64]logdb.BotRow) bool {
+	return d.Enabled && bots[d.TelegramBotID].Enabled && d.DiscordBotID != 0 &&
+		bots[d.DiscordBotID].Enabled
 }
 
 // fwdTarget checks the chat and federation of a new configuration: the
@@ -334,6 +336,8 @@ func (s *Server) updateT2D(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
+		ChatID     *int64    `json:"chat_id"`
+		ChatKind   *string   `json:"chat_kind"`
 		Types      *[]string `json:"types"`
 		Enabled    *bool     `json:"enabled"`
 		WebhookURL *string   `json:"webhook_url"`
@@ -342,6 +346,22 @@ func (s *Server) updateT2D(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var changed []string
+	if in.ChatID != nil || in.ChatKind != nil {
+		// The chat moves with its kind, as on creation.
+		if in.ChatID == nil || in.ChatKind == nil ||
+			(*in.ChatKind != "group" || *in.ChatID >= 0) && (*in.ChatKind != "user" || *in.ChatID <= 0) {
+			s.refuse(w, r, v, http.StatusBadRequest, "bad_request", "fwd.chat_kind")
+			return
+		}
+		chat, ok := s.fwdTarget(w, r, sc, *in.ChatID, nil)
+		if !ok {
+			return
+		}
+		if chat.ID != h.Chat.ID {
+			changed = append(changed, fmt.Sprintf("chat=%d", chat.ID))
+		}
+		h.Chat = chat
+	}
 	if in.WebhookURL != nil {
 		if _, _, ok := parseWebhook(*in.WebhookURL); !ok {
 			s.refuse(w, r, v, http.StatusBadRequest, "bad_webhook", "fwd.bad_webhook")
@@ -362,7 +382,7 @@ func (s *Server) updateT2D(w http.ResponseWriter, r *http.Request) {
 		h.Enabled = *in.Enabled
 		changed = append(changed, "enabled="+strconv.FormatBool(h.Enabled))
 	}
-	if err := logdb.UpdateT2D(r.Context(), s.ro, h.ID, h.URL, h.Enabled, h.Types); err != nil {
+	if err := logdb.UpdateT2D(r.Context(), s.ro, h.ID, h.Chat.ID, h.URL, h.Enabled, h.Types); err != nil {
 		s.internalError(w, "update webhook", err)
 		return
 	}
@@ -470,25 +490,28 @@ func (s *Server) testT2D(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// createD2T answers POST /api/forwarding/discord-telegram.
+// createD2T answers POST /api/forwarding/discord-telegram: a route
+// from a channel to a chat, read by a Discord bot and sent through a
+// Telegram bot, both ones the viewer may use (bots.go).
 func (s *Server) createD2T(w http.ResponseWriter, r *http.Request) {
 	sc, v, ok := s.adminWrite(w, r, scope.Forward)
 	if !ok {
 		return
 	}
 	var in struct {
-		Channel    *string   `json:"discord_channel_id"`
-		ChatID     *int64    `json:"chat_id"`
-		BotToken   *string   `json:"bot_token"`
-		Types      *[]string `json:"types"`
-		Enabled    *bool     `json:"enabled"`
-		Federation *uint64   `json:"federation_id"`
+		Channel     *string   `json:"discord_channel_id"`
+		ChatID      *int64    `json:"chat_id"`
+		DiscordBot  *uint64   `json:"discord_bot_id"`
+		TelegramBot *uint64   `json:"telegram_bot_id"`
+		Types       *[]string `json:"types"`
+		Enabled     *bool     `json:"enabled"`
+		Federation  *uint64   `json:"federation_id"`
 	}
 	if !decodeBody(w, r, &in) {
 		return
 	}
-	if in.Channel == nil || in.ChatID == nil || in.BotToken == nil || in.Types == nil ||
-		in.Enabled == nil {
+	if in.Channel == nil || in.ChatID == nil || in.DiscordBot == nil || in.TelegramBot == nil ||
+		in.Types == nil || in.Enabled == nil {
 		s.refuse(w, r, v, http.StatusBadRequest, "bad_request", "fwd.d2t_required")
 		return
 	}
@@ -497,19 +520,22 @@ func (s *Server) createD2T(w http.ResponseWriter, r *http.Request) {
 		s.refuse(w, r, v, http.StatusBadRequest, "bad_channel", "fwd.bad_channel")
 		return
 	}
-	if !looksLikeBotToken(*in.BotToken) {
-		s.refuse(w, r, v, http.StatusBadRequest, "bad_token", "fwd.bad_token")
-		return
-	}
 	types, ok := s.fwdTypes(w, r, v, *in.Types, logdb.D2TTypeCount)
 	if !ok {
+		return
+	}
+	if _, ok := s.usableBot(w, r, sc, v, *in.DiscordBot, logdb.KindDiscord); !ok {
+		return
+	}
+	if _, ok := s.usableBot(w, r, sc, v, *in.TelegramBot, logdb.KindTelegram); !ok {
 		return
 	}
 	chat, ok := s.fwdTarget(w, r, sc, *in.ChatID, in.Federation)
 	if !ok {
 		return
 	}
-	id, bot, err := logdb.CreateD2T(r.Context(), s.ro, channel, chat.ID, *in.BotToken, *in.Enabled, types)
+	id, err := logdb.CreateD2T(r.Context(), s.ro, channel, chat.ID, *in.TelegramBot, *in.DiscordBot,
+		*in.Enabled, types)
 	if errors.Is(err, logdb.ErrDuplicateRoute) {
 		s.refuse(w, r, v, http.StatusConflict, "duplicate", "fwd.duplicate")
 		return
@@ -518,20 +544,12 @@ func (s *Server) createD2T(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "create route", err)
 		return
 	}
-	s.auditAdmin(r, v.ID, "fwd_d2t_create", fmt.Sprintf("route %d channel %d chat %d enabled=%t types=%s",
-		id, channel, chat.ID, *in.Enabled, strings.Join(types.Keys(logdb.D2TTypeCount), ",")))
+	s.auditAdmin(r, v.ID, "fwd_d2t_create", fmt.Sprintf("route %d channel %d chat %d "+
+		"discord_bot %d telegram_bot %d enabled=%t types=%s", id, channel, chat.ID,
+		*in.DiscordBot, *in.TelegramBot, *in.Enabled,
+		strings.Join(types.Keys(logdb.D2TTypeCount), ",")))
 	s.recordOwner(r, webdb.Resource{Type: webdb.ResD2TRoute, ID: int64(id)}, v.ID)
-	s.botOwner(r, bot, v.ID)
 	writeJSON(w, http.StatusCreated, map[string]uint64{"id": id})
-}
-
-// botOwner makes account uid the owner of a bot a route's token has
-// just added. A token that names a bot already stored reuses that bot
-// and leaves its owner as it is.
-func (s *Server) botOwner(r *http.Request, bot logdb.Bot, uid uint64) {
-	if bot.Created {
-		s.recordOwner(r, webdb.Resource{Type: webdb.ResTelegramBot, ID: int64(bot.ID)}, uid)
-	}
 }
 
 // d2tOf loads the route in the path, answering 404 itself for one that
@@ -553,8 +571,9 @@ func (s *Server) d2tOf(w http.ResponseWriter, r *http.Request, sc scope.Scope) (
 	return d, ok
 }
 
-// updateD2T answers PATCH /api/forwarding/discord-telegram/{id}; a bot
-// token replaces the route's bot.
+// updateD2T answers PATCH /api/forwarding/discord-telegram/{id}: the
+// fields given change, the others stay. A bot given must be one the
+// viewer may use; the bots the route had stay, for other routes.
 func (s *Server) updateD2T(w http.ResponseWriter, r *http.Request) {
 	sc, v, ok := s.adminWrite(w, r, scope.Forward)
 	if !ok {
@@ -565,20 +584,27 @@ func (s *Server) updateD2T(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Types    *[]string `json:"types"`
-		Enabled  *bool     `json:"enabled"`
-		BotToken *string   `json:"bot_token"`
+		Channel     *string   `json:"discord_channel_id"`
+		ChatID      *int64    `json:"chat_id"`
+		DiscordBot  *uint64   `json:"discord_bot_id"`
+		TelegramBot *uint64   `json:"telegram_bot_id"`
+		Types       *[]string `json:"types"`
+		Enabled     *bool     `json:"enabled"`
 	}
 	if !decodeBody(w, r, &in) {
 		return
 	}
 	var changed []string
-	if in.BotToken != nil {
-		if !looksLikeBotToken(*in.BotToken) {
-			s.refuse(w, r, v, http.StatusBadRequest, "bad_token", "fwd.bad_token")
+	if in.Channel != nil {
+		channel, ok := parseSnowflake(*in.Channel)
+		if !ok {
+			s.refuse(w, r, v, http.StatusBadRequest, "bad_channel", "fwd.bad_channel")
 			return
 		}
-		changed = append(changed, "bot")
+		if channel != d.ChannelID {
+			changed = append(changed, fmt.Sprintf("channel=%d", channel))
+		}
+		d.ChannelID = channel
 	}
 	if in.Types != nil {
 		t, ok := s.fwdTypes(w, r, v, *in.Types, logdb.D2TTypeCount)
@@ -592,14 +618,41 @@ func (s *Server) updateD2T(w http.ResponseWriter, r *http.Request) {
 		d.Enabled = *in.Enabled
 		changed = append(changed, "enabled="+strconv.FormatBool(d.Enabled))
 	}
-	bot, err := logdb.UpdateD2T(r.Context(), s.ro, d.ID, d.Enabled, d.Types, in.BotToken)
+	if in.DiscordBot != nil {
+		if _, ok := s.usableBot(w, r, sc, v, *in.DiscordBot, logdb.KindDiscord); !ok {
+			return
+		}
+		d.DiscordBotID = *in.DiscordBot
+		changed = append(changed, fmt.Sprintf("discord_bot=%d", d.DiscordBotID))
+	}
+	if in.TelegramBot != nil {
+		if _, ok := s.usableBot(w, r, sc, v, *in.TelegramBot, logdb.KindTelegram); !ok {
+			return
+		}
+		d.TelegramBotID = *in.TelegramBot
+		changed = append(changed, fmt.Sprintf("telegram_bot=%d", d.TelegramBotID))
+	}
+	if in.ChatID != nil {
+		chat, ok := s.fwdTarget(w, r, sc, *in.ChatID, nil)
+		if !ok {
+			return
+		}
+		if chat.ID != d.Chat.ID {
+			changed = append(changed, fmt.Sprintf("chat=%d", chat.ID))
+		}
+		d.Chat = chat
+	}
+	err := logdb.UpdateD2T(r.Context(), s.ro, d)
+	if errors.Is(err, logdb.ErrDuplicateRoute) {
+		s.refuse(w, r, v, http.StatusConflict, "duplicate", "fwd.duplicate")
+		return
+	}
 	if err != nil {
 		s.internalError(w, "update route", err)
 		return
 	}
 	s.auditAdmin(r, v.ID, "fwd_d2t_update", fmt.Sprintf("route %d chat %d %s",
 		d.ID, d.Chat.ID, strings.Join(changed, " ")))
-	s.botOwner(r, bot, v.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -661,6 +714,10 @@ func loadPlatformFwd(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	bots, err := s.botsByID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var p forwardingIndexProps
 	for _, w := range ws {
 		p.T2D.Total++
@@ -672,8 +729,8 @@ func loadPlatformFwd(ctx context.Context, pr *pageRequest) (any, error) {
 	for _, r := range rs {
 		p.D2T.Total++
 		p.D2T.Sent += r.Sent
-		// A route forwards only while its bot is enabled too.
-		if r.Enabled && r.BotEnabled {
+		// A route forwards only while its bots are enabled too.
+		if d2tLive(r, bots) {
 			p.D2T.Active++
 		}
 	}
@@ -741,9 +798,13 @@ func loadD2T(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	bots, err := s.botsByID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	p := d2tProps{Routes: []d2tRoute{}, Federations: feds}
 	for _, r := range rs {
-		p.Routes = append(p.Routes, s.d2tJSON(ctx, v, r, owners))
+		p.Routes = append(p.Routes, s.d2tJSON(ctx, v, r, owners, bots))
 	}
 	return p, nil
 }

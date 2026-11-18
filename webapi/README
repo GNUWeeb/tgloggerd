@@ -517,6 +517,7 @@ describe each, with what differs from the Drogon pages.
 
     /api/forwarding/telegram-discord[/{id}|/test]   webhooks
     /api/forwarding/discord-telegram[/{id}]         routes
+    /api/bots[/{id}|/{id}/transfer]                 their bots
     POST /api/join-chat/preview, /api/join-chat/join
     POST /api/users/{id}/lookup-name
     /api/mcp/groups[/{group_id}], /api/mcp/tokens[/{id}/revoke]
@@ -530,8 +531,13 @@ describe each, with what differs from the Drogon pages.
     and contact_lookup are worded as the Drogon pages word them, so
     both services' rows read alike.
   - Secrets are write-only: webhook URLs are answered with their token
-    cut off, bots by name, MCP tokens once at creation; no answer, log
-    line or audit row carries one. A webhook URL must be Discord's on
+    cut off, bots by name and identity, MCP tokens once at creation; no
+    answer, log line or audit row carries one. A route names its bots
+    by id; a bot token is typed only on the bots page, checked in shape.
+  - Bots (internal/server/bots.go): a member with forward sees and
+    uses its own bots only, admins and superadmins every bot, with its
+    owner (Scope.SeesAllBots); the others are 404, also as a route's
+    bot. Transfers are for admins and superadmins. A webhook URL must be Discord's on
     save and on test (parseWebhook), so the service never posts
     elsewhere; the test's client follows no redirect.
   - The daemon is reached through internal/daemon (POST
