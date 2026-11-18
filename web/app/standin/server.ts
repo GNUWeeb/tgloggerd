@@ -86,6 +86,7 @@ function evTopics(e: Ev): string[] | null {
 	if (e.kind === 'user.updated') return [`user:${e.user_id}`];
 	if (e.kind === 'group.updated') return [`group:${e.chat_id}`];
 	if (e.kind === 'stats.changed') return ['stats'];
+	if (e.kind === 'bot.updated') return ['bots'];
 	return null;
 }
 
@@ -285,10 +286,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		send(res, 200, { off: liveOff });
 		return;
 	}
-	if (/^\/api\/(accounts|federations|forwarding|join-chat|mcp)(\/|$)/.test(url.pathname)) {
+	if (/^\/api\/(accounts|federations|forwarding|join-chat|mcp|bots)(\/|$)/.test(url.pathname)) {
 		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
 		if (req.method !== 'GET' && !csrfOk(req)) { send(res, 403, { error: 'csrf' }); return; }
-		const body = req.method === 'GET' ? {} : JSON.parse((await readBody(req)) || '{}');
+		const body = req.method === 'GET' ? Object.fromEntries(url.searchParams) : JSON.parse((await readBody(req)) || '{}');
 		const [status, out] = fx.adminApi(req.method || 'GET', url.pathname.slice('/api/'.length), body, who);
 		if (status === 204) { res.writeHead(204); res.end(); } else send(res, status, out);
 		return;

@@ -45,3 +45,20 @@ test('a group is pinned to the sidebar from its page', async ({ page }) => {
 	await page.click('.a-head-actions button:has-text("Unpin")');
 	await expect(pinned).toHaveCount(n);
 });
+
+test('a bot is added, and its status follows what discordd reports', async ({ page, emit }) => {
+	await page.goto('/platform-fwd/bots');
+	await expect(page.locator('.a-livestate.is-live')).toBeVisible();
+	await page.click('button:has-text("Add bot")');
+	const d = page.getByRole('dialog');
+	await d.locator('input:not([type=password])').fill('E2E reader');
+	await d.locator('input[type=password]').fill('MTIzNDU2Nzg5MDEyMzQ1Njc5.GaBcDe.' + 'w'.repeat(27));
+	await d.getByRole('button', { name: 'Add bot' }).click();
+	const row = page.locator('tr', { hasText: 'E2E reader' });
+	await expect(row).toContainText('connecting');
+	expect(await page.content()).not.toContain('w'.repeat(27));
+	const id = Number(await page.evaluate(async () => (await (await fetch('/api/bots')).json()).bots.find((b: { name: string }) => b.name === 'E2E reader').id));
+	await emit({ kind: 'bot.updated', bot_id: id, status: 'intent_missing' });
+	await expect(row).toContainText('intent missing');
+	await expect(row).toContainText('Message Content Intent');
+});

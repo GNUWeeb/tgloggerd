@@ -516,8 +516,9 @@ paths:
         Topics: `chat:<chat_id>` (message.new, message.edited,
         message.deleted and file.stored of one chat), `messages` (the
         same for every chat the viewer may see), `user:<id>`
-        (user.updated), `group:<chat_id>` (group.updated) and `stats`
-        (stats.changed). Repeats count once; at most 2000 topics, and
+        (user.updated), `group:<chat_id>` (group.updated), `stats`
+        (stats.changed) and, planned with discord-bots-per-user, `bots`
+        (bot.updated, for the bots the viewer may see). Repeats count once; at most 2000 topics, and
         the request line may run to tens of kilobytes. Kinds may be
         added; a client skips kinds it does not know.
       parameters:
@@ -625,6 +626,7 @@ paths:
         platform_fwd /platform-fwd;
         fwd_telegram_discord /platform-fwd/telegram-discord;
         fwd_discord_telegram /platform-fwd/discord-telegram;
+        bots /platform-fwd/bots (planned: discord-bots-per-user);
         join_chat /join-chat;
         mcp /mcp-admin;
         mcp_groups /mcp-admin/groups;
@@ -2475,6 +2477,14 @@ paths:
                   type: boolean
                 bot_token:
                   type: string
+                discord_bot_id:
+                  type: integer
+                  format: int64
+                  description: Planned (discord-bots-per-user), as on creation.
+                telegram_bot_id:
+                  type: integer
+                  format: int64
+                  description: Planned (discord-bots-per-user), as on creation.
       responses:
         '204':
           description: Changed.
@@ -2520,6 +2530,176 @@ paths:
       description: >-
         Admins, between accounts of their federations, and superadmins
         (web-accounts.md section 6); a member gets 404.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Transfer'
+      responses:
+        '204':
+          description: Transferred.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/bots:
+    get:
+      x-tgd-status: planned
+      operationId: listBots
+      tags: [forwarding]
+      summary: The bots the viewer may use
+      description: >-
+        For the bot pickers of the route forms: a member with `forward`
+        gets its own bots, admins and superadmins every bot
+        (decisions/2026-11-18-ownership-and-bots.md). Others get 404.
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/BotKind'
+      responses:
+        '200':
+          description: The bots.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bots]
+                properties:
+                  bots:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BotRef'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      x-tgd-status: planned
+      operationId: createBot
+      tags: [forwarding]
+      summary: Add a bot
+      description: >-
+        The viewer becomes its owner; it starts connecting. The token is
+        write-only and never answered. Re-adding one of the viewer's own
+        bots answers that bot. Refusals: 400 bad_token (its shape), 400
+        bad_request (a name that is empty or over 64 characters); 409
+        token_in_use when another account has the bot, without saying
+        which. Audited as bot_create, without the token.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BotCreate'
+      responses:
+        '201':
+          description: Added.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/bots/{id}:
+    patch:
+      x-tgd-status: planned
+      operationId: updateBot
+      tags: [forwarding]
+      summary: Rename, enable or disable a bot, or replace its token
+      description: >-
+        One of the viewer's bots (any bot for admins and superadmins);
+        others answer 404. Audited as bot_update, without the token.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BotUpdate'
+      responses:
+        '200':
+          description: The bot as it is now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Bot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      x-tgd-status: planned
+      operationId: deleteBot
+      tags: [forwarding]
+      summary: Remove a bot
+      description: >-
+        Refused with 409 bot_in_use, with a message saying how many
+        routes use it, while Discord to Telegram routes use the bot.
+        Audited as bot_delete.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Removed.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/bots/{id}/transfer:
+    post:
+      x-tgd-status: planned
+      operationId: transferBot
+      tags: [forwarding]
+      summary: Give a bot to another owner
+      description: >-
+        Admins and superadmins, to one of the bot's transfer_candidates;
+        a member gets 404. A route whose owner no longer owns its bots
+        keeps working; giving a route to a member needs both its bots to
+        be the member's (409 bot_not_owned on the route's transfer).
+        Audited as bot_transfer.
       security:
         - session: []
           csrf: []
@@ -3452,6 +3632,7 @@ components:
         - $ref: '#/components/schemas/PageForwarding'
         - $ref: '#/components/schemas/PageT2D'
         - $ref: '#/components/schemas/PageD2T'
+        - $ref: '#/components/schemas/PageBots'
         - $ref: '#/components/schemas/PageJoinChat'
         - $ref: '#/components/schemas/PageMcp'
         - $ref: '#/components/schemas/PageMcpGroups'
@@ -3659,6 +3840,17 @@ components:
               enum: [fwd_discord_telegram]
             props:
               $ref: '#/components/schemas/D2TProps'
+    PageBots:
+      x-tgd-status: planned
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          required: [route, props]
+          properties:
+            route:
+              enum: [bots]
+            props:
+              $ref: '#/components/schemas/BotsProps'
     PageJoinChat:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -3718,7 +3910,7 @@ components:
             compute with it. Absent on a session event.
         kind:
           type: string
-          enum: [hello, resync, session, message.new, message.edited, message.deleted, user.updated, group.updated, file.stored, stats.changed]
+          enum: [hello, resync, session, message.new, message.edited, message.deleted, user.updated, group.updated, file.stored, stats.changed, bot.updated]
           description: The frame's event name. New kinds may be added.
         chat_id:
           type: integer
@@ -3736,6 +3928,12 @@ components:
           type: integer
           format: int64
           description: file.stored.
+        bot_id:
+          type: integer
+          format: int64
+          description: >-
+            bot.updated (planned, discord-bots-per-user): a bot the viewer
+            may see changed (its status, name, or enabled state).
         fields:
           type: array
           items:
@@ -5345,6 +5543,16 @@ components:
             bot:
               type: string
               description: The sending bot's username; never its token.
+            discord_bot:
+              $ref: '#/components/schemas/BotRef'
+              description: >-
+                Planned (discord-bots-per-user): the Discord bot that
+                reads the channel; becomes required, and bot goes.
+            telegram_bot:
+              $ref: '#/components/schemas/BotRef'
+              description: >-
+                Planned (discord-bots-per-user): the Telegram bot that
+                sends into the chat; becomes required, and bot goes.
             types:
               $ref: '#/components/schemas/D2TTypes'
             enabled:
@@ -5433,6 +5641,156 @@ components:
         federation_id:
           type: [integer, 'null']
           format: int64
+        discord_bot_id:
+          type: integer
+          format: int64
+          description: >-
+            Planned (discord-bots-per-user): the Discord bot to read the
+            channel with, one the viewer may use; becomes required, and
+            bot_token goes.
+        telegram_bot_id:
+          type: integer
+          format: int64
+          description: >-
+            Planned (discord-bots-per-user): the Telegram bot to send
+            with, one the viewer may use; becomes required, and
+            bot_token goes.
+    BotKind:
+      x-tgd-status: planned
+      type: string
+      enum: [telegram, discord]
+      description: >-
+        A Telegram bot sends into Telegram chats (Discord to Telegram
+        routes); a Discord bot reads Discord channels for them.
+    BotStatus:
+      x-tgd-status: planned
+      type: string
+      enum: [connected, connecting, intent_missing, token_refused, disabled]
+      description: >-
+        As discordd last saw the bot: connected; connecting (enabled,
+        not logged in yet, or trying again after an enable);
+        intent_missing (Discord only: the Message Content intent is off
+        in the developer portal); token_refused (the platform refused
+        the token; the bot is disabled and not retried in a loop);
+        disabled (switched off by its owner).
+    BotIdentity:
+      x-tgd-status: planned
+      type: object
+      description: >-
+        Who the bot is on its platform, once it has logged in: the
+        Telegram bot's user id (the non-secret half of its token) or the
+        Discord bot user's id, and its username. Never any part of the
+        token's secret.
+      required: [user_id, username]
+      properties:
+        user_id:
+          type: string
+        username:
+          type: [string, 'null']
+    BotRef:
+      x-tgd-status: planned
+      type: object
+      description: A bot as pickers and routes show it.
+      required: [id, kind, name, identity, status, enabled]
+      properties:
+        id:
+          type: integer
+          format: int64
+        kind:
+          $ref: '#/components/schemas/BotKind'
+        name:
+          type: string
+        identity:
+          oneOf:
+            - $ref: '#/components/schemas/BotIdentity'
+            - type: 'null'
+        status:
+          $ref: '#/components/schemas/BotStatus'
+        enabled:
+          type: boolean
+    Bot:
+      x-tgd-status: planned
+      description: >-
+        A bot on the Bots page. Its token is write-only: no answer,
+        page or attribute carries it once it is saved
+        (decisions/2026-11-18-ownership-and-bots.md).
+      allOf:
+        - $ref: '#/components/schemas/BotRef'
+        - type: object
+          required: [owner, transfer_candidates, status_at, status_detail, routes]
+          properties:
+            owner:
+              allOf:
+                - $ref: '#/components/schemas/FwdPerson'
+                - type: object
+                  required: [active]
+                  properties:
+                    active:
+                      type: boolean
+            transfer_candidates:
+              type: array
+              description: >-
+                Who the bot may be given to; empty for a member, who
+                cannot transfer.
+              items:
+                $ref: '#/components/schemas/FwdPerson'
+            status_at:
+              type: [string, 'null']
+              format: date-time
+              description: When discordd last reported the status.
+            status_detail:
+              type: [string, 'null']
+              description: discordd's own words about the status, shown as they are.
+            routes:
+              type: integer
+              description: How many Discord to Telegram routes use the bot.
+    BotsProps:
+      x-tgd-status: planned
+      type: object
+      description: >-
+        The viewer's bots: a member with `forward` sees its own only;
+        admins and superadmins see every bot, with its owner
+        (show_owner).
+      required: [bots, show_owner]
+      properties:
+        bots:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bot'
+        show_owner:
+          type: boolean
+    BotCreate:
+      x-tgd-status: planned
+      type: object
+      required: [kind, name, token]
+      properties:
+        kind:
+          $ref: '#/components/schemas/BotKind'
+        name:
+          type: string
+          description: The account's own label for the bot, 1 to 64 characters.
+        token:
+          type: string
+          description: >-
+            Write-only, checked in shape only (whether it works shows in
+            the status): Telegram <digits>:<secret>, the secret 30 or
+            more of [A-Za-z0-9_-]; Discord three dot-separated base64url
+            parts, the first decoding to a Discord id.
+    BotUpdate:
+      x-tgd-status: planned
+      type: object
+      description: >-
+        The fields given change. A token replaces the bot's credential
+        (shape-checked as on creation). Enabling a bot whose token was
+        refused, or whose intent was missing, sets it connecting and has
+        discordd try it once more.
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        token:
+          type: string
     Transfer:
       type: object
       required: [owner_id]

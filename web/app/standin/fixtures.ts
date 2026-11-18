@@ -296,6 +296,9 @@ export function load(url: string, persona: Persona): Loaded {
 		if (path === '/platform-fwd/telegram-discord') {
 			return { route: 'fwd_telegram_discord', status: 200, props: { federations: fedList, routes: vis(t2d).map((r) => ({ ...owned(r), chat: pick(r.chat), url_masked: r.url.slice(0, r.url.lastIndexOf('/') + 5) + '...', types: r.types, enabled: r.enabled, sent: r.sent, last_sent: r.last ? iso(r.last) : null })) } };
 		}
+		if (path === '/platform-fwd/bots') {
+			return { route: 'bots', status: 200, props: { bots: botsFor(persona).map((b) => botRow(b, persona)), show_owner: s.role !== 'member' } };
+		}
 		if (path === '/platform-fwd/discord-telegram') {
 			return { route: 'fwd_discord_telegram', status: 200, props: { federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: pick(r.chat), channel_id: r.channel, channel_name: r.channel_name, bot: r.bot, types: r.types, enabled: r.enabled, sent: r.sent })) } };
 		}
@@ -460,6 +463,44 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		}
 		if (m[2] === 'sign-out-everywhere' && method === 'POST') return [204, null];
 	}
+	// Bots: /api/bots[/<id>[/transfer]]
+	if ((m = p.match(/^bots(?:\/(\d+))?(?:\/(transfer))?$/))) {
+		if (!allowed(s, 'platform_fwd')) return [404, { error: 'not_found' }];
+		const mine = botsFor(persona);
+		if (!m[1] && method === 'GET') return [200, { bots: mine.filter((b) => !body.kind || b.kind === body.kind).map(botRef) }];
+		if (!m[1] && method === 'POST') {
+			const name = String(body.name ?? '').trim();
+			if (!name || name.length > 64) return [400, { error: 'bad_request', message: 'Give the bot a name of 1 to 64 characters.' }];
+			if (!botTokenShape(body.kind, String(body.token ?? ''))) return [400, { error: 'bad_token', message: body.kind === 'discord' ? 'That does not look like a Discord bot token.' : 'That does not look like a Telegram bot token: <digits>:<secret>.' }];
+			const same = BOTS.find((b) => b.token === body.token);
+			if (same && same.owner !== PERSONAS[persona]) return [409, { error: 'token_in_use', message: 'Another account has this bot already.' }];
+			if (same) return [201, botRow(same, persona)];
+			const id = Math.max(0, ...BOTS.map((b) => b.id)) + 1;
+			const b = { id, kind: body.kind, name, token: body.token, owner: PERSONAS[persona], status: 'connecting', status_at: null, status_detail: null, enabled: true, user_id: null, username: null };
+			BOTS.push(b);
+			return [201, botRow(b, persona)];
+		}
+		const b = mine.find((x) => String(x.id) === m[1]);
+		if (!b) return [404, { error: 'not_found' }];
+		if (m[2] === 'transfer') {
+			if (s.role === 'member') return [404, { error: 'not_found' }];
+			b.owner = body.owner_id; return [204, null];
+		}
+		if (method === 'PATCH') {
+			if (body.name !== undefined) { const n = String(body.name).trim(); if (!n || n.length > 64) return [400, { error: 'bad_request', message: 'Give the bot a name of 1 to 64 characters.' }]; b.name = n; }
+			if (body.token !== undefined) {
+				if (!botTokenShape(b.kind, String(body.token))) return [400, { error: 'bad_token', message: 'That does not look like a bot token of this kind.' }];
+				b.token = body.token; b.status = 'connecting'; b.status_detail = null;
+			}
+			if (body.enabled !== undefined) { b.enabled = !!body.enabled; b.status = b.enabled ? 'connecting' : 'disabled'; if (b.enabled) b.status_detail = null; }
+			return [200, botRow(b, persona)];
+		}
+		if (method === 'DELETE') {
+			const n = d2t.filter((r) => r.discord_bot_id === b.id || r.telegram_bot_id === b.id).length;
+			if (n) return [409, { error: 'bot_in_use', message: `${n} route${n > 1 ? 's use' : ' uses'} this bot. Give ${n > 1 ? 'them' : 'it'} another bot, or delete ${n > 1 ? 'them' : 'it'}, first.` }];
+			BOTS.splice(BOTS.indexOf(b), 1); return [204, null];
+		}
+	}
 	// Forwarding: /api/forwarding/<telegram-discord|discord-telegram>[/<id>[/transfer]|/test]
 	if ((m = p.match(/^forwarding\/(telegram-discord|discord-telegram)(?:\/(\d+|test))?(?:\/(transfer))?$/))) {
 		if (!allowed(s, 'platform_fwd')) return [404, { error: 'not_found' }];
@@ -578,7 +619,8 @@ const chatById = (id: number) => (id < 0 ? getGroup(id) : getUser(id));
 const stamp = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
 const parseStamp = (s: string) => Date.parse(s.replace(' ', 'T') + 'Z');
 
-export function liveChange(kind: string, b: { chat_id?: number; message_id?: number; user_id?: number }): Record<string, unknown> | null {
+export function liveChange(kind: string, b: { chat_id?: number; message_id?: number; user_id?: number; bot_id?: number; status?: string }): Record<string, unknown> | null {
+	const b2 = b;
 	if (kind === 'message.new') {
 		const chat = chatById(Number(b.chat_id));
 		if (!chat) return null;
@@ -613,6 +655,16 @@ export function liveChange(kind: string, b: { chat_id?: number; message_id?: num
 		g.title = g.title.replace(/ \(renamed \d+\)$/, '') + ` (renamed ${Math.floor(Math.random() * 900 + 100)})`;
 		return { kind, chat_id: g.id, fields: ['title'] };
 	}
+	if (kind === 'bot.updated') {
+		// discordd reports a bot's state: the given status, or the next in a
+		// round of the ones it reports.
+		const b = BOTS.find((x) => x.id === Number(b2.bot_id));
+		if (!b) return null;
+		const cycle = ['connected', b.kind === 'discord' ? 'intent_missing' : 'token_refused', 'connected'];
+		b.status = b2.status ?? cycle[(cycle.indexOf(b.status) + 1) % cycle.length];
+		b.status_at = NOW;
+		return { kind, bot_id: b.id };
+	}
 	if (kind === 'stats.changed') {
 		// Counters move: one more message for the named chat and user.
 		const g = b.chat_id ? getGroup(Number(b.chat_id)) : null;
@@ -625,9 +677,10 @@ export function liveChange(kind: string, b: { chat_id?: number; message_id?: num
 }
 
 // Whether a persona may see an event (web-live.md section 3).
-export function liveVisible(persona: Persona, e: { kind: string; chat_id?: number; user_id?: number }): boolean {
+export function liveVisible(persona: Persona, e: { kind: string; chat_id?: number; user_id?: number; bot_id?: number }): boolean {
 	const s = scopeOf(persona);
 	if (s.role === 'public') return false;
+	if (e.bot_id !== undefined) return botsFor(persona).some((b) => b.id === e.bot_id);
 	if (e.chat_id !== undefined) {
 		if (e.chat_id < 0) { const g = getGroup(e.chat_id); return !!g && s.group(g); }
 		return allowed(s, 'private_messages');
@@ -691,3 +744,49 @@ export function entities(persona: Persona, q: URLSearchParams): [number, unknown
 export function landingOf(persona: Persona): string {
 	return persona === 'public' ? '/' : settingsState(persona).prefs.landing || '/';
 }
+
+// Bots (planned with discord-bots-per-user): every account's own
+// Telegram and Discord bots. Tokens stay here and are never answered.
+const BOTS = [
+	{ id: 1, kind: 'telegram', name: 'Logger relay', token: '7000000001:' + 'a'.repeat(35), owner: 1, status: 'connected', status_at: '2026-11-17 15:58:00', status_detail: null, enabled: true, user_id: '7000000001', username: 'tgd_relay_bot' },
+	{ id: 2, kind: 'discord', name: 'Discord reader', token: 'MTIzNDU2Nzg5MDEyMzQ1Njc4.GaBcDe.' + 'x'.repeat(38), owner: 1, status: 'connected', status_at: '2026-11-17 15:59:00', status_detail: null, enabled: true, user_id: '123456789012345678', username: 'tgd-reader' },
+	{ id: 3, kind: 'discord', name: 'GNU/Weeb mirror', token: 'MjM0NTY3ODkwMTIzNDU2Nzg5.HbCdEf.' + 'y'.repeat(38), owner: 3, status: 'intent_missing', status_at: '2026-11-17 14:00:00', status_detail: 'Disallowed intent(s): MESSAGE_CONTENT', enabled: true, user_id: '234567890123456789', username: 'gw-mirror' },
+	{ id: 4, kind: 'telegram', name: 'Research bot', token: '7000000004:' + 'b'.repeat(35), owner: 5, status: 'token_refused', status_at: '2026-11-17 12:00:00', status_detail: 'Unauthorized', enabled: false, user_id: '7000000004', username: null },
+	{ id: 5, kind: 'discord', name: 'Research reader', token: 'MzQ1Njc4OTAxMjM0NTY3ODkw.IcDeFg.' + 'z'.repeat(38), owner: 5, status: 'disabled', status_at: null, status_detail: null, enabled: false, user_id: null, username: null },
+];
+
+// A member with forward sees its own bots; admins and superadmins all.
+function botsFor(persona: Persona) {
+	if (persona === 'public') return [];
+	const s = scopeOf(persona);
+	return s.role === 'member' ? BOTS.filter((b) => b.owner === PERSONAS[persona]) : BOTS;
+}
+
+function botRef(b) {
+	return { id: b.id, kind: b.kind, name: b.name, identity: b.user_id ? { user_id: b.user_id, username: b.username } : null, status: b.status, enabled: b.enabled };
+}
+
+function botRow(b, persona: Persona) {
+	const o = accounts.find((a) => a.id === b.owner);
+	const s = scopeOf(persona);
+	return {
+		...botRef(b),
+		owner: o ? { id: o.id, name: o.name, active: o.active } : { id: 0, name: 'Shared', active: true },
+		transfer_candidates: s.role === 'member' ? [] : accounts.filter((a) => a.active && a.id !== b.owner && (a.role !== 'member' || a.abilities.includes('forward'))).map((a) => ({ id: a.id, name: a.name, role: a.role })),
+		status_at: b.status_at ? iso(b.status_at) : null,
+		status_detail: b.status_detail,
+		routes: d2t.filter((r) => r.discord_bot_id === b.id || r.telegram_bot_id === b.id).length,
+	};
+}
+
+// The token shapes the API checks (whether one works shows in the status).
+export function botTokenShape(kind: string, token: string): boolean {
+	if (kind === 'telegram') return /^\d+:[A-Za-z0-9_-]{30,}$/.test(token);
+	if (kind !== 'discord') return false;
+	const parts = token.split('.');
+	if (parts.length !== 3 || !parts.every((x) => /^[A-Za-z0-9_-]+$/.test(x))) return false;
+	try { return /^\d{15,25}$/.test(Buffer.from(parts[0], 'base64url').toString('utf8')); } catch { return false; }
+}
+
+// The sample Discord to Telegram routes use the superadmin's two bots.
+for (const r of d2t) { r.discord_bot_id ??= 2; r.telegram_bot_id ??= 1; }

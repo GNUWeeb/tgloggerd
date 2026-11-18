@@ -3,9 +3,10 @@
 export type LiveKind =
 	| 'message.new' | 'message.edited' | 'message.deleted' | 'file.stored'
 	| 'user.updated' | 'group.updated' | 'stats.changed'
+	| 'bot.updated'
 	| 'resync' | 'session';
 
-export const LIVE_KINDS: LiveKind[] = ['message.new', 'message.edited', 'message.deleted', 'file.stored', 'user.updated', 'group.updated', 'stats.changed', 'resync', 'session'];
+export const LIVE_KINDS: LiveKind[] = ['message.new', 'message.edited', 'message.deleted', 'file.stored', 'user.updated', 'group.updated', 'stats.changed', 'bot.updated', 'resync', 'session'];
 
 export interface LiveEvent {
 	seq: number;
@@ -14,6 +15,7 @@ export interface LiveEvent {
 	message_id?: number;
 	user_id?: number;
 	file_id?: number;
+	bot_id?: number;
 	chat_ids?: number[];
 	user_ids?: number[];
 	fields?: string[];
@@ -36,6 +38,8 @@ export function topicsOf(e: LiveEvent): string[] | 'all' {
 			return [`group:${e.chat_id}`];
 		case 'stats.changed':
 			return ['stats'];
+		case 'bot.updated':
+			return ['bots'];
 		default:
 			return 'all';
 	}
