@@ -19,8 +19,9 @@ section 5).
   user search limited to people found in those groups.
 - No private messages for members.
 - Member abilities `forward` and `fetch_files` stored with the grants.
-- Turn on the `group_grants` and `abilities` flags of AccountsProps.editable in
-  the accounts page's loader, so the page offers what now works.
+- Turn on the `group_grants` and `abilities` flags of
+  AccountsProps.editable in the accounts page's loader, so the page
+  offers what now works.
 
 ## Design notes
 
