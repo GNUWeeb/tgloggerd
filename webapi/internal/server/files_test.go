@@ -85,28 +85,42 @@ func strp(p *string) string {
 	return *p
 }
 
-// filesPage is the files page's rows of the fixture's files, by id.
-func (e *mediaEnv) filesPage(cookie string, query ...string) (int, []map[string]any) {
+// filesPageProps are the parts of FilesProps the tests look at.
+type filesPageProps struct {
+	Rows  []map[string]any `json:"rows"`
+	Conds []listCond       `json:"conds"`
+	Sort  string           `json:"sort"`
+	Dir   string           `json:"dir"`
+}
+
+// filesPageWith is the files page's data, its rows limited to the
+// fixture's files, with more filters (a JSON fragment of Conds, each
+// preceded by a comma) and query parameters.
+func (e *mediaEnv) filesPageWith(cookie, conds string, query ...string) (int, filesPageProps) {
 	e.t.Helper()
 	q := url.Values{"f": {`[{"field":"id","op":">","value":"860000"},` +
-		`{"field":"id","op":"<","value":"860010"}]`}}
+		`{"field":"id","op":"<","value":"860010"}` + conds + `]`}}
 	for i := 0; i+1 < len(query); i += 2 {
 		q.Set(query[i], query[i+1])
 	}
+	var b struct {
+		Props filesPageProps `json:"props"`
+	}
 	g := e.get("/api/page/files?"+q.Encode(), cookie)
 	if g.status != 200 {
-		return g.status, nil
-	}
-	var b struct {
-		Props struct {
-			Rows  []map[string]any `json:"rows"`
-			Conds []listCond       `json:"conds"`
-		} `json:"props"`
+		return g.status, b.Props
 	}
 	if err := json.Unmarshal([]byte(g.body), &b); err != nil {
 		e.t.Fatal(err)
 	}
-	return 200, b.Props.Rows
+	return 200, b.Props
+}
+
+// filesPage is the files page's rows of the fixture's files.
+func (e *mediaEnv) filesPage(cookie string, query ...string) (int, []map[string]any) {
+	e.t.Helper()
+	st, p := e.filesPageWith(cookie, "", query...)
+	return st, p.Rows
 }
 
 func byFileID(rows []map[string]any) map[string]map[string]any {
@@ -279,5 +293,105 @@ func TestFilesListNoDaemon(t *testing.T) {
 	}
 	if len(rows) != 5 {
 		t.Errorf("%d rows", len(rows))
+	}
+}
+
+func fixtureSHA(id uint64) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("files fixture %d", id)))
+	return hex.EncodeToString(sum[:])
+}
+
+func fileIDs(rows []map[string]any) string {
+	var ids []string
+	for _, r := range rows {
+		ids = append(ids, js(r["id"]))
+	}
+	return strings.Join(ids, ",")
+}
+
+// TestFilesListColumns: the SHA-256 and last access columns, as the
+// Drogon files list shows them.
+func TestFilesListColumns(t *testing.T) {
+	t.Parallel()
+	e := newFilesEnv(t, mediaOpts{})
+	ck, _ := e.signIn("columns")
+	_, rows := e.filesPage(ck)
+	f := byFileID(rows)
+	if r := f["860001"]; r["sha256"] != fixtureSHA(860001) ||
+		r["accessed_at"] != "2026-11-17T09:00:00Z" || r["created_at"] != "2026-11-10T10:00:00Z" ||
+		r["ext"] != "jpg" || r["tg_file_id"] != "AgACAgUAAxkBAAIfetch01" {
+		t.Errorf("stored photo: %v", r)
+	}
+	// Recorded without its bytes: no digest.
+	if r, ok := f["860002"]; !ok || r["sha256"] != nil || r["accessed_at"] != "2026-11-11T10:00:00Z" {
+		t.Errorf("metadata-only photo: %v", r)
+	}
+	// Evicted: the digest is kept.
+	if r := f["860004"]; r["sha256"] != fixtureSHA(860004) || r["stored"] != false {
+		t.Errorf("evicted document: %v", r)
+	}
+}
+
+// TestFilesListFilters: the filters by Telegram file id, SHA-256,
+// last update and last access, and the sorts by id, extension and
+// last access.
+func TestFilesListFilters(t *testing.T) {
+	t.Parallel()
+	e := newFilesEnv(t, mediaOpts{})
+	ck, _ := e.signIn("filters")
+	cond := func(field, op, value string) string {
+		b, _ := json.Marshal(listCond{Field: field, Op: op, Value: value})
+		return "," + string(b)
+	}
+	for _, c := range []struct {
+		conds string
+		ids   string
+		kept  int // conds echoed back, the id range's two included
+	}{
+		{cond("tg_file_id", "=", "BQACAgUAAxkBAAIfetch04"), "860004", 3},
+		{cond("tg_file_id", "contains", "Ifetch0"), "860005,860004,860003,860002,860001", 3},
+		{cond("sha256", "=", strings.ToUpper(fixtureSHA(860004))), "860004", 3},
+		{cond("sha256", "=", fixtureSHA(860001)), "860001", 3},
+		// Rows without a digest match neither = nor !=.
+		{cond("sha256", "!=", fixtureSHA(860001)), "860005,860004", 3},
+		// Not a digest: dropped, not echoed.
+		{cond("sha256", "=", "beef"), "860005,860004,860003,860002,860001", 2},
+		{cond("sha256", "=", strings.Repeat("zz", 32)), "860005,860004,860003,860002,860001", 2},
+		{cond("sha256", "contains", fixtureSHA(860001)), "860005,860004,860003,860002,860001", 2},
+		{cond("accessed_at", ">", "2026-11-15"), "860005,860001", 3},
+		{cond("accessed_at", "<", "2026-11-12"), "860002", 3},
+		{cond("updated_at", ">", "2026-11-15"), "860004", 3},
+		{cond("updated_at", "<", "2026-11-11"), "860001", 3},
+		{cond("accessed_at", ">", "yesterday"), "860005,860004,860003,860002,860001", 2},
+	} {
+		st, p := e.filesPageWith(ck, c.conds)
+		if st != 200 || fileIDs(p.Rows) != c.ids || len(p.Conds) != c.kept {
+			t.Errorf("%s: %d rows %s conds %v, want %s and %d conds", c.conds, st,
+				fileIDs(p.Rows), p.Conds, c.ids, c.kept)
+		}
+	}
+
+	for _, c := range []struct {
+		sort, dir string
+		ids       string
+		exts      string
+	}{
+		{"id", "asc", "860001,860002,860003,860004,860005", ""},
+		{"id", "desc", "860005,860004,860003,860002,860001", ""},
+		{"accessed_at", "desc", "860001,860005,860004,860003,860002", ""},
+		{"accessed_at", "asc", "860002,860003,860004,860005,860001", ""},
+		{"ext", "asc", "", "jpg,jpg,mp4,ogg,pdf"},
+		{"ext", "desc", "", "pdf,ogg,mp4,jpg,jpg"},
+	} {
+		_, p := e.filesPageWith(ck, "", "sort", c.sort, "dir", c.dir)
+		var exts []string
+		for _, r := range p.Rows {
+			exts = append(exts, r["ext"].(string))
+		}
+		if p.Sort != c.sort || p.Dir != c.dir || (c.ids != "" && fileIDs(p.Rows) != c.ids) ||
+			(c.exts != "" && strings.Join(exts, ",") != c.exts) {
+			t.Errorf("sort %s %s: %s %s, rows %s exts %v", c.sort, c.dir, p.Sort, p.Dir,
+				fileIDs(p.Rows), exts)
+		}
 	}
 }

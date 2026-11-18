@@ -1592,9 +1592,14 @@ export interface components {
             stored: boolean;
             /** @description The bytes are not stored and the viewer may have them fetched from Telegram, by the rule of ChatMedia's fetchable (web/docs/media.md): opening url fetches them through the daemon. Always sent; optional in this description, as ChatMedia's is. */
             fetchable?: boolean;
+            /** @description First seen. */
             created_at: string;
+            /** @description Last access: ingested again or served, what eviction goes by. Always sent; optional in this description. */
+            accessed_at?: string;
             duration?: number;
             tg_file_id: string;
+            /** @description The bytes' SHA-256, 64 lowercase hex digits; null for a row recorded without its bytes. Always sent; optional in this description. */
+            sha256?: string | null;
             /** @description The /files/<token> URL when the bytes are stored or fetchable, else null (an unstored file the viewer may not have fetched, or fetching from Telegram is off). */
             url: string | null;
             /** @description The same URL for a stored photo or sticker, else null; an unstored picture has none, so a list never fetches. */
@@ -1828,6 +1833,7 @@ export interface components {
             }[];
             activity: number[];
         };
+        /** @description The files list (route files). Its filters (Cond field, ops): id, size and hits (=, !=, >, <); file_type (=, != one of FileRow's file_type values, unknown included); name, ext and tg_file_id (contains, =, empty); stored (is yes or no); sha256 (=, != a digest of 64 hex digits, either case); created_at, updated_at and accessed_at (>, < a day, YYYY-MM-DD). Its sorts: id, name, file_type, ext, size, hits, created_at (the default) and accessed_at. The search text matches the name, and the id when it is a number. */
         FilesProps: components["schemas"]["ListState"] & {
             rows: components["schemas"]["FileRow"][];
             preview: components["schemas"]["FileRow"] | null;
