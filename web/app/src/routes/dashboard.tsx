@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Users, UsersRound, MessagesSquare, MessageCircle, FileText, Activity, HardDrive, ArrowLeftRight, Trash2 } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
@@ -5,6 +6,7 @@ import { Avatar, Card, PageHead } from '../ui/primitives.tsx';
 import { Bar } from '../ui/bits.tsx';
 import { DayBars } from '../ui/daybars.tsx';
 import { ago, compact, fmt } from '../format.ts';
+import { savePrefs } from '../api/prefs.ts';
 import type { PageData } from '../page.ts';
 import type { GroupSummary, UserSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
@@ -14,6 +16,7 @@ import type { S } from '../api/schema.ts';
 // what does not apply (logger status for members, private messages
 // when hidden).
 export type DashboardProps = S['DashboardProps'];
+type NumberFormat = NonNullable<S['Viewer']['dashboard_numbers']>;
 
 const KPI = {
 	users: ['Users', '/users', Users], groups: ['Groups', '/groups', UsersRound],
@@ -22,21 +25,45 @@ const KPI = {
 	files: ['Files', '/files', FileText],
 } as const;
 
+// Exact or compact counts: the account's choice, which the server
+// renders with, saved on change. A failed save keeps the choice for this
+// page and says so.
+function NumbersToggle({ value, onChange }: { value: NumberFormat; onChange: (f: NumberFormat) => void }) {
+	const [err, setErr] = useState(false);
+	const pick = (f: NumberFormat) => {
+		if (f === value) return;
+		onChange(f);
+		setErr(false);
+		savePrefs({ dashboard_numbers: f }).catch(() => setErr(true));
+	};
+	return (
+		<>
+			{err && <span className="a-muted sm" role="status">Not saved; shown on this page only.</span>}
+			<div className="a-seg a-seg-text" role="group" aria-label="Numbers">
+				<button type="button" className={value === 'exact' ? 'on' : ''} aria-pressed={value === 'exact'} onClick={() => pick('exact')} title="Every digit, as 466,123">Exact</button>
+				<button type="button" className={value === 'compact' ? 'on' : ''} aria-pressed={value === 'compact'} onClick={() => pick('compact')} title="Rounded, as 466k">Compact</button>
+			</div>
+		</>
+	);
+}
+
 function Dashboard({ page }: { page: PageData<DashboardProps> }) {
 	const p = page.props;
 	const v = page.viewer;
 	const member = v.account?.role === 'member';
+	const [numbers, setNumbers] = useState<NumberFormat>(v.dashboard_numbers ?? 'exact');
+	const show = numbers === 'exact' ? fmt : compact;
 	const maxBusy = Math.max(1, ...p.busiest.map((g) => g.msg_count));
 	return (
 		<Shell crumbs={[['Dashboard', null]]}>
-			<PageHead title="Dashboard" sub={member ? 'Activity in the groups granted to you.' : 'What the logger has archived, and what it is doing now.'} />
+			<PageHead title="Dashboard" sub={member ? 'Activity in the groups granted to you.' : 'What the logger has archived, and what it is doing now.'} actions={<NumbersToggle value={numbers} onChange={setNumbers} />} />
 			<div className="a-kpis">
 				{p.kpis.map((k) => {
 					const [label, href, I] = KPI[k.key];
 					return (
 						<Link key={k.key} to={href} className="a-card a-kpi">
 							<span className="a-kpi-top"><I size={15} />{label}</span>
-							<b className="num">{compact(k.total)}</b>
+							<b className="num" title={`${fmt(k.total)} ${label.toLowerCase()}`}>{show(k.total)}</b>
 							<span className="a-kpi-delta">+{fmt(k.today)} today</span>
 						</Link>
 					);
