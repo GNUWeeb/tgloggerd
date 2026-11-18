@@ -108,7 +108,6 @@ The file store as a capped cache in front of Telegram:
 Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
-- [`msg-structured-content`](todo/msg-structured-content.md): Store locations, venues, contacts, dice, games, shared stories, invoices, checklists, giveaways and calls.
 - [`msg-service-detail`](todo/msg-service-detail.md): Recognise every service message class and store its action's fields.
 - [`msg-message-files`](todo/msg-message-files.md): Record and download every file of a message, not just the main one.
 - [`msg-polls`](todo/msg-polls.md): Store polls and quizzes with their options and keep their latest results current.

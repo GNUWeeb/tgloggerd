@@ -19,7 +19,7 @@ message-types.md section 4.10.
 
 ## Depends on
 
-`msg-structured-content`, `msg-polls`
+`msg-polls`
 
 ## Done when
 

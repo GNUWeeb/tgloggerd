@@ -773,6 +773,266 @@ media_extra_json(const td_api::MessageContent &c, bool &is_media)
 	return j.dump();
 }
 
+
+/* A TDLib message id as the server id stored in the database, or 0 for an
+ * id that is not a server message's (see to_server_msg_id in TDLib.cpp). */
+int64_t server_msg_id(int64_t td_id)
+{
+	constexpr int64_t kShift = 1048576; /* 2^20 */
+	return (td_id > 0 && td_id % kShift == 0) ? td_id / kShift : 0;
+}
+
+void put_double(nlohmann::json &j, const char *key, double v)
+{
+	if (v != 0.0)
+		j[key] = v;
+}
+
+void put_location(nlohmann::json &j, const td_api::location *l)
+{
+	if (!l)
+		return;
+	j["lat"] = l->latitude_;
+	j["lon"] = l->longitude_;
+	put_double(j, "accuracy", l->horizontal_accuracy_);
+}
+
+/* A formattedText as {text, entities}, entities only when there are any. */
+void put_formatted(nlohmann::json &j, const char *key,
+		   const td_api::formattedText *ft)
+{
+	if (!ft || ft->text_.empty())
+		return;
+	nlohmann::json o = { { "text", ft->text_ } };
+	if (auto e = format_entities_json(*ft))
+		o["entities"] = nlohmann::json::parse(*e);
+	j[key] = o;
+}
+
+/* A message sender as {"user_id"} or {"chat_id"}. */
+nlohmann::json sender_json(const td_api::MessageSender *s)
+{
+	if (!s)
+		return nullptr;
+	if (s->get_id() == td_api::messageSenderUser::ID)
+		return { { "user_id",
+			   static_cast<const td_api::messageSenderUser &>(*s)
+				   .user_id_ } };
+	if (s->get_id() == td_api::messageSenderChat::ID)
+		return { { "chat_id",
+			   static_cast<const td_api::messageSenderChat &>(*s)
+				   .chat_id_ } };
+	return nullptr;
+}
+
+const char *call_discard_reason_name(const td_api::CallDiscardReason *r)
+{
+	if (!r)
+		return "";
+	switch (r->get_id()) {
+	case td_api::callDiscardReasonMissed::ID:	return "missed";
+	case td_api::callDiscardReasonDeclined::ID:	return "declined";
+	case td_api::callDiscardReasonDisconnected::ID:	return "disconnected";
+	case td_api::callDiscardReasonHungUp::ID:	return "hung_up";
+	case td_api::callDiscardReasonUpgradeToGroupCall::ID:
+		return "upgrade_to_group_call";
+	default:					return "";
+	}
+}
+
+/*
+ * The curated content_extra of the places, people, games and calls of
+ * message-types.md section 4.2.2, or nullopt when @c is not one of them
+ * (@handled false) or carries nothing to keep. A live location's
+ * remaining time (expires_in) is left out: it changes on every update with
+ * nobody moving.
+ */
+std::optional<std::string>
+structured_extra_json(const td_api::MessageContent &c, bool &handled)
+{
+	nlohmann::json j = nlohmann::json::object();
+	handled = true;
+
+	switch (c.get_id()) {
+	case td_api::messageLocation::ID:
+		put_location(j, static_cast<const td_api::messageLocation &>(c)
+				   .location_.get());
+		break;
+	case td_api::messageLiveLocation::ID: {
+		auto &m = static_cast<const td_api::messageLiveLocation &>(c);
+		if (auto *l = m.location_.get()) {
+			put_location(j, l->location_.get());
+			put_num(j, "live_period", l->live_period_);
+			put_num(j, "heading", l->heading_);
+			put_num(j, "proximity_radius", l->proximity_alert_radius_);
+		}
+		j["live"] = true;
+		break;
+	}
+	case td_api::messageVenue::ID: {
+		auto &m = static_cast<const td_api::messageVenue &>(c);
+		if (auto *v = m.venue_.get()) {
+			put_location(j, v->location_.get());
+			put_str(j, "title", v->title_);
+			put_str(j, "address", v->address_);
+			put_str(j, "provider", v->provider_);
+			put_str(j, "venue_id", v->id_);
+			put_str(j, "venue_type", v->type_);
+		}
+		break;
+	}
+	case td_api::messageContact::ID: {
+		auto &m = static_cast<const td_api::messageContact &>(c);
+		if (auto *k = m.contact_.get()) {
+			put_str(j, "phone", k->phone_number_);
+			put_str(j, "first_name", k->first_name_);
+			put_str(j, "last_name", k->last_name_);
+			put_str(j, "vcard", k->vcard_);
+			put_num(j, "user_id", k->user_id_);
+		}
+		break;
+	}
+	case td_api::messageDice::ID: {
+		auto &m = static_cast<const td_api::messageDice &>(c);
+		put_str(j, "emoji", m.emoji_);
+		put_num(j, "value", m.value_);
+		break;
+	}
+	case td_api::messageStakeDice::ID: {
+		auto &m = static_cast<const td_api::messageStakeDice &>(c);
+		put_num(j, "value", m.value_);
+		put_num(j, "stake_gram_amount", m.stake_gram_amount_);
+		put_num(j, "prize_gram_amount", m.prize_gram_amount_);
+		j["stake"] = true;
+		break;
+	}
+	case td_api::messageGame::ID: {
+		auto &m = static_cast<const td_api::messageGame &>(c);
+		if (auto *g = m.game_.get()) {
+			put_id(j, "game_id", g->id_);
+			put_str(j, "short_name", g->short_name_);
+			put_str(j, "title", g->title_);
+			put_str(j, "description", g->description_);
+			put_flag(j, "has_photo", g->photo_ != nullptr);
+			put_flag(j, "has_animation", g->animation_ != nullptr);
+		}
+		break;
+	}
+	case td_api::messageStory::ID: {
+		auto &m = static_cast<const td_api::messageStory &>(c);
+		put_num(j, "poster_chat_id", m.story_poster_chat_id_);
+		put_num(j, "story_id", m.story_id_);
+		put_flag(j, "via_mention", m.via_mention_);
+		break;
+	}
+	case td_api::messageInvoice::ID: {
+		auto &m = static_cast<const td_api::messageInvoice &>(c);
+		if (auto *p = m.product_info_.get()) {
+			put_str(j, "title", p->title_);
+			put_formatted(j, "description", p->description_.get());
+			put_flag(j, "has_photo", p->photo_ != nullptr);
+		}
+		put_str(j, "currency", m.currency_);
+		put_num(j, "total_amount", m.total_amount_);
+		put_str(j, "start_parameter", m.start_parameter_);
+		put_flag(j, "is_test", m.is_test_);
+		put_flag(j, "need_shipping_address", m.need_shipping_address_);
+		put_num(j, "receipt_message_id",
+			server_msg_id(m.receipt_message_id_));
+		put_flag(j, "has_paid_media", m.paid_media_ != nullptr);
+		break;
+	}
+	case td_api::messageChecklist::ID: {
+		auto &m = static_cast<const td_api::messageChecklist &>(c);
+		if (auto *l = m.list_.get()) {
+			nlohmann::json tasks = nlohmann::json::array();
+			for (const auto &t : l->tasks_) {
+				if (!t)
+					continue;
+				nlohmann::json e = { { "id", t->id_ } };
+				if (t->text_) {
+					e["text"] = t->text_->text_;
+					if (auto en = format_entities_json(*t->text_))
+						e["entities"] = nlohmann::json::parse(*en);
+				}
+				nlohmann::json by = sender_json(t->completed_by_.get());
+				if (!by.is_null())
+					e["completed_by"] = by;
+				put_num(e, "completion_date", t->completion_date_);
+				tasks.push_back(e);
+			}
+			if (!tasks.empty())
+				j["tasks"] = tasks;
+			put_flag(j, "others_can_add_tasks", l->others_can_add_tasks_);
+			put_flag(j, "others_can_mark_tasks_as_done",
+				 l->others_can_mark_tasks_as_done_);
+		}
+		break;
+	}
+	case td_api::messageGiveaway::ID: {
+		auto &m = static_cast<const td_api::messageGiveaway &>(c);
+		if (auto *p = m.parameters_.get()) {
+			put_num(j, "boosted_chat_id", p->boosted_chat_id_);
+			if (!p->additional_chat_ids_.empty())
+				j["additional_chat_ids"] = p->additional_chat_ids_;
+			put_num(j, "winners_selection_date",
+				p->winners_selection_date_);
+			put_flag(j, "only_new_members", p->only_new_members_);
+			put_flag(j, "has_public_winners", p->has_public_winners_);
+			if (!p->country_codes_.empty())
+				j["country_codes"] = p->country_codes_;
+			put_str(j, "prize_description", p->prize_description_);
+		}
+		put_num(j, "winner_count", m.winner_count_);
+		if (m.prize_) {
+			if (m.prize_->get_id() == td_api::giveawayPrizePremium::ID)
+				j["prize"] = { { "premium_months",
+					static_cast<const td_api::giveawayPrizePremium &>(
+						*m.prize_).month_count_ } };
+			else if (m.prize_->get_id() == td_api::giveawayPrizeStars::ID)
+				j["prize"] = { { "stars",
+					static_cast<const td_api::giveawayPrizeStars &>(
+						*m.prize_).star_count_ } };
+		}
+		break;
+	}
+	case td_api::messageCall::ID: {
+		auto &m = static_cast<const td_api::messageCall &>(c);
+		put_id(j, "call_id", m.unique_id_);
+		put_flag(j, "video", m.is_video_);
+		put_num(j, "duration", m.duration_);
+		put_str(j, "discard_reason",
+			call_discard_reason_name(m.discard_reason_.get()));
+		break;
+	}
+	case td_api::messageGroupCall::ID: {
+		auto &m = static_cast<const td_api::messageGroupCall &>(c);
+		put_id(j, "call_id", m.unique_id_);
+		put_flag(j, "group", true);
+		put_flag(j, "active", m.is_active_);
+		put_flag(j, "missed", m.was_missed_);
+		put_flag(j, "video", m.is_video_);
+		put_num(j, "duration", m.duration_);
+		nlohmann::json ps = nlohmann::json::array();
+		for (const auto &s : m.other_participant_ids_) {
+			nlohmann::json e = sender_json(s.get());
+			if (!e.is_null())
+				ps.push_back(e);
+		}
+		if (!ps.empty())
+			j["participants"] = ps;
+		break;
+	}
+	default:
+		handled = false;
+		return std::nullopt;
+	}
+
+	if (j.empty())
+		return std::nullopt;
+	return j.dump();
+}
+
 } /* namespace */
 
 const char *message_content_class_name(std::int32_t id)
@@ -866,15 +1126,18 @@ void extract_message_content(const td_api::MessageContent &content,
 
 	/*
 	 * messageText is stored in full by the text, entities and link
-	 * preview, and the media classes by their curated keys (section
-	 * 4.2.1); every other class keeps what it carries as TDLib's JSON
-	 * until a curated mapping replaces it (message-types.md section
-	 * 4.2). Encrypted passport data is never stored.
+	 * preview, and the media, places, people, games and calls by their
+	 * curated keys (message-types.md sections 4.2.1 and 4.2.2); every
+	 * other class keeps what it carries as TDLib's JSON until a curated
+	 * mapping replaces it (section 4.2). Encrypted passport data is
+	 * never stored.
 	 */
-	bool is_media = false;
-	std::optional<std::string> media = media_extra_json(content, is_media);
-	if (is_media)
-		out.content_extra = std::move(media);
+	bool curated = false;
+	std::optional<std::string> extra = media_extra_json(content, curated);
+	if (!curated)
+		extra = structured_extra_json(content, curated);
+	if (curated)
+		out.content_extra = std::move(extra);
 	else if (id != td_api::messageText::ID &&
 		 id != td_api::messagePassportDataReceived::ID)
 		out.content_extra = tdlib_extra_json(content);

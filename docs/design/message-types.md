@@ -371,6 +371,33 @@ Per class:
 | messageSticker | `emoji`, `sticker_id`, `set_id`, `format` (`webp`, `tgs`, `webm`), `sticker_type` (`regular`, `mask`, `custom_emoji`), `custom_emoji_id`, width, height, `premium` (sent as a premium sticker) |
 | messagePaidMedia | `star_count`, caption_above, `items`: `[{kind, width, height, duration, minithumbnail}]` with kind `photo`, `video`, `preview` (not paid for: only its size and blur are known) or `unsupported` |
 
+### 4.2.2 Places, people, games and calls
+
+The same rules as section 4.2.1. Coordinates are degrees; chat and user
+ids are numbers (they fit in 53 bits); call, game and other 64-bit ids
+are strings; message ids are server ids.
+
+| Class | Keys |
+|---|---|
+| messageLocation | `lat`, `lon`, `accuracy` (metres) |
+| messageLiveLocation | lat, lon, accuracy, `live: true`, `live_period`, `heading`, `proximity_radius`; the remaining time is left out, since it changes with nobody moving |
+| messageVenue | lat, lon, accuracy, `title`, `address`, `provider`, `venue_id`, `venue_type` |
+| messageContact | `phone`, `first_name`, `last_name`, `vcard`, `user_id` |
+| messageDice | `emoji`, `value` |
+| messageStakeDice | `stake: true`, `value`, `stake_gram_amount`, `prize_gram_amount` |
+| messageGame | `game_id`, `short_name`, `title`, `description`, `has_photo`, `has_animation`; the game's text is the message text |
+| messageStory | `poster_chat_id`, `story_id`, `via_mention` (a reference only; decision [2026-11-18-msg-stories-reference-only](decisions/2026-11-18-msg-stories-reference-only.md)) |
+| messageInvoice | `title`, `description` (`{text, entities}`), `has_photo`, `currency`, `total_amount` (in the currency's smallest unit), `start_parameter`, `is_test`, `need_shipping_address`, `receipt_message_id`, `has_paid_media` |
+| messageChecklist | `tasks`: `[{id, text, entities, completed_by: {user_id} or {chat_id}, completion_date}]`, `others_can_add_tasks`, `others_can_mark_tasks_as_done`; the title is the message text |
+| messageGiveaway | `boosted_chat_id`, `additional_chat_ids`, `winners_selection_date`, `only_new_members`, `has_public_winners`, `country_codes`, `prize_description`, `winner_count`, `prize`: `{premium_months}` or `{stars}` |
+| messageCall | `call_id`, `video`, `duration`, `discard_reason` (`missed`, `declined`, `disconnected`, `hung_up`, `upgrade_to_group_call`) |
+| messageGroupCall | `call_id`, `group: true`, `active`, `missed`, `video`, `duration`, `participants`: `[{user_id} or {chat_id}]` |
+
+A live location's new positions arrive as content updates and edits.
+Each one updates the live row, but a location keeps at most one version
+a minute in the edits table, so a shared position is kept as a track
+with one point a minute rather than one a second.
+
 ### 4.3 Several files per message (`telegram_message_files`)
 
 A message can carry more than one file: paid media (several photos or
