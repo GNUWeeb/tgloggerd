@@ -3,19 +3,23 @@
 // focus target, so the pointer need not land on a short bar; the tooltip
 // gives the count and the day. Every seventh day is labelled on the
 // axis, the peak is marked, and a table gives every value to screen
-// readers. Days are UTC days, as the server counts them.
+// readers. The days are the calendar days the server counted: from its
+// first day's date (per_day_start, in the viewer's timezone) when it
+// says it, else UTC days ending today.
 import { useState } from 'react';
 import { fmt } from '../format.ts';
 
 const DAY = 86400000;
 const day = (t: number, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', ...opts }).format(new Date(t));
 
-export function DayBars({ data, now, height = 140, noun = 'messages' }: { data: number[]; now: string; height?: number; noun?: string }) {
+export function DayBars({ data, now, start, height = 140, noun = 'messages' }: { data: number[]; now: string; start?: string; height?: number; noun?: string }) {
 	const [at, setAt] = useState<number | null>(null);
 	const n = data.length;
 	const max = Math.max(1, ...data);
-	const today = Date.parse(now.slice(0, 10) + 'T00:00:00Z');
-	const dateOf = (i: number) => today - (n - 1 - i) * DAY;
+	// A calendar date as UTC midnight, so its label is that date whatever
+	// the zone (and a 23- or 25-hour day is still one step).
+	const first = start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? Date.parse(start + 'T00:00:00Z') : Date.parse(now.slice(0, 10) + 'T00:00:00Z') - (n - 1) * DAY;
+	const dateOf = (i: number) => first + i * DAY;
 	const long = (i: number) => (i === n - 1 ? `Today, ${day(dateOf(i), { day: 'numeric', month: 'short' })}` : day(dateOf(i), { weekday: 'short', day: 'numeric', month: 'short' }));
 	const label = (i: number) => `${long(i)}: ${fmt(data[i] ?? 0)} ${noun}`;
 	// Every seventh day back from today, so today is always labelled.
@@ -54,7 +58,7 @@ export function DayBars({ data, now, height = 140, noun = 'messages' }: { data: 
 				))}
 			</div>
 			<table className="a-sr">
-				<caption>{noun[0]!.toUpperCase() + noun.slice(1)} per day, UTC days</caption>
+				<caption>{noun[0]!.toUpperCase() + noun.slice(1)} per day{start ? '' : ', UTC days'}</caption>
 				<thead><tr><th scope="col">Day</th><th scope="col">{noun[0]!.toUpperCase() + noun.slice(1)}</th></tr></thead>
 				<tbody>{data.map((v, i) => <tr key={i}><td>{long(i)}</td><td>{fmt(v)}</td></tr>)}</tbody>
 			</table>

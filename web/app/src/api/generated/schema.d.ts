@@ -2020,7 +2020,10 @@ export interface components {
                 /** Format: int64 */
                 today: number;
             }[];
+            /** @description Messages logged per day over the last 30 days, oldest first, ending with today. Each count is one calendar day in the viewer's timezone (its own setting, else the site's), so a day with a daylight saving change is 23 or 25 hours long. The kpis' today counts are the same day as the last one. */
             per_day: number[];
+            /** @description The date of per_day's first day, YYYY-MM-DD in the viewer's timezone; the others follow it day by day. */
+            per_day_start: string;
             busiest: components["schemas"]["GroupCounted"][];
             deleted: {
                 /** Format: int64 */

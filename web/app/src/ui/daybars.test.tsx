@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { DayBars } from './daybars.tsx';
-import { renderPage, setup } from '../test/page.tsx';
+import { fixture, renderPage, setup } from '../test/page.tsx';
 
 afterEach(cleanup);
 // 30 days ending on Tue 17 Nov 2026 (UTC), today's count last.
@@ -56,10 +56,36 @@ describe('day bars', () => {
 		expect(rows[30]!.textContent).toBe('Today, 17 Nov129');
 	});
 
+	it('dates the days from the server\'s first day when it gives one', () => {
+		// A viewer east of UTC: its 30 days end on 18 Nov while UTC is
+		// still on the 17th.
+		render(<DayBars data={data} now={now} start="2026-10-20" />);
+		const bars = screen.getAllByRole('img');
+		expect(bars[0]!.getAttribute('aria-label')).toBe('Tue 20 Oct: 100 messages');
+		expect(bars[29]!.getAttribute('aria-label')).toBe('Today, 18 Nov: 129 messages');
+		expect(screen.getByRole('table').querySelector('caption')!.textContent).toBe('Messages per day');
+	});
+
+	it('steps one calendar day per bar across a clock change', () => {
+		// 25 Oct 2026 is the end of summer time in Europe: a 25-hour day.
+		render(<DayBars data={data.slice(0, 5)} now="2026-10-27T10:00:00Z" start="2026-10-23" />);
+		expect(screen.getAllByRole('img').map((b) => b.getAttribute('aria-label')!.split(':')[0])).toEqual(['Fri 23 Oct', 'Sat 24 Oct', 'Sun 25 Oct', 'Mon 26 Oct', 'Today, 27 Oct']);
+	});
+
+	it('dates the dashboard\'s days from the server, in the viewer\'s timezone', () => {
+		setup();
+		const page = fixture<{ per_day: number[]; per_day_start: string }>('/');
+		// A viewer in Auckland is already on 18 Nov at the stand-in's now.
+		renderPage('/', 'superadmin', { props: { ...page.props, per_day_start: '2026-10-20' }, viewer: { ...page.viewer, timezone: 'Pacific/Auckland' } });
+		expect(screen.getAllByRole('img', { name: /^Today, 18 Nov: / })).toHaveLength(1);
+		expect(screen.getAllByRole('img', { name: /^Tue 20 Oct: / })).toHaveLength(1);
+	});
+
 	it('is the dashboard\'s messages-per-day chart', () => {
 		setup();
 		renderPage('/');
-		expect(screen.getByText('last 30 days, UTC')).toBeTruthy();
+		expect(screen.getByText('last 30 days')).toBeTruthy();
+		expect(screen.queryByText(/UTC/)).toBeNull();
 		expect(screen.getAllByRole('img', { name: /^Today, 17 Nov: [\d,]+ messages$/ })).toHaveLength(1);
 	});
 });

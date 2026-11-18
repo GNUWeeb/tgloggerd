@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { adminApi, badPref, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { adminApi, badPref, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 
 const spec = loadSpec();
@@ -176,6 +176,23 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		patch(member.id, { role: 'admin', restrict: hide });
 		const [, back] = patch(member.id, { role: 'member' });
 		expect((back as { restrict: { hide_groups: unknown[] } | null }).restrict?.hide_groups ?? []).toEqual([]);
+	});
+
+	it('the first per-day bar\'s date, in the viewer\'s timezone', () => {
+		// The stand-in's now is 17 Nov 16:00 UTC: 23:00 in Jakarta (the
+		// site's zone), already 18 Nov 05:00 in Auckland.
+		expect(perDayStart('superadmin', 30)).toBe('2026-10-19');
+		const prefs = settingsState('superadmin').prefs;
+		const was = prefs.timezone;
+		prefs.timezone = 'Pacific/Auckland';
+		try {
+			expect(perDayStart('superadmin', 30)).toBe('2026-10-20');
+			const p = pageData('/', 'superadmin').props as { per_day: number[]; per_day_start: string };
+			expect(p.per_day).toHaveLength(30);
+			expect(p.per_day_start).toBe('2026-10-20');
+		} finally {
+			if (was === undefined) delete prefs.timezone; else prefs.timezone = was;
+		}
 	});
 
 	it('a name lookup', () => {

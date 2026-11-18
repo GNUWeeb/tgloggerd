@@ -49,8 +49,9 @@ func TestPageDashboard(t *testing.T) {
 			Key          string
 			Total, Today int64
 		}
-		PerDay  []int64 `json:"per_day"`
-		Busiest []struct {
+		PerDay      []int64 `json:"per_day"`
+		PerDayStart string  `json:"per_day_start"`
+		Busiest     []struct {
 			ID       int64
 			MsgCount int64 `json:"msg_count"`
 		}
@@ -76,8 +77,22 @@ func TestPageDashboard(t *testing.T) {
 		totals["private_messages"] != 6+8 || totals["files"] != 14 {
 		t.Errorf("totals %v", totals)
 	}
-	if len(d.PerDay) != 30 || d.PerDay[29] == 0 {
-		t.Errorf("per_day %v", d.PerDay)
+	// Days are the viewer's, here the site's Asia/Jakarta: the clock
+	// (chatNow) is midnight there on 18 November, so the series runs
+	// from 20 October to that new, still empty day, and the sample's
+	// messages are on the days before it.
+	var sum int64
+	for _, n := range d.PerDay {
+		sum += n
+	}
+	if len(d.PerDay) != 30 || d.PerDayStart != "2026-10-20" || d.PerDay[29] != 0 ||
+		d.PerDay[28] == 0 || sum != 164 {
+		t.Errorf("per_day %s %v (sum %d)", d.PerDayStart, d.PerDay, sum)
+	}
+	for _, k := range d.KPIs {
+		if k.Today != 0 {
+			t.Errorf("%s counts %d today, but the day has just begun", k.Key, k.Today)
+		}
 	}
 	if len(d.Busiest) != 6 || d.Busiest[0].ID != pagingLab || d.Busiest[0].MsgCount != 130 {
 		t.Errorf("busiest %+v", d.Busiest)
