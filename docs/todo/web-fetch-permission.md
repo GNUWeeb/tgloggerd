@@ -35,6 +35,12 @@ to do it, not something every page view triggers.
   (`media::markFetchable()`), so gating it there gates both. Today it
   allows any signed-in request and, without a session, files under
   `TG_MAX_STORE_FILE_SIZE` (web/docs/media.md).
+- The Go service's one place is `Server.mayFetch()` in
+  `webapi/internal/server/media.go`, which already takes the request
+  scope: `/files/<token>` asks it, and `Server.fileURL()` asks it for
+  every link the JSON answers give an unstored file (ChatMedia's and
+  FileRow's `url` and `fetchable`), so narrowing it there narrows the
+  chat pages and the files list too.
 
 ## Depends on
 
