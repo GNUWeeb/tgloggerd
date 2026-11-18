@@ -11,10 +11,7 @@ import type { ChatMedia, ChatMessage } from '../types.ts';
 
 export type MediaKind = 'photo' | 'video' | 'animation' | 'sticker' | 'voice' | 'audio' | 'document';
 
-// format (a sticker's webp, webm or tgs), kind and deleted_at (an album
-// item's own type and deletion) are being added to ChatMedia on the Go
-// side; until the spec has them they are read as optional extras.
-export type Media = ChatMedia & { format?: string; kind?: MediaKind; deleted_at?: string | null };
+export type Media = ChatMedia;
 
 const ratioOf = (m: Media, def = '4 / 3') => (m.w && m.h ? `${m.w} / ${m.h}` : def);
 
@@ -52,8 +49,10 @@ export function Lightbox({ m, kind, onClose }: { m: Media; kind: 'picture' | 'vi
 }
 
 function Missing({ m, ratio, label = 'Not stored', children }: { m: Media; ratio?: string; label?: string; children?: ReactNode }) {
+	// A blurred preview (TDLib's minithumb) shows even without the bytes.
+	const bg = m.thumb ? { backgroundImage: `url("${m.thumb}")` } : {};
 	return (
-		<div className="c-media c-missing" style={ratio ? { aspectRatio: ratio } : undefined} title="Not stored, only metadata kept">
+		<div className={`c-media c-missing ${m.thumb ? 'c-blurred' : ''}`} style={{ ...(ratio ? { aspectRatio: ratio } : {}), ...bg }} title="Not stored, only metadata kept">
 			<CloudOff size={22} /><span>{label}</span>
 			{m.size ? <span className="c-sub">{bytes(m.size)}</span> : null}
 			{children}
@@ -130,9 +129,8 @@ export function Animation({ m, onClick = false }: { m: Media; onClick?: boolean 
 	);
 }
 
-// A sticker's format; before Go sends one, a sticker with a thumbnail
-// is an image and one without is a video sticker.
-export const stickerFormat = (m: Media) => m.format ?? (m.thumb ? 'webp' : 'webm');
+// A sticker's format: Go's, else from how it renders or its extension.
+export const stickerFormat = (m: Media) => m.format ?? (m.render === 'lottie' || m.ext === 'tgs' ? 'tgs' : m.render === 'animation' || m.ext === 'webm' ? 'webm' : 'webp');
 
 // A sticker: an image, a looping video, or (.tgs Lottie) its emoji
 // until the Lottie player draws it.
@@ -188,19 +186,22 @@ export function Voice({ m }: { m: Media }) {
 // A document, or an audio file (with a player): a link with its name
 // and size; an unstored one that may be fetched downloads from Telegram.
 export function DocFile({ m, audio = false }: { m: Media; audio?: boolean }) {
+	// Music shows as its performer and title when the file says them.
+	const tag = audio && (m.title || m.performer) ? [m.performer, m.title].filter(Boolean).join(' - ') : '';
+	const label = tag || m.name;
 	const sub = <span className="c-sub">{bytes(m.size ?? 0)}{audio && m.duration ? ` . ${duration(m.duration)}` : ''}{!m.stored && (m.url ? ' . load from Telegram' : ' . not stored')}</span>;
 	return (
 		<div className={`c-docwrap ${m.deleted_at ? 'deleted' : ''}`}>
 			{m.url
 				? <a className="c-doc" href={m.url} download={m.name || undefined}>
 					<span className="c-docicon">{m.stored ? <Download size={18} /> : <CloudDownload size={18} />}</span>
-					<span className="c-docmeta"><b>{m.name}</b>{sub}</span>
+					<span className="c-docmeta"><b>{label}</b>{tag && m.name ? <span className="c-sub">{m.name}</span> : null}{sub}</span>
 				</a>
 				: <div className="c-doc" title="Not stored, only metadata kept">
 					<span className="c-docicon off"><CloudOff size={18} /></span>
-					<span className="c-docmeta"><b>{m.name}</b>{sub}</span>
+					<span className="c-docmeta"><b>{label}</b>{tag && m.name ? <span className="c-sub">{m.name}</span> : null}{sub}</span>
 				</div>}
-			{audio && m.url && <audio className="c-audio" src={m.url} controls preload="none" aria-label={m.name ? `Play ${m.name}` : 'Play'} />}
+			{audio && m.url && <audio className="c-audio" src={m.url} controls preload="none" aria-label={label ? `Play ${label}` : 'Play'} />}
 			<DeletedMark m={m} />
 		</div>
 	);
@@ -222,15 +223,32 @@ export function MediaOf({ m, kind, single, onClick }: { m: Media; kind: MediaKin
 const KINDS: readonly string[] = ['photo', 'video', 'animation', 'sticker', 'voice', 'audio', 'document'];
 const tile = (k: MediaKind) => k === 'photo' || k === 'video' || k === 'animation';
 
+// How a media object draws: by the content type, which keeps stickers
+// and voice notes their own look, corrected by Go's render where it
+// says more (a "document" that is really a picture or a video).
+export function kindOf(ct: string, m: Media): MediaKind | null {
+	const k = KINDS.includes(ct) ? (ct as MediaKind) : null;
+	if (k === 'sticker' || k === 'voice') return k;
+	switch (m.render) {
+		case 'image': return 'photo';
+		case 'video': return 'video';
+		case 'animation': return 'animation';
+		case 'lottie': return 'sticker';
+		case 'audio': return 'audio';
+		case 'file': return 'document';
+		default: return k;
+	}
+}
+
 // A message's media and album: one item as itself; an album of photos
 // and videos as a grid, any other items (documents, audio) one below
 // the other. Each item has its own kind and deletion.
 export function MessageMedia({ msg, onClick }: { msg: ChatMessage; onClick: boolean }) {
 	const ct = msg.content_type;
-	if (!msg.media || !KINDS.includes(ct)) return null;
-	const base = ct as MediaKind;
-	const items = [msg.media as Media, ...(msg.album as Media[])].map((m) => ({ m, kind: m.kind ?? base }));
-	if (items.length === 1) return <MediaOf m={msg.media as Media} kind={base} single onClick={onClick} />;
+	const base = msg.media ? kindOf(ct, msg.media) : null;
+	if (!msg.media || !base) return null;
+	const items = [msg.media, ...msg.album].map((m) => ({ m, kind: (m.kind ? kindOf(m.kind, m) : null) ?? base }));
+	if (items.length === 1) return <MediaOf m={msg.media} kind={base} single onClick={onClick} />;
 	const grid = items.filter((x) => tile(x.kind));
 	const rest = items.filter((x) => !tile(x.kind));
 	return (

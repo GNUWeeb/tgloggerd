@@ -100,12 +100,39 @@ describe('chat media', () => {
 		expect(screen.getByRole('img', { name: 'sticker 🔥' }).textContent).toBe('🔥');
 	});
 
-	it('tells a sticker\'s format by its thumbnail until Go sends the format', () => {
-		const r = show(<MessageMedia msg={msg('sticker', media({ thumb: URL1 }))} onClick={false} />);
-		expect(r.container.querySelector('img')).toBeTruthy();
+	it('tells a sticker\'s format by how it renders or its extension when Go sends none', () => {
+		const r = show(<MessageMedia msg={msg('sticker', media({ render: 'animation' }))} onClick={false} />);
+		expect(r.container.querySelector('video')).toBeTruthy();
 		r.unmount();
-		const r2 = show(<MessageMedia msg={msg('sticker', media())} onClick={false} />);
-		expect(r2.container.querySelector('video')).toBeTruthy();
+		const r2 = show(<MessageMedia msg={msg('sticker', media({ ext: 'tgs', emoji: '🙏' }))} onClick={false} />);
+		expect(screen.getByRole('img', { name: 'sticker 🙏' })).toBeTruthy();
+		r2.unmount();
+		// A blurred preview in thumb no longer passes for an image.
+		const r3 = show(<MessageMedia msg={msg('sticker', media({ render: 'image', thumb: 'data:image/jpeg;base64,AA' }))} onClick={false} />);
+		expect(r3.container.querySelector('img')!.getAttribute('src')).toBe('data:image/jpeg;base64,AA');
+	});
+
+	it('draws a document as what it renders as', () => {
+		const r = show(<MessageMedia msg={msg('document', media({ render: 'image', thumb: URL1, name: 'shot.png' }))} onClick={false} />);
+		expect(screen.getByRole('link', { name: 'Photo' })).toBeTruthy();
+		r.unmount();
+		show(<MessageMedia msg={msg('document', media({ render: 'video', name: 'clip.mp4' }))} onClick={false} />);
+		expect(screen.getByRole('link', { name: 'Video' })).toBeTruthy();
+	});
+
+	it('shows a blurred preview of media that is not stored', () => {
+		const r = show(<MessageMedia msg={msg('photo', media({ stored: false, url: null, thumb: 'data:image/jpeg;base64,AA' }))} onClick={false} />);
+		const box = r.container.querySelector('.c-missing')!;
+		expect(box.className).toContain('c-blurred');
+		expect((box as HTMLElement).style.backgroundImage).toContain('data:image/jpeg;base64,AA');
+		expect(within(box as HTMLElement).getByText('Not stored')).toBeTruthy();
+	});
+
+	it('names music by its performer and title', () => {
+		show(<MessageMedia msg={msg('audio', media({ name: 'track01.mp3', performer: 'Ayu', title: 'Kernel Blues', size: 4096 }))} onClick={false} />);
+		expect(screen.getByRole('link', { name: /Ayu - Kernel Blues/ })).toBeTruthy();
+		expect(screen.getByText('track01.mp3')).toBeTruthy();
+		expect(document.querySelector('audio')!.getAttribute('aria-label')).toBe('Play Ayu - Kernel Blues');
 	});
 
 	it('plays a voice note and fills its waveform as it plays', () => {
