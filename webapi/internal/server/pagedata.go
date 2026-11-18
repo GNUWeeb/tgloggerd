@@ -67,20 +67,28 @@ type deletedJSON struct {
 }
 
 type dashboardProps struct {
-	KPIs    []kpiJSON          `json:"kpis"`
-	PerDay  []int64            `json:"per_day"`
-	Busiest []groupCountedJSON `json:"busiest"`
-	Deleted []deletedJSON      `json:"deleted"`
+	KPIs   []kpiJSON `json:"kpis"`
+	PerDay []int64   `json:"per_day"`
+	// PerDayStart is the date of PerDay's first day in the viewer's
+	// timezone (YYYY-MM-DD); each count is one calendar day there.
+	PerDayStart string             `json:"per_day_start"`
+	Busiest     []groupCountedJSON `json:"busiest"`
+	Deleted     []deletedJSON      `json:"deleted"`
 }
 
 func loadDashboard(ctx context.Context, pr *pageRequest) (any, error) {
-	d, err := logdb.LoadDashboard(ctx, pr.s.ro, pr.scope, pr.now())
+	loc, err := pr.viewerLocation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := logdb.LoadDashboard(ctx, pr.s.ro, pr.scope, pr.now(), loc)
 	if err != nil {
 		return nil, err
 	}
 	v := pr.view()
-	p := dashboardProps{KPIs: []kpiJSON{}, PerDay: d.PerDay, Busiest: []groupCountedJSON{},
-		Deleted: []deletedJSON{}}
+	p := dashboardProps{KPIs: []kpiJSON{}, PerDay: d.PerDay,
+		PerDayStart: time.Unix(d.PerDayStart, 0).In(loc).Format(time.DateOnly),
+		Busiest:     []groupCountedJSON{}, Deleted: []deletedJSON{}}
 	for _, k := range d.KPIs {
 		p.KPIs = append(p.KPIs, kpiJSON(k))
 	}

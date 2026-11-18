@@ -8,7 +8,9 @@ package logdb
 import (
 	"context"
 	"database/sql"
+	"sort"
 	"strings"
+	"time"
 
 	"tgloggerd/webapi/internal/scope"
 )
@@ -48,6 +50,57 @@ func perDay(ctx context.Context, db *sql.DB, now int64, q string, args ...any) (
 	}
 	return out, rows.Err()
 }
+
+// localDays are the starts of the Days calendar days in loc that end
+// with the day holding now, oldest first, and the start of the day
+// after them: Days+1 unix times. A day in a zone with daylight saving
+// time can be 23 or 25 hours long.
+func localDays(now int64, loc *time.Location) []int64 {
+	t := time.Unix(now, 0).In(loc)
+	y, m, d := t.Date()
+	out := make([]int64, Days+1)
+	for i := range out {
+		out[i] = time.Date(y, m, d-(Days-1)+i, 0, 0, 0, 0, loc).Unix()
+	}
+	return out
+}
+
+// quarter is the step the local series counts in: every UTC offset and
+// every daylight saving shift in use is a whole number of quarter
+// hours, so a local day is a whole number of them.
+const quarter = 900
+
+// perLocalDay is perDay over calendar days in loc rather than UTC
+// days: q is a dayIndex query whose index is counted in quarter hours
+// (quarterIndex), and the quarters are summed into the days of
+// localDays. It answers the series and its first day.
+func perLocalDay(ctx context.Context, db *sql.DB, now int64, loc *time.Location,
+	q string, args ...any) ([]int64, int64, error) {
+	days := localDays(now, loc)
+	start := days[0]
+	out := make([]int64, Days)
+	rows, err := db.QueryContext(ctx, q, append([]any{start, start}, args...)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var qi, n int64
+		if err := rows.Scan(&qi, &n); err != nil {
+			return nil, 0, err
+		}
+		at := start + qi*quarter
+		// The day holding at: the last start not after it.
+		i := sort.Search(Days+1, func(i int) bool { return days[i] > at }) - 1
+		if i >= 0 && i < Days {
+			out[i] += n
+		}
+	}
+	return out, start, rows.Err()
+}
+
+// quarterIndex is dayIndex in quarter hours, for perLocalDay.
+const quarterIndex = "SELECT FLOOR((m.date - ?) / 900), COUNT(*) "
 
 // dayIndex is the SELECT head of a perDay query over a table aliased m
 // with a unix date column, whose WHERE starts with "m.date >= ?"; perDay
@@ -389,12 +442,15 @@ type KPI struct {
 
 // Dashboard is the dashboard's data.
 type Dashboard struct {
-	KPIs    []KPI
-	PerDay  []int64
-	Busiest []Group
-	Deleted []Message
-	Users   map[int64]User
-	Groups  map[int64]Group
+	KPIs   []KPI
+	PerDay []int64
+	// PerDayStart is the start of PerDay's first day, in the viewer's
+	// timezone; the KPIs' today is PerDay's last day.
+	PerDayStart int64
+	Busiest     []Group
+	Deleted     []Message
+	Users       map[int64]User
+	Groups      map[int64]Group
 }
 
 // dashboardRows is how many busiest groups and deleted messages the
@@ -407,10 +463,12 @@ const (
 // LoadDashboard is the dashboard within the scope: a viewer that sees
 // everything gets the archive's totals (as Browse.cpp's counts); one
 // that does not gets counts over what it sees, and no private messages
-// or files.
-func LoadDashboard(ctx context.Context, db *sql.DB, sc scope.Scope, now int64) (Dashboard, error) {
+// or files. Its days are calendar days in loc, the viewer's timezone.
+func LoadDashboard(ctx context.Context, db *sql.DB, sc scope.Scope, now int64,
+	loc *time.Location) (Dashboard, error) {
 	var d Dashboard
-	today := dayStart(now)
+	days := localDays(now, loc)
+	today := days[Days-1]
 	cond, cargs := sc.GroupFilter("m.chat_id")
 	gcond, gargs := sc.GroupFilter("g.id")
 	// The archive's totals: through the count cache (countcache.go).
@@ -464,13 +522,14 @@ func LoadDashboard(ctx context.Context, db *sql.DB, sc scope.Scope, now int64) (
 	}
 
 	var err error
-	if d.PerDay, err = perDay(ctx, db, now, dayIndex+"FROM telegram_group_messages m "+
-		"WHERE m.date >= ? AND "+cond+" GROUP BY 1", cargs...); err != nil {
+	if d.PerDay, d.PerDayStart, err = perLocalDay(ctx, db, now, loc, quarterIndex+
+		"FROM telegram_group_messages m WHERE m.date >= ? AND "+cond+" GROUP BY 1",
+		cargs...); err != nil {
 		return Dashboard{}, err
 	}
 	if sc.SeesPrivate() {
-		priv, err := perDay(ctx, db, now, dayIndex+"FROM telegram_private_messages m "+
-			"WHERE m.date >= ? GROUP BY 1")
+		priv, _, err := perLocalDay(ctx, db, now, loc, quarterIndex+
+			"FROM telegram_private_messages m WHERE m.date >= ? GROUP BY 1")
 		if err != nil {
 			return Dashboard{}, err
 		}
