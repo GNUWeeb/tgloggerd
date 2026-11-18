@@ -156,8 +156,8 @@ func run(log *slog.Logger, cfg *config.Config) error {
 	// shutdown are lost (internal/mail says why).
 	var mailer *mail.Mailer
 	if cfg.Mail == nil {
-		log.Warn("mail is off (no WEBAPI_SMTP_HOST): no links or notices are sent, " +
-			"new accounts and resets cannot be made, and the email gate stays open")
+		log.Warn("mail is off (no WEBAPI_SMTP_HOST): no links or notices are sent; " +
+			"new accounts and password resets use temporary passwords, and invitations by email are refused")
 	} else {
 		if mailer, err = mail.New(*cfg.Mail, log.With("component", "mail")); err != nil {
 			return err
