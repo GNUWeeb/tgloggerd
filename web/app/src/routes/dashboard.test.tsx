@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-// The dashboard's counts: exact or compact as the account chooses.
-import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+// The dashboard's counts: exact or compact as the account chooses, and
+// current while the page is open.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, json, renderPage, setup } from '../test/page.tsx';
 import { compact, fmt } from '../format.ts';
-import type { DashboardProps } from './dashboard.tsx';
+import { KPI_REFRESH_MS, type DashboardProps } from './dashboard.tsx';
 
 beforeEach(setup);
 
@@ -51,5 +52,105 @@ describe('dashboard numbers', () => {
 		renderPage('/');
 		fireEvent.click(screen.getByRole('button', { name: 'Exact' }));
 		expect(callsTo(calls, 'PATCH', '/api/account/preferences')).toHaveLength(0);
+	});
+});
+
+// A stand-in for the browser's EventSource: the page's live stream.
+class FakeSource {
+	static last: FakeSource | null = null;
+	readyState = 0;
+	onopen: ((ev: Event) => unknown) | null = null;
+	onerror: ((ev: Event) => unknown) | null = null;
+	private ls = new Map<string, ((ev: { data: string }) => void)[]>();
+	constructor(public url: string) { FakeSource.last = this; }
+	addEventListener(kind: string, fn: (ev: { data: string }) => void) { this.ls.set(kind, [...(this.ls.get(kind) ?? []), fn]); }
+	removeEventListener() {}
+	close() { this.readyState = 2; }
+	open() { this.readyState = 1; this.onopen?.(new Event('open')); }
+	emit(e: Record<string, unknown>) { for (const fn of this.ls.get(String(e.kind)) ?? []) fn({ data: JSON.stringify(e) }); }
+}
+
+describe('dashboard counts, live', () => {
+	const kpis = () => fixture<DashboardProps>('/').props.kpis;
+	const bumped = (key: string, by: number) => kpis().map((k) => (k.key === key ? { ...k, total: k.total + by, today: k.today + by } : k));
+
+	beforeEach(() => {
+		FakeSource.last = null;
+		vi.stubGlobal('EventSource', FakeSource);
+	});
+	afterEach(() => vi.useRealTimers());
+
+	const stream = async () => {
+		await waitFor(() => expect(FakeSource.last?.url).toMatch(/topics=[^&]*messages/));
+		act(() => FakeSource.last!.open());
+		return FakeSource.last!;
+	};
+	const todayOf = (label: string) => within(within(document.querySelector<HTMLElement>('.a-kpis')!).getByRole('link', { name: new RegExp(`^${label}`) })).getByText(/today$/).textContent;
+
+	it('counts each new message into its kind, total and today', async () => {
+		const calls = fakeApi('superadmin');
+		renderPage('/');
+		const s = await stream();
+		act(() => { s.emit({ seq: 1, kind: 'message.new', chat_id: -100123, message_id: 1 }); s.emit({ seq: 2, kind: 'message.new', chat_id: -100124, message_id: 1 }); });
+		act(() => s.emit({ seq: 3, kind: 'message.new', chat_id: 4567, message_id: 1 }));
+		act(() => s.emit({ seq: 4, kind: 'message.edited', chat_id: -100123, message_id: 1 }));
+		expect(kpi('Group messages').textContent).toBe(fmt(total('group_messages') + 2));
+		expect(kpi('Private messages').textContent).toBe(fmt(total('private_messages') + 1));
+		expect(kpi('Users').textContent).toBe(fmt(total('users')));
+		const today = kpis().find((k) => k.key === 'group_messages')!.today;
+		expect(todayOf('Group messages')).toBe(`+${fmt(today + 2)} today`);
+		// The counts follow by themselves: no page refetch, no count call.
+		await act(() => new Promise((r) => setTimeout(r, 50)));
+		expect(callsTo(calls, 'GET', /^\/api\/(page|dashboard)/)).toHaveLength(0);
+	});
+
+	it('takes the server\'s counts every minute, over the ticked ones', async () => {
+		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+		const calls = fakeApi('superadmin', { 'GET /api/dashboard/kpis': () => ({ kpis: bumped('users', 5) }) });
+		renderPage('/');
+		const s = await stream();
+		act(() => s.emit({ seq: 1, kind: 'message.new', chat_id: -100123, message_id: 1 }));
+		expect(callsTo(calls, 'GET', '/api/dashboard/kpis')).toHaveLength(0);
+		act(() => { vi.advanceTimersByTime(KPI_REFRESH_MS); });
+		await waitFor(() => expect(kpi('Users').textContent).toBe(fmt(total('users') + 5)));
+		expect(kpi('Group messages').textContent).toBe(fmt(total('group_messages')));
+		expect(callsTo(calls, 'GET', '/api/dashboard/kpis')).toHaveLength(1);
+	});
+
+	it('does not refresh a hidden page, and catches up when it is shown', async () => {
+		vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+		let hidden = true;
+		vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+		const calls = fakeApi('superadmin', { 'GET /api/dashboard/kpis': () => ({ kpis: kpis() }) });
+		renderPage('/');
+		act(() => { vi.advanceTimersByTime(3 * KPI_REFRESH_MS); });
+		expect(callsTo(calls, 'GET', '/api/dashboard/kpis')).toHaveLength(0);
+		hidden = false;
+		act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+		await waitFor(() => expect(callsTo(calls, 'GET', '/api/dashboard/kpis')).toHaveLength(1));
+		// Shown again soon after a refresh: nothing to catch up.
+		hidden = true; act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+		hidden = false; act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+		expect(callsTo(calls, 'GET', '/api/dashboard/kpis')).toHaveLength(1);
+	});
+
+	it('refreshes the counts right after a resync', async () => {
+		const calls = fakeApi('superadmin', { 'GET /api/dashboard/kpis': () => ({ kpis: bumped('files', 3) }) });
+		renderPage('/');
+		const s = await stream();
+		act(() => s.emit({ seq: 9, kind: 'resync' }));
+		await waitFor(() => expect(kpi('Files').textContent).toBe(fmt(total('files') + 3)));
+		expect(callsTo(calls, 'GET', '/api/dashboard/kpis')).toHaveLength(1);
+	});
+
+	it('keeps the counts it shows when a refresh fails', async () => {
+		const calls = fakeApi('superadmin', { 'GET /api/dashboard/kpis': () => json(503, { error: 'unavailable' }) });
+		renderPage('/');
+		const s = await stream();
+		act(() => s.emit({ seq: 1, kind: 'message.new', chat_id: -100123, message_id: 1 }));
+		act(() => s.emit({ seq: 2, kind: 'resync' }));
+		await waitFor(() => expect(callsTo(calls, 'GET', '/api/dashboard/kpis')).toHaveLength(1));
+		await Promise.resolve();
+		expect(kpi('Group messages').textContent).toBe(fmt(total('group_messages') + 1));
 	});
 });
