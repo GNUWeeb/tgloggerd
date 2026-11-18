@@ -249,9 +249,12 @@ resource, so more relations (sharing) can be added later:
 - An account that owns a resource cannot be deleted from the
   database (accounts are disabled, not deleted); a disabled owner's
   resources keep working.
-- Who sees and transfers which resource is `forwarding-per-user`'s
-  and `discord-bots-per-user`'s; until then the pages show the owner
-  and every viewer with the ability sees every resource.
+- Bots: a member with `forward` sees and uses only its own Telegram
+  and Discord bots; admins and superadmins see every bot and transfer
+  it (platform-forwarding.md, Bots). Who sees and transfers the
+  forwarding configurations is `forwarding-per-user`'s; until then the
+  pages show the owner and every viewer with the ability sees every
+  configuration.
 
 ### Assigning the existing resources (deployment)
 
