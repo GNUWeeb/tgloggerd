@@ -50,3 +50,15 @@ test('Ctrl-K jumps to a chat by name', async ({ page }) => {
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Linux Kernel Indonesia');
 	await expect(box).toHaveCount(0);
 });
+
+test('the theme chosen in the top bar is kept across a reload', async ({ page }) => {
+	await page.goto('/');
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	const saved = page.waitForResponse((r) => r.url().endsWith('/api/account/preferences') && r.request().method() === 'PATCH');
+	await page.getByRole('button', { name: 'Theme: system' }).click();
+	expect((await saved).status()).toBe(200);
+	await page.reload();
+	// Rendered by the server already: no flash back to the old theme.
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+	await expect(page.getByRole('button', { name: 'Theme: light' })).toBeVisible();
+});

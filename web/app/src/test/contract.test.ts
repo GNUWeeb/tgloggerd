@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { adminApi, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { adminApi, badPref, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 
 const spec = loadSpec();
@@ -113,6 +113,17 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		}
 		expect(historyApi('users', user, new URLSearchParams('before=junk'), 'superadmin')[0]).toBe(400);
 		expect(historyApi('users', user, new URLSearchParams(''), 'member')[0]).toBe(404);
+	});
+
+	it('the preferences a PATCH takes', () => {
+		expect(badPref({ theme: 'dark', sidebar: 'collapsed' })).toBeNull();
+		expect(badPref({ sidebar: null })).toBeNull();
+		expect(badPref({ sidebar: 'hidden' })).toBe('sidebar');
+		expect(badPref({ nope: 1 })).toBe('nope');
+		// Every key the spec's Prefs has is one the stand-in checks.
+		const keys = Object.keys(spec.components.schemas.Prefs?.properties ?? {});
+		expect(keys.length).toBeGreaterThan(0);
+		for (const k of keys) expect(badPref({ [k]: null }), k).toBeNull();
 	});
 
 	it('a name lookup', () => {
