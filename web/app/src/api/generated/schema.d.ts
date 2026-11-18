@@ -1563,7 +1563,7 @@ export interface components {
              */
             photo_file_id?: number | null;
             description: string;
-            /** @description The member count; not recorded by the logger yet, so 0. */
+            /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators, as in the chat page's header. The logger does not record Telegram's own member count. */
             members: number;
             msg_count: number;
             admin_count: number;
