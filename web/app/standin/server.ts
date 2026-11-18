@@ -371,7 +371,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		const chat = fx.chatFor(cm[1], cm[2], who);
 		if (!chat) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"not_found"}'); return; }
 		const num = (k: string) => (url.searchParams.get(k) ? Number(url.searchParams.get(k)) : undefined);
-		const w = fx.chatWindow(chat, { before: num('before'), after: num('after'), at: num('around'), after_ts: num('after_ts') }, Math.min(100, Math.max(1, num('limit') || 60)), fx.canFetch(who));
+		// A forum topic: groups only, as in Go.
+		const topic = num('topic');
+		if (topic !== undefined && cm[1] === 'private') { send(res, 400, { error: 'bad_request', message: 'A private chat has no topics.', field: 'topic' }); return; }
+		const w = fx.chatWindow(chat, { before: num('before'), after: num('after'), at: num('around'), after_ts: num('after_ts'), topic }, Math.min(100, Math.max(1, num('limit') || 60)), fx.viewOf(who, cm[1] === 'group' ? chat.id : undefined));
 		res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
 		res.end(JSON.stringify(w));
 		return;
