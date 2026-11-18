@@ -348,3 +348,24 @@ func TestListOldURLs(t *testing.T) {
 		t.Errorf("own URL: %s %v", u, p["per"])
 	}
 }
+
+func TestListColumns(t *testing.T) {
+	t.Parallel()
+	e := newListSearchEnv(t, searchOpts{})
+	p := e.props("superadmin", "users", fq(`[{"field":"id","op":"=","value":"9299200001"}]`)...)
+	r := p["rows"].([]any)[0].(map[string]any)
+	for k, v := range map[string]any{"phone": "+62 800 0000 0001", "bio": "Every field, for tests.",
+		"restriction_reason":    "Restricted on some platforms (fixture)",
+		"has_sensitive_content": true, "restricts_new_chats": true,
+		"paid_message_star_count": 250, "personal_chat_id": -1001000000001,
+		"emoji_status": "5373141891321699086", "contact_name": "Persona (fixture)"} {
+		if js(r[k]) != js(v) {
+			t.Errorf("persona %s: %s, want %s", k, js(r[k]), js(v))
+		}
+	}
+	p = e.props("admin", "groups", fq(`[{"field":"id","op":"=","value":"-1001000200001"}]`)...)
+	if g := p["rows"].([]any)[0].(map[string]any); g["updated_at"] != "2026-11-10T10:00:00Z" ||
+		g["created_at"] != "2025-12-01T08:00:00Z" {
+		t.Errorf("group row %v", g)
+	}
+}

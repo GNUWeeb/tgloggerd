@@ -769,10 +769,25 @@ type listUser struct {
 	UpdatedAt   *string `json:"updated_at,omitempty"`
 }
 
+// userRow is a row of the users page (UserRow): the summary and, for
+// a viewer who sees users in full, the Drogon list's other columns.
+type userRow struct {
+	listUser
+	Phone             *string `json:"phone,omitempty"`
+	Bio               *string `json:"bio,omitempty"`
+	RestrictionReason *string `json:"restriction_reason,omitempty"`
+	HasSensitive      *bool   `json:"has_sensitive_content,omitempty"`
+	RestrictsNewChats *bool   `json:"restricts_new_chats,omitempty"`
+	PaidMessageStars  *int64  `json:"paid_message_star_count,omitempty"`
+	// Pointers to pointers: null is "none", absent is "not shown".
+	PersonalChatID **int64  `json:"personal_chat_id,omitempty"`
+	EmojiStatus    **string `json:"emoji_status,omitempty"`
+}
+
 // usersProps are the users page's (UsersProps).
 type usersProps struct {
 	listState
-	Rows []listUser `json:"rows"`
+	Rows []userRow `json:"rows"`
 }
 
 func loadUsers(ctx context.Context, pr *pageRequest) (any, error) {
@@ -782,7 +797,7 @@ func loadUsers(ctx context.Context, pr *pageRequest) (any, error) {
 		return nil, err
 	}
 	full := logdb.Users.Full(pr.scope)
-	p := usersProps{listState: run.state, Rows: []listUser{}}
+	p := usersProps{listState: run.state, Rows: []userRow{}}
 	for _, r := range run.res.Rows {
 		u := listUser{ID: r.Int("id"),
 			Name:     logdb.DisplayName(r.Str("first_name"), r.Str("last_name")),
@@ -797,7 +812,26 @@ func loadUsers(ctx context.Context, pr *pageRequest) (any, error) {
 			u.Language = ptrTo(r.Str("language"))
 			u.CreatedAt, u.UpdatedAt = dbTimePtr(r, "created_at"), dbTimePtr(r, "updated_at")
 		}
-		p.Rows = append(p.Rows, u)
+		row := userRow{listUser: u}
+		if full {
+			row.Phone, row.Bio = ptrTo(r.Str("phone")), ptrTo(r.Str("bio"))
+			row.RestrictionReason = ptrTo(r.Str("restriction_reason"))
+			row.HasSensitive = ptrTo(r.Bool("has_sensitive"))
+			row.RestrictsNewChats = ptrTo(r.Bool("restricts_new_chats"))
+			row.PaidMessageStars = ptrTo(r.Int("paid_star_count"))
+			var pc *int64
+			if !r.Null("personal_chat_id") {
+				pc = ptrTo(r.Int("personal_chat_id"))
+			}
+			row.PersonalChatID = &pc
+			var es *string
+			if !r.Null("emoji_status") {
+				// A 64-bit custom emoji id: a string.
+				es = ptrTo(r.Str("emoji_status"))
+			}
+			row.EmojiStatus = &es
+		}
+		p.Rows = append(p.Rows, row)
 	}
 	return p, nil
 }
@@ -814,6 +848,7 @@ type listGroup struct {
 	AdminCount  int64   `json:"admin_count"`
 	Description string  `json:"description"`
 	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at"`
 }
 
 // groupsProps are the groups page's (GroupsProps).
@@ -835,7 +870,7 @@ func loadGroups(ctx context.Context, pr *pageRequest) (any, error) {
 			Type: r.Str("type"), Photo: s.photoPtr(r.Uint("photo_file_id")),
 			MsgCount: r.Int("msg_count"), Exposed: r.Bool("exposed"),
 			AdminCount: r.Int("admin_count"), Description: r.Str("description"),
-			CreatedAt: dbTime(r.Str("created_at"))})
+			CreatedAt: dbTime(r.Str("created_at")), UpdatedAt: dbTime(r.Str("updated_at"))})
 	}
 	return p, nil
 }

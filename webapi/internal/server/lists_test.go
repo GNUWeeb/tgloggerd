@@ -69,7 +69,10 @@ func TestListUsers(t *testing.T) {
 		"type": "regular", "photo": e.file(880007), "contact_name": "Dewi (kernel)",
 		"msg_count": 6, "is_verified": false, "is_premium": true, "is_scam": false,
 		"is_fake": false, "is_support": false, "language": "id",
-		"created_at": "2023-02-11T07:30:00Z", "updated_at": "2026-11-17T15:31:00Z"}
+		"created_at": "2023-02-11T07:30:00Z", "updated_at": "2026-11-17T15:31:00Z",
+		"phone": "+62 812 5550 1234", "bio": "Kernel hacker. Coffee first. She/her.",
+		"restriction_reason": "", "has_sensitive_content": false, "restricts_new_chats": false,
+		"paid_message_star_count": 0, "personal_chat_id": nil, "emoji_status": nil}
 	if js(p["rows"].([]any)[0]) != js(dewi) {
 		t.Errorf("Dewi:\n got %s\nwant %s", js(p["rows"].([]any)[0]), js(dewi))
 	}
@@ -142,7 +145,7 @@ func TestListGroups(t *testing.T) {
 	gnu := map[string]any{"id": -1001000000001, "title": "GNU/Weeb", "username": "gnuweeb",
 		"type": "supergroup", "photo": e.file(880008), "msg_count": 8, "exposed": true,
 		"admin_count": 2, "description": "Low-level programming, Linux and free software.",
-		"created_at": "2022-03-14T09:00:00Z"}
+		"created_at": "2022-03-14T09:00:00Z", "updated_at": "2026-11-17T15:40:00Z"}
 	if js(p["rows"].([]any)[0]) != js(gnu) || num(p["archive_total"]) != 6 {
 		t.Errorf("GNU/Weeb:\n got %s\nwant %s", js(p["rows"].([]any)[0]), js(gnu))
 	}

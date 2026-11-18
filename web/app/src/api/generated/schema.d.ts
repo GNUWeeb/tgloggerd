@@ -2037,7 +2037,21 @@ export interface components {
             };
         };
         UsersProps: components["schemas"]["ListState"] & {
-            rows: components["schemas"]["UserSummary"][];
+            rows: components["schemas"]["UserRow"][];
+        };
+        /** @description A row of the users list: the summary and, for a viewer who sees users in full, the Drogon list's other columns, always sent then (absent for a member). */
+        UserRow: components["schemas"]["UserSummary"] & {
+            phone?: string;
+            bio?: string;
+            restriction_reason?: string;
+            has_sensitive_content?: boolean;
+            restricts_new_chats?: boolean;
+            /** Format: int64 */
+            paid_message_star_count?: number;
+            /** Format: int64 */
+            personal_chat_id?: number | null;
+            /** @description The emoji status's custom emoji id (64-bit, as a string); null for none. */
+            emoji_status?: string | null;
         };
         /** @description A full-access viewer gets the profile; a member only the groups it shares with the person (limited), web-accounts.md section 5. */
         UserProps: {
@@ -2073,6 +2087,8 @@ export interface components {
                 admin_count: number;
                 description: string;
                 created_at: string;
+                /** @description Always sent by the service. */
+                updated_at?: string;
             })[];
         };
         GroupProps: {

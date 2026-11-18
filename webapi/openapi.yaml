@@ -5289,7 +5289,35 @@ components:
             rows:
               type: array
               items:
-                $ref: '#/components/schemas/UserSummary'
+                $ref: '#/components/schemas/UserRow'
+    UserRow:
+      description: >-
+        A row of the users list: the summary and, for a viewer who sees
+        users in full, the Drogon list's other columns, always sent
+        then (absent for a member).
+      allOf:
+        - $ref: '#/components/schemas/UserSummary'
+        - type: object
+          properties:
+            phone:
+              type: string
+            bio:
+              type: string
+            restriction_reason:
+              type: string
+            has_sensitive_content:
+              type: boolean
+            restricts_new_chats:
+              type: boolean
+            paid_message_star_count:
+              type: integer
+              format: int64
+            personal_chat_id:
+              type: [integer, 'null']
+              format: int64
+            emoji_status:
+              type: [string, 'null']
+              description: The emoji status's custom emoji id (64-bit, as a string); null for none.
     UserProps:
       description: >-
         A full-access viewer gets the profile; a member only the groups
@@ -5387,6 +5415,9 @@ components:
                         type: string
                       created_at:
                         type: string
+                      updated_at:
+                        type: string
+                        description: Always sent by the service.
     GroupProps:
       type: object
       required: [group, admins, history, top_posters, activity]
