@@ -571,6 +571,52 @@ opaque cursor. federation=<id> keeps the groups of that federation
 and passed to the logger's query as a list: 0 is Default, every group
 in no other federation; an id that is no federation holds none.
 
+# Search engine
+
+An optional second backend for the advanced search's full-text fields:
+OpenSearch, the "opensearch" service of docker-compose.yml. MySQL stays
+the source of truth and the default; without the engine nothing
+changes (docs/design/decisions/2026-11-18-search-engine.md).
+
+## Running the engine
+
+The service has the compose profile "search", so `docker compose up -d`
+leaves it out. To run it, once:
+
+    mkdir -p data/opensearch
+    docker compose --profile search run --rm --no-deps --user 0 \
+        --entrypoint chown opensearch 1000:1000 /usr/share/opensearch/data
+
+(the image runs as uid 1000 whatever TG_UID is, and its files are
+readable by that user only, so the index directory is given to it),
+then add COMPOSE_PROFILES=search to .env, or pass --profile search to
+every compose command that should include it, and start it:
+
+    docker compose --profile search up -d opensearch
+
+  - Network: tgnet only (10.0.88.8:9200). No port is published and
+    nginx does not route to it; with the security plugin off it has no
+    logins, so nothing outside the compose network must reach it.
+  - Memory: a 2 GB Java heap (OPENSEARCH_JAVA_OPTS) in a 4 GB
+    container; the rest is for Lucene's off-heap buffers and the page
+    cache. A bigger archive wants more page cache rather than more
+    heap.
+  - Disk: the index holds the messages' text and a few numbers per
+    message, roughly the size of the text itself, under
+    data/opensearch. Plan it beside the file store's cap.
+  - vm.max_map_count: the engine normally wants 262144, more than many
+    hosts allow by default. The service sets node.store.allow_mmap to
+    false, so it reads its files without memory maps and needs no
+    sysctl; on a host where vm.max_map_count is raised, that line can
+    go for somewhat faster reads. Single-node discovery skips the
+    production bootstrap checks that would refuse to start otherwise.
+  - The healthcheck asks for a yellow or green cluster: a single node
+    holds no replicas, so the service creates its indices without any,
+    and an index that asked for one would leave the cluster yellow.
+
+The tests start their own engine (docker-compose.test.yml, profile
+"search", a 512 MB heap): scripts/test-web.sh --search-engine.
+
 # The request scope
 
 Server.requestScope (internal/server/media.go) builds, once per
@@ -934,6 +980,10 @@ start it first:
     docker compose -f docker-compose.test.yml up -d --wait
     scripts/test-web.sh --go-only & scripts/test-web.sh --go-only; wait
     docker compose -f docker-compose.test.yml down
+
+With --search-engine it also starts the test OpenSearch (profile
+"search") and gives the tests its URL in WEBAPI_TEST_SEARCH_ENGINE_URL;
+without it the search engine's tests skip and the rest run as before.
 
 ## A database per test
 
