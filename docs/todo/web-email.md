@@ -57,6 +57,11 @@ password and hear about changes to their account
   403 `email_required`, except session, logout, the account's email
   operations and the link operations. One check in the request scope,
   not one per handler.
+- With both gates up (a temporary password not changed yet and no
+  verified address), the password gate comes first: the email gate
+  must let `POST /api/account/password` through while
+  must_change_password is set, or the account can never leave the
+  password page.
 - Error codes the pages read: `bad_link` and `weak_password` (set,
   verify), `rate_limited` and `csrf` (forgot); any other error shows
   its message. `POST /api/password/forgot` carries the pre-login CSRF
