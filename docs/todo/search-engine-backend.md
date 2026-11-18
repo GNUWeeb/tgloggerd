@@ -1,51 +1,43 @@
 # search-engine-backend
 
-An optional search engine (OpenSearch) behind the advanced search, for
-the searches MySQL's indexes serve badly, with the extra options it
-allows shown in the frontend only when it is configured.
+The React application's side of the optional search engine: the extra
+search options of the message searches, shown only when the engine
+offers them.
 
 ## Why
 
-MySQL's FULLTEXT indexes handle simple word searches only: no
-relevance tuning, phrase proximity, typo tolerance, highlighting or
-facets, a minimum token length, and slow counts on large chats. A
-search engine does these well, but it costs memory and disk, so it
-stays optional and the dashboard keeps working without it.
+The Go service answers the group and private message searches' text
+from OpenSearch when it is configured (webapi/README, "Search
+engine"), with phrase, proximity, prefix and fuzzy matching,
+highlighting and per-chat facets. The frontend does not offer any of
+it yet, so the engine's options are reachable through the API only.
 
 ## Scope
 
-- A second backend for the full-text fields of the advanced search's
-  field registry (webapi/internal/logdb/search_entities.go); column
-  and exists fields stay on MySQL. Without the engine configured,
-  nothing changes.
-- A capabilities answer in the search API telling the frontend which
-  options the backend offers (phrase, proximity, fuzzy, highlighting,
-  facets); the React application shows them only when offered, and
-  `web/docs/search-api.md` documents them.
-- Indexing fed from the daemon's event stream (`GET /v1/events`): new,
-  edited and deleted messages, renames. A backfill job for the
-  existing archive and a periodic reconcile that repairs what the
-  stream missed (resync, downtime).
-- If the engine is down or behind, search falls back to MySQL and
-  says so.
-- The engine's container, configuration in the environment and its
-  memory and disk needs documented.
-- Left out: replacing MySQL as the source of truth; search across
-  other platforms' tables.
+- Read `GET /api/search/capabilities` and offer, for the entities it
+  lists as available, the options it names: a fuzzy toggle
+  (`fuzzy=1`), highlighted fragments (`highlight=1`, the answer's
+  `highlights` aligned to `rows`), per-chat facets (`facets=1`) and a
+  short help on the `matches` syntax (`"a b" @3`, `word~`, `word*`).
+  Without an engine, or while it is not available, show none of them
+  and behave as before.
+- Show when MySQL answered instead (`backend.fallback`) and which
+  options were ignored (`backend.ignored`).
+- Left out: the Go side, the compose service, the indexer and the
+  docs, which are done (web/docs/search-api.md, "Search engine");
+  indexing bios and group descriptions, which comes later
+  (design/decisions/2026-11-18-search-engine.md).
 
 ## Design notes
 
-- OpenSearch, not Elasticsearch: OpenSearch is Apache-2.0, while
-  Elasticsearch's licences (AGPL, SSPL, ELv2) sit awkwardly beside the
-  project's GPL-2.0-or-later. The engine runs as a separate service
-  and is reached over HTTP, behind an interface so another engine can
-  replace it.
-- Every query carries the request scope of web-accounts.md section 9
-  as a filter on the visible chat ids, applied by the engine, never
-  after it: hit counts, facet totals and highlights must not reveal
-  hidden groups or private messages.
-- Index size is roughly the text's own size; plan the disk with the
-  file store's cap in mind.
+- The contract is `searchCapabilities` and `searchEntity` in
+  webapi/openapi.yaml; web/app/src/api/generated/schema.d.ts is
+  regenerated from it.
+- Highlights are HTML-escaped with the matches in `<mark>...</mark>`;
+  service messages never get any.
+- Facets come only when the engine answers the whole search
+  (conditions joined by AND over the text and the carried columns);
+  otherwise `backend.ignored` lists them.
 - Decision: [design/decisions/2026-11-18-search-engine.md](../design/decisions/2026-11-18-search-engine.md).
 
 ## Depends on
@@ -54,12 +46,6 @@ Nothing.
 
 ## Done when
 
-- With the engine configured, phrase, proximity and fuzzy searches
-  work and the frontend shows their options; without it, the search
-  behaves as before and shows none of them.
-- A message created, edited or deleted is found, changed or gone in
-  search within seconds, and the reconcile repairs a deliberately
-  missed event.
-- Tests show that an admin with hidden groups and a member see no
-  hits, counts or facets from chats outside their scope.
-- Stopping the engine makes search fall back to MySQL.
+- With the engine configured, the message searches offer its options
+  and show highlights and facets; without it, they behave as before
+  and show none of them.
