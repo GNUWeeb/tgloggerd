@@ -87,3 +87,15 @@ test('the dashboard fits the window: nothing hidden makes the page taller', asyn
 	// never does.
 	expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
 });
+
+test('pages end with the same margin as their sides, not a wide band', async ({ page }) => {
+	// A window shorter than the dashboard, so the page scrolls to its end.
+	await page.setViewportSize({ width: 1920, height: 700 });
+	await page.goto('/');
+	await expect(page.getByRole('img', { name: /^Today, / })).toBeVisible();
+	const gap = await page.evaluate(() => {
+		const last = [...document.querySelectorAll('.a-content > *')].pop()!.getBoundingClientRect();
+		return document.documentElement.scrollHeight - (last.bottom + scrollY);
+	});
+	expect(gap).toBeLessThanOrEqual(32);
+});
