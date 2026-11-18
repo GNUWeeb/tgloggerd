@@ -9,11 +9,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"tgloggerd/webapi/internal/settings"
 )
@@ -22,8 +24,10 @@ import (
 // over the "sample" and "parity_chat" fixtures (the latter's header
 // lists what each message is): content_extra where the row has it, the
 // files table otherwise; edits with their media; forward origins,
-// signatures, channel senders, service types, replies; and that every
-// key answered is described in openapi.yaml.
+// signatures, channel senders, service types, replies; the chat page's
+// query (dates in the viewer's timezone, Drogon's after, after_ts and
+// limit); the members the archive has seen; and that every key
+// answered is described in openapi.yaml.
 
 const (
 	mediaLab    = -1001000000030
@@ -287,6 +291,127 @@ func TestChatParityScope(t *testing.T) {
 	}
 	notFoundPage(e, fmt.Sprintf("/groups/%d/chat?date=2026-11-17", mediaLab), "researcher")
 	notFoundPage(e, "/messages/group/3015", "researcher")
+}
+
+func TestChatAfterTS(t *testing.T) {
+	t.Parallel()
+	e := newParityEnv(t)
+	ck := e.as("admin")
+	ms := e.pWindow(ck, mediaLab, fmt.Sprintf("?after_ts=%d&limit=3", mediaDate(3)-30))
+	if len(ms) != 3 || ms[0].MessageID != mediaMsg(3) {
+		t.Errorf("after_ts: %+v", ms)
+	}
+	// Nothing that recent: the newest messages, as Drogon answered.
+	ms = e.pWindow(ck, mediaLab, fmt.Sprintf("?after_ts=%d&limit=2", mediaDate(100)))
+	if len(ms) != 2 || ms[1].MessageID != mediaMsg(19) {
+		t.Errorf("after_ts past the end: %+v", ms)
+	}
+	// The oldest messages.
+	ms = e.pWindow(ck, mediaLab, "?after=0&limit=2")
+	if len(ms) != 2 || ms[0].MessageID != mediaMsg(1) {
+		t.Errorf("after=0: %+v", ms)
+	}
+	for _, q := range []string{"?after_ts=x", fmt.Sprintf("?after_ts=1&before=%d", mediaMsg(5))} {
+		if code, _, _ := e.get(fmt.Sprintf("/api/chats/group/%d/messages%s", mediaLab, q), ck); code != http.StatusBadRequest {
+			t.Errorf("%s: %d", q, code)
+		}
+	}
+}
+
+type pChatProps struct {
+	Chat struct {
+		Group *struct {
+			ID       int64
+			Members  int64
+			MsgCount int64 `json:"msg_count"`
+		}
+	}
+	Messages []pMsg
+	HasOlder bool   `json:"has_older"`
+	At       *int64 `json:"at"`
+}
+
+func TestPageChatQuery(t *testing.T) {
+	t.Parallel()
+	e := newParityEnv(t)
+	path := fmt.Sprintf("/groups/%d/chat", mediaLab)
+	at := func(who, query string) *int64 {
+		t.Helper()
+		return page[pChatProps](e, path+query, who, 200, "group_chat").At
+	}
+	is := func(got *int64, n int64) bool { return got != nil && *got == mediaMsg(n) }
+
+	p := page[pChatProps](e, path, "admin", 200, "group_chat")
+	if p.Chat.Group == nil || p.Chat.Group.Members != 5 || p.Chat.Group.MsgCount != 19 {
+		t.Errorf("header %+v", p.Chat.Group)
+	}
+
+	// Message 5 was sent at 14:05 UTC, 21:05 in Asia/Jakarta, the site's
+	// default timezone; gw_admin reads times in UTC.
+	for _, c := range []struct {
+		who, date string
+		n         int64
+	}{
+		{"admin", "2026-11-17T21:05", 5},
+		{"admin", "2026-11-17 21:05:30", 6},
+		{"admin", "2026-11-17T21:04:01", 5},
+		{"admin", "2026-11-17", 1},
+		{"admin", "2026-11-17T14:05:00Z", 5},
+		{"gw_admin", "2026-11-17T14:05", 5},
+		{"gw_admin", "2026-11-17 14:07", 7},
+	} {
+		if got := at(c.who, "?date="+url.QueryEscape(c.date)); !is(got, c.n) {
+			t.Errorf("%s ?date=%s: at %v, want message %d", c.who, c.date, got, c.n)
+		}
+	}
+	// 21:05 UTC is after the last message: the newest, opened at none.
+	if got := at("gw_admin", "?date=2026-11-17T21:05"); got != nil {
+		t.Errorf("past the end: at %v", got)
+	}
+
+	// Drogon's links: after_ts, after (0 the oldest), limit.
+	if got := at("admin", fmt.Sprintf("?after_ts=%d", mediaDate(4))); !is(got, 4) {
+		t.Errorf("after_ts: at %v", got)
+	}
+	p = page[pChatProps](e, path+"?after=0&limit=3", "admin", 200, "group_chat")
+	if !is(p.At, 1) || len(p.Messages) != 3 || p.HasOlder || p.Messages[0].MessageID != mediaMsg(1) {
+		t.Errorf("oldest: at %v, %d messages", p.At, len(p.Messages))
+	}
+	p = page[pChatProps](e, path+fmt.Sprintf("?limit=60&after=%d", mediaMsg(15)), "admin", 200, "group_chat")
+	if !is(p.At, 16) || len(p.Messages) != 4 || !p.HasOlder {
+		t.Errorf("after 15: at %v, %d messages", p.At, len(p.Messages))
+	}
+	if p = page[pChatProps](e, path+"?limit=2", "admin", 200, "group_chat"); len(p.Messages) != 2 || p.At != nil {
+		t.Errorf("limit 2: %d messages", len(p.Messages))
+	}
+	// ?at= comes first.
+	if got := at("admin", fmt.Sprintf("?at=%d&after=0", mediaMsg(12))); !is(got, 12) {
+		t.Errorf("at and after: %v", got)
+	}
+}
+
+func TestParseChatDate(t *testing.T) {
+	t.Parallel()
+	jkt, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for in, want := range map[string]string{
+		"2026-11-17":                "2026-11-16T17:00:00Z",
+		"2026-11-17T08:30":          "2026-11-17T01:30:00Z",
+		"2026-11-17 08:30:15":       "2026-11-17T01:30:15Z",
+		"2026-11-17T08:30:15+02:00": "2026-11-17T06:30:15Z",
+	} {
+		got, ok := parseChatDate(in, jkt)
+		if !ok || got.UTC().Format(time.RFC3339) != want {
+			t.Errorf("%s: %v %v, want %s", in, got.UTC(), ok, want)
+		}
+	}
+	for _, bad := range []string{"", "yesterday", "2026-13-01", "2026-11-17T25:00"} {
+		if _, ok := parseChatDate(bad, jkt); ok {
+			t.Errorf("%q parsed", bad)
+		}
+	}
 }
 
 func TestDecodeWaveform(t *testing.T) {

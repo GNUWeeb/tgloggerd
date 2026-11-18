@@ -7,6 +7,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -511,7 +512,7 @@ const (
 	chatMaxLimit     = 100
 )
 
-var errBadAnchor = errors.New("at most one of before, after and around")
+var errBadAnchor = errors.New("at most one of before, after, around and after_ts")
 
 // chatAnchor reads before, after, around and limit; limit is clamped
 // to 1..chatMaxLimit, as the Drogon API clamps it.
@@ -547,6 +548,36 @@ func chatAnchor(q map[string][]string) (logdb.Anchor, int, error) {
 		limit = min(max(n, 1), chatMaxLimit)
 	}
 	return a, limit, nil
+}
+
+// errServer wraps a database error of chatTimeAnchor.
+var errServer = errors.New("server error")
+
+// chatTimeAnchor reads after_ts, a unix time: the window starts at the
+// first message sent then or later, as the Drogon /v1 chat API's
+// after_ts did, and is the newest messages when none is that recent.
+// It takes the place of before, after and around, so with one of them
+// it is a bad request.
+func (s *Server) chatTimeAnchor(r *http.Request, c logdb.Chat, v string, a *logdb.Anchor) error {
+	if v == "" {
+		return nil
+	}
+	ts, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return errors.New("after_ts is not a unix time")
+	}
+	if a.Before != nil || a.After != nil || a.Around != nil {
+		return errBadAnchor
+	}
+	id, ok, err := c.DateAnchor(r.Context(), s.ro, ts)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errServer, err)
+	}
+	if ok {
+		after := id - 1
+		a.After = &after
+	}
+	return nil
 }
 
 // optionalSession is the session of a request that signed-out visitors
@@ -601,8 +632,16 @@ func (s *Server) getChatMessages(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "chat lookup", err)
 		return
 	}
-	a, limit, err := chatAnchor(r.URL.Query())
+	q := r.URL.Query()
+	a, limit, err := chatAnchor(q)
+	if err == nil {
+		err = s.chatTimeAnchor(r, c, q.Get("after_ts"), &a)
+	}
 	if err != nil {
+		if errors.Is(err, errServer) {
+			s.internalError(w, "chat time anchor", err)
+			return
+		}
 		badRequest(w, "bad_request", err.Error())
 		return
 	}

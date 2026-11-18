@@ -195,7 +195,7 @@ export interface paths {
         };
         /**
          * A window of a chat's messages
-         * @description Messages of a group or a private chat, oldest first, for scrolling and live updates. At most one of before, after and around is given; with none the window is the newest messages. Replaces the Drogon /v1/chats/{scope}/{id}/messages with the message shape of the chat pages; the cursors are the same message ids, and limit is clamped to 1..100 as there.
+         * @description Messages of a group or a private chat, oldest first, for scrolling and live updates. At most one of before, after, around and after_ts is given; with none the window is the newest messages. after=0 is the oldest messages. Replaces the Drogon /v1/chats/{scope}/{id}/messages with the message shape of the chat pages; the cursors are the same message ids, and limit is clamped to 1..100 as there.
          *
          *     Messages sent as an album (consecutive rows sharing a media album id) come as one message: the first item's ids, date and sender, its media as `media` and the other items' as `album`, the caption and edits of the item that has one. A window whose edge cuts an album is extended to hold all of it, so an album always folds the same way; a window after an album's own message id therefore starts with that album again, which a client drops by `id`.
          *
@@ -1926,13 +1926,13 @@ export interface components {
         MessageProps: {
             message: components["schemas"]["MessageFull"];
         };
-        /** @description The chat page's first window (getChatMessages, limit 60). The page's query opens it at a message (?at=<message id>, around it) or a day (?date=YYYY-MM-DD in UTC, around the day's first message, which `at` then names); without either, or past the end, the newest messages. */
+        /** @description The chat page's first window (getChatMessages, limit 60 or the page's ?limit=, clamped to 1..100). The page's query opens it, by the first of these that parses: ?at=<message id> around that message; ?after_ts=<unix time> at the first message sent then or later (the Drogon page's links); ?date= around the first message at or after a day or a time in the viewer's timezone (Viewer.timezone: YYYY-MM-DD, YYYY-MM-DDTHH:MM, YYYY-MM-DD HH:MM, either with :SS, or RFC 3339 with its own offset); ?after=<message id> at the messages after it, and ?after=0 at the oldest messages. Without one, or past the end, the newest messages. `at` names the message opened at: the found one, or for ?after= the window's first. The Drogon page's #msg-<message id> anchors name message_id, so a client maps them to it. */
         ChatProps: {
             chat: {
                 /** @constant */
                 kind: "group";
                 group: components["schemas"]["GroupSummary"] & {
-                    /** @description Not recorded by the logger yet, so 0. */
+                    /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators. The logger does not record Telegram's own member count. */
                     members: number;
                     msg_count: number;
                 };
@@ -3005,6 +3005,8 @@ export interface operations {
                 after?: number;
                 /** @description Messages around this message id, which is included. */
                 around?: number;
+                /** @description A unix time: the messages from the first one sent then or later, as the Drogon API's after_ts; the newest messages when none is that recent. */
+                after_ts?: number;
                 limit?: number;
             };
             header?: never;

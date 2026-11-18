@@ -410,6 +410,24 @@ func (c Chat) DateAnchor(ctx context.Context, db *sql.DB, ts int64) (int64, bool
 	return id, err == nil, err
 }
 
+// KnownMembers is how many people the archive has seen in a group:
+// the distinct users who sent a message there and its administrators.
+// The logger does not record Telegram's own member count, so this is
+// what the chat header can say; 0 for a private chat. The senders are
+// counted from the (chat_id, sender_user_id) index alone.
+func (c Chat) KnownMembers(ctx context.Context, db *sql.DB) (int64, error) {
+	if !c.Group {
+		return 0, nil
+	}
+	var n int64
+	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM ("+
+		"SELECT sender_user_id AS uid FROM telegram_group_messages "+
+		"WHERE chat_id = ? AND sender_user_id IS NOT NULL GROUP BY sender_user_id "+
+		"UNION SELECT user_id FROM telegram_group_admins WHERE group_id = ?) known",
+		c.ID, c.ID).Scan(&n)
+	return n, err
+}
+
 func idList(ms []Message) string {
 	var b strings.Builder
 	for i, m := range ms {
