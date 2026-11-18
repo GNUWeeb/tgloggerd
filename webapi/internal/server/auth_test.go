@@ -47,6 +47,7 @@ type client struct {
 	h       http.Handler
 	cookies map[string]string
 	addr    string // the connection's peer, "" for httptest's default
+	ua      string // the User-Agent, "" for none
 }
 
 type answer struct {
@@ -66,6 +67,9 @@ func (c *client) do(method, path, csrf string, body any) answer {
 	r := httptest.NewRequest(method, path, rd)
 	if c.addr != "" {
 		r.RemoteAddr = c.addr
+	}
+	if c.ua != "" {
+		r.Header.Set("User-Agent", c.ua)
 	}
 	for k, v := range c.cookies {
 		r.AddCookie(&http.Cookie{Name: k, Value: v})

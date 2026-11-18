@@ -24,6 +24,7 @@ import (
 
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/daemon"
+	"tgloggerd/webapi/internal/settings"
 )
 
 // DB is one database pool's settings.
@@ -109,6 +110,9 @@ type Config struct {
 	// bundle (render.ReadBuild).
 	AppDist  string
 	AppBuild string
+	// Defaults are the site's settings for accounts that did not choose
+	// their own (WEBAPI_DEFAULT_TIMEZONE, _DATE_FORMAT, _LANG, _THEME).
+	Defaults settings.Defaults
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -306,6 +310,16 @@ func FromEnv() (*Config, error) {
 	}
 	c.AppDist = env("WEBAPI_APP_DIST", "web/app/dist/client")
 	c.AppBuild = env("WEBAPI_APP_BUILD", "")
+
+	c.Defaults = settings.Defaults{
+		Timezone:   env("WEBAPI_DEFAULT_TIMEZONE", settings.SiteDefaults.Timezone),
+		DateFormat: env("WEBAPI_DEFAULT_DATE_FORMAT", settings.SiteDefaults.DateFormat),
+		Lang:       env("WEBAPI_DEFAULT_LANG", settings.SiteDefaults.Lang),
+		Theme:      env("WEBAPI_DEFAULT_THEME", settings.SiteDefaults.Theme),
+	}
+	if err := c.Defaults.Check(); err != nil {
+		return nil, fmt.Errorf("WEBAPI_DEFAULT_*: %w", err)
+	}
 
 	return &c, nil
 }

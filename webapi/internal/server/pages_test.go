@@ -22,9 +22,11 @@ import (
 	"time"
 
 	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/render/rendertest"
 	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/settings"
 	"tgloggerd/webapi/internal/webdb"
 )
 
@@ -86,7 +88,13 @@ func newPagesEnv(t *testing.T, o pagesOpts) *pagesEnv {
 			Entry: "/app/assets/entry.js"},
 		AssetFiles: root,
 		pages:      o.pages,
-		state: func(_ context.Context, uid uint64) (webdb.SessionState, error) {
+		prefs: func(context.Context, uint64) (settings.Prefs, error) {
+			return settings.Prefs{}, nil
+		},
+		pins: func(context.Context, uint64, scope.Scope) ([]logdb.PinnedGroup, error) {
+			return nil, nil
+		},
+		state: func(_ context.Context, uid uint64, _ [32]byte) (webdb.SessionState, error) {
 			if e.epochErr != nil {
 				return webdb.SessionState{}, e.epochErr
 			}
@@ -94,7 +102,9 @@ func newPagesEnv(t *testing.T, o pagesOpts) *pagesEnv {
 			if !ok {
 				return webdb.SessionState{}, webdb.ErrNoUser
 			}
-			return webdb.SessionState{Epoch: ep, Role: e.roles[uid], Active: true}, nil
+			// A recorded, fresh session: nothing to write.
+			return webdb.SessionState{Epoch: ep, Role: e.roles[uid], Active: true,
+				SessionRow: 1}, nil
 		},
 	})
 	return e
@@ -162,8 +172,8 @@ func TestPagePathDecoding(t *testing.T) {
 		{"/api/page/login", 200, "login"},
 		{"/api/page/login%2F", 200, "login"},
 		{"/api/page/join-chat", 200, ""},
-		{"/api/page/settings%2Fpreferences", 200, ""}, // %2F decoded
-		{"/api/page/settings/sessions", 200, ""},      // plain slashes too
+		{"/api/page/settings%2Ffederations", 200, ""}, // %2F decoded
+		{"/api/page/settings/accounts", 200, ""},      // plain slashes too
 		{"/api/page/platform-fwd%2Ftelegram-discord", 200, ""},
 		{"/api/page/mcp-admin%2Ftokens%2F", 200, ""},
 		{"/api/page/messages%2Fother%2F7", 404, "not_found"},
@@ -202,6 +212,11 @@ func TestPageNotFoundShape(t *testing.T) {
 			"signed_in": true, "now": "",
 			"account": map[string]any{"id": 1.0, "username": "admin", "name": "admin", "role": "superadmin"},
 			"nav":     toAny(scope.For(scope.Viewer{ID: 1, Role: scope.Superadmin, EmailVerified: true}).Nav()),
+			// The site defaults, as the account set nothing.
+			"timezone": "Asia/Jakarta", "date_format": "24h", "lang": "en", "theme": "system",
+			"rows_per_page": 25.0,
+			"chat": map[string]any{"auto_load": true, "live": true, "media": "auto",
+				"show_deleted": true, "show_edited": true, "show_service": true},
 		},
 	}
 	if got := g.page(t); !reflect.DeepEqual(got, want) {
@@ -455,7 +470,7 @@ func TestPageDocumentsRegistered(t *testing.T) {
 	t.Parallel()
 	e := newPagesEnv(t, pagesOpts{})
 	ck := e.session(1, "admin", "admin")
-	for _, p := range []string{"/settings", "/mcp-admin", "/join-chat", "/password/forgot"} {
+	for _, p := range []string{"/platform-fwd", "/mcp-admin", "/join-chat", "/password/forgot"} {
 		if g := e.get(p, ck); g.status != 404 || strings.Contains(g.body, "__tgd") {
 			t.Errorf("%s served here: %d", p, g.status)
 		}

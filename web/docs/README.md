@@ -40,3 +40,7 @@ one in the description.
   (`/v1/search/...`): the `[{c,o,v,n}]` condition grammar, operators, the users
   field registry (including history filters), response shape, limits and worked
   examples.
+- [settings.md](settings.md) — an account's own settings in the Go service:
+  the preferences (timezone, date format, language, theme, list and chat
+  view defaults) with their site defaults, the language lookup of the texts,
+  pinned groups, saved searches, and the sessions page with sign-out.

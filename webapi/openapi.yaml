@@ -246,8 +246,10 @@ paths:
       tags: [auth]
       summary: Sign out this browser
       description: >-
-        Clears the session cookie and audits a logout when the cookie
-        opens. The account's other sessions stay signed in. The CSRF
+        Clears the session cookie, ends the session's record, so a copy
+        of the cookie stops working on both web services, and audits a
+        logout when the cookie opens. The account's other sessions stay
+        signed in. The CSRF
         token must match the session cookie; a request without a
         session cookie fails that check.
       security:
@@ -1292,14 +1294,40 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   /api/account/preferences:
+    get:
+      operationId: getPreferences
+      tags: [account]
+      summary: The account's preferences, pins and saved searches
+      description: >-
+        The preferences page's data: the preferences as stored (null is
+        the site default), the time zones offered (any IANA zone is
+        accepted), the landing pages the viewer may open, its pinned
+        groups that it may see and its saved searches.
+      responses:
+        '200':
+          description: The preferences.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferencesProps'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
     put:
-      x-tgd-status: planned
       operationId: putPreferences
       tags: [account]
       summary: Save the account's preferences
       description: >-
         Replaces every preference; null (or a missing field) is the
-        site default.
+        site default. A field that is not a preference, or a value its
+        key does not take, refuses the whole body with 400 bad_request
+        naming the key in `field`: timezone an IANA zone name,
+        date_format 24h, 12h or iso, lang en or id, theme system, light
+        or dark, rows_per_page 25, 50 or 100, landing a path on this
+        site (one leading slash, at most 255 bytes), chat_media auto or
+        click, the chat_* switches booleans. The viewer of the next page
+        data carries the settings in effect (web/docs/settings.md).
       security:
         - session: []
           csrf: []
@@ -1321,7 +1349,11 @@ paths:
                   prefs:
                     $ref: '#/components/schemas/Prefs'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: A malformed body, an unknown key or a refused value (error bad_request).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldError'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -1331,10 +1363,15 @@ paths:
 
   /api/account/pinned/{group_id}:
     put:
-      x-tgd-status: planned
       operationId: pinGroup
       tags: [account]
       summary: Pin a group
+      description: >-
+        Pins a group the viewer may see to the top of its menu
+        (Viewer.pinned), after the ones pinned before. A group that
+        does not exist or that the request scope hides answers 404. An
+        account keeps at most 50 pins (400 too_many); a pin of a group
+        the viewer can no longer see is kept, counts, and shows nowhere.
       security:
         - session: []
           csrf: []
@@ -1342,7 +1379,13 @@ paths:
         - $ref: '#/components/parameters/GroupId'
       responses:
         '204':
-          description: Pinned (also when it already was).
+          description: Pinned (also when it already was; it keeps its place).
+        '400':
+          description: The account has 50 pins already (error too_many).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -1350,10 +1393,12 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     delete:
-      x-tgd-status: planned
       operationId: unpinGroup
       tags: [account]
       summary: Unpin a group
+      description: >-
+        404 when the group is not pinned, or when the request scope
+        hides it, like a group that does not exist.
       security:
         - session: []
           csrf: []
@@ -1371,10 +1416,15 @@ paths:
 
   /api/account/saved-searches:
     post:
-      x-tgd-status: planned
       operationId: saveSearch
       tags: [account]
       summary: Save a search
+      description: >-
+        title is trimmed and must keep 1 to 128 characters; url must be
+        a path on this site (one leading slash, no backslash or control
+        character) of at most 2048 bytes. Otherwise 400 bad_request
+        names the field. An account keeps at most 100 (400 too_many).
+        The preferences page lists them.
       security:
         - session: []
           csrf: []
@@ -1399,7 +1449,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Created'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: >-
+            A refused title or url (error bad_request, with field), or
+            the account has 100 already (error too_many).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldError'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -1407,7 +1463,6 @@ paths:
 
   /api/account/saved-searches/{id}:
     delete:
-      x-tgd-status: planned
       operationId: deleteSavedSearch
       tags: [account]
       summary: Delete a saved search
@@ -1426,12 +1481,39 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/account/sessions:
+    get:
+      operationId: listSessions
+      tags: [account]
+      summary: The account's sessions
+      description: >-
+        Every live session of the account, this one first, then by last
+        use: the sessions page's data (web/docs/settings.md). A session
+        signed in on the Drogon web is listed once it has reached this
+        service. device is a short description of the browser's
+        User-Agent, ip the address of its last use, place empty (no
+        location source yet); started and last are UTC.
+      responses:
+        '200':
+          description: The sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionsProps'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
   /api/account/sessions/{id}:
     delete:
-      x-tgd-status: planned
       operationId: endSession
       tags: [account]
       summary: Sign out one of the account's other sessions
+      description: >-
+        That session ends on both web services. Ending this browser's
+        own session signs it out and clears its cookie. An id that is
+        not one of the account's live sessions answers 404.
       security:
         - session: []
           csrf: []
@@ -1454,16 +1536,29 @@ paths:
 
   /api/account/sessions/sign-out-others:
     post:
-      x-tgd-status: planned
       operationId: endOtherSessions
       tags: [account]
       summary: Sign out every other session of the account
+      description: >-
+        Every other session ends on both web services, listed or not,
+        as after a password change. This one stays signed in with a new
+        cookie, and its CSRF token changes: send the answered one from
+        now on.
       security:
         - session: []
           csrf: []
       responses:
-        '204':
+        '200':
           description: Every other session is signed out; this one stays.
+          headers:
+            Set-Cookie:
+              description: tgw_session, reissued.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsrfToken'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -2592,6 +2687,14 @@ components:
         message:
           type: string
           description: A sentence for a person to read, where there is one.
+    FieldError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            field:
+              type: string
+              description: The key whose value was refused, when one was.
     LoginError:
       allOf:
         - $ref: '#/components/schemas/Error'
@@ -2663,6 +2766,11 @@ components:
         csrf:
           type: string
           description: The session's CSRF token.
+        landing:
+          type: string
+          description: >-
+            The account's landing page (its preference, else /): where a
+            sign-in without a next page goes.
     CsrfToken:
       type: object
       required: [csrf]
@@ -2685,8 +2793,10 @@ components:
     Viewer:
       type: object
       description: >-
-        What rendering needs to match the browser. Missing settings
-        fall back to the site default; for a signed-out visitor
+        What rendering needs to match the browser. The settings are the
+        ones in effect, the account's own or the site's default, for a
+        signed-out visitor too (web/docs/settings.md); one missing falls
+        back to the client's built-in default. For a signed-out visitor
         account and nav are absent.
       required: [signed_in, now]
       properties:

@@ -61,9 +61,9 @@ func newLiveEnv(t *testing.T, o liveOpts) *liveEnv {
 		signer:  signer,
 		cookies: e.cookies,
 		verifier: &auth.Verifier{Cookies: e.cookies,
-			State: func(context.Context, uint64) (webdb.SessionState, error) {
+			State: func(context.Context, uint64, [32]byte) (webdb.SessionState, error) {
 				return webdb.SessionState{Epoch: e.epoch.Load(),
-					Role: "superadmin", Active: true}, nil
+					Role: "superadmin", Active: true, SessionRow: 1}, nil
 			}},
 		liveCfg: o.cfg,
 	}

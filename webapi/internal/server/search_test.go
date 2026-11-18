@@ -50,13 +50,16 @@ func newSearchEnv(t *testing.T) *searchEnv {
 	e := &searchEnv{t: t, tokens: auth.NewFileTokens(testKey), cookies: map[string]string{}}
 	roles := map[uint64]string{1: "superadmin", 2: "admin", 3: "member"}
 	e.h = New(Deps{
-		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		RO:      db,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		RO:  db,
+		// Signed-in requests record their session's use in the web's
+		// own database.
+		App:     testdb.New(t, testdb.Web, "accounts").DB,
 		Signer:  signer,
 		Cookies: ck,
 		Limiter: auth.NewRateLimiter(5, time.Hour),
 		Tokens:  e.tokens,
-		state: func(_ context.Context, uid uint64) (webdb.SessionState, error) {
+		state: func(_ context.Context, uid uint64, _ [32]byte) (webdb.SessionState, error) {
 			r, ok := roles[uid]
 			if !ok {
 				return webdb.SessionState{}, webdb.ErrNoUser

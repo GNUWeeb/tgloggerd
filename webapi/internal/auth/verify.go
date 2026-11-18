@@ -24,28 +24,32 @@ const (
 	// None: no session cookie, or one that does not open or expired.
 	None
 	// Revoked: signed, but issued before the account's last epoch bump
-	// (a password change), or the account is gone.
+	// (a password change), the session was ended, or the account is
+	// gone.
 	Revoked
 	// Unverified: signed, but the epoch could not be read (a database
 	// error). The cookie is not at fault and is kept.
 	Unverified
 )
 
-// StateFunc reads an account's session state; webdb.ErrNoUser means
-// the account is gone.
-type StateFunc func(ctx context.Context, uid uint64) (webdb.SessionState, error)
+// StateFunc reads an account's session state, with the record of the
+// session whose key is given; webdb.ErrNoUser means the account is
+// gone.
+type StateFunc func(ctx context.Context, uid uint64, key [32]byte) (webdb.SessionState, error)
 
 // DBState reads the state from the web's own database.
 func DBState(db *sql.DB) StateFunc {
-	return func(ctx context.Context, uid uint64) (webdb.SessionState, error) {
-		return webdb.LoadSessionState(ctx, db, uid)
+	return func(ctx context.Context, uid uint64, key [32]byte) (webdb.SessionState, error) {
+		return webdb.LoadSessionState(ctx, db, uid, key)
 	}
 }
 
 // Verifier decides whether a request is signed in, as verifySession in
 // web/src/auth/AuthFilter.cpp does: the cookie's signature and expiry,
 // then its epoch against web_users.session_epoch, so a password change
-// on either service signs the account out of both.
+// on either service signs the account out of both, and the session's
+// record in web_sessions, so a session ended by itself (signed out
+// from the sessions page) ends on both as well.
 //
 // Unlike the Drogon filter it also refuses a disabled account, and it
 // takes the role and the forced password change from the account, not
@@ -64,16 +68,19 @@ func (v *Verifier) Verify(ctx context.Context, r *http.Request) (Session, Check)
 	if !ok {
 		return Session{}, None
 	}
-	st, err := v.State(ctx, s.UID)
+	s.Key = SessionKey(RawSession(r))
+	st, err := v.State(ctx, s.UID, s.Key)
 	switch {
 	case errors.Is(err, webdb.ErrNoUser):
 		return s, Revoked
 	case err != nil:
 		return s, Unverified
-	case st.Epoch != s.Epoch || !st.Active:
+	case st.Epoch != s.Epoch || !st.Active || st.SessionEnded:
 		return s, Revoked
 	}
 	s.Role = st.Role
 	s.MustChangePassword = st.MustChangePassword
+	s.Row = st.SessionRow
+	s.Stale = st.SessionStale
 	return s, Valid
 }

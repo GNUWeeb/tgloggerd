@@ -59,7 +59,7 @@ export interface paths {
         put?: never;
         /**
          * Sign out this browser
-         * @description Clears the session cookie and audits a logout when the cookie opens. The account's other sessions stay signed in. The CSRF token must match the session cookie; a request without a session cookie fails that check.
+         * @description Clears the session cookie, ends the session's record, so a copy of the cookie stops working on both web services, and audits a logout when the cookie opens. The account's other sessions stay signed in. The CSRF token must match the session cookie; a request without a session cookie fails that check.
          */
         post: operations["logout"];
         delete?: never;
@@ -383,10 +383,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * The account's preferences, pins and saved searches
+         * @description The preferences page's data: the preferences as stored (null is the site default), the time zones offered (any IANA zone is accepted), the landing pages the viewer may open, its pinned groups that it may see and its saved searches.
+         */
+        get: operations["getPreferences"];
         /**
          * Save the account's preferences
-         * @description Replaces every preference; null (or a missing field) is the site default.
+         * @description Replaces every preference; null (or a missing field) is the site default. A field that is not a preference, or a value its key does not take, refuses the whole body with 400 bad_request naming the key in `field`: timezone an IANA zone name, date_format 24h, 12h or iso, lang en or id, theme system, light or dark, rows_per_page 25, 50 or 100, landing a path on this site (one leading slash, at most 255 bytes), chat_media auto or click, the chat_* switches booleans. The viewer of the next page data carries the settings in effect (web/docs/settings.md).
          */
         put: operations["putPreferences"];
         post?: never;
@@ -404,10 +408,16 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Pin a group */
+        /**
+         * Pin a group
+         * @description Pins a group the viewer may see to the top of its menu (Viewer.pinned), after the ones pinned before. A group that does not exist or that the request scope hides answers 404. An account keeps at most 50 pins (400 too_many); a pin of a group the viewer can no longer see is kept, counts, and shows nowhere.
+         */
         put: operations["pinGroup"];
         post?: never;
-        /** Unpin a group */
+        /**
+         * Unpin a group
+         * @description 404 when the group is not pinned, or when the request scope hides it, like a group that does not exist.
+         */
         delete: operations["unpinGroup"];
         options?: never;
         head?: never;
@@ -423,7 +433,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Save a search */
+        /**
+         * Save a search
+         * @description title is trimmed and must keep 1 to 128 characters; url must be a path on this site (one leading slash, no backslash or control character) of at most 2048 bytes. Otherwise 400 bad_request names the field. An account keeps at most 100 (400 too_many). The preferences page lists them.
+         */
         post: operations["saveSearch"];
         delete?: never;
         options?: never;
@@ -448,6 +461,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/account/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The account's sessions
+         * @description Every live session of the account, this one first, then by last use: the sessions page's data (web/docs/settings.md). A session signed in on the Drogon web is listed once it has reached this service. device is a short description of the browser's User-Agent, ip the address of its last use, place empty (no location source yet); started and last are UTC.
+         */
+        get: operations["listSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/account/sessions/{id}": {
         parameters: {
             query?: never;
@@ -458,7 +491,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Sign out one of the account's other sessions */
+        /**
+         * Sign out one of the account's other sessions
+         * @description That session ends on both web services. Ending this browser's own session signs it out and clears its cookie. An id that is not one of the account's live sessions answers 404.
+         */
         delete: operations["endSession"];
         options?: never;
         head?: never;
@@ -474,7 +510,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sign out every other session of the account */
+        /**
+         * Sign out every other session of the account
+         * @description Every other session ends on both web services, listed or not, as after a password change. This one stays signed in with a new cookie, and its CSRF token changes: send the answered one from now on.
+         */
         post: operations["endOtherSessions"];
         delete?: never;
         options?: never;
@@ -937,6 +976,10 @@ export interface components {
             /** @description A sentence for a person to read, where there is one. */
             message?: string;
         };
+        FieldError: components["schemas"]["Error"] & {
+            /** @description The key whose value was refused, when one was. */
+            field?: string;
+        };
         LoginError: components["schemas"]["Error"] & {
             message: string;
             /** @description A fresh pre-login token, to try again with. */
@@ -973,6 +1016,8 @@ export interface components {
             user: components["schemas"]["SessionUser"];
             /** @description The session's CSRF token. */
             csrf: string;
+            /** @description The account's landing page (its preference, else /): where a sign-in without a next page goes. */
+            landing?: string;
         };
         CsrfToken: {
             /** @description The session's CSRF token from now on. */
@@ -984,7 +1029,7 @@ export interface components {
         };
         /** @enum {string} */
         Role: "superadmin" | "admin" | "member";
-        /** @description What rendering needs to match the browser. Missing settings fall back to the site default; for a signed-out visitor account and nav are absent. */
+        /** @description What rendering needs to match the browser. The settings are the ones in effect, the account's own or the site's default, for a signed-out visitor too (web/docs/settings.md); one missing falls back to the client's built-in default. For a signed-out visitor account and nav are absent. */
         Viewer: {
             signed_in: boolean;
             account?: {
@@ -2927,6 +2972,28 @@ export interface operations {
             };
         };
     };
+    getPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The preferences. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesProps"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
     putPreferences: {
         parameters: {
             query?: never;
@@ -2951,7 +3018,15 @@ export interface operations {
                     };
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description A malformed body, an unknown key or a refused value (error bad_request). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldError"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             503: components["responses"]["SessionUnavailable"];
@@ -2969,12 +3044,21 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Pinned (also when it already was). */
+            /** @description Pinned (also when it already was; it keeps its place). */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The account has 50 pins already (error too_many). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
@@ -3031,7 +3115,15 @@ export interface operations {
                     "application/json": components["schemas"]["Created"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description A refused title or url (error bad_request, with field), or the account has 100 already (error too_many). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldError"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
         };
@@ -3057,6 +3149,28 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sessions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionsProps"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["SessionUnavailable"];
         };
     };
     endSession: {
@@ -3093,11 +3207,15 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Every other session is signed out; this one stays. */
-            204: {
+            200: {
                 headers: {
+                    /** @description tgw_session, reissued. */
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["CsrfToken"];
+                };
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];

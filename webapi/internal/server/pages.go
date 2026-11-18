@@ -19,6 +19,7 @@ import (
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/settings"
 )
 
 // Pages of the React application (docs/design/web-ssr.md): a page path
@@ -96,9 +97,9 @@ func defaultPages() []pageRoute {
 		{id: "group_messages", pattern: "/group_messages", load: loadGroupMessages},
 		{id: "private_messages", pattern: "/private_messages", load: loadPrivateMessages},
 		{id: "message", pattern: "/messages/{scope}/{id}", load: loadMessage},
-		{id: "settings", pattern: "/settings"},
-		{id: "settings_preferences", pattern: "/settings/preferences"},
-		{id: "settings_sessions", pattern: "/settings/sessions"},
+		{id: "settings", pattern: "/settings", load: loadSettings},
+		{id: "settings_preferences", pattern: "/settings/preferences", load: loadPreferences},
+		{id: "settings_sessions", pattern: "/settings/sessions", load: loadSessions},
 		{id: "accounts", pattern: "/settings/accounts"},
 		{id: "federations", pattern: "/settings/federations"},
 		{id: "platform_fwd", pattern: "/platform-fwd"},
@@ -225,9 +226,13 @@ func (s *Server) buildPage(r *http.Request, sess *auth.Session, path string) (re
 	}
 
 	sc := s.requestScope(r, sess)
+	viewer, err := s.pageViewer(r.Context(), sess, sc)
+	if err != nil {
+		return render.Page{}, rt, pageServed, err
+	}
 	page := render.Page{
 		V: render.Protocol, URL: pageURL, Status: http.StatusOK,
-		Viewer: s.pageViewer(sess, sc),
+		Viewer: viewer,
 	}
 
 	// A signed-in account without a verified email address gets the
@@ -293,13 +298,25 @@ func (s *Server) notFoundPage(p render.Page) render.Page {
 	return p
 }
 
-// pageViewer is the viewer of the page data. Until accounts have
-// settings (web-user-settings), they are the site defaults, which both
-// sides apply to fields left out.
-func (s *Server) pageViewer(sess *auth.Session, sc scope.Scope) render.Viewer {
+// pageViewer is the viewer of the page data: the account and its menu,
+// and every display setting in effect, the account's own or the site's
+// default, so the server's render and the browser's agree. A
+// signed-out visitor gets the site's.
+func (s *Server) pageViewer(ctx context.Context, sess *auth.Session, sc scope.Scope) (render.Viewer, error) {
 	v := render.Viewer{Now: s.clock().UTC().Format(time.RFC3339)}
+	var prefs settings.Prefs
+	if sess != nil {
+		var err error
+		if prefs, err = s.viewerPrefs(ctx, sess.UID); err != nil {
+			return render.Viewer{}, err
+		}
+	}
+	e := settings.Resolve(prefs, s.defaults)
+	v.Timezone, v.DateFormat, v.Lang, v.Theme = e.Timezone, e.DateFormat, e.Lang, e.Theme
+	v.RowsPerPage = e.RowsPerPage
+	v.Chat = &e.Chat
 	if sess == nil {
-		return v
+		return v, nil
 	}
 	v.SignedIn = true
 	v.Account = &render.Account{
@@ -311,7 +328,14 @@ func (s *Server) pageViewer(sess *auth.Session, sc scope.Scope) render.Viewer {
 		Role: sess.Role,
 	}
 	v.Nav = pageNav(sc)
-	return v
+	pins, err := s.viewerPins(ctx, sess.UID, sc)
+	if err != nil {
+		return render.Viewer{}, err
+	}
+	for _, g := range pins {
+		v.Pinned = append(v.Pinned, render.Pin{ID: g.ID, Title: g.Title})
+	}
+	return v, nil
 }
 
 // pageSession checks the request's session for a page: a valid one is
@@ -322,6 +346,7 @@ func (s *Server) pageSession(w http.ResponseWriter, r *http.Request) (*auth.Sess
 	sess, c := s.verifier.Verify(r.Context(), r)
 	switch c {
 	case auth.Valid:
+		s.noteSessionUse(r, &sess)
 		return &sess, true
 	case auth.Revoked:
 		s.cookies.Clear(w)

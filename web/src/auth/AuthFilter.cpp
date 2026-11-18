@@ -13,8 +13,11 @@
 #include <drogon/orm/Result.h>
 #include <drogon/orm/Row.h>
 
+#include <sodium.h>
+
 #include <cstdint>
 #include <memory>
+#include <string>
 
 namespace tgweb::auth {
 
@@ -48,7 +51,35 @@ drogon::HttpResponsePtr memberRefused()
 	return resp;
 }
 
+/*
+ * The session's key in web_sessions, as the Go service computes it: the
+ * SHA-256 of the cookie value, in hex (decisions/2026-11-18-sessions-list.md).
+ */
+std::string sessionKeyHex(const std::string &raw)
+{
+	unsigned char h[crypto_hash_sha256_BYTES];
+	char hex[crypto_hash_sha256_BYTES * 2 + 1];
+
+	crypto_hash_sha256(h, reinterpret_cast<const unsigned char *>(raw.data()),
+			   raw.size());
+	sodium_bin2hex(hex, sizeof(hex), h, sizeof(h));
+	return hex;
+}
+
 } /* namespace */
+
+/*
+ * The account's epoch and whether this session was ended (signed out from
+ * the Go service's sessions page or by a logout there). A session without a
+ * row has not reached the Go service yet; only its epoch decides.
+ * webapi/internal/server/drogon_test.go runs this statement against the
+ * schema; keep the two in step.
+ */
+const char kSessionQuery[] =
+	"SELECT u.session_epoch, "
+	"EXISTS (SELECT 1 FROM web_sessions s WHERE s.token_hash = UNHEX(?) "
+	"AND s.web_user_id = u.id AND s.revoked_at IS NOT NULL) AS ended "
+	"FROM web_users u WHERE u.id = ?";
 
 void verifySession(const drogon::HttpRequestPtr &req,
 		   std::function<void(SessionCheck)> done)
@@ -63,8 +94,10 @@ void verifySession(const drogon::HttpRequestPtr &req,
 	 * The cookie's signature is valid; confirm its epoch still matches the
 	 * account's, so a password change (which bumps web_users.session_epoch)
 	 * invalidates every previously issued cookie -- signing the account out
-	 * everywhere. One indexed primary-key lookup per authenticated request.
-	 * The continuation is shared so whichever branch runs owns a live copy.
+	 * everywhere -- and that this one session was not ended. One indexed
+	 * primary-key lookup per authenticated request, with the session's row
+	 * by its unique key. The continuation is shared so whichever branch
+	 * runs owns a live copy.
 	 */
 	auto db = drogon::app().getDbClient("app");
 	auto cb = std::make_shared<std::function<void(SessionCheck)>>(
@@ -72,17 +105,18 @@ void verifySession(const drogon::HttpRequestPtr &req,
 	uint32_t epoch = s->epoch;
 
 	db->execSqlAsync(
-		"SELECT session_epoch FROM web_users WHERE id = ?",
+		kSessionQuery,
 		[cb, epoch](const drogon::orm::Result &r) {
 			(*cb)(!r.empty() &&
-					      r[0]["session_epoch"].as<uint32_t>() == epoch
+					      r[0]["session_epoch"].as<uint32_t>() == epoch &&
+					      r[0]["ended"].as<int>() == 0
 				      ? SessionCheck::Valid
 				      : SessionCheck::Revoked);
 		},
 		[cb](const drogon::orm::DrogonDbException &) {
 			(*cb)(SessionCheck::Unverified);
 		},
-		s->uid);
+		sessionKeyHex(session::rawCookie(req)), s->uid);
 }
 
 void AuthFilter::doFilter(const drogon::HttpRequestPtr &req,

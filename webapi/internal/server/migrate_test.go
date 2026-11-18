@@ -6,6 +6,7 @@
 package server
 
 import (
+	"os"
 	"testing"
 
 	"tgloggerd/webapi/internal/auth"
@@ -63,7 +64,9 @@ func TestMigrationUpgradesRoles(t *testing.T) {
 		t.Fatalf("audit row after the upgrade: %v %v", target, err)
 	}
 
-	// Both sign in with their old passwords, with the new roles.
+	// Both sign in with their old passwords, with the new roles, once
+	// the later migrations are in as well.
+	migrateAppDB(t, db, "")
 	h := newHandler(db, 5)
 	for name, role := range map[string]string{"boss": "superadmin", "peek": "member"} {
 		c := &client{t: t, h: h, cookies: map[string]string{}}
@@ -71,5 +74,48 @@ func TestMigrationUpgradesRoles(t *testing.T) {
 		if a.status != 200 || a.body["user"].(map[string]any)["role"] != role {
 			t.Fatalf("%s signs in: %d %v", name, a.status, a.body)
 		}
+	}
+}
+
+// Web migration 000005 only adds tables: the accounts stay as they
+// were, signed-in sessions with them, and its down migration leaves
+// the schema of 000004.
+func TestMigrationAddsSettings(t *testing.T) {
+	t.Parallel()
+	db := emptyAppDB(t)
+	migrateAppDB(t, db, "000004")
+	hash, _ := auth.HashPassword("before-the-upgrade")
+	if _, err := db.Exec("INSERT INTO web_users (username, password_hash, role, "+
+		"session_epoch) VALUES ('boss', ?, 'superadmin', 2)", hash); err != nil {
+		t.Fatal(err)
+	}
+	tables := func() int {
+		var n int
+		if err := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables " +
+			"WHERE table_schema = DATABASE() AND table_name IN ('web_user_settings', " +
+			"'web_pinned_groups', 'web_saved_searches', 'web_sessions')").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	migrateAppDB(t, db, "000005")
+	if n := tables(); n != 4 {
+		t.Fatalf("%d of the 4 tables after the upgrade", n)
+	}
+	var epoch uint32
+	if err := db.QueryRow("SELECT session_epoch FROM web_users WHERE username = 'boss'").
+		Scan(&epoch); err != nil || epoch != 2 {
+		t.Fatalf("account after the upgrade: epoch %d, %v", epoch, err)
+	}
+
+	down, err := os.ReadFile("../../../web/migrations/000005_create_account_settings.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(down)); err != nil {
+		t.Fatalf("down: %v", err)
+	}
+	if n := tables(); n != 0 {
+		t.Fatalf("%d tables left after the down migration", n)
 	}
 }

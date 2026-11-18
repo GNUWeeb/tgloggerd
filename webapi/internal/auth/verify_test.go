@@ -61,13 +61,15 @@ func TestVerifier(t *testing.T) {
 	c := &Cookies{Signer: NewSigner(testKey), Timeout: 3600}
 	var epoch uint32
 	var dbErr error
-	active := true
-	v := &Verifier{Cookies: c, State: func(_ context.Context, uid uint64) (webdb.SessionState, error) {
+	active, ended := true, false
+	var asked [32]byte
+	v := &Verifier{Cookies: c, State: func(_ context.Context, uid uint64, key [32]byte) (webdb.SessionState, error) {
 		if uid != 9 {
 			return webdb.SessionState{}, webdb.ErrNoUser
 		}
+		asked = key
 		return webdb.SessionState{Epoch: epoch, Role: "member", Active: active,
-			MustChangePassword: true}, dbErr
+			MustChangePassword: true, SessionRow: 4, SessionEnded: ended}, dbErr
 	}}
 	req := func(cookie string) *http.Request {
 		r := httptest.NewRequest("GET", "/", nil)
@@ -86,24 +88,28 @@ func TestVerifier(t *testing.T) {
 		epoch  uint32
 		err    error
 		active bool
+		ended  bool
 		want   Check
 	}{
-		{"no cookie", "", 0, nil, true, None},
-		{"forged", "eA.eA", 0, nil, true, None},
-		{"valid", good, 0, nil, true, Valid},
-		{"epoch bumped", good, 1, nil, true, Revoked},
-		{"account gone", gone, 0, nil, true, Revoked},
-		{"disabled", good, 0, nil, false, Revoked},
-		{"database down", good, 0, errors.New("down"), true, Unverified},
+		{"no cookie", "", 0, nil, true, false, None},
+		{"forged", "eA.eA", 0, nil, true, false, None},
+		{"valid", good, 0, nil, true, false, Valid},
+		{"epoch bumped", good, 1, nil, true, false, Revoked},
+		{"account gone", gone, 0, nil, true, false, Revoked},
+		{"disabled", good, 0, nil, false, false, Revoked},
+		{"session ended", good, 0, nil, true, true, Revoked},
+		{"database down", good, 0, errors.New("down"), true, false, Unverified},
 	} {
-		epoch, dbErr, active = tc.epoch, tc.err, tc.active
+		epoch, dbErr, active, ended = tc.epoch, tc.err, tc.active, tc.ended
 		s, got := v.Verify(ctx, req(tc.cookie))
 		if got != tc.want {
 			t.Errorf("%s: Verify = %v, want %v", tc.name, got, tc.want)
 		}
-		// The role and the flag are the account's, not the cookie's.
+		// The role and the flag are the account's, not the cookie's;
+		// the session is looked up by its cookie's key.
 		if got == Valid && (s.UID != 9 || s.Username != "bob" ||
-			s.Role != "member" || !s.MustChangePassword) {
+			s.Role != "member" || !s.MustChangePassword || s.Row != 4 ||
+			asked != SessionKey(good) || s.Key != asked) {
 			t.Errorf("%s: session %+v", tc.name, s)
 		}
 	}

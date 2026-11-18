@@ -22,8 +22,10 @@ import (
 	"tgloggerd/webapi/internal/auth"
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/live"
+	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/render"
 	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/settings"
 )
 
 // Deps is what the service is built from.
@@ -59,12 +61,18 @@ type Deps struct {
 	// AssetFiles is the bundle's assets/ directory, served under
 	// /app/assets/; nil answers 404 there.
 	AssetFiles *os.Root
+	// Defaults are the site's settings for what an account did not
+	// set; empty fields are settings.SiteDefaults.
+	Defaults settings.Defaults
 
 	// pages replaces the page table, state the database's account
-	// state behind a session, and clock the time, for tests.
+	// state behind a session, clock the time, prefs the accounts'
+	// stored preferences and pins their pinned groups, for tests.
 	pages []pageRoute
 	state auth.StateFunc
 	clock func() time.Time
+	prefs func(ctx context.Context, uid uint64) (settings.Prefs, error)
+	pins  func(ctx context.Context, uid uint64, sc scope.Scope) ([]logdb.PinnedGroup, error)
 }
 
 // Server carries what the handlers share.
@@ -89,8 +97,13 @@ type Server struct {
 	render     *render.Client
 	assets     render.Assets
 	assetFiles *os.Root
-	pages      []pageRoute
-	clock      func() time.Time
+	defaults   settings.Defaults
+	// viewerPrefs reads an account's preferences (settings.Load),
+	// viewerPins its pinned groups in the scope (pinnedGroups).
+	viewerPrefs func(ctx context.Context, uid uint64) (settings.Prefs, error)
+	viewerPins  func(ctx context.Context, uid uint64, sc scope.Scope) ([]logdb.PinnedGroup, error)
+	pages       []pageRoute
+	clock       func() time.Time
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -115,6 +128,7 @@ func New(d Deps) http.Handler {
 		render:      d.Render,
 		assets:      d.Assets,
 		assetFiles:  d.AssetFiles,
+		defaults:    d.Defaults.OrSite(),
 		pages:       d.pages,
 		clock:       time.Now,
 	}
@@ -126,6 +140,16 @@ func New(d Deps) http.Handler {
 	}
 	if d.clock != nil {
 		s.clock = d.clock
+	}
+	s.viewerPrefs = func(ctx context.Context, uid uint64) (settings.Prefs, error) {
+		return settings.Load(ctx, s.app, uid)
+	}
+	if d.prefs != nil {
+		s.viewerPrefs = d.prefs
+	}
+	s.viewerPins = s.pinnedGroups
+	if d.pins != nil {
+		s.viewerPins = d.pins
 	}
 
 	mux := http.NewServeMux()
@@ -170,6 +194,15 @@ func (s *Server) routes() []route {
 		{"GET /api/entities", s.RequireSession(s.getEntities)},
 		{"GET /api/search/{entity}", s.RequireSession(s.searchEntity)},
 		{"GET /api/chats/search", s.RequireSession(s.searchChats)},
+		{"PUT /api/account/preferences", s.RequireSession(s.putPreferences)},
+		{"GET /api/account/preferences", s.RequireSession(s.getPreferences)},
+		{"PUT /api/account/pinned/{group_id}", s.RequireSession(s.pinGroup)},
+		{"DELETE /api/account/pinned/{group_id}", s.RequireSession(s.unpinGroup)},
+		{"POST /api/account/saved-searches", s.RequireSession(s.saveSearch)},
+		{"DELETE /api/account/saved-searches/{id}", s.RequireSession(s.deleteSavedSearch)},
+		{"GET /api/account/sessions", s.RequireSession(s.listSessions)},
+		{"DELETE /api/account/sessions/{id}", s.RequireSession(s.endSession)},
+		{"POST /api/account/sessions/sign-out-others", s.RequireSession(s.endOtherSessions)},
 	}
 }
 

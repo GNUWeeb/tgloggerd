@@ -16,14 +16,16 @@ namespace tgweb::auth {
 enum class SessionCheck {
 	Valid,      /* signature good and the account's epoch still matches */
 	None,       /* no session cookie, or one whose signature is bad */
-	Revoked,    /* signed, but issued before the account's last epoch bump */
+	Revoked,    /* signed, but issued before the account's last epoch bump,
+		       or the session was ended */
 	Unverified, /* signed, but the epoch lookup failed (transient DB error) */
 };
 
 /*
  * Check the request's session: the cookie's signature, then its epoch against
  * web_users.session_epoch, so a password change signs the account out
- * everywhere. Calls @done exactly once, possibly asynchronously. This is the
+ * everywhere, and its row in web_sessions, so a session ended on the Go
+ * service ends here too. Calls @done exactly once, possibly asynchronously. This is the
  * one place that decides whether a request is signed in; both filters below
  * are thin policies over it.
  */

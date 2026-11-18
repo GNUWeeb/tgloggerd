@@ -8,6 +8,8 @@
 #include "Config.hpp"
 #include "auth/Token.hpp"
 
+#include <sodium.h>
+
 #include <ctime>
 
 namespace tgweb::auth::session {
@@ -121,7 +123,14 @@ void issue(const drogon::HttpResponsePtr &resp, uint64_t uid,
 	   uint32_t epoch)
 {
 	int age = maxAge();
-	int64_t exp = age > 0 ? (int64_t)std::time(nullptr) + age : 0;
+	/*
+	 * Sessions are told apart by their cookie (web_sessions), so a session
+	 * that never expires gets a random expiry in the last years of 9999
+	 * rather than 0, which would give every such session of an account the
+	 * same cookie (decisions/2026-11-18-sessions-list.md).
+	 */
+	int64_t exp = age > 0 ? (int64_t)std::time(nullptr) + age
+			      : kNeverExpires - (int64_t)randombytes_uniform(1u << 28);
 
 	drogon::Cookie c(kCookie, encode(uid, username, role, exp, epoch));
 	c.setHttpOnly(true);
