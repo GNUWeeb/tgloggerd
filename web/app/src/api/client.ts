@@ -47,11 +47,10 @@ export const api = createClient<paths>({
 api.use(csrf);
 
 // A gate (the spec's Gates): an account that must first choose its own
-// password, or add an email address, may only do that, and every other
-// call answers 403 password_change_required or email_required. The
-// application then fetches the page data again, which brings up the
-// page for the gate.
-const GATES = new Set(['password_change_required', 'email_required']);
+// password may only do that, and every other call answers 403
+// password_change_required. The application then fetches the page data
+// again, which brings up the page for the gate.
+const GATES = new Set(['password_change_required']);
 let onGateHit: (() => void) | null = null;
 export function onGate(fn: (() => void) | null): void {
 	onGateHit = fn;

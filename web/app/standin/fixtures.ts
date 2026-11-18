@@ -16,8 +16,8 @@ import type { PageData, Viewer } from '../src/page.ts';
 const NOW = '2026-11-17T16:00:00Z';
 const iso = (s: string) => s.replace(' ', 'T') + 'Z';
 
-// noemail is the sample superadmin "ops", which has no email address
-// yet, so every page asks for one first.
+// noemail is the sample superadmin "ops", which has no email address:
+// email is optional, and nothing asks for one.
 // newpw is the sample member "mod_kernel", which signed in with a
 // temporary password and must choose its own first.
 export const PERSONAS = { superadmin: 1, admin: 3, member: 5, noemail: 2, newpw: 6 } as const;
@@ -172,7 +172,6 @@ export function load(url: string, persona: Persona): Loaded {
 	if (path === '/account/email/verify') return { route: 'email_verify', status: 200, props: {} };
 	const acct = persona === 'public' ? null : accounts.find((a) => a.id === PERSONAS[persona]);
 	if (acct && mustChange.has(acct.id)) return { route: 'password_change', status: 200, props: { username: acct.username, next: path + u.search } };
-	if (acct && !(acct.email && acct.verified)) return { route: 'email_required', status: 200, props: { pending: acct.pendingEmail ?? null, next: path + u.search } };
 	if (persona === 'public' && !/^\/groups\/-?\d+\/chat$/.test(path)) return notFound;
 	if (path === '/') {
 		const vis = groups.slice(0, 12).filter(s.group);
@@ -408,16 +407,23 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 	let m;
 	if (p === 'accounts' && method === 'POST') {
 		if (!allowed(s, 'accounts')) return [404, { error: 'not_found' }];
-		if (!body.username || !body.email) return [400, { error: 'bad_request', message: 'Username and email address are required.' }];
+		if (!body.username) return [400, { error: 'bad_request', message: 'A username is required.' }];
+		const email = String(body.email ?? '').trim();
+		// Email is optional; a first password is typed, or generated, or a
+		// set-password link goes out instead (the stand-in has mail).
+		if (body.invite && body.password) return [400, { error: 'bad_request', message: 'Either a password or an invitation, not both.' }];
+		if (body.invite && !email) return [409, { error: 'no_email', message: 'An invitation needs an email address.' }];
+		if (body.password && new TextEncoder().encode(String(body.password)).length < 8) return [400, { error: 'weak_password', message: 'The password needs at least 8 characters.' }];
 		if (accounts.some((a) => a.username === body.username)) return [409, { error: 'taken', message: 'That username is taken.' }];
 		if (s.role !== 'superadmin' && body.role !== 'member') return [403, { error: 'forbidden', message: 'Admins create members only.' }];
 		const grants = (body.grants || []).map((g) => ({ fed: g.fed, groupIds: g.group_ids || [] }));
 		// An admin's new member must land in a federation that admin manages.
 		if (s.role !== 'superadmin' && !grants.some((g) => s.manageableFeds.some((f) => f.id === g.fed))) return [400, { error: 'grants_required', message: 'Grant at least one federation you administer.' }];
 		const id = Math.max(...accounts.map((a) => a.id)) + 1;
-		accounts.push({ id, username: body.username, name: body.name || body.username, email: body.email, verified: false, invited: true, role: body.role, active: true, last: '', created: '2026-11-17 16:00:00', hue: 200, adminOf: [], restrict: { hide_private: false, hide_groups: [], join_chat: false }, grants, abilities: [] });
+		accounts.push({ id, username: body.username, name: body.name || body.username, email, verified: false, invited: true, role: body.role, active: true, last: '', created: '2026-11-17 16:00:00', hue: 200, adminOf: [], restrict: { hide_private: false, hide_groups: [], join_chat: false }, grants, abilities: [] });
+		if (body.invite) return [201, { id, invited: true }];
 		mustChange.add(id);
-		return [201, { id, temporary_password: temporaryPassword() }];
+		return [201, body.password ? { id, invited: false } : { id, invited: false, temporary_password: temporaryPassword() }];
 	}
 	if ((m = p.match(/^accounts\/(\d+)(?:\/([\w-]+))?$/))) {
 		const a = accounts.find((x) => String(x.id) === m[1]);
@@ -439,8 +445,16 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		}
 		if (m[2] === 'enable') { a.active = true; return [204, null]; }
 		if (m[2] === 'password-reset' && method === 'POST') {
+			// A verified address gets a link (the stand-in has mail); else a
+			// temporary password.
+			if (a.email && a.verified) return [200, { link_sent: true }];
 			mustChange.add(a.id); a.invited = true;
-			return [200, { temporary_password: temporaryPassword() }];
+			return [200, { link_sent: false, temporary_password: temporaryPassword() }];
+		}
+		if (m[2] === 'resend-invite' && method === 'POST') {
+			if (!a.invited) return [409, { error: 'not_invited', message: 'This account has chosen its password already.' }];
+			if (!a.email) return [409, { error: 'no_email', message: 'This account has no email address.' }];
+			return [204, null];
 		}
 		if (m[2] === 'sign-out-everywhere' && method === 'POST') return [204, null];
 	}
@@ -641,16 +655,17 @@ export function passwordChanged(persona: Persona): void {
 	if (a) a.invited = false;
 }
 
-// The add-your-email step: whether a persona must add an address first,
-// an address added and waiting for its link, and the link followed.
-export function needsEmail(persona: Persona): boolean {
-	if (persona === 'public') return false;
-	const a = accounts.find((x) => x.id === PERSONAS[persona]);
-	return !!a && !(a.email && a.verified);
+// A changed address waits for its verification link.
+export function changeEmail(persona: Persona, email: string): boolean {
+	const a = persona === 'public' ? null : accounts.find((x) => x.id === PERSONAS[persona]);
+	if (!a) return false;
+	if (!email) { a.email = ''; a.verified = false; a.pendingEmail = null; return false; }
+	a.pendingEmail = email;
+	return true;
 }
 export function setPendingEmail(persona: Persona, email: string): void {
 	const a = persona === 'public' ? null : accounts.find((x) => x.id === PERSONAS[persona]);
-	if (a && !(a.email && a.verified)) a.pendingEmail = email;
+	if (a) a.pendingEmail = email;
 }
 export function verifyPendingEmails(): void {
 	for (const a of accounts) if (a.pendingEmail) { a.email = a.pendingEmail; a.verified = true; a.pendingEmail = null; }

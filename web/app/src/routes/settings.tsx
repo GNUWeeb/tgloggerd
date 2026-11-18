@@ -46,15 +46,15 @@ function errText(e: unknown): string {
 }
 
 function ChangeEmail({ onClose }: { onClose: () => void }) {
-	const [sent, setSent] = useState('');
+	const [sent, setSent] = useState<{ email: string; link: boolean } | null>(null);
 	const [err, setErr] = useState('');
 	const submit = async (e: FormEvent<HTMLFormElement>) => {
 		e.preventDefault();
 		const f = new FormData(e.currentTarget);
 		const email = String(f.get('email') ?? '');
 		try {
-			await ok(api.POST('/api/account/email', { body: { email, password: String(f.get('password') ?? '') } }));
-			setSent(email);
+			const r = await ok(api.POST('/api/account/email', { body: { email, password: String(f.get('password') ?? '') } }));
+			setSent({ email, link: r.verification_sent });
 		} catch (x) { setErr(errText(x)); }
 	};
 	return (
@@ -62,11 +62,13 @@ function ChangeEmail({ onClose }: { onClose: () => void }) {
 			footer={sent ? <><span className="a-grow" /><Btn primary onClick={onClose}>Done</Btn></>
 				: <><span className="a-grow" /><Btn ghost onClick={onClose}>Cancel</Btn><button className="a-btn a-btn-primary" type="submit" form="chg-email">Send verification link</button></>}>
 			{sent ? (
-				<div className="a-banner"><MailCheck size={15} /><span>A verification link is on its way to <b>{sent}</b>. The address changes once you open it; your current address is told about the change.</span></div>
+				<div className="a-banner" role="status"><MailCheck size={15} /><span>{!sent.email ? <>Your address is removed.</> : sent.link
+					? <>A verification link is on its way to <b>{sent.email}</b>. The address changes once you open it; your current address is told about the change.</>
+					: <>Your address is now <b>{sent.email}</b>. No verification link was sent, since mail is not set up on this server.</>}</span></div>
 			) : (
 				<form id="chg-email" className="a-form" onSubmit={submit}>
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
-					<Field label="New email address"><input name="email" type="email" autoComplete="email" required /></Field>
+					<Field label="New email address" hint="Optional: leave it empty to remove your address."><input name="email" type="email" autoComplete="email" /></Field>
 					<Field label="Current password" hint="To confirm it is you."><input name="password" type="password" autoComplete="current-password" required /></Field>
 				</form>
 			)}

@@ -79,6 +79,16 @@ describe('settings', () => {
 		expect(callsTo(calls, 'POST', '/api/account/email')[0]!.headers.get('x-csrf-token')).toBe('rotated');
 	});
 
+	it('says the address changed at once when no verification link was sent', async () => {
+		fakeApi('superadmin', { 'POST /api/account/email': () => ({ verification_sent: false }) });
+		renderPage('/settings');
+		fireEvent.click(screen.getByRole('button', { name: /^(Change|Add)$/ }));
+		const dialog = screen.getByRole('dialog');
+		fill('email', 'new@example.org', dialog); fill('password', 'standin', dialog);
+		fireEvent.submit(dialog.querySelector('form')!);
+		expect((await screen.findByRole('status')).textContent).toMatch(/now new@example.org. No verification link was sent/);
+	});
+
 	it('saves preferences, with the site default as null', async () => {
 		const calls = fakeApi('superadmin', { 'PUT /api/account/preferences': (c) => ({ prefs: c.body }) });
 		renderPage('/settings/preferences');
@@ -160,44 +170,6 @@ describe('email link pages', () => {
 		fireEvent.click(btn);
 		await screen.findByText('Your email address is verified.');
 		expect(callsTo(calls, 'POST', '/api/account/email/verify')[0]!.body).toEqual({ token: 'v-9' });
-	});
-});
-
-describe('add your email address', () => {
-	it('shows the gate on any page, sends the address, then waits for the link', async () => {
-		const asked = fixture('/users', 'noemail');
-		expect(asked.route).toBe('email_required');
-		const pending = { ...asked, props: { pending: 'ops@example.org', next: '/users' } };
-		const calls = fakeApi('noemail', {
-			'POST /api/account/email': () => json(202, { pending: 'ops@example.org' }),
-			'GET /api/page/users': () => pending,
-		});
-		renderPage('/users', 'noemail');
-		expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Add your email address');
-		fill('email', 'ops@example.org'); fill('password', 'standin');
-		fireEvent.submit(document.querySelector('form')!);
-		await screen.findByRole('heading', { name: 'Check your inbox' });
-		expect(callsTo(calls, 'POST', '/api/account/email')[0]!.body).toEqual({ email: 'ops@example.org', password: 'standin' });
-	});
-
-	it('moves on to the page asked for once verified', async () => {
-		const pending = { ...fixture('/users', 'noemail'), props: { pending: 'ops@example.org', next: '/users' } };
-		fakeApi('noemail', { 'GET /api/page/users': () => fixture('/users', 'superadmin') });
-		renderPage('/users', 'noemail', pending);
-		fireEvent.click(screen.getByRole('button', { name: /I have verified it/ }));
-		await screen.findByRole('heading', { name: 'Users' });
-	});
-
-	it('fetches the page data again when any call answers email_required', async () => {
-		const gate = fixture('/settings', 'noemail');
-		const calls = fakeApi('superadmin', {
-			'POST /api/account/sessions/sign-out-others': () => json(403, { error: 'email_required' }),
-			'GET /api/page/settings/sessions': () => gate,
-		});
-		renderPage('/settings/sessions');
-		fireEvent.click(screen.getByRole('button', { name: /Sign out all others/ }));
-		await screen.findByRole('heading', { name: 'Add your email address' });
-		expect(callsTo(calls, 'GET', '/api/page/settings/sessions')).toHaveLength(1);
 	});
 });
 

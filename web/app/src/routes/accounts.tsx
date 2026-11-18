@@ -2,7 +2,7 @@
 // sign in, each account's role, an admin's federations and restrictions,
 // a member's grants per federation and abilities, and its audit trail.
 import { useState } from 'react';
-import { Ban, Check, Copy, Crown, History, Info, KeyRound, LogOut, MailCheck, MailWarning, Network, Pencil, Plus, ShieldCheck, TriangleAlert, User as UserIcon } from 'lucide-react';
+import { Ban, Check, Copy, Crown, History, Info, KeyRound, LogOut, MailCheck, MailWarning, Network, Pencil, Plus, Send, ShieldCheck, TriangleAlert, User as UserIcon } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
@@ -100,6 +100,12 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 	// A temporary password just issued, held only while this dialog is
 	// open: never stored, never shown again.
 	const [temp, setTemp] = useState<{ username: string; password: string; reset: boolean } | null>(null);
+	// A new account's first password (empty: the server generates one), or
+	// a set-password link instead. Held only while this dialog is open.
+	const [firstPw, setFirstPw] = useState('');
+	const [invite, setInvite] = useState(false);
+	const [done, setDone] = useState<string | null>(null);
+	const email = (a.email ?? '').trim();
 	const set = (patch: Partial<Draft>) => setA({ ...a, ...patch });
 	const roles = isSuper ? ROLES : ROLES.filter((r) => r[0] === 'member');
 	const grantOf = (fid: number) => a.grants.find((g) => g.fed === fid);
@@ -115,18 +121,26 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 	};
 	const create = async () => {
 		setErr('');
+		if (!invite && firstPw && new TextEncoder().encode(firstPw).length < 8) { setErr('The first password needs at least 8 characters; or leave it empty to have one generated.'); return; }
 		try {
-			const r = await ok(api.POST('/api/accounts', { body: { username: a.username, name: a.name, email: a.email ?? '', role: a.role, ...(a.role === 'member' && a.grants.length ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })) } : {}) } }));
-			setTemp({ username: a.username, password: r.temporary_password, reset: false });
+			const r = await ok(api.POST('/api/accounts', { body: {
+				username: a.username, name: a.name, role: a.role, email: email || null,
+				...(invite ? { invite: true } : { password: firstPw || null }),
+				...(a.role === 'member' && a.grants.length ? { grants: a.grants.map((g) => ({ fed: g.fed, group_ids: g.groups.map((x) => x.id) })) } : {}),
+			} }));
+			if (r.temporary_password) setTemp({ username: a.username, password: r.temporary_password, reset: false });
+			else setDone(r.invited ? `An email with a link to choose a password went to ${email}.` : `${a.username} has the password you typed, and must change it at the first sign-in.`);
+			setFirstPw('');
 			onSaved();
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }
 	};
 	const reset = async () => {
-		if (!confirm(`Reset ${a.username}'s password? Every session of the account ends, and it must choose a new password at its next sign-in.`)) return;
+		if (!confirm(`Reset ${a.username}'s password? Every session of the account ends. A set-password link goes to its verified address when mail is set up; otherwise you get a temporary password, shown once.`)) return;
 		setErr(''); setNote('');
 		try {
 			const r = await ok(api.POST('/api/accounts/{id}/password-reset', { params: { path: { id: a.id } } }));
-			setTemp({ username: a.username, password: r.temporary_password, reset: true });
+			if (r.temporary_password) setTemp({ username: a.username, password: r.temporary_password, reset: true });
+			else setNote(r.link_sent ? 'A link to choose a new password went to the account\'s address.' : 'The password was reset.');
 			onSaved();
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }
 	};
@@ -161,6 +175,14 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 	);
 	const grantRequired = isNew && !isSuper && a.role === 'member' && a.grants.length === 0;
 	const notYet = <NotYet editable={E} />;
+	if (done) {
+		return (
+			<Modal title={`${a.username} is created`} icon={<UserIcon size={16} />} onClose={onClose}
+				footer={<><span className="a-grow" /><Btn primary onClick={onClose}>Done</Btn></>}>
+				<div className="a-banner" role="status"><MailCheck size={15} /><span>{done}</span></div>
+			</Modal>
+		);
+	}
 	if (temp) {
 		return (
 			<Modal title={temp.reset ? `New password for ${temp.username}` : `${temp.username} is created`} icon={<KeyRound size={16} />} onClose={onClose}
@@ -192,7 +214,7 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 						</Field>
 						<Field label="Display name"><input value={a.name} onChange={(e) => set({ name: e.target.value })} /></Field>
 						{isNew || a.invited ? (
-							<Field label="Email address" hint={isNew ? 'Must not be used by another account.' : 'Not signed in with its own password yet, so the address can still be corrected.'}>
+							<Field label="Email address" hint={isNew ? 'Optional. For password resets and security notices; must not be used by another account.' : 'Not signed in with its own password yet, so the address can still be corrected.'}>
 								<input type="email" value={a.email ?? ''} onChange={(e) => set({ email: e.target.value })} autoComplete="off" />
 							</Field>
 						) : editEmail ? (
@@ -206,9 +228,19 @@ function Editor({ init, props, viewerRole, onClose, onSaved }: { init: Draft; pr
 								<span className="a-field-hint">Accounts change their own address in Settings; the old address is told.</span>
 							</div>
 						)}
-						{isNew ? <div className="a-banner"><KeyRound size={15} /><span>The account gets a temporary password, shown to you once when it is created. Its owner must choose their own at the first sign-in.</span></div> : (
+						{isNew ? (
+							<>
+								<Switch checked={invite && !!email} disabled={!email} onChange={setInvite} label="Email a set-password link instead" />
+								{invite && email
+									? <p className="a-muted sm">The account chooses its password from the link. Needs mail set up on the server.</p>
+									: <Field label="First password" hint="Optional: leave it empty to have one generated and shown to you once. At least 8 characters. Either way, it must be changed at the first sign-in.">
+										<input type="password" value={firstPw} onChange={(e) => setFirstPw(e.target.value)} autoComplete="new-password" />
+									</Field>}
+							</>
+						) : (
 							<div className="a-btnrow">
-								<Btn ghost icon={KeyRound} onClick={() => void reset()}>Reset to a temporary password</Btn>
+								<Btn ghost icon={KeyRound} onClick={() => void reset()}>Reset password</Btn>
+								{a.invited && a.email && <Btn ghost icon={Send} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/resend-invite', { params: { path: { id: a.id } } })), 'A new set-password link is on its way; earlier ones stop working.')}>Resend set-password link</Btn>}
 								<Btn ghost icon={LogOut} onClick={() => void call(() => ok(api.POST('/api/accounts/{id}/sign-out-everywhere', { params: { path: { id: a.id } } })), 'Every session of this account has been signed out.')}>Sign out everywhere</Btn>
 							</div>
 						)}

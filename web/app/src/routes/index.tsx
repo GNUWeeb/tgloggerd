@@ -16,7 +16,6 @@ import { messageRoute } from './message.tsx';
 import { chatRoute } from './chat.tsx';
 import { loginRoute } from './login.tsx';
 import { emailVerifyRoute, passwordForgotRoute, passwordSetRoute } from './password.tsx';
-import { emailRequiredRoute } from './emailrequired.tsx';
 import { passwordChangeRoute } from './passwordchange.tsx';
 import { settingsRoute, preferencesRoute, sessionsRoute } from './settings.tsx';
 import { accountsRoute } from './accounts.tsx';
@@ -60,7 +59,6 @@ export const routes: Record<string, RouteDef> = {
 	password_forgot: passwordForgotRoute,
 	password_set: passwordSetRoute,
 	email_verify: emailVerifyRoute,
-	email_required: emailRequiredRoute,
 	password_change: passwordChangeRoute,
 	settings: settingsRoute,
 	settings_preferences: preferencesRoute,

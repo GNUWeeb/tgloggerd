@@ -2,7 +2,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { test as base, expect } from '@playwright/test';
 
-export type Persona = 'superadmin' | 'admin' | 'member' | 'noemail' | 'public';
+export type Persona = 'superadmin' | 'admin' | 'member' | 'noemail' | 'newpw' | 'public';
 
 interface Standin { url: string; proc: ChildProcess }
 

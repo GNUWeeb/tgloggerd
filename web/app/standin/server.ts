@@ -193,18 +193,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		res.end();
 		return;
 	}
-	// Without a verified address only these calls work; the page data
-	// answers email_required instead (web-accounts.md section 8).
-	// A temporary password first: only these calls work until the account
-	// chose its own (the spec's Gates); the page data answers
-	// password_change.
+	// A temporary password: only these calls work until the account chose
+	// its own (the spec's Gates); the page data answers password_change.
 	if (url.pathname.startsWith('/api/') && fx.needsPasswordChange(who) && !/^\/api\/(session|logout|login|page(\/.*)?|account\/password|account\/email\/verify|password\/(forgot|set)|_standin\/.*)$/.test(url.pathname)) {
 		send(res, 403, { error: 'password_change_required', message: 'Choose your own password first.' }); return;
-	}
-	// The email gate comes after the password one: while both are up,
-	// only the password change works.
-	if (url.pathname.startsWith('/api/') && fx.needsEmail(who) && !fx.needsPasswordChange(who) && !/^\/api\/(session|logout|login|page(\/.*)?|account\/email(\/verify)?|password\/(forgot|set)|_standin\/.*)$/.test(url.pathname)) {
-		send(res, 403, { error: 'email_required', message: 'Add and verify an email address first.' }); return;
 	}
 	if (url.pathname === '/api/session') {
 		if (who === 'public') send(res, 401, { error: 'unauthenticated' });
@@ -230,8 +222,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		}
 		if (p === 'email' && req.method === 'POST') {
 			if (body.password !== 'standin') { send(res, 400, { error: 'wrong_password', message: 'The current password is wrong.' }); return; }
-			fx.setPendingEmail(who, String(body.email));
-			send(res, 202, { pending: body.email }); return;
+			// The stand-in has mail set up: a new address waits for its link;
+			// an empty one removes the address at once.
+			const sent = fx.changeEmail(who, String(body.email ?? ''));
+			send(res, 200, { verification_sent: sent }); return;
 		}
 		if (p === 'preferences' && req.method === 'PUT') {
 			st.prefs = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== null));
