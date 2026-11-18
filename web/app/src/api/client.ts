@@ -9,8 +9,9 @@
 import createClient, { type Middleware } from 'openapi-fetch';
 import type { paths } from './schema.ts';
 
+// retryAfter: the Retry-After the server sent, in seconds, if any.
 export class ApiError extends Error {
-	constructor(public status: number, public code: string, message?: string) {
+	constructor(public status: number, public code: string, message?: string, public retryAfter?: number) {
 		super(message || code);
 	}
 }
@@ -70,7 +71,8 @@ export async function ok<T>(call: Promise<{ data?: T; error?: unknown; response:
 	const { data, error, response } = await call;
 	if (!response.ok) {
 		const e = (error ?? {}) as { error?: string; message?: string };
-		throw new ApiError(response.status, e.error || 'error', e.message);
+		const ra = Number(response.headers.get('retry-after') ?? '');
+		throw new ApiError(response.status, e.error || 'error', e.message, Number.isFinite(ra) && ra > 0 ? ra : undefined);
 	}
 	return data as T;
 }

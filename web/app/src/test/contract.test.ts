@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { adminApi, chatFor, chatWindow, entities, pageData, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { adminApi, chatFor, chatWindow, entities, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 
 const spec = loadSpec();
@@ -101,6 +101,11 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 			const [status, body] = adminApi('GET', 'bots', kind ? { kind } : {}, p);
 			ok(status, body, '/api/bots');
 		}
+	});
+
+	it('a name lookup', () => {
+		const [status, body] = lookupName(String(sampleContacts()[0]), 'superadmin');
+		ok(status, body, '/api/users/{id}/lookup-name', 'post');
 	});
 
 	it('adding a bot', () => {

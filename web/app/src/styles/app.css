@@ -626,6 +626,12 @@
 .app .a-savesearch { display: inline-flex; align-items: center; gap: 4px; }
 
 /* The sign-in page's siblings: forgotten password, email links. */
+.app .a-banner.info { background: var(--hover); border-color: var(--border-2); }
+.app .a-banner.info > svg { color: var(--fg-3); }
+.app .a-prose p { margin: 0 0 10px; }
+.app .a-bullets { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.app .a-spin { animation: a-spin 1s linear infinite; }
+@keyframes a-spin { to { transform: rotate(360deg); } }
 .app .a-banner.ok { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 25%, transparent); }
 .app .a-banner.ok > svg { color: var(--ok); }
 .app .a-login .a-login-alt { margin: 0; text-align: center; font-size: 13px; }

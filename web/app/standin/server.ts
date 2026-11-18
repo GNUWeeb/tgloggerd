@@ -304,6 +304,17 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		if (status === 204) { res.writeHead(204); res.end(); } else send(res, status, out);
 		return;
 	}
+	const lk = url.pathname.match(/^\/api\/users\/(\d+)\/lookup-name$/);
+	if (lk && req.method === 'POST') {
+		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+		if (!csrfOk(req)) { send(res, 403, { error: 'csrf' }); return; }
+		const [status, out, retry] = fx.lookupName(lk[1], who);
+		// The daemon's cycle takes a while; long enough here to see it wait.
+		await new Promise((r) => setTimeout(r, TEST ? 300 : 1500));
+		res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...(retry ? { 'retry-after': String(retry) } : {}) });
+		res.end(JSON.stringify(out));
+		return;
+	}
 	if (url.pathname === '/api/entities' && req.method === 'GET') {
 		const [status, out] = fx.entities(who, url.searchParams);
 		send(res, status, out);

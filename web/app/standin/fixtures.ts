@@ -251,11 +251,12 @@ export function load(url: string, persona: Persona): Loaded {
 		}
 		return {
 			route: m[2] ? 'user_history' : 'user', status: 200, props: {
-				user: { ...userSummary(usr, true), first_name: usr.first_name, last_name: usr.last_name, bio: usr.bio, phone: usr.phone, usernames: getUsernames(usr).map((n) => ({ username: n.username, active: n.kind === 'active' })) },
+				user: { ...userSummary(usr, true), first_name: usr.first_name, last_name: usr.last_name, bio: usr.bio, phone: usr.phone, usernames: getUsernames(usr).map((n) => ({ username: n.username, active: n.kind === 'active' })), ...contactFields(usr) },
 				groups: getGroupsOfUser(usr).filter(s.group).map((g) => ({ ...groupSummary(g), msgs: g.msgs })),
 				history: getUserHistory(usr).map((e) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, photo: null, removed: e.kind === 'photo' ? true : undefined })),
 				activity: getActivity(usr.id, usr.msg_count),
 				can_private: allowed(s, 'private_messages'),
+				can_lookup_name: !!s.canLookupName && !!usr.is_contact, lookup_pending: lookupPending.has(usr.id),
 			},
 		};
 	}
@@ -455,6 +456,42 @@ export function accountRow(a) {
 }
 
 // Stand-in versions of the proposed /api/accounts and /api/federations.
+// "Look up real name" (web/docs/contact-names.md). Of the logging
+// account's sample contacts (users.js), the second's own name was never
+// seen, and the third is left removed by an unfinished lookup. Lookups
+// are at least LOOKUP_INTERVAL seconds apart, as the daemon keeps them.
+const CONTACTS = users.filter((u) => u.is_contact);
+const ownUnknown = new Set([CONTACTS[1]?.id]);
+const lookupPending = new Set([CONTACTS[2]?.id]);
+const ownChecked = new Map<number, string>();
+const LOOKUP_INTERVAL = 300;
+// The sample contacts' ids, in that order (for tests).
+export const sampleContacts = () => CONTACTS.map((u) => u.id as number);
+let lastLookup = 0;
+
+function contactFields(u) {
+	return {
+		is_contact: !!u.is_contact, is_mutual_contact: u.id === CONTACTS[0]?.id,
+		own_name_known: !ownUnknown.has(u.id), own_name_checked_at: ownChecked.get(u.id) ?? null,
+	};
+}
+
+// [status, body, Retry-After seconds]
+export function lookupName(id: string, persona: Persona): [number, unknown, number?] {
+	const s = scopeOf(persona);
+	const u = getUser(id);
+	if (!s.canLookupName || !u || !s.user(u)) return [404, { error: 'not_found', message: 'No such user.' }];
+	if (!u.is_contact) return [409, { error: 'not_a_contact', message: 'This user is not a contact of the logging account.' }];
+	if (lookupPending.has(u.id)) return [503, { error: 'restore_pending', message: 'A contact removed by an earlier lookup is not added back yet' }, 60];
+	const now = Date.now();
+	if (now - lastLookup < LOOKUP_INTERVAL * 1000) return [429, { error: 'rate_limited', message: 'Another lookup ran a moment ago' }, Math.ceil(LOOKUP_INTERVAL - (now - lastLookup) / 1000)];
+	lastLookup = now;
+	ownUnknown.delete(u.id);
+	ownChecked.set(u.id, new Date(now).toISOString().replace(/\.\d+Z$/, 'Z'));
+	const [first, ...rest] = String(u.contact_name ?? '').split(' ');
+	return [200, { user_id: u.id, first_name: u.first_name, last_name: u.last_name, contact_first_name: first, contact_last_name: rest.join(' '), checked_at: Math.floor(now / 1000) }];
+}
+
 export function adminApi(method: string, p: string, body, persona: Persona): [number, unknown] {
 	const s = scopeOf(persona);
 	let m;
