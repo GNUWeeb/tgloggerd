@@ -573,12 +573,37 @@ The table is filled from three sources:
 ### 4.6 Message-level metadata (`meta`)
 
 A nullable `meta JSON` column on both message tables (added by
-migration 000034; not snapshotted on edits) for the fields of section 3.6 that are rare and not queried:
-via bot, reply quote, reply to a story or a checklist task or poll
-option, cross-chat reply origin, forward source, reply markup, effect,
-self-destruct timer, paid star count, sender boosts and tag, fact
-check, import info, restriction info. The `is_pinned` column (also
-000034) is kept current by `updateMessageIsPinned`.
+migration 000034; not snapshotted on edits) holds the fields of section
+3.6 that are rare and not queried. Every copy of a message sets it, as
+it sets the identity columns: it is not content, so it follows the copy
+being written rather than the edit date. `is_pinned` (also 000034) is
+set the same way and kept current by `updateMessageIsPinned`;
+`updateMessageFactCheck` sets or removes `meta.fact_check` alone.
+
+| Key | Value |
+|---|---|
+| `via_bot_user_id` | the inline bot used |
+| `business_bot_user_id` | the business bot that sent it |
+| `guest_bot_caller` | `{user_id}` or `{chat_id}` |
+| `reply` | `quote` (`{text, entities, position, manual}`), `checklist_task_id`, `poll_option_id`; for a reply into a chat not logged also `origin` (`{kind, user_id or chat_id, message_id, sender_name, author_signature}`), `origin_send_date` and `content` (`{tdlib_type, text}`) |
+| `reply_to_story` | `{poster_chat_id, story_id}` |
+| `forward_source` | where a forward was saved from: `{chat_id, message_id, sender, sender_name, date}` |
+| `psa_type` | public service announcement type of a forward |
+| `import` | `{sender_name, date}` of an imported message |
+| `reply_markup` | `{kind}`: `inline_keyboard` or `keyboard` with `rows` of `{text, type, url, query, user_id, copy_text}`, `force_reply`, `remove_keyboard` |
+| `effect_id` | the message effect |
+| `self_destruct_time`, `self_destruct_immediately` | the self-destruct timer |
+| `paid_message_star_count` | stars paid to send it |
+| `sender_boost_count`, `sender_tag` | the sender's boosts and tag |
+| `fact_check` | `{text, entities, country_code}` |
+| `restriction` | `{reason, sensitive}` |
+| `suggested_post` | `{price, send_date, state}` |
+
+Left out: bot callback data (the bot's own payload), the time left
+before a self-destruct or auto-delete (it changes by the second), and
+what describes this account (`can_*`, unread marks, `is_outgoing` of a
+forward source). A plain reply in the same chat needs no `reply` key:
+the reply columns hold it.
 
 ### 4.7 Views and reactions
 

@@ -448,6 +448,19 @@ public:
 	/* Record whether a forum topic is pinned in the forum's topic list. */
 	void setForumTopicPinned(int64_t chat_id, int32_t topic_id, bool pinned);
 
+	/* updateMessageIsPinned: a message pinned or unpinned in its chat. */
+	void setMessagePinned(int64_t chat_id, int64_t message_id, bool is_group,
+			      bool pinned);
+
+	/*
+	 * updateMessageFactCheck: set (@fact_check, a JSON object) or remove
+	 * (nullopt) the "fact_check" key of a message's meta, leaving its
+	 * other keys alone.
+	 */
+	void setMessageFactCheck(int64_t chat_id, int64_t message_id,
+				 bool is_group,
+				 const std::optional<std::string> &fact_check);
+
 	/* Attach a downloaded image to a message's link preview. */
 	void setLinkPreviewPhoto(int64_t chat_id, int64_t message_id,
 				 bool is_group, uint64_t file_id);

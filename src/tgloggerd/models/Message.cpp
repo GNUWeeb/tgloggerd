@@ -438,6 +438,40 @@ bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
 	return recorded;
 }
 
+void DB::setMessagePinned(int64_t chat_id, int64_t message_id,
+			  bool is_group, bool pinned)
+{
+	db_.execute(std::string("UPDATE ") +
+		    (is_group ? "telegram_group_messages"
+			      : "telegram_private_messages") +
+		    " SET is_pinned = ? WHERE chat_id = ? AND message_id = ?",
+		    { (int64_t)(pinned ? 1 : 0), (int64_t)chat_id,
+		      (int64_t)message_id });
+}
+
+void DB::setMessageFactCheck(int64_t chat_id, int64_t message_id,
+			     bool is_group,
+			     const std::optional<std::string> &fact_check)
+{
+	const std::string tbl = is_group ? "telegram_group_messages"
+					 : "telegram_private_messages";
+	if (fact_check.has_value()) {
+		db_.execute("UPDATE " + tbl + " SET meta = JSON_SET("
+			    "COALESCE(meta, JSON_OBJECT()), '$.fact_check',"
+			    " CAST(? AS JSON))"
+			    " WHERE chat_id = ? AND message_id = ?",
+			    { *fact_check, (int64_t)chat_id,
+			      (int64_t)message_id });
+		return;
+	}
+	/* Removed: drop the key, and the whole object once it is empty. */
+	db_.execute("UPDATE " + tbl + " SET meta = NULLIF("
+		    "JSON_REMOVE(meta, '$.fact_check'), JSON_OBJECT())"
+		    " WHERE chat_id = ? AND message_id = ?"
+		    " AND JSON_CONTAINS_PATH(meta, 'one', '$.fact_check')",
+		    { (int64_t)chat_id, (int64_t)message_id });
+}
+
 void DB::setMessageExtraFile(int64_t chat_id, int64_t message_id,
 			     bool is_group, const std::string &role,
 			     int position, uint64_t file_id)

@@ -220,6 +220,20 @@ models::ForumTopic extract_forum_topic(const td_api::forumTopicInfo &info);
 std::optional<models::ForumTopic>
 forum_topic_from_created(const td_api::message &message);
 
+/*
+ * The message-level detail stored in a message row's `meta` column
+ * (docs/design/message-types.md section 4.6), or nullopt when the message
+ * has none: the inline bot used, a reply's quote and target details, the
+ * story replied to, where a forward was saved from, import info, the
+ * keyboard, the message effect, the self-destruct timer, paid stars, the
+ * sender's boosts and tag, fact check, restriction and suggested post
+ * state. Bot callback data and what counts down with time are left out.
+ */
+std::optional<std::string> message_meta_json(const td_api::message &m);
+
+/* A fact check as the "fact_check" value of meta, or nullopt for none. */
+std::optional<std::string> fact_check_json(const td_api::factCheck *fc);
+
 /* The largest size of a photo, or nullptr. */
 const td_api::file *photo_best_size(const td_api::photo *p);
 

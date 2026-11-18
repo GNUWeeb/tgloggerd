@@ -108,7 +108,6 @@ The file store as a capped cache in front of Telegram:
 Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
-- [`msg-meta`](todo/msg-meta.md): Store pinned state, via bot, reply quotes, story replies, forward source, keyboards and the other message-level fields.
 - [`msg-link-preview-extras`](todo/msg-link-preview-extras.md): Keep a link preview's description formatting, media position and the message's preview options.
 - [`msg-forward-new-kinds`](todo/msg-forward-new-kinds.md): Forward the new content kinds to Discord as readable text plus their main file.
 - [`msg-repair-old-rows`](todo/msg-repair-old-rows.md): Re-read rows stored as unknown, and service rows without detail, with the new extraction.

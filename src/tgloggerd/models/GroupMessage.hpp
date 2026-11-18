@@ -58,6 +58,14 @@ struct GroupMessage {
 	 * thread id is the server id of the thread's first message. */
 	std::optional<std::string>	topic_kind;
 	std::optional<int64_t>		topic_id;
+
+	/* Message-level detail without a column of its own, as a JSON object
+	 * (docs/design/message-types.md section 4.6); nullopt if none. Not
+	 * part of the content, so not snapshotted on edits. */
+	std::optional<std::string>	meta;
+
+	/* Pinned in the chat, as last seen. */
+	bool				is_pinned = false;
 };
 
 } /* namespace models */

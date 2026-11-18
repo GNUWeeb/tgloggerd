@@ -41,6 +41,14 @@ struct PrivateMessage {
 
 	/* Forward information; nullopt if not forwarded. */
 	std::optional<ForwardInfo>	forward_info;
+
+	/* Message-level detail without a column of its own, as a JSON object
+	 * (docs/design/message-types.md section 4.6); nullopt if none. Not
+	 * part of the content, so not snapshotted on edits. */
+	std::optional<std::string>	meta;
+
+	/* Pinned in the chat, as last seen. */
+	bool				is_pinned = false;
 };
 
 } /* namespace models */
