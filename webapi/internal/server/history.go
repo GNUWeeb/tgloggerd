@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/scope"
 )
 
 // The change timelines of users and groups, page by page: GET
@@ -39,6 +40,16 @@ func (v view) groupHistory(es []logdb.HistoryEntry, users map[int64]logdb.User) 
 		out = append(out, h)
 	}
 	return out
+}
+
+// userHistory turns an entry of a user's timeline into JSON, a photo
+// change with its photo_id (the item of GET /api/users/{id}/photos).
+func (v view) userHistory(e logdb.HistoryEntry) historyJSON {
+	h := v.history(e)
+	if e.Kind == "photo" && e.Photo.ID != 0 {
+		h.PhotoID = ptrTo(e.RowID())
+	}
+	return h
 }
 
 // historyRequest reads the path's id and the before and limit
@@ -80,17 +91,7 @@ func (s *Server) getUserHistory(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !sc.SeesAllUsers() {
-		notFound(w)
-		return
-	}
-	us, err := logdb.VisibleUsers(r.Context(), s.ro, sc, []int64{id})
-	if err != nil {
-		s.internalError(w, "history", err)
-		return
-	}
-	if len(us) == 0 {
-		notFound(w)
+	if _, ok := s.userInFull(w, r, sc, id, "history"); !ok {
 		return
 	}
 	h, err := logdb.UserHistory(r.Context(), s.ro, id, before, limit)
@@ -101,7 +102,81 @@ func (s *Server) getUserHistory(w http.ResponseWriter, r *http.Request) {
 	v := s.viewFor(sc, true)
 	a := historyAnswer{Entries: []historyJSON{}, Next: nextCursor(h)}
 	for _, e := range h.Entries {
-		a.Entries = append(a.Entries, v.history(e))
+		a.Entries = append(a.Entries, v.userHistory(e))
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+// userInFull is the user for a viewer who sees users in full, as a
+// member sees no one's history (web-accounts.md section 5); to anyone
+// else, as for a user the scope hides or the logger never saw, it
+// answers 404 and false. what names the answer in a failure's log.
+func (s *Server) userInFull(w http.ResponseWriter, r *http.Request, sc scope.Scope, id int64,
+	what string) (logdb.User, bool) {
+	if !sc.SeesAllUsers() {
+		notFound(w)
+		return logdb.User{}, false
+	}
+	us, err := logdb.VisibleUsers(r.Context(), s.ro, sc, []int64{id})
+	if err != nil {
+		s.internalError(w, what, err)
+		return logdb.User{}, false
+	}
+	if len(us) == 0 {
+		notFound(w)
+		return logdb.User{}, false
+	}
+	return us[0], true
+}
+
+// userPhotoJSON is one of a user's recorded profile photos
+// (UserPhoto).
+type userPhotoJSON struct {
+	ID     uint64  `json:"id"`
+	At     string  `json:"at"`
+	URL    *string `json:"url"`
+	FileID *uint64 `json:"file_id"`
+}
+
+// userPhotosAnswer is UserPhotos: the photos, and which is the current
+// one.
+type userPhotosAnswer struct {
+	Items     []userPhotoJSON `json:"items"`
+	CurrentID *uint64         `json:"current_id"`
+}
+
+// getUserPhotos answers GET /api/users/{id}/photos: every recorded
+// profile photo of the user, newest first, for the user page's
+// carousel. The ids are the history's photo_id, so a photo change on
+// the timeline opens the carousel at its photo. The same access as
+// the history.
+func (s *Server) getUserPhotos(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	sc := ScopeFrom(r.Context())
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		notFound(w)
+		return
+	}
+	u, ok := s.userInFull(w, r, sc, id, "photos")
+	if !ok {
+		return
+	}
+	ps, err := logdb.UserPhotos(r.Context(), s.ro, id)
+	if err != nil {
+		s.internalError(w, "photos", err)
+		return
+	}
+	v := s.viewFor(sc, true)
+	a := userPhotosAnswer{Items: []userPhotoJSON{}}
+	for _, p := range ps {
+		a.Items = append(a.Items, userPhotoJSON{ID: p.ID, At: iso(p.At), URL: v.photo(p.File),
+			FileID: ptrTo(p.File.ID)})
+		// The current photo is the newest time its file was set; the
+		// same file may have been the photo before.
+		if a.CurrentID == nil && u.Photo.ID != 0 && p.File.ID == u.Photo.ID {
+			a.CurrentID = ptrTo(p.ID)
+		}
 	}
 	writeJSON(w, http.StatusOK, a)
 }

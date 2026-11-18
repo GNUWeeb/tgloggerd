@@ -235,6 +235,9 @@ type historyJSON struct {
 	UsernameKind string `json:"username_kind,omitempty"`
 	Collectible  bool   `json:"collectible,omitempty"`
 	Status       string `json:"status,omitempty"`
+	// PhotoID is a user's photo change's photo, the id of its item in
+	// GET /api/users/{id}/photos; absent elsewhere.
+	PhotoID *uint64 `json:"photo_id,omitempty"`
 }
 
 type userProps struct {
@@ -332,7 +335,7 @@ func loadUserPage(ctx context.Context, pr *pageRequest, history bool) (any, erro
 		up.Groups = append(up.Groups, userGroupJSON{groupSummaryJSON: v.group(g.Group), Msgs: g.Msgs})
 	}
 	for _, e := range p.History.Entries {
-		up.History = append(up.History, v.history(e))
+		up.History = append(up.History, v.userHistory(e))
 	}
 	up.HistoryNext = nextCursor(p.History)
 	return up, nil

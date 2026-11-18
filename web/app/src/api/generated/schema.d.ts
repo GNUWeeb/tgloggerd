@@ -1127,6 +1127,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/{id}/photos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every recorded profile photo of a user
+         * @description The user's profile photos as the logger recorded them (telegram_user_hist_profile_photo), newest first and at most 500, for the user page's photo carousel; the photo removals are left out. Each item's id is the photo_id of its photo change in the user's history (HistoryEntry), so the timeline can open the carousel at that photo. current_id is the item of the user's current photo: the newest one with the file that is the profile photo now, or null when there is none (no photo, or its file not among them). The same access as the history: only for a viewer who sees users in full; to a member, as for a user the viewer may not see or the logger never saw, it is 404.
+         */
+        get: operations["getUserPhotos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/groups/{id}/history": {
         parameters: {
             query?: never;
@@ -1608,6 +1628,36 @@ export interface components {
             photo?: string | null;
             /** @description A photo change that removed the photo. */
             removed?: boolean;
+            /**
+             * Format: int64
+             * @description A photo change's photo: the id of its item in GET /api/users/{id}/photos. Absent for a removal and for the other kinds.
+             */
+            photo_id?: number;
+        };
+        UserPhotos: {
+            /** @description Newest first, at most 500. */
+            items: components["schemas"]["UserPhoto"][];
+            /**
+             * Format: int64
+             * @description The id of the item that is the user's current photo, or null.
+             */
+            current_id: number | null;
+        };
+        UserPhoto: {
+            /**
+             * Format: int64
+             * @description The photo's history row; the photo_id of its photo change in the history.
+             */
+            id: number;
+            /** @description When the photo was set (recorded), RFC 3339. */
+            at: string;
+            /** @description The picture, a /files/<token> URL of the full file; null when the file cannot be served (its bytes are not stored and may not be fetched). */
+            url: string | null;
+            /**
+             * Format: int64
+             * @description The picture's file id (telegram_files).
+             */
+            file_id: number | null;
         };
         UserHistoryPage: {
             entries: components["schemas"]["HistoryEntry"][];
@@ -5130,6 +5180,32 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getUserPhotos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The user's Telegram id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The photos, and which is the current one. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPhotos"];
+                };
+            };
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
             503: components["responses"]["SessionUnavailable"];

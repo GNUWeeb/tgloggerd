@@ -392,6 +392,14 @@ paths that are no page and for things the scope hides, 404 either way.
     themselves. The cursor is the last entry's time, kind and row id,
     the timeline's sort key, so a page costs the same however deep it
     is. A member sees no user's history (404).
+  - GET /api/users/{id}/photos is every recorded profile photo of the
+    user (telegram_user_hist_profile_photo, removals left out), newest
+    first and at most 500, with its URL (null when the file cannot be
+    served) and file id, and current_id, the newest item with the
+    user's current photo file, for the user page's photo carousel. An
+    item's id is the history row's: a user's photo change in the
+    timeline carries it as photo_id, so the page opens the carousel at
+    that photo. The same access as the user's history.
   - The user page's profile is every field the logger records, as
     the Drogon page shows it: birthday, personal channel, paid message
     stars, emoji status, accent colours and background emojis (64-bit
