@@ -416,6 +416,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dashboard/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The dashboard's messages per period
+         * @description The messages logged per minute, hour, 4 hours, day, week (starting Monday), month, quarter (calendar quarters) or year over a range, in the viewer's timezone (its timezone preference), counted as the dashboard's per-day bars count them: the group messages the viewer sees and, when it sees them, the private messages. start is snapped down and end up to the period's boundaries, and the points cover every period of the snapped range, oldest first, zeros included. The range asked for (end minus start, end being the time of the request for now) may be at most the period's limit: 24 hours for minute, 45 days for hour, 180 days for 4h, 1096 days for day and 5479 days for week; month, quarter and year are unlimited. Finished periods are cached; the period holding the time of the request is counted afresh on each request, and periods after it are zero.
+         */
+        get: operations["getDashboardSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/account/preferences": {
         parameters: {
             query?: never;
@@ -3067,6 +3087,42 @@ export interface components {
             /** Format: int64 */
             today: number;
         };
+        /** @description The dashboard's messages per period over a range (getDashboardSeries). */
+        DashboardSeries: {
+            /** @enum {string} */
+            period: "minute" | "hour" | "4h" | "day" | "week" | "month" | "quarter" | "year";
+            /**
+             * Format: int64
+             * @description The snapped start, the start of the first period (unix).
+             */
+            start: number;
+            /**
+             * Format: int64
+             * @description The snapped end, the end of the last period (unix).
+             */
+            end: number;
+            /** @description The end asked for was now. */
+            live: boolean;
+            /** @description The IANA timezone the periods are counted in. */
+            tz: string;
+            /**
+             * Format: int64
+             * @description The period's longest range in seconds; null when unlimited.
+             */
+            limit: number | null;
+            points: {
+                /**
+                 * Format: int64
+                 * @description The start of the period (unix), in the viewer's timezone.
+                 */
+                at: number;
+                /**
+                 * Format: int64
+                 * @description The messages in the period.
+                 */
+                n: number;
+            }[];
+        };
         DashboardProps: {
             kpis: components["schemas"]["KPI"][];
             /** @description Messages logged per day over the last 30 days, oldest first, ending with today. Each count is one calendar day in the viewer's timezone (its own setting, else the site's), so a day with a daylight saving change is 23 or 25 hours long. The kpis' today counts are the same day as the last one. */
@@ -4958,6 +5014,46 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthenticated"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getDashboardSeries: {
+        parameters: {
+            query: {
+                period: "minute" | "hour" | "4h" | "day" | "week" | "month" | "quarter" | "year";
+                /** @description The range's start, a unix time (seconds, at least 0). */
+                start: number;
+                /** @description The range's end: a unix time (seconds), or now for the time of the request, which makes the series live. */
+                end: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardSeries"];
+                };
+            };
+            /** @description An unknown period, a start or end that is not a unix time (or now for end) or lies past the year 9999, a start not before the end, or a range longer than the period's limit (error bad_request, with a message; for a range over the limit the message of dashboard.range_too_long). */
+            400: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            500: components["responses"]["Internal"];
             503: components["responses"]["SessionUnavailable"];
         };
     };

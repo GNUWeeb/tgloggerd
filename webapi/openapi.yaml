@@ -1546,6 +1546,85 @@ paths:
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
+  /api/dashboard/series:
+    get:
+      x-tgd-status: planned
+      operationId: getDashboardSeries
+      tags: [pages]
+      summary: The dashboard's messages per period
+      description: >-
+        The messages logged per minute, hour, 4 hours, day, week
+        (starting Monday), month, quarter (calendar quarters) or year
+        over a range, in the viewer's timezone (its timezone
+        preference), counted as the dashboard's per-day bars count
+        them: the group messages the viewer sees and, when it sees
+        them, the private messages. start is snapped down and end up
+        to the period's boundaries, and the points cover every period
+        of the snapped range, oldest first, zeros included. The range
+        asked for (end minus start, end being the time of the request
+        for now) may be at most the period's limit: 24 hours for
+        minute, 45 days for hour, 180 days for 4h, 1096 days for day
+        and 5479 days for week; month, quarter and year are unlimited.
+        Finished periods are cached; the period holding the time of
+        the request is counted afresh on each request, and periods
+        after it are zero.
+      security:
+        - session: []
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [minute, hour, 4h, day, week, month, quarter, year]
+        - name: start
+          in: query
+          required: true
+          description: The range's start, a unix time (seconds, at least 0).
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: end
+          in: query
+          required: true
+          description: >-
+            The range's end: a unix time (seconds), or now for the time
+            of the request, which makes the series live.
+          schema:
+            type: string
+            pattern: '^(now|[0-9]+)$'
+      responses:
+        '200':
+          description: The series.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSeries'
+        '400':
+          description: >-
+            An unknown period, a start or end that is not a unix time
+            (or now for end) or lies past the year 9999, a start not
+            before the end, or a range longer than the period's limit
+            (error bad_request, with a message; for a range over the
+            limit the message of dashboard.range_too_long).
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/Internal'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
   /api/account/preferences:
     get:
       operationId: getPreferences
@@ -7975,6 +8054,48 @@ components:
         today:
           type: integer
           format: int64
+    DashboardSeries:
+      type: object
+      description: >-
+        The dashboard's messages per period over a range
+        (getDashboardSeries).
+      required: [period, start, end, live, tz, limit, points]
+      properties:
+        period:
+          type: string
+          enum: [minute, hour, 4h, day, week, month, quarter, year]
+        start:
+          type: integer
+          format: int64
+          description: The snapped start, the start of the first period (unix).
+        end:
+          type: integer
+          format: int64
+          description: The snapped end, the end of the last period (unix).
+        live:
+          type: boolean
+          description: The end asked for was now.
+        tz:
+          type: string
+          description: The IANA timezone the periods are counted in.
+        limit:
+          type: [integer, 'null']
+          format: int64
+          description: The period's longest range in seconds; null when unlimited.
+        points:
+          type: array
+          items:
+            type: object
+            required: [at, n]
+            properties:
+              at:
+                type: integer
+                format: int64
+                description: The start of the period (unix), in the viewer's timezone.
+              n:
+                type: integer
+                format: int64
+                description: The messages in the period.
     DashboardProps:
       type: object
       required: [kpis, per_day, per_day_start, busiest, deleted]
