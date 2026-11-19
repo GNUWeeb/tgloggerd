@@ -40,7 +40,7 @@ ones.
 
 ## Depends on
 
-`msg-service-detail` (the service detail).
+Nothing.
 
 ## Done when
 

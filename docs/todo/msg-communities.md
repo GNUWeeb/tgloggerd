@@ -25,7 +25,7 @@ get no detail.
 
 ## Depends on
 
-`msg-service-detail` (the detail and its drawing).
+Nothing.
 
 ## Done when
 
