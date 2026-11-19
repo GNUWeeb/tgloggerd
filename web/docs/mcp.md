@@ -12,7 +12,8 @@ Two services answer it the same way, byte for byte: the Drogon web, and the Go s
 (`webapi/internal/mcp`, transport in `webapi/internal/server/mcp.go`), whose tests replay a
 set of requests against the Drogon web's captured answers (`webapi/README`, MCP). nginx
 decides which one serves `/mcp`; both read the same tokens, the same allowlist and the same
-settings.
+settings. One difference: the Go service authorises a token by its owner, the Drogon web
+still by its minter (see [Authentication](#authentication)).
 
 ## Exposure — the part that matters
 
@@ -73,8 +74,14 @@ without disturbing clients that authenticate properly.
 
 Shown once and stored only as a SHA-256, so a database dump grants nobody access. Lose one
 and you revoke it and mint another. Revoking stamps `revoked_at` rather than deleting, so
-the audit trail survives; deactivating an account disables the tokens it minted too,
-whoever owns them now.
+the audit trail survives. A token is authorised by its current **owner**, not by the
+account that minted it: it works while its owner is active and, for a member, holds
+`mcp_tokens`; a token with no owner record counts as the superadmins' and works while an
+active superadmin exists. Deactivating an account, or taking `mcp_tokens` from a member,
+stops the tokens it owns on their next request, and a token transferred to an active
+owner keeps working after its minter is deactivated. A refused token gets the same 401 as
+an unknown one. This is the Go service's rule; the Drogon web still refuses a token whose
+minter is deactivated and nothing else, until `/mcp` moves to the Go service.
 
 This route carries no session filters. Every other route redirects to `/login` when the
 cookie is missing, which is useless to a machine client — it would receive a 302 where it
@@ -118,7 +125,7 @@ streaming**.
 | `POST` with a notification | `202`, **empty body** |
 | `GET` | `405` + `Allow: POST` (no SSE stream offered) |
 | `DELETE` | `405` (stateless; no session to end) |
-| Missing/revoked token | `401`, **no** `WWW-Authenticate` (see below) |
+| Missing/revoked token, or one whose owner may not hold it | `401`, **no** `WWW-Authenticate` (see below) |
 | Unsupported `MCP-Protocol-Version` | `400` |
 | `Origin` not in `MCP_ALLOWED_ORIGINS` (when set) | `403` |
 
@@ -603,12 +610,17 @@ The Go service serves the administration as JSON operations
   with `mcp_tokens`) whose tokens the viewer manages, so an admin mints
   for itself or its members and a member for itself only; any other is
   400. The viewer is always the minter (`web_user_id`), the account
-  the token's requests are attributed to: disabling the minter
-  disables the token, whoever owns it. The token, its owner record and
+  the token's requests are attributed to. `/mcp` authorises the token
+  by its owner, by the same rule: an active account that may hold
+  tokens, or for no owner record an active superadmin existing
+  (see [Authentication](#authentication)); the minter's state does not
+  count. The token, its owner record and
   the `owner_set` audit row are written in one transaction.
 - Transfer: superadmins only, to such an account (400 otherwise; 404
-  for everyone else). The token keeps working and keeps its minter.
-  Taking `mcp_tokens` away from a member does not revoke its tokens.
+  for everyone else). The token keeps its minter and works for its
+  new owner. Taking `mcp_tokens` away from a member does not revoke
+  its tokens: `/mcp` refuses them until the ability is given back or
+  they are transferred.
 - Only groups the viewer may see are exposed, listed, counted or
   withdrawn; a hidden group is 404 like an unknown one
   (web-accounts.md section 4). Exposing a group twice is 409

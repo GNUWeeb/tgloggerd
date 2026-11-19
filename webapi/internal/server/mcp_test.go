@@ -395,6 +395,83 @@ func TestMCPTokens(t *testing.T) {
 	}
 }
 
+// A token is authorised by its current owner, not by its minter: a
+// disabled owner and a member owner without mcp_tokens are refused like
+// an unknown token; a token transferred to an active owner works
+// although its minter is disabled; one without an owner record counts
+// as the superadmins'. Each change takes effect on the next request.
+func TestMCPTokenOwner(t *testing.T) {
+	t.Parallel()
+	e := newMCPEnv(t, MCPConfig{})
+	tok := func(c string) string { return "tgmcp_" + strings.Repeat(c, 32) }
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := e.web.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// id, minter, owner (0 for no owner record), token.
+	for _, k := range []struct {
+		id, minter, owner int
+		tok               string
+	}{
+		{4, 7, 5, tok("44")}, // intern2025's, given to researcher
+		{5, 1, 6, tok("55")}, // admin's, given to mod_kernel
+		{6, 7, 0, tok("66")}, // intern2025's, no owner record
+		{7, 1, 3, tok("77")}, // admin's, given to gw_admin
+	} {
+		exec("INSERT INTO web_mcp_tokens (id, web_user_id, name, token_sha256) "+
+			"VALUES (?, ?, ?, UNHEX(SHA2(?, 256)))", k.id, k.minter, fmt.Sprint("t", k.id), k.tok)
+		if k.owner != 0 {
+			exec("INSERT INTO web_resource_relations (resource_type, resource_id, relation, "+
+				"user_id) VALUES ('mcp_token', ?, 'owner', ?)", k.id, k.owner)
+		}
+	}
+	exec("INSERT INTO web_member_abilities (web_user_id, ability) VALUES (5, 'mcp_tokens')")
+
+	ping := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
+	check := func(name, token string, want int) {
+		t.Helper()
+		rec := e.do(mcpCase{Method: http.MethodPost, Body: ping,
+			Headers: map[string]string{"Authorization": "Bearer " + token}})
+		if rec.Code != want {
+			t.Errorf("%s: %d %s, want %d", name, rec.Code, rec.Body, want)
+		}
+		if want == 401 && !strings.Contains(rec.Body.String(), "Invalid or revoked token") {
+			t.Errorf("%s: %s, want the unknown token's answer", name, rec.Body)
+		}
+	}
+	check("disabled owner", tok("33"), 401)
+	check("member owner with mcp_tokens, minter disabled", tok("44"), 200)
+	check("member owner without mcp_tokens", tok("55"), 401)
+	check("no owner record, minter disabled", tok("66"), 200)
+	check("admin owner, by role", tok("77"), 200)
+
+	exec("INSERT INTO web_member_abilities (web_user_id, ability) VALUES (6, 'mcp_tokens')")
+	check("member owner given mcp_tokens", tok("55"), 200)
+	exec("DELETE FROM web_member_abilities WHERE web_user_id = 5")
+	check("member owner that lost mcp_tokens", tok("44"), 401)
+	exec("UPDATE web_users SET is_active = 0 WHERE id = 6")
+	check("member owner disabled", tok("55"), 401)
+	exec("UPDATE web_resource_relations SET user_id = 4 WHERE resource_type = 'mcp_token' " +
+		"AND resource_id = 3")
+	check("transferred from a disabled owner to an active admin", tok("33"), 200)
+	exec("UPDATE web_users SET is_active = 1 WHERE id = 7")
+	exec("UPDATE web_users SET is_active = 0 WHERE id = 3")
+	check("minter enabled again, owner disabled", tok("77"), 401)
+	exec("UPDATE web_users SET is_active = 0 WHERE role = 'superadmin'")
+	check("no owner record, no active superadmin", tok("66"), 401)
+
+	var stamped string
+	if err := e.web.QueryRow("SELECT GROUP_CONCAT(id ORDER BY id) FROM web_mcp_tokens " +
+		"WHERE last_used_at IS NOT NULL").Scan(&stamped); err != nil {
+		t.Fatal(err)
+	}
+	if stamped != "3,4,5,6,7" {
+		t.Errorf("last use stamped on tokens %s", stamped)
+	}
+}
+
 // MCP_ALLOWED_ORIGINS, when set, refuses other browser origins with a
 // 403 before the token is looked at; requests without Origin pass.
 func TestMCPOrigins(t *testing.T) {

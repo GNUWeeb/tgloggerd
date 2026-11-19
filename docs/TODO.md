@@ -119,7 +119,6 @@ Storing every kind of Telegram message faithfully:
 The web backend moves from Drogon to Go:
 [design/web-go.md](design/web-go.md).
 
-- [`mcp-token-auth`](todo/mcp-token-auth.md): Authorise an MCP request by its token's current owner, not by its minter (Go /mcp only).
 - [`mcp-token-scope`](todo/mcp-token-scope.md): Give each MCP token its own scope of federations, groups and (superadmin only) private chats.
 
 ## Web interface
