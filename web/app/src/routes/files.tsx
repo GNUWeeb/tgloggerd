@@ -18,7 +18,7 @@ export type FilesProps = S['FilesProps'];
 
 const FIELDS: FieldDef[] = [
 	{ key: 'id', label: 'File ID', type: 'number' },
-	{ key: 'file_type', label: 'Type', type: 'enum', values: ['photo', 'video', 'document', 'audio', 'voice', 'sticker', 'animation', 'unknown'] },
+	{ key: 'file_type', label: 'Type', type: 'enum', values: ['photo', 'video', 'document', 'audio', 'voice', 'sticker', 'animation', 'video_note', 'thumbnail', 'unknown'] },
 	{ key: 'name', label: 'Name', type: 'text' },
 	{ key: 'ext', label: 'Extension', type: 'text' },
 	{ key: 'tg_file_id', label: 'Telegram file ID', type: 'text' },
@@ -34,6 +34,11 @@ const QUICK: [string, Cond[]][] = [
 	['Photos', [{ field: 'file_type', op: '=', value: 'photo' }]],
 	['Videos', [{ field: 'file_type', op: '=', value: 'video' }]],
 	['Documents', [{ field: 'file_type', op: '=', value: 'document' }]],
+	['Voice', [{ field: 'file_type', op: '=', value: 'voice' }]],
+	['Audio', [{ field: 'file_type', op: '=', value: 'audio' }]],
+	['Stickers', [{ field: 'file_type', op: '=', value: 'sticker' }]],
+	['Animations', [{ field: 'file_type', op: '=', value: 'animation' }]],
+	['Video notes', [{ field: 'file_type', op: '=', value: 'video_note' }]],
 	['Not stored', [{ field: 'stored', op: 'is', value: 'no' }]],
 ];
 

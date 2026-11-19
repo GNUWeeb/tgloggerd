@@ -358,20 +358,25 @@ const orphan = (f) => f.id % 23 === 0;
 const DAY_MS = 86400000;
 const shift = (at: string, days: number) => new Date(Math.min(Date.parse(iso(at)) + days * DAY_MS, Date.parse(NOW))).toISOString().replace('T', ' ').slice(0, 19);
 let fileData = null;
+// The mockup's media has no GIFs, video notes or stored thumbnails;
+// some of its videos and photos stand for them.
+const fileType = (f) => (f.id % 97 === 0 ? 'unknown'
+	: f.file_type === 'video' && f.id % 6 === 1 ? 'animation' : f.file_type === 'video' && f.id % 6 === 2 ? 'video_note'
+		: f.file_type === 'photo' && f.id % 40 === 7 ? 'thumbnail' : f.file_type);
 function allFiles() {
 	const extOf = (f) => (f.file_type === 'sticker' ? STICKER_FORMATS[f.id % 3] : f.file_type === 'video' && f.id % 5 === 0 ? 'webm' : f.ext);
 	fileData ??= files().map((f) => ({
 		...f,
 		ext: extOf(f),
 		name: extOf(f) === f.ext ? f.name : f.name.replace(/\.[^.]*$/, '') + '.' + extOf(f),
-		file_type: f.id % 97 === 0 ? 'unknown' : f.file_type,
+		file_type: fileType(f),
 		sha256: f.stored ? createHash('sha256').update(`standin-file-${f.id}`).digest('hex') : null,
 		updated_at: shift(f.created_at, (f.id % 5) / 2),
 		accessed_at: shift(f.created_at, f.id % 9),
 	}));
 	return fileData;
 }
-const pictureType = (t: string) => t === 'photo' || t === 'sticker';
+const pictureType = (t: string) => t === 'photo' || t === 'thumbnail' || t === 'sticker';
 
 // A file as Go sends it (FileRow): url when the bytes are stored or the
 // viewer may have them fetched from Telegram; thumb the URL itself for a
@@ -385,7 +390,8 @@ function fileRow(f, fetch: boolean) {
 	const drawable = f.ext !== 'webm' && f.ext !== 'tgs';
 	const still = videoType(f) ? videoStill(f.id) : null;
 	const base = {
-		id: f.id, file_type: f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored, fetchable,
+		// A thumbnail is filtered as such but answered as a photo, as in Go.
+		id: f.id, file_type: f.file_type === 'thumbnail' ? 'photo' : f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored, fetchable,
 		created_at: iso(f.created_at), accessed_at: iso(f.accessed_at), duration: f.duration, tg_file_id: f.tg_file_id, sha256: f.sha256,
 		url, thumb: still ? still.poster : f.stored && pictureType(f.file_type) && drawable ? url : null,
 		...(still?.minithumb ? { minithumb: still.minithumb } : {}),

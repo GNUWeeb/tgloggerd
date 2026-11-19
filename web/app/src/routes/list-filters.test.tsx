@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
-// The message lists' kind filters: "Media" as the media kinds, one
-// of a list (the `in` operator), and service rows in private chats.
+// The lists' kind filters: "Media" as the media kinds, one of a list
+// (the `in` operator), service rows in private chats, and every file
+// type on /files.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
 import { MEDIA, type MessagesProps } from './messages.tsx';
+import type { FilesProps } from './files.tsx';
 
 beforeEach(setup);
 
@@ -55,4 +57,36 @@ describe('the private messages list', () => {
 		expect(rows.length).toBeGreaterThan(0);
 		expect(rows.every((r) => r.content_type === 'service')).toBe(true);
 	});
+});
+
+describe('the files list', () => {
+	it('offers video notes and thumbnails in its type filter', () => {
+		fakeApi('superadmin');
+		renderPage('/files?view=list');
+		fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+		fireEvent.change(screen.getByRole('combobox', { name: 'Field' }), { target: { value: 'file_type' } });
+		const values = [...valueSelect().options].map((o) => o.value);
+		expect(values).toContain('video_note');
+		expect(values).toContain('thumbnail');
+	});
+
+	it('finds thumbnails, which it shows as photos', () => {
+		const rows = fixture<FilesProps>(withConds('/files', [{ field: 'file_type', op: '=', value: 'thumbnail' }])).props.rows;
+		expect(rows.length).toBeGreaterThan(0);
+		expect(rows.every((f) => f.file_type === 'photo')).toBe(true);
+	});
+
+	for (const [name, type] of [['Voice', 'voice'], ['Audio', 'audio'], ['Stickers', 'sticker'], ['Animations', 'animation'], ['Video notes', 'video_note']]) {
+		it(`filters ${type} files with its quick filter`, async () => {
+			const calls = fakeApi('superadmin');
+			renderPage('/files?view=list');
+			fireEvent.click(screen.getByRole('button', { name: name! }));
+			await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(1));
+			const conds = lastConds(calls);
+			expect(conds).toEqual([{ field: 'file_type', op: '=', value: type }]);
+			const rows = fixture<FilesProps>(withConds('/files', conds)).props.rows;
+			expect(rows.length).toBeGreaterThan(0);
+			expect(rows.every((f) => f.file_type === type)).toBe(true);
+		});
+	}
 });
