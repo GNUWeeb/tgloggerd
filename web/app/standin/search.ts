@@ -15,6 +15,8 @@ const TEXT = ['=', '!=', 'LIKE', 'NOT LIKE', '%LIKE%', 'NOT %LIKE%'];
 const CMP = ['=', '!=', '<', '>', '<=', '>='];
 const BOOL = ['=', '!='];
 const NULLS = ['IS NULL', 'IS NOT NULL'];
+// An enum field also takes one of a list of its values, as Go's do.
+const ENUM = ['=', '!=', 'in'];
 const OWN_OPS = ['=', '!=', '>', '<', '>=', '<=', 'contains', 'empty', 'is', 'in'];
 
 // The known service and TDLib types, as Go lists them: a sample of the
@@ -49,8 +51,8 @@ export const REGISTRY: Record<string, SField[]> = {
 	messages: [
 		{ key: 'text', label: 'Text', type: 'text', sortable: false, operators: ['matches', '%LIKE%', 'NOT %LIKE%', ...NULLS] },
 		{ key: 'message_id', label: 'Message ID', type: 'int', sortable: true, operators: CMP },
-		{ key: 'tdlib_type', label: 'TDLib type', type: 'enum', sortable: false, operators: ['=', '!='], enum: TDLIB_TYPES.join(','), needs_chat: true },
-		{ key: 'service_type', label: 'Service type', type: 'enum', sortable: false, operators: ['=', '!='], enum: SERVICE_TYPES.join(','), needs_chat: true },
+		{ key: 'tdlib_type', label: 'TDLib type', type: 'enum', sortable: false, operators: ENUM, enum: TDLIB_TYPES.join(','), needs_chat: true },
+		{ key: 'service_type', label: 'Service type', type: 'enum', sortable: false, operators: ENUM, enum: SERVICE_TYPES.join(','), needs_chat: true },
 	],
 };
 
@@ -120,7 +122,7 @@ export function compile(conds: Cond[], own: string[], fields: SField[]): ((r: Ro
 		if (f) {
 			// Go takes `in` on every enum field; it is not listed among the
 			// operators until the schema has it.
-			if (!f.operators.includes(c.op) && !(c.op === 'in' && f.type === 'enum')) return { code: 'bad_search', message: `${f.label} does not take ${c.op}.` };
+			if (!f.operators.includes(c.op)) return { code: 'bad_search', message: `${f.label} does not take ${c.op}.` };
 			if (f.type === 'int' && !NULLS.includes(c.op) && !/^-?\d+$/.test(String(c.value))) return { code: 'bad_search', message: `${f.label} takes a whole number.` };
 			if (f.type === 'datetime' && !/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(String(c.value))) return { code: 'bad_search', message: `${f.label} takes a date and time, YYYY-MM-DD HH:MM:SS.` };
 			tests.push((r) => searchMatch(f, r, c));
