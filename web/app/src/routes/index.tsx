@@ -53,6 +53,7 @@ export const routes: Record<string, RouteDef> = {
 	group_history: groupRoute,
 	group_members: groupRoute,
 	group_files: groupRoute,
+	group_polls: groupRoute,
 	files: filesRoute,
 	group_messages: messagesRoute,
 	private_messages: messagesRoute,

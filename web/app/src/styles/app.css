@@ -383,6 +383,10 @@
 .app .a-sentby { gap: 6px; min-width: 0; }
 .app .a-msglinks { display: inline-flex; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
 .app .a-msglinks a { display: inline-flex; align-items: center; gap: 4px; }
+/* A group's polls: compact cards, the chat's poll inside each. */
+.app .a-pollcards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+.app .a-pollcard { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; min-width: 0; }
+.app .a-pollcard-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 12.5px; }
 .app .a-break { overflow-wrap: anywhere; }
 .app .a-btn:disabled { opacity: .5; cursor: default; }
 .app .a-chatcell { display: inline-flex; align-items: center; gap: 8px; max-width: 220px; min-width: 0; }
