@@ -21,6 +21,7 @@ import { contentLabel, serviceLabel } from '../ui/labels.ts';
 import { isSentence } from '../ui/serviceline.ts';
 import { ServiceText } from '../ui/serviceparts.tsx';
 import { loggerName } from '../ui/logger.ts';
+import { EditDetail, useEditList } from '../ui/editdetail.tsx';
 import type { PageData, Viewer } from '../page.ts';
 import type { ChatMedia, ChatMessage, GroupSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
@@ -85,6 +86,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 	const sticker = ct === 'sticker';
 	const mediaOnly = (ct === 'photo' || ct === 'video' || ct === 'animation' || ct === 'video_note') && !m.text && !m.reply_to && !m.forward;
 	const [edits, setEdits] = useState(false);
+	const editList = useEditList(m.edits, 'c-editmore');
 	const s = useFreshUser(m.sender);
 	const pref = prefs(v);
 	// A message posted as a chat (a channel, an anonymous admin) links to
@@ -132,11 +134,13 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 				</div>
 				{edits && (
 					<div className="c-editswrap"><div className="c-edits">
-						{m.edits.map((e, i) => (
-							<div key={i}>
+						{editList.more}
+						{editList.shown.map((e, i) => (
+							<div key={`${i}:${e.at}`}>
 								<span className="c-sub">{hm(e.at, v)}{e.content_type && e.content_type !== m.content_type ? ` . was ${contentLabel(e.content_type)}` : ''}</span>
 								{e.media && <EditMedia m={e.media} type={e.content_type ?? m.content_type} />}
-								{e.text ? <div><RichText text={e.text} entities={e.entities} chat={chat} /></div> : !e.media && <div className="c-sub">(no text)</div>}
+								{e.text ? <div><RichText text={e.text} entities={e.entities} chat={chat} /></div> : !e.media && !e.detail && <div className="c-sub">(no text)</div>}
+								{e.detail && <EditDetail d={e.detail} text={e.text} entities={e.entities} chat={chat} v={v} />}
 							</div>
 						))}
 						<div><span className="c-sub">{m.edited_at ? hm(m.edited_at, v) : ''} (current)</span><div><RichText text={m.text} entities={m.entities} chat={chat} /></div></div>
