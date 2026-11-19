@@ -340,8 +340,10 @@ paths:
         like an unknown id. The route is public: a session only allows
         fetching big files and makes the request audited. A signed-in
         account that does not hold fetch_files (a member not given it)
-        has no unstored file fetched at all. HEAD is answered like GET,
-        without the body.
+        has no unstored file fetched at all. The JSON answers link a big
+        unstored file only through fetchFile, so no page view fetches
+        one by itself; the link fetchFile answers with is served here
+        as any other. HEAD is answered like GET, without the body.
 
 
         Error answers are small HTML pages, not JSON, since a browser
@@ -483,6 +485,99 @@ paths:
             text/html:
               schema:
                 type: string
+
+  /api/files/{token}/fetch:
+    post:
+      x-tgd-status: planned
+      operationId: fetchFile
+      tags: [files]
+      summary: Fetch an unstored file from Telegram
+      description: >-
+        "Fetch from Telegram" (web/docs/media.md): asks the daemon to
+        fetch a file the store does not hold and answers with the
+        /files/<token> URL to view or download it from then on. The
+        path is the fetch value of the file in a JSON answer
+        (ChatMedia, FileRow, GroupFileRow), which is given exactly when
+        fetchable is true; its token is the file token of its url. A
+        page view links a small unstored file (under the store's
+        per-file cap) itself, so opening it fetches it; a bigger one
+        has url null and is fetched only through this operation. For
+        accounts that hold fetch_files (every superadmin and admin, a
+        member given it); a member without it gets 403
+        fetch_not_allowed. A file already in the store is answered at
+        once, without asking the daemon. A small file is stored whole
+        (state stored); a big one is never copied into the store: the
+        daemon starts downloading it into TDLib's cache from its first
+        byte (state partial), and url then streams it as it arrives,
+        for signed-in requests only. Every request that reaches the
+        daemon writes one file_fetch audit row, "file <id>: ok" or the
+        error code.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: The file token, as in the file's url and fetch.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The file is stored, or its download has begun.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileFetch'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: >-
+            The CSRF token is missing or wrong (error csrf), a gate is
+            up, or the account may not fetch files from Telegram (error
+            fetch_not_allowed: a member without fetch_files).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: >-
+            No such file, a token that does not open, or a file the
+            daemon does not know (error not_found).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: >-
+            The file is no longer available on Telegram (error gone).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          $ref: '#/components/responses/DaemonFailed'
+        '503':
+          description: >-
+            The daemon is busy or not signed in to Telegram (error
+            unavailable); try again after Retry-After seconds.
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: >-
+            Telegram took too long (error timeout); the download goes on
+            in the background, so asking again soon is cheap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/events:
     get:
@@ -5672,9 +5767,14 @@ components:
           description: >-
             The bytes are not stored and the viewer may have them
             fetched from Telegram, by the rule of ChatMedia's
-            fetchable (web/docs/media.md): opening url fetches them
-            through the daemon. Always sent; optional in this
-            description, as ChatMedia's is.
+            fetchable (web/docs/media.md): opening url fetches a small
+            file through the daemon, and fetch fetches any. Always
+            sent; optional in this description, as ChatMedia's is.
+        fetch:
+          type: [string, 'null']
+          description: >-
+            As ChatMedia's fetch: the fetchFile path when fetchable is
+            true, else null. Always sent; optional in this description.
         created_at:
           type: string
           description: First seen.
@@ -5701,9 +5801,11 @@ components:
         url:
           type: [string, 'null']
           description: >-
-            The /files/<token> URL when the bytes are stored or
-            fetchable, else null (an unstored file the viewer may not
-            have fetched, or fetching from Telegram is off).
+            The /files/<token> URL when the bytes are stored, or
+            fetchable and under the store's per-file cap, else null (a
+            big unstored file, fetched through fetch; an unstored file
+            the viewer may not have fetched; or fetching from Telegram
+            is off).
         thumb:
           type: [string, 'null']
           description: >-
@@ -7639,8 +7741,10 @@ components:
     ChatMedia:
       description: >-
         A message's file (web/docs/media.md) and its detail. url is the
-        /files/<token> URL when the bytes are stored or may be fetched
-        from Telegram, else null; thumb is the same URL for media that
+        /files/<token> URL when the bytes are stored, or may be fetched
+        from Telegram and are under the store's per-file cap, else null;
+        a bigger fetchable file is fetched through fetch (fetchFile)
+        first. thumb is the same URL for media that
         render as an image, and for other media its poster, else its
         minithumb (a blurred preview), when known; else null.
       allOf:
@@ -7660,6 +7764,14 @@ components:
             without a session asks only for a file under the store's
             per-file cap, and a signed-in one holds fetch_files (every
             superadmin and admin, a member given it).
+        fetch:
+          type: [string, 'null']
+          description: >-
+            The path of the "Fetch from Telegram" action
+            (/api/files/<token>/fetch, fetchFile) when fetchable is
+            true, else null. url is null for such a file over the
+            store's per-file cap: a page view never fetches a big file
+            by itself. Always sent; optional in this description.
         thumb:
           type: [string, 'null']
         url:
@@ -8531,6 +8643,9 @@ components:
             fetchable:
               type: boolean
               description: As FileRow.fetchable.
+            fetch:
+              type: [string, 'null']
+              description: As FileRow.fetch.
             url:
               type: [string, 'null']
               description: As FileRow.url.
@@ -9856,6 +9971,27 @@ components:
                 type: string
               outcome:
                 type: string
+
+    # Fetching from Telegram.
+    FileFetch:
+      type: object
+      required: [state, url, size]
+      properties:
+        state:
+          type: string
+          enum: [stored, partial]
+          description: >-
+            stored: the bytes are in the store now (or were already),
+            and url serves them from there. partial: a big file, being
+            downloaded into TDLib's cache; url streams what has arrived
+            and a player asks for further ranges as it goes.
+        url:
+          type: string
+          description: The file's /files/<token> URL.
+        size:
+          type: integer
+          format: int64
+          description: The file's size in bytes, 0 when unknown.
 
     # Contacts.
     LookupName:
