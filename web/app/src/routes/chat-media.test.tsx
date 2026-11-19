@@ -19,6 +19,16 @@ const show = (el: ReactElement) => render(<div className="app">{el}</div>);
 const viewer = () => screen.queryByRole('dialog', { name: 'Media viewer' });
 
 describe('chat media', () => {
+	it('lets a lone photo of unknown size keep its own shape, while an album cell keeps the grid', () => {
+		show(<MessageMedia msg={msg('photo', media({ thumb: URL1 }))} onClick={false} />);
+		const lone = screen.getByRole('link', { name: 'Photo' });
+		expect(lone.classList.contains('natural')).toBe(true);
+		expect(lone.getAttribute('style') ?? '').not.toContain('aspect-ratio');
+		cleanup();
+		show(<MessageMedia msg={msg('photo', media({ thumb: URL1 }), [media({ thumb: URL1 }), media({ thumb: '/files/tok-2', url: '/files/tok-2' })])} onClick={false} />);
+		for (const cell of screen.getAllByRole('link', { name: 'Photo' })) expect(cell.classList.contains('natural')).toBe(false);
+	});
+
 	it('draws a photo at its real shape and opens it in the viewer; Esc closes it', () => {
 		show(<MessageMedia msg={msg('photo', media({ thumb: URL1, w: 1280, h: 720 }))} onClick={false} />);
 		const link = screen.getByRole('link', { name: 'Photo' });
