@@ -123,6 +123,32 @@ Poll parse_poll(const Json::Value &v)
 	return p;
 }
 
+Snapshot parse_snapshot(const Json::Value &v)
+{
+	Snapshot s;
+	if (!v.isObject())
+		return s;
+	s.content = json_str(v, "content");
+	s.timestamp = json_str(v, "timestamp");
+	if (v.isMember("type") && v["type"].isInt())
+		s.type = v["type"].asInt();
+	if (v.isMember("flags") && v["flags"].isUInt64())
+		s.flags = v["flags"].asUInt64();
+	if (v.isMember("attachments") && v["attachments"].isArray()) {
+		for (const auto &a : v["attachments"])
+			s.attachments.push_back(parse_attachment(a));
+	}
+	if (v.isMember("sticker_items") && v["sticker_items"].isArray()) {
+		for (const auto &st : v["sticker_items"])
+			s.stickers.push_back(parse_sticker(st));
+	}
+	if (v.isMember("embeds") && v["embeds"].isArray()) {
+		for (const auto &e : v["embeds"])
+			s.embeds.push_back(parse_embed(e));
+	}
+	return s;
+}
+
 Message parse_message(const Json::Value &v)
 {
 	Message m;
@@ -164,15 +190,29 @@ Message parse_message(const Json::Value &v)
 	    v["message_reference"].isObject()) {
 		const Json::Value &r = v["message_reference"];
 		MessageReference ref;
+		if (r.isMember("type") && r["type"].isInt())
+			ref.type = r["type"].asInt();
 		ref.message_id = parse_snowflake(r["message_id"]);
 		ref.channel_id = parse_snowflake(r["channel_id"]);
 		ref.guild_id = parse_snowflake(r["guild_id"]);
 		/*
-		 * A reference with no message_id is a forward/crosspost
-		 * pointer, not a reply; only surface real replies.
+		 * A reference with no message_id points at no message; only
+		 * surface those that do, as every reply and forward does.
 		 */
 		if (ref.message_id != 0)
 			m.reference = ref;
+	}
+
+	/*
+	 * Discord sends one snapshot per forward (the list leaves room for
+	 * more); only the first is read.
+	 */
+	if (v.isMember("message_snapshots") &&
+	    v["message_snapshots"].isArray() &&
+	    !v["message_snapshots"].empty()) {
+		const Json::Value &first = v["message_snapshots"][0];
+		if (first.isObject() && first["message"].isObject())
+			m.snapshot = parse_snapshot(first["message"]);
 	}
 	return m;
 }

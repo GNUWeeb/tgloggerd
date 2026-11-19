@@ -104,6 +104,39 @@ static const char *POLL = R"({"op":0,"s":6,"t":"MESSAGE_CREATE","d":{
 	        "expiry":"2026-11-21T10:00:00.000000+00:00",
 	        "allow_multiselect":true,"layout_type":1}}})";
 
+/*
+ * A forward: no parts of its own, a FORWARD reference to the original, and
+ * the original's parts in its snapshot.
+ */
+static const char *FORWARD = R"({"op":0,"s":7,"t":"MESSAGE_CREATE","d":{
+	"id":"1541191219416399927",
+	"channel_id":"1541156106343161896",
+	"type":0,"flags":16384,"content":"",
+	"author":{"id":"5","username":"dave","discriminator":"0"},
+	"attachments":[],"embeds":[],
+	"message_reference":{"type":1,"message_id":"1541191199321366610",
+	                     "channel_id":"1541156106343161897",
+	                     "guild_id":"845302963739033611"},
+	"message_snapshots":[{"message":{
+		"type":0,"flags":0,"content":"look at this",
+		"timestamp":"2026-11-20T08:00:00.000000+00:00",
+		"attachments":[{"id":"1001","filename":"dog.jpg",
+		                "content_type":"image/jpeg","size":2048,
+		                "url":"https://cdn.discordapp.com/a/dog.jpg"}],
+		"sticker_items":[{"id":"749054660769218632","name":"Hi",
+		                  "format_type":1}],
+		"embeds":[{"type":"rich","title":"Note",
+		           "description":"forwarded embed"}]}}]}})";
+
+/* A reply whose reference says DEFAULT outright. */
+static const char *REPLY = R"({"op":0,"s":8,"t":"MESSAGE_CREATE","d":{
+	"id":"1541191219416399928",
+	"channel_id":"1541156106343161896",
+	"type":19,"content":"agreed",
+	"author":{"id":"6","username":"erin","discriminator":"0"},
+	"message_reference":{"type":0,"message_id":"1541191219416399927",
+	                     "channel_id":"1541156106343161896"}}})";
+
 static LogSink quiet_log(void)
 {
 	return [](LogLevel, const std::string &) {};
@@ -180,6 +213,8 @@ static void test_happy_path(void)
 	CHECK(seen.from_webhook(), "webhook_id detected (loop suppression)");
 	CHECK(seen.webhook_id == 1541156222617649172ULL, "webhook_id value");
 	CHECK(seen.is_reply(), "reply detected");
+	CHECK(!seen.is_forward() && !seen.snapshot,
+	      "reference without a type is no forward");
 	CHECK(seen.reference && seen.reference->message_id ==
 				       1541191199321366609ULL,
 	      "reply target id parsed");
@@ -277,6 +312,51 @@ static void test_embeds_and_polls(void)
 	}
 }
 
+/* A forward's reference and snapshot; a reply is no forward. */
+static void test_forwards(void)
+{
+	printf("test: forwards\n");
+
+	const auto msgs = run_messages({FORWARD, REPLY});
+	CHECK(msgs.size() == 2, "both messages dispatched");
+	if (msgs.size() != 2)
+		return;
+
+	const Message &f = msgs[0];
+	CHECK(f.is_forward(), "forward detected");
+	CHECK(!f.is_reply(), "a forward is no reply");
+	CHECK(f.reference && f.reference->message_id ==
+				     1541191199321366610ULL &&
+		      f.reference->channel_id == 1541156106343161897ULL,
+	      "forwarded message id and channel parsed");
+	CHECK(f.content.empty() && f.attachments.empty() && f.embeds.empty(),
+	      "no parts of its own");
+	CHECK(f.snapshot.has_value(), "snapshot parsed");
+	if (f.snapshot) {
+		const Snapshot &s = *f.snapshot;
+		CHECK(s.content == "look at this", "snapshot content");
+		CHECK(s.timestamp == "2026-11-20T08:00:00.000000+00:00",
+		      "snapshot timestamp");
+		CHECK(s.type == 0 && s.flags == 0, "snapshot type and flags");
+		CHECK(s.attachments.size() == 1 &&
+			      s.attachments[0].filename == "dog.jpg" &&
+			      s.attachments[0].content_type == "image/jpeg" &&
+			      s.attachments[0].size == 2048,
+		      "snapshot attachment");
+		CHECK(s.stickers.size() == 1 && s.stickers[0].name == "Hi",
+		      "snapshot sticker");
+		CHECK(s.embeds.size() == 1 && s.embeds[0].is_rich() &&
+			      s.embeds[0].title == "Note" &&
+			      s.embeds[0].description == "forwarded embed",
+		      "snapshot embed");
+	}
+
+	const Message &r = msgs[1];
+	CHECK(r.is_reply(), "DEFAULT reference is a reply");
+	CHECK(!r.is_forward(), "a reply is no forward");
+	CHECK(!r.snapshot, "a reply has no snapshot");
+}
+
 /*
  * A fatal close code must terminate, NOT reconnect. Getting this wrong is how
  * a bot loses its token: 4014 fires immediately on every IDENTIFY, so a naive
@@ -353,6 +433,7 @@ int main(void)
 	test_happy_path();
 	test_message_kinds();
 	test_embeds_and_polls();
+	test_forwards();
 	test_fatal_close_does_not_reconnect();
 	test_auth_failure();
 	test_recoverable_close_retries();

@@ -126,11 +126,36 @@ struct Poll {
 	std::string		expiry;	/* ISO-8601, as sent; empty if none */
 };
 
-/* Where a reply points. Present only when the message is a reply. */
+/*
+ * Where a reply or a forward points. Present only when the message is one of
+ * the two; its type tells which.
+ */
 struct MessageReference {
+	enum Type {
+		TYPE_DEFAULT = 0,	/* a reply */
+		TYPE_FORWARD = 1,	/* a forward; see Message::snapshot */
+	};
+
+	int		type = TYPE_DEFAULT;
 	Snowflake	message_id = 0;
 	Snowflake	channel_id = 0;
 	Snowflake	guild_id = 0;
+};
+
+/*
+ * The forwarded message a forward carries (the message of the first entry of
+ * its `message_snapshots`): a copy of the original's parts, taken when it was
+ * forwarded, without its author or ids. The fields mean what the
+ * same-named fields of a Message mean.
+ */
+struct Snapshot {
+	std::string		content;
+	std::string		timestamp;	/* ISO-8601, as sent */
+	int			type = 0;
+	uint64_t		flags = 0;
+	std::vector<Attachment>	attachments;
+	std::vector<Sticker>	stickers;
+	std::vector<Embed>	embeds;
 };
 
 struct Message {
@@ -171,9 +196,23 @@ struct Message {
 	std::vector<Embed>		embeds;
 	std::optional<Poll>		poll;
 	std::optional<MessageReference>	reference;
+	/*
+	 * Set on a forward only. A forward has no content, attachments,
+	 * stickers or embeds of its own: what was forwarded is here.
+	 */
+	std::optional<Snapshot>		snapshot;
 
 	bool from_webhook(void) const { return webhook_id != 0; }
-	bool is_reply(void) const { return reference.has_value(); }
+	bool is_reply(void) const
+	{
+		return reference &&
+		       reference->type == MessageReference::TYPE_DEFAULT;
+	}
+	bool is_forward(void) const
+	{
+		return reference &&
+		       reference->type == MessageReference::TYPE_FORWARD;
+	}
 	bool is_voice_message(void) const
 	{
 		return (flags & FLAG_IS_VOICE_MESSAGE) != 0;
