@@ -235,13 +235,13 @@ export function chatMessage(m, view: boolean | View = false) {
 	const lp = m.link_preview;
 	const out = {
 		id: m.id, message_id: m.message_id, date: iso(m.date), scope: m.scope,
-		sender, content_type: ct, text: bare ? '' : m.text || '',
+		sender, content_type: ct, text: bare ? '' : m.text || '', entities: [],
 		media: chatMedia(m.media, ct, fetch, m.album ? { kind: ct, message_id: m.message_id } : {}), album: (m.album || []).map((a) => albumItem(a, fetch)),
 		reply_to: reply,
 		// Each version says its type; a media message's first version had
 		// another file (the media was replaced in the edit).
 		forward: m.forward?.from ?? null, edits: (m.edits || []).map((e, i) => ({
-			at: iso(e.at), text: e.text, content_type: ct,
+			at: iso(e.at), text: e.text, content_type: ct, entities: [],
 			...(i === 0 && m.media ? { media: chatMedia({ ...m.media, fileId: m.media.fileId + 500000 }, ct, fetch) } : {}),
 		})),
 		edited_at: m.edited_at ? iso(m.edited_at) : null, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
@@ -264,8 +264,10 @@ export function chatMessage(m, view: boolean | View = false) {
 	const { forward_from: _f, sender_chat: _sc, is_channel_post: _cp, author_signature: _as, service_type: _st, ...rest } = out as Record<string, unknown>;
 	return {
 		...rest, content_type: ct, text: k.serviceText ?? sample.text ?? '',
+		// A service text rebuilt for the viewer has no entities.
+		entities: sample.entities?.(v) ?? [],
 		media: round ? chatMedia({ fileId: 970000 + (m.message_id % 10000), w: 1, h: 1, size: 420000, duration: 9 }, 'video', fetch, { round: true }) : null,
-		album: [], reply_to: null, forward: null, edits: [], edited_at: null, link_preview: null,
+		album: [], reply_to: null, forward: null, edits: sample.edits?.(v) ?? [], edited_at: sample.edited_at ?? null, link_preview: null,
 		...(sample.tdlib_type ? { tdlib_type: sample.tdlib_type } : {}),
 		...(ct === 'service' && !k.serviceText ? { service_type: k.base.service?.type ?? 'custom' } : {}),
 	};
@@ -582,13 +584,13 @@ export function load(url: string, persona: Persona): Loaded {
 		const c = chatMessage(x, viewOf(persona, x.chat.kind === 'user' ? undefined : x.chat.id));
 		// A video note sample (kinds.ts) has a file of its own.
 		const media = c.media ? { ...c.media, file_id: x.media?.fileId ?? 970000 + (x.message_id % 10000), name: x.media?.name || '', size: x.media?.size || c.media.size || 0 } : null;
-		const extra = Object.fromEntries(['sender_chat', 'forward_from', 'author_signature', 'is_channel_post', 'service_type', 'tdlib_type', 'detail', 'service', 'topic_id', 'pinned', 'views', 'forwards', 'replies', 'reactions', 'album'].filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
+		const extra = Object.fromEntries(['entities', 'sender_chat', 'forward_from', 'author_signature', 'is_channel_post', 'service_type', 'tdlib_type', 'detail', 'service', 'topic_id', 'pinned', 'views', 'forwards', 'replies', 'reactions', 'album'].filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
 		return {
 			route: 'message', status: 200, props: {
 				message: {
 					...messageRow(x), ...extra, content_type: c.content_type, text: c.text, sender: c.sender ?? messageRow(x).sender,
 					reply_to: x.reply_to ? { scope: x.scope, id: x.reply_to.id, sender_name: senderOf(x.reply_to)?.name ?? '', snippet: x.reply_to.text || `[${x.reply_to.content_type}]` } : null,
-					edits: c.edits, edited_at: x.edited_at ? iso(x.edited_at) : null, media,
+					edits: c.edits, edited_at: c.edited_at, media,
 				},
 			},
 		};
@@ -1320,7 +1322,7 @@ export function liveChange(kind: string, b: { chat_id?: number; message_id?: num
 		const prev = all[all.length - 1];
 		const n = all.length;
 		const date = stamp(parseStamp(prev.date) + 30000);
-		const m = { ...prev, id: prev.id + 100000 + n, message_id: prev.message_id + 1, date, text: `Live message ${n + 1} from the stand-in`, content_type: 'text', media: null, album: [], reply_to: null, forward: null, edits: null, edited_at: null, deleted_at: null, link_preview: null };
+		const m = { ...prev, id: prev.id + 100000 + n, message_id: prev.message_id + 1, date, text: `Live message ${n + 1} from the stand-in`, entities: [], content_type: 'text', media: null, album: [], reply_to: null, forward: null, edits: null, edited_at: null, deleted_at: null, link_preview: null };
 		all.push(m);
 		if (chat.kind === 'user') liveNew.private++; else liveNew.group++;
 		// The message search lists are built once; put it on top of its list.

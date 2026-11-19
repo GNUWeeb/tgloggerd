@@ -56,8 +56,28 @@ const posters = (): number[] => (users as { id: number }[]).filter((u) => (getGr
 // In no group at all, so no member ever sees them.
 const strangers = (): number[] => (users as { id: number }[]).filter((u) => !posters().includes(u.id) && !getGroupsOfUser(u).length).map((u) => u.id);
 
-type Sample = { content_type: string; text?: string; detail?: (v: View) => unknown; service?: (v: View) => { type: string; text: string; refs: { users: Ref[]; chats: Ref[]; message_id: number | null } }; media?: { round?: boolean }; tdlib_type?: string; kinds?: Partial<Kinds> };
+type Entity = { offset: number; length: number; type: string; url?: string; user_id?: number | null; language?: string; custom_emoji_id?: string };
+type Edit = { at: string; text: string; content_type: string; entities: Entity[] };
+type Sample = { content_type: string; text?: string; entities?: (v: View) => Entity[]; edits?: (v: View) => Edit[]; edited_at?: string; detail?: (v: View) => unknown; service?: (v: View) => { type: string; text: string; refs: { users: Ref[]; chats: Ref[]; message_id: number | null } }; media?: { round?: boolean }; tdlib_type?: string; kinds?: Partial<Kinds> };
 type Kinds = { pinned: boolean; views: number | null; forwards: number | null; replies: number | null; reactions: { emoji?: string; custom_emoji_id?: string; paid?: boolean; count: number }[] };
+
+// Entities over a text: each part is found in the text (after the
+// previous one's start) and given its UTF-16 offset and length, as the
+// daemon stores them.
+type Part = [part: string, type: string, extra?: Partial<Entity>];
+export function entitiesIn(text: string, parts: Part[]): Entity[] {
+	let from = 0;
+	return parts.map(([part, type, extra]) => {
+		const offset = text.indexOf(part, from);
+		if (offset < 0) throw new Error(`entitiesIn: no "${part}" in the text`);
+		from = offset;
+		return { offset, length: part.length, type, ...extra };
+	});
+}
+const handleOf = (id: number) => (getUser(id) as { username?: string } | undefined)?.username || '';
+// A user's id where the viewer may see them, else null (mention_name)
+// or nothing (a mention by @username), as Go answers.
+const seen = (v: View, id: number) => (v.user(id) ? id : null);
 
 const REACTIONS = [{ emoji: '👍', count: 12 }, { emoji: '🔥', count: 5 }, { custom_emoji_id: '5368324170671202286', count: 3 }, { paid: true, count: 2 }];
 const poll = (question: string, type: 'regular' | 'quiz', opts: string[], extra = {}) => () => {
@@ -66,7 +86,7 @@ const poll = (question: string, type: 'regular' | 'quiz', opts: string[], extra 
 	return {
 		kind: 'poll', question, type, anonymous: type === 'regular', multiple: false, closed: false, total_voters: total, close_date: null, explanation: type === 'quiz' ? 'Linus wrote the first version in 1991.' : null,
 		options: opts.slice(0, 20).map((text, i) => ({ text, voters: votes[i]!, percent: Math.round((votes[i]! / total) * 100), correct: type === 'quiz' && i === 1 })),
-		options_total: opts.length, ...extra,
+		options_total: opts.length, question_entities: [], explanation_entities: [], ...extra,
 	};
 };
 
@@ -75,7 +95,31 @@ const poll = (question: string, type: 'regular' | 'quiz', opts: string[], extra 
 function samples(): Sample[] {
 	const [a, b, c] = posters();
 	const [x, y] = strangers();
+	// Posters and strangers with a username, for the @mentions.
+	const ha = posters().find((id) => handleOf(id))!;
+	const hx = strangers().find((id) => handleOf(id))!;
+	const formatted = `Release notes: https://example.org/notes and the changelog. Ping @${handleOf(ha)}, @${handleOf(hx)} or @nobody_here_x, `
+		+ `and ${nameOf(b!)} and ${nameOf(y!)}. #release $TGD /status@tgd_bot mail team@example.org or call +62 812 0000 0199. `
+		+ 'Bold with italic inside, underlined, struck, a hidden ending, inline code, a 🎉 custom emoji, at 1:05, card 4242 4242 4242 4242, a future kind, a sneaky link, and bold to the end';
+	const codeText = '👨‍👩‍👧 Family 𝕏 first, then code:\nfn main() {\n\tprintln!("hi");\n}\nplain block\nA quote from the docs.\n'
+		+ 'A long quote that Telegram folds: line one of it,\nline two of it,\nline three of it,\nline four of it.';
+	const editedText = 'The meetup is on Friday at the usual place.';
 	return [
+		{ content_type: 'text', text: formatted, entities: (v) => entitiesIn(formatted, [
+			['https://example.org/notes', 'url'], ['the changelog', 'text_url', { url: 'https://example.org/changelog' }],
+			[`@${handleOf(ha)}`, 'mention', v.user(ha) ? { user_id: ha } : {}], [`@${handleOf(hx)}`, 'mention', v.user(hx) ? { user_id: hx } : {}], ['@nobody_here_x', 'mention'],
+			[nameOf(b!), 'mention_name', { user_id: seen(v, b!) }], [nameOf(y!), 'mention_name', { user_id: seen(v, y!) }],
+			['#release', 'hashtag'], ['$TGD', 'cashtag'], ['/status@tgd_bot', 'bot_command'], ['team@example.org', 'email'], ['+62 812 0000 0199', 'phone_number'],
+			['Bold with italic inside', 'bold'], ['italic', 'italic'], ['underlined', 'underline'], ['struck', 'strikethrough'], ['a hidden ending', 'spoiler'],
+			['inline code', 'code'], ['🎉', 'custom_emoji', { custom_emoji_id: '5368324170671202286' }], ['1:05', 'media_timestamp'],
+			['4242 4242 4242 4242', 'bank_card_number'], ['a future kind', 'unknown'], ['a sneaky link', 'text_url', { url: 'javascript:alert(1)' }],
+		]).concat([{ offset: formatted.length - 'bold to the end'.length, length: 500, type: 'bold' }]) },
+		{ content_type: 'text', text: codeText, entities: () => entitiesIn(codeText, [
+			['Family', 'bold'], ['𝕏', 'italic'], ['fn main() {\n\tprintln!("hi");\n}', 'pre_code', { language: 'rust' }], ['plain block', 'pre'],
+			['A quote from the docs.', 'block_quote'], ['docs', 'italic'], ['A long quote that Telegram folds: line one of it,\nline two of it,\nline three of it,\nline four of it.', 'expandable_block_quote'],
+		]) },
+		{ content_type: 'text', text: editedText, entities: () => entitiesIn(editedText, [['Friday', 'bold'], ['the usual place', 'text_url', { url: 'https://example.org/place' }]]),
+			edited_at: '2026-11-16T08:05:00Z', edits: () => [{ at: '2026-11-16T08:00:00Z', text: 'The meetup is on Thursday, see #meetup.', content_type: 'text', entities: entitiesIn('The meetup is on Thursday, see #meetup.', [['Thursday', 'italic'], ['#meetup', 'hashtag']]) }] },
 		{ content_type: 'video_note', media: { round: true } },
 		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.2088, lon: 106.8456, accuracy: null, live: null }), kinds: { reactions: [{ emoji: '📍', count: 2 }] } },
 		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.9175, lon: 107.6191, accuracy: 12, live: { period: 3600, heading: 90, proximity_radius: 0, updates: 17 } }) },
@@ -85,15 +129,19 @@ function samples(): Sample[] {
 		{ content_type: 'dice', detail: () => ({ kind: 'dice', emoji: '', value: 6, stake: true }) },
 		{ content_type: 'game', text: 'Beat my score!', detail: () => ({ kind: 'game', title: 'Lumberjack', description: 'Chop the tree, dodge the branches.', short_name: 'lumberjack', photo: null }) },
 		{ content_type: 'poll', text: 'For the next meetup.', detail: poll('Which editor do you use?', 'regular', ['Vim', 'Neovim', 'Emacs', 'VS Code', 'Helix']), kinds: { pinned: true, views: 1534, forwards: 12, replies: 4, reactions: REACTIONS } },
-		{ content_type: 'poll', detail: poll('Who wrote the first Linux kernel?', 'quiz', ['Richard Stallman', 'Linus Torvalds', 'Andrew Tanenbaum'], { closed: true, close_date: '2026-11-10T12:00:00Z' }) },
+		{ content_type: 'poll', detail: poll('Who wrote the first Linux kernel?', 'quiz', ['Richard Stallman', 'Linus Torvalds', 'Andrew Tanenbaum'], {
+			closed: true, close_date: '2026-11-10T12:00:00Z',
+			question_entities: entitiesIn('Who wrote the first Linux kernel?', [['first', 'bold'], ['Linux kernel', 'italic']]),
+			explanation_entities: entitiesIn('Linus wrote the first version in 1991.', [['the first version', 'text_url', { url: 'https://example.org/linux-0.01' }], ['1991', 'bold']]),
+		}) },
 		{ content_type: 'poll', detail: poll('Pick your favourite syscall', 'regular', Array.from({ length: 25 }, (_, i) => `syscall_${i + 1}`)) },
 		{ content_type: 'checklist', text: 'Release checklist', detail: (v) => ({
 			kind: 'checklist', tasks_total: 4, others_can_add: true, others_can_mark: true,
 			tasks: [
-				{ id: 1, text: 'Tag the release', done: true, done_by: refOf(v, b!), done_at: '2026-11-16T09:00:00Z' },
-				{ id: 2, text: 'Write the changelog', done: true, done_by: refOf(v, x!), done_at: '2026-11-16T10:30:00Z' },
-				{ id: 3, text: 'Build the packages', done: false, done_by: null, done_at: null },
-				{ id: 4, text: 'Announce it', done: false, done_by: null, done_at: null },
+				{ id: 1, text: 'Tag the release', done: true, done_by: refOf(v, b!), done_at: '2026-11-16T09:00:00Z', entities: [] },
+				{ id: 2, text: 'Write the changelog', done: true, done_by: refOf(v, x!), done_at: '2026-11-16T10:30:00Z', entities: [] },
+				{ id: 3, text: 'Build the packages with make dist', done: false, done_by: null, done_at: null, entities: entitiesIn('Build the packages with make dist', [['make dist', 'code']]) },
+				{ id: 4, text: 'Announce it in #news', done: false, done_by: null, done_at: null, entities: entitiesIn('Announce it in #news', [['#news', 'hashtag']]) },
 			],
 		}) },
 		{ content_type: 'story', detail: (v) => ({ kind: 'story', poster: refOf(v, c!), story_id: 42 }) },
