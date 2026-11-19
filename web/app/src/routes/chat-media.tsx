@@ -36,12 +36,14 @@ const plainClick = (e: MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey
 export function Lightbox({ m, kind, onClose }: { m: Pick<Media, 'url' | 'name' | 'w' | 'h' | 'poster'>; kind: 'picture' | 'video'; onClose: () => void }) {
 	const close = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
-		const on = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-		addEventListener('keydown', on);
+		// Esc closes the viewer only, not a dialog it was opened from
+		// (a file's preview): caught first, and stopped there.
+		const on = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); onClose(); } };
+		addEventListener('keydown', on, true);
 		const prev = document.body.style.overflow;
 		document.body.style.overflow = 'hidden';
 		close.current?.focus();
-		return () => { removeEventListener('keydown', on); document.body.style.overflow = prev; };
+		return () => { removeEventListener('keydown', on, true); document.body.style.overflow = prev; };
 	}, [onClose]);
 	const url = m.url ?? undefined;
 	const box = (

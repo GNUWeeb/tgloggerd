@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The archive's list and detail pages: groups, files, messages, a user,
 // a group, a message, the dashboard, and a missing page.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, json, renderPage, setup } from '../test/page.tsx';
 import type { GroupsProps } from './groups.tsx';
@@ -10,6 +10,9 @@ import type { MessagesProps } from './messages.tsx';
 import type { UserProps } from './user.tsx';
 import type { DashboardProps } from './dashboard.tsx';
 import { readFileSync } from 'node:fs';
+
+// A .tgs preview plays with the Lottie player, which is not under test.
+vi.mock('../ui/lottie.ts', () => ({ playTgs: vi.fn(() => () => {}) }));
 
 beforeEach(setup);
 const lastPageCall = (calls: ReturnType<typeof fakeApi>) => callsTo(calls, 'GET', /^\/api\/page\//).at(-1)!;
@@ -121,12 +124,12 @@ describe('files', () => {
 		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'big.jpg' })).toBeNull());
 	});
 
-	it('offers no bigger view for a video\'s poster', async () => {
+	it('offers no picture\'s bigger view for a video\'s poster', async () => {
 		const p = fixture<FilesProps>('/files?view=list').props;
 		const f = { ...p.rows[0]!, id: 4247, name: 'clip.mp4', file_type: 'video' as const, stored: true, url: '/files/tok-clip', thumb: '/files/tok-clip-poster' };
 		renderPage('/files?view=list&file=4247', 'superadmin', { props: { ...p, rows: [f], preview: f } });
 		const d = await screen.findByRole('dialog', { name: 'clip.mp4' });
-		expect(d.querySelector('.a-preview img')!.getAttribute('src')).toBe('/files/tok-clip-poster');
+		expect(d.querySelector('.a-preview video')!.getAttribute('poster')).toBe('/files/tok-clip-poster');
 		expect(within(d).queryByRole('button', { name: 'View bigger' })).toBeNull();
 	});
 
@@ -233,7 +236,9 @@ describe('files', () => {
 			const r = renderPage(`/files?view=list&file=${f.id}`, 'superadmin', { props: { ...p, rows, preview: f } });
 			const d = await screen.findByRole('dialog', { name: f.name });
 			expect(d.querySelector('img')).toBeNull();
-			expect(d.querySelector(f.file_type === 'video' ? '.a-preview .a-thumb-video' : '.a-preview .a-thumb-sticker')).toBeTruthy();
+			// It plays with the chat's player, with no poster to draw.
+			if (f.file_type === 'video') expect(d.querySelector('.a-preview video')!.hasAttribute('poster')).toBe(false);
+			else expect(d.querySelector('.a-preview .c-lottie')).toBeTruthy();
 			expect(within(d).queryByRole('button', { name: 'View bigger' })).toBeNull();
 			// Nor the list's small thumbnails.
 			expect(document.querySelectorAll('.a-table img[src*="tok-"]')).toHaveLength(0);
@@ -288,8 +293,9 @@ describe('files', () => {
 			expect(table.querySelector(`img.a-thumb-mini[src="${MINI}"]`)).toBeTruthy();
 		});
 
-		it('shows a video\'s still or blurred preview in the preview, which opens no bigger view', async () => {
-			for (const f of rows) {
+		it('shows the still or blurred preview of a video it cannot play in the preview, which opens no bigger view', async () => {
+			// Neither stored nor fetchable: nothing to play, only its still.
+			for (const f of rows.map((x) => ({ ...x, stored: false, fetchable: false, url: null }))) {
 				const r = renderPage(`/files?view=list&file=${f.id}`, 'superadmin', { props: { ...base(), rows, preview: f } });
 				const d = await screen.findByRole('dialog', { name: f.name });
 				const pane = d.querySelector('.a-preview')!;
@@ -302,11 +308,10 @@ describe('files', () => {
 					expect(pane.querySelector('.a-thumb-play')).toBeTruthy();
 				} else {
 					expect(pane.querySelector('img')).toBeNull();
-					expect(pane.querySelector('.a-thumb-video')).toBeTruthy();
 				}
-				expect(pane.querySelector(`img[src="${f.url}"]`)).toBeNull();
+				expect(pane.querySelector('video')).toBeNull();
 				// The still shows beside the note that the video is not stored.
-				expect(!!pane.querySelector('.a-preview-missing')).toBe(!f.stored);
+				expect(pane.querySelector('.a-preview-missing')).toBeTruthy();
 				r.unmount();
 			}
 		});

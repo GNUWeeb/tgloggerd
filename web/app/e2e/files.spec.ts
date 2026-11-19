@@ -135,3 +135,30 @@ test('a video card shows its still with the play mark, or its blurred preview, a
 	const own = new Set(rows.map((r) => r.url).filter(Boolean));
 	expect(asked.filter((u) => own.has(u))).toEqual([]);
 });
+
+test('a video\'s preview shows its poster, loads none of it, and plays it on a click', async ({ page }) => {
+	const asked: string[] = [];
+	page.on('request', (r) => asked.push(new URL(r.url()).pathname));
+	const q = encodeURIComponent(JSON.stringify([{ field: 'file_type', op: '=', value: 'video' }, { field: 'stored', op: 'is', value: 'yes' }]));
+	const rows = (await (await page.request.get(`/api/page/files?per=100&f=${q}`)).json()).props.rows as { id: number; name: string; url: string; thumb: string | null }[];
+	const f = rows.find((r) => r.thumb)!;
+	expect(f, 'a stored video with a still').toBeTruthy();
+	await page.goto(`/files?file=${f.id}`);
+	const dialog = page.getByRole('dialog', { name: f.name });
+	const box = dialog.getByRole('link', { name: 'Video' });
+	await expect(box.locator('video')).toHaveAttribute('poster', f.thumb!);
+	await expect(box.locator('video')).toHaveAttribute('preload', 'none');
+	await expect(box.locator('.c-playbig')).toBeVisible();
+	await expect.poll(() => asked.includes(f.thumb!)).toBe(true);
+	expect(asked.filter((u) => u === f.url)).toEqual([]);
+	await box.click();
+	const viewer = page.getByRole('dialog', { name: 'Media viewer' });
+	await expect(viewer.locator('video')).toHaveAttribute('src', f.url);
+	await expect.poll(() => asked.includes(f.url)).toBe(true);
+	// Esc closes the player, then the preview.
+	await page.keyboard.press('Escape');
+	await expect(viewer).toHaveCount(0);
+	await expect(dialog).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(dialog).toHaveCount(0);
+});

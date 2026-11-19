@@ -11,7 +11,7 @@ import type { PageData, Viewer } from '../page.ts';
 import type { Cond, FieldDef, FileRow, ListProps } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
-import { Lightbox } from './chat-media.tsx';
+import { Lightbox, MediaOf, type Media, type MediaKind } from './chat-media.tsx';
 
 const noop = () => {};
 
@@ -58,6 +58,38 @@ function PreviewImage({ f, src, onZoom }: { f: FileRow; src: string; onZoom: (()
 	);
 }
 
+// How the chat plays a file; null for a picture, a .webp sticker or a
+// document, which the preview shows as a picture or offers to download.
+function playKind(f: FileRow): MediaKind | null {
+	switch (f.file_type) {
+		case 'video': case 'video_note': return 'video';
+		case 'animation': return 'animation';
+		case 'audio': return 'audio';
+		case 'voice': return 'voice';
+		case 'sticker': return /^(webm|tgs)$/i.test(f.ext) ? 'sticker' : null;
+		default: return null;
+	}
+}
+
+// A file row has no waveform: an even one makes the voice player's bars
+// a plain progress bar.
+const EVEN_WAVE: number[] = Array(48).fill(14);
+
+// The file as the chat's media: its URL, its still and blurred preview
+// for a video (as the grid draws them), and what the players need.
+function mediaOf(f: FileRow): Media {
+	const ext = f.ext.toLowerCase();
+	const sticker = f.file_type === 'sticker';
+	const poster = (isVideoType(f.file_type) || ext === 'webm') ? drawableThumb(f.thumb, { url: f.url, ext: f.ext, type: f.file_type }) ?? undefined : undefined;
+	return {
+		stored: f.stored, fetchable: f.fetchable, url: f.url, name: f.name, size: f.size, duration: f.duration, ext,
+		thumb: poster ?? f.minithumb ?? null, poster, minithumb: f.minithumb,
+		...(sticker ? { format: ext === 'tgs' ? 'tgs' : 'webm' } as const : {}),
+		...(f.file_type === 'video_note' ? { round: true } : {}),
+		...(f.file_type === 'voice' ? { wave: EVEN_WAVE } : {}),
+	};
+}
+
 function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void }) {
 	const big = f.file_type === 'photo' || isVideoType(f.file_type) || f.file_type === 'sticker';
 	const [zoom, setZoom] = useState(false);
@@ -66,6 +98,10 @@ function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void
 	// sticker's still is not the sticker.
 	const zoomable = (f.file_type === 'photo' || f.file_type === 'sticker') && !!pic && !!f.url && !/^(webm|tgs)$/i.test(f.ext);
 	const unzoom = useCallback(() => setZoom(false), []);
+	// A file the chat can play plays here with the chat's own players,
+	// when its bytes are stored or may be fetched; "media on click" is
+	// kept as in the chat.
+	const play = f.url ? playKind(f) : null;
 	return (
 		// While the bigger view is open, Esc and clicks belong to it.
 		<Modal wide title={f.name} icon={<TypeIcon type={f.file_type} />} onClose={zoom ? noop : onClose}
@@ -83,7 +119,8 @@ function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void
 				<div className={`a-preview ${big ? 'big' : ''}`}>
 					{/* A video's still or blurred preview shows even when the
 					    video itself is not stored. */}
-					{pic ? <PreviewImage f={f} src={pic} onZoom={zoomable && f.stored ? () => setZoom(true) : null} />
+					{play ? <div className="a-preview-play"><MediaOf m={mediaOf(f)} kind={play} single onClick={v.chat?.media === 'click'} /></div>
+						: pic ? <PreviewImage f={f} src={pic} onZoom={zoomable && f.stored ? () => setZoom(true) : null} />
 						: f.stored || f.minithumb ? <Thumb type={f.file_type} thumb={null} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
 						: null}
 					{!f.stored && <div className="a-preview-missing"><CloudOff size={28} /><span>{f.url ? 'Not stored. Fetch from Telegram downloads it from there, if Telegram still has it.' : 'Not stored in the archive; only its details were kept.'}</span></div>}
