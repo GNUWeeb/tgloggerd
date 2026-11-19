@@ -14,6 +14,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { REGISTRY, SLOW, compile, fieldsOf, legacyQuery, type ListError } from './search.ts';
 import { ALL, kindsOf, sampleOf, topicOf, topicsOf, type View } from './kinds.ts';
 import { engineAnswer } from './engine.ts';
+import { memberCount, memberFlags, membersPage } from './members.ts';
+export { membersApi, patchGroup } from './members.ts';
 export { engineOf, setEngine } from './engine.ts';
 import { queryRows } from '../../mockup/src/data/seed.js';
 import type { PageData, Viewer } from '../src/page.ts';
@@ -488,7 +490,7 @@ export function load(url: string, persona: Persona): Loaded {
 		const { st, r, extra } = searchList(listState(u.searchParams, 'msg_count', 25, persona), 'groups', groups, s.role === 'superadmin' ? null : s.group, queryGroups);
 		return { route: 'groups', status: 200, props: { ...st, ...r, ...extra, rows: r.rows.map((g) => ({ ...groupSummary(g), msg_count: g.msg_count, admin_count: g.admin_count, description: g.description, created_at: iso(g.created_at), updated_at: iso(g.updated_at) })), archive_total: s.role === 'member' ? undefined : TOTALS.groups } };
 	}
-	if ((m = path.match(/^\/groups\/(-\d+)(\/admins|\/history)?$/))) {
+	if ((m = path.match(/^\/groups\/(-\d+)(\/admins|\/history|\/members)?$/))) {
 		const g = getGroup(m[1]);
 		// An exposed group the viewer's scope does not see (signed out, a
 		// member without it, an admin it is hidden from) has a public page:
@@ -498,17 +500,23 @@ export function load(url: string, persona: Persona): Loaded {
 				route: 'group', status: 200, props: {
 					public: true,
 					group: {
-						id: g.id, title: g.title, username: g.username, type: g.type, photo: null, description: g.description, members: g.members, msg_count: g.msg_count,
+						id: g.id, title: g.title, username: g.username, type: g.type, photo: null, description: g.description, members: g.members, msg_count: g.msg_count, ...memberCount(g),
 						created_at: iso(g.created_at), exposed: true, usernames: g.username ? [{ username: g.username, active: true, kind: 'active', collectible: false }] : [],
 					},
 				},
 			};
 		}
 		if (!g || !s.group(g)) return notFound;
+		// The member list (members.ts): its first page, or the page at
+		// ?offset=; 404 to viewers who do not see users in full.
+		const mp = m[2] === '/members' ? membersPage(g, s.role, Number(q(u, 'offset')) || 0) : undefined;
+		if (mp === null) return notFound;
 		return {
-			route: m[2] === '/admins' ? 'group_admins' : m[2] === '/history' ? 'group_history' : 'group', status: 200, props: {
+			route: m[2] === '/admins' ? 'group_admins' : m[2] === '/history' ? 'group_history' : m[2] === '/members' ? 'group_members' : 'group', status: 200, props: {
+				...(mp ? { ...mp, offset: Number(q(u, 'offset')) || 0, limit: 50 } : {}),
+				...memberFlags(g, s.role),
 				group: {
-					...groupSummary(g), description: g.description, members: g.members, msg_count: g.msg_count, admin_count: g.admin_count, created_at: iso(g.created_at), updated_at: iso(g.updated_at),
+					...groupSummary(g), ...memberCount(g), description: g.description, members: g.members, msg_count: g.msg_count, admin_count: g.admin_count, created_at: iso(g.created_at), updated_at: iso(g.updated_at),
 					usernames: g.username ? [{ username: g.username, active: true, kind: 'active', collectible: false }] : [], photo_file_id: null,
 				},
 				admins: getAdmins(g).map((a) => ({ user: userSummary(a.user, false), status: a.status, custom_title: a.custom_title, is_anonymous: a.is_anonymous, perms: a.perms, since: iso(a.since) })),
@@ -571,7 +579,7 @@ export function load(url: string, persona: Persona): Loaded {
 		return {
 			route: kind === 'group' ? 'group_chat' : 'user_chat', status: 200, props: {
 				chat: kind === 'group'
-					? { kind: 'group', group: { ...groupSummary(c), members: c.members, msg_count: c.msg_count } }
+					? { kind: 'group', group: { ...groupSummary(c), ...memberCount(c), members: c.members, msg_count: c.msg_count } }
 					: { kind: 'user', user: { id: c.id, name: c.name, photo: null }, count: chatStream(c).length },
 				...w, at: found, topics, topic,
 			},
