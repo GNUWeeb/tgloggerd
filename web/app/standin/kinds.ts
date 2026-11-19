@@ -56,6 +56,17 @@ const posters = (): number[] => (users as { id: number }[]).filter((u) => (getGr
 // In no group at all, so no member ever sees them.
 const strangers = (): number[] => (users as { id: number }[]).filter((u) => !posters().includes(u.id) && !getGroupsOfUser(u).length).map((u) => u.id);
 
+// A paid media message's items: a photo and a video the logging account
+// paid for (stored, so they open), one it did not (only a blurred
+// preview is known) and one TDLib could not read.
+const PAID_BLUR = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="6"><rect width="8" height="6" fill="#7a8fa6"/><circle cx="6" cy="2" r="2" fill="#c9d6e3"/></svg>')}`;
+const PAID_ITEMS = [
+	{ kind: 'photo', media: { stored: true, fetchable: false, url: '/files/standin-985001', thumb: '/files/standin-985001', render: 'image', ext: 'jpg', w: 1280, h: 960, name: '', size: 182000 } },
+	{ kind: 'video', media: { stored: true, fetchable: false, url: '/files/standin-985002', thumb: '/files/standin-985102', poster: '/files/standin-985102', render: 'video', ext: 'mp4', w: 1280, h: 720, duration: 21, name: '', size: 2400000 } },
+	{ kind: 'preview', media: { stored: false, fetchable: false, url: null, thumb: null, minithumb: PAID_BLUR, w: 1280, h: 960 } },
+	{ kind: 'unsupported', media: null },
+];
+
 type Entity = { offset: number; length: number; type: string; url?: string; user_id?: number | null; language?: string; custom_emoji_id?: string };
 type Edit = { at: string; text: string; content_type: string; entities: Entity[] };
 type Sample = { content_type: string; text?: string; entities?: (v: View) => Entity[]; edits?: (v: View) => Edit[]; edited_at?: string; detail?: (v: View) => unknown; service?: (v: View) => { type: string; text: string; refs: { users: Ref[]; chats: Ref[]; message_id: number | null } }; media?: { round?: boolean }; tdlib_type?: string; kinds?: Partial<Kinds> };
@@ -145,7 +156,7 @@ function samples(): Sample[] {
 			],
 		}) },
 		{ content_type: 'story', detail: (v) => ({ kind: 'story', poster: refOf(v, c!), story_id: 42 }) },
-		{ content_type: 'paid_media', text: 'Behind the scenes', detail: () => ({ kind: 'paid_media', star_count: 50, items: [{ kind: 'preview', media: null }, { kind: 'photo', media: null }, { kind: 'video', media: null }] }) },
+		{ content_type: 'paid_media', text: 'Behind the scenes', detail: () => ({ kind: 'paid_media', star_count: 50, items: PAID_ITEMS }) },
 		{ content_type: 'invoice', detail: () => ({ kind: 'invoice', title: 'Conference ticket', description: 'One seat at the 2026 meetup.', currency: 'IDR', total_amount: 15000000, is_test: true, photo: null }) },
 		{ content_type: 'giveaway', detail: (v) => ({ kind: 'giveaway', prize: { premium_months: 3 }, winner_count: 5, winners_selection_date: '2026-12-01T12:00:00Z', only_new_members: false, prize_description: '', chats: refs(v, [KINDS_GROUP.id, groups[9]!.id]), chats_total: 2 }) },
 		{ content_type: 'call', detail: (v) => ({ kind: 'call', video: true, group: true, duration: 0, outcome: 'active', participants: refs(v, [a!, b!, x!]), participants_total: 3 }) },
