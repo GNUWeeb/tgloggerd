@@ -99,15 +99,39 @@ test('a very tall picture does not stretch its grid card or its row', async ({ p
 	expect(m).toEqual({ fit: 'contain', inside: true });
 });
 
-test('the grid shows .webm and .tgs files as type icons and draws no broken picture', async ({ page }) => {
-	await page.goto('/files');
-	for (const ext of ['webm', 'tgs']) {
-		const card = page.locator('.a-filecard', { has: page.locator('.a-uname', { hasText: new RegExp(`\\.${ext}$`) }) }).first();
-		await expect(card).toBeVisible();
-		await expect(card.locator('img')).toHaveCount(0);
-		await expect(card.locator('.a-thumb-doc')).toBeVisible();
-	}
+test('the grid shows a .tgs file as its type icon, a .webm by its still, and draws no broken picture', async ({ page }) => {
+	await page.goto('/files?per=100');
+	const card = (ext: string) => page.locator('.a-filecard', { has: page.locator('.a-uname', { hasText: new RegExp(`\\.${ext}$`) }) });
+	const tgs = card('tgs').first();
+	await expect(tgs).toBeVisible();
+	await expect(tgs.locator('img')).toHaveCount(0);
+	await expect(tgs.locator('.a-thumb-doc')).toBeVisible();
+	// A .webm with a still shows that picture, never the video itself.
+	const webm = card('webm').filter({ has: page.locator('img:not(.a-thumb-mini)') }).first();
+	await expect(webm).toBeVisible();
+	expect(await webm.locator('img:not(.a-thumb-mini)').getAttribute('src')).not.toMatch(/\.webm$/);
 	const imgs = page.locator('.a-filecard img');
 	await expect.poll(() => imgs.evaluateAll((els) => els.every((i) => (i as HTMLImageElement).complete))).toBe(true);
 	expect(await imgs.evaluateAll((els) => els.filter((i) => (i as HTMLImageElement).naturalWidth === 0).map((i) => i.getAttribute('src')))).toEqual([]);
+});
+
+test('a video card shows its still with the play mark, or its blurred preview, and loads none of the video', async ({ page }) => {
+	const asked: string[] = [];
+	page.on('request', (r) => asked.push(new URL(r.url()).pathname));
+	const q = encodeURIComponent(JSON.stringify([{ field: 'file_type', op: '=', value: 'video' }]));
+	await page.goto(`/files?per=100&f=${q}`);
+	const rows = (await (await page.request.get(`/api/page/files?per=100&f=${q}`)).json()).props.rows as { id: number; name: string; url: string | null; thumb: string | null; minithumb?: string }[];
+	const withStill = rows.find((r) => r.thumb)!;
+	const blurOnly = rows.find((r) => !r.thumb && r.minithumb)!;
+	expect(withStill && blurOnly, 'stand-in videos with a still and with only a blurred preview').toBeTruthy();
+	const card = (name: string) => page.locator('.a-filecard', { has: page.locator('.a-uname', { hasText: name }) }).first();
+	const still = card(withStill.name).locator(`img[src="${withStill.thumb}"]`);
+	await expect.poll(() => still.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBeGreaterThan(0);
+	await expect(card(withStill.name).locator('.a-thumb-play')).toBeVisible();
+	const mini = card(blurOnly.name).locator('img.a-thumb-mini');
+	await expect.poll(() => mini.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBeGreaterThan(0);
+	expect(await mini.evaluate((i) => getComputedStyle(i).filter)).toContain('blur');
+	await expect(page.locator('.a-filegrid video')).toHaveCount(0);
+	const own = new Set(rows.map((r) => r.url).filter(Boolean));
+	expect(asked.filter((u) => own.has(u))).toEqual([]);
 });
