@@ -13,7 +13,8 @@
 // Live updates: GET /api/events is a Server-Sent Events stream as
 // web-live.md specifies. Events come from POST /api/_standin/emit
 // {kind, chat_id?, message_id?, user_id?}, which also makes the change
-// in the fixtures; POST /api/_standin/events {"off": true} makes the
+// in the fixtures (message.new with a free message_id below the newest
+// fills that gap); POST /api/_standin/events {"off": true} makes the
 // stream refuse and drops open ones, to exercise the polling fallback.
 // TGD_STANDIN_TICK=<ms> emits a new message into a subscribed chat that
 // often.
