@@ -1,6 +1,7 @@
 // A user's or a group's recorded photos in a carousel over the page
-// (GET /api/users/{id}/photos, /api/groups/{id}/photos): newest first,
-// opened at the photo asked for or else the current one. The arrow keys,
+// (GET /api/users/{id}/photos, /api/groups/{id}/photos): the current
+// photo first, then the others newest first; opened at the photo asked
+// for or else the current one. The arrow keys,
 // Home and End, the buttons and a swipe move through them; Esc, the close
 // button or a click beside the photo closes it.
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
@@ -30,9 +31,10 @@ export function PhotoCarousel({ kind, id, start, title, viewer, onClose }: { kin
 		track(call).then((p) => {
 			if (!live) return;
 			setPhotos(p);
-			// The photo asked for, else the current one, else the newest.
-			const want = start ?? p.current_id;
-			const i = want === null ? -1 : p.items.findIndex((x) => x.id === want);
+			// The photo asked for, else the first: the list starts with the
+			// current photo, also one the recorded history lacks, so
+			// current_id (a history row) may name an older item.
+			const i = start === null ? 0 : p.items.findIndex((x) => x.id === start);
 			setAt(Math.max(0, i));
 		}, (x) => { if (live) setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); });
 		return () => { live = false; };

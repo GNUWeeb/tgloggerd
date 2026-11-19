@@ -18,6 +18,10 @@ const serve = {
 const box = () => screen.getByRole('dialog', { name: /^Photos of / });
 const count = () => box().querySelector('.a-carousel-count')!.textContent;
 
+// A current photo the history lacks: the stand-in lists it first, marks
+// it current and gives it the row 99.
+const missing = (p: Photos) => p.current_id !== null && p.items[0]!.id === p.current_id && p.items[0]!.id % 100 === 99;
+
 // A user with a photo and more than one recorded.
 function userWithPhotos() {
 	for (const id of [...sampleContacts(), ...fixture<{ rows: { id: number }[] }>('/users').props.rows.map((r) => r.id)]) {
@@ -36,9 +40,42 @@ describe('photo carousel', () => {
 		fireEvent.click(screen.getByRole('button', { name: /^Show the photos of / }));
 		await waitFor(() => expect(count()).toContain(`of ${p.items.length}`));
 		expect(callsTo(calls, 'GET', `/api/users/${id}/photos`)).toHaveLength(1);
-		const at = p.current_id === null ? 0 : p.items.findIndex((x) => x.id === p.current_id);
-		expect(count()).toContain(`${at + 1} of`);
+		expect(count()).toContain('1 of');
 		expect(within(box()).getByText(/^Set /)).toBeTruthy();
+	});
+
+	it('opens from the profile photo at the first, even when current_id names an older one', async () => {
+		const { id, p } = userWithPhotos();
+		// As an older answer could: the current file was also an older photo.
+		fakeApi('superadmin', { 'GET /api/users/:id/photos': () => ({ ...p, current_id: p.items[2]!.id }) });
+		const page = fixture<Extract<UserProps, { limited?: false }>>(`/users/${id}`).props;
+		renderPage(`/users/${id}`, 'superadmin', { props: { ...page, user: { ...page.user, photo: '/files/now' } } });
+		fireEvent.click(screen.getByRole('button', { name: /^Show the photos of / }));
+		await waitFor(() => expect(count()).toContain(`1 of ${p.items.length}`));
+	});
+
+	it('opens at a user\'s current photo the history lacks', async () => {
+		const uid = [...sampleContacts(), ...fixture<{ rows: { id: number }[] }>('/users').props.rows.map((r) => r.id)]
+			.find((x) => { const [st, p] = userPhotos(String(x), 'superadmin') as [number, Photos]; return st === 200 && p.items.length > 2 && missing(p); })!;
+		const up = userPhotos(String(uid), 'superadmin')[1] as Photos;
+		fakeApi('superadmin', serve);
+		const page = fixture<Extract<UserProps, { limited?: false }>>(`/users/${uid}`).props;
+		expect(page.history.some((e) => e.kind === 'photo' && e.photo_id === up.current_id)).toBe(false);
+		renderPage(`/users/${uid}`, 'superadmin', { props: { ...page, user: { ...page.user, photo: '/files/now' } } });
+		fireEvent.click(screen.getByRole('button', { name: /^Show the photos of / }));
+		await waitFor(() => expect(count()).toContain(`1 of ${up.items.length}`));
+		expect(within(box()).getByText('current photo')).toBeTruthy();
+	});
+
+	it('opens at a group\'s current photo the history lacks', async () => {
+		const g = fixture<GroupsProps>('/groups').props.rows.find((r) => missing(groupPhotos(String(r.id), 'superadmin')[1] as Photos))!;
+		const gp = groupPhotos(String(g.id), 'superadmin')[1] as Photos;
+		fakeApi('superadmin', serve);
+		const gpage = fixture<{ group: object }>(`/groups/${g.id}`).props;
+		renderPage(`/groups/${g.id}`, 'superadmin', { props: { ...gpage, group: { ...gpage.group, photo: '/files/g' } } });
+		fireEvent.click(screen.getByRole('button', { name: /^Show the photos of / }));
+		await waitFor(() => expect(count()).toContain(`1 of ${gp.items.length}`));
+		expect(within(box()).getByText('current photo')).toBeTruthy();
 	});
 
 	it('moves by arrow keys, Home and End, buttons and thumbnails; Esc closes', async () => {
