@@ -102,10 +102,31 @@ func (d *joinDaemon) answer(path string, status int, retryAfter, body string) {
 	}
 }
 
+// calls are the calls asked for, but for the status asks every page
+// may start in the background (loggerAccount), which statusCalls
+// counts.
 func (d *joinDaemon) calls() []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return append([]string(nil), d.asked...)
+	var out []string
+	for _, a := range d.asked {
+		if !strings.HasPrefix(a, "/v1/status ") {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func (d *joinDaemon) statusCalls() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	n := 0
+	for _, a := range d.asked {
+		if strings.HasPrefix(a, "/v1/status ") {
+			n++
+		}
+	}
+	return n
 }
 
 // fakeDiscord stands in for Discord's webhook endpoint: the service's

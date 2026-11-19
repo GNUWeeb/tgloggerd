@@ -445,6 +445,19 @@ func VisibleUserIDs(ctx context.Context, db *sql.DB, sc scope.Scope, ids []int64
 	return out, rows.Err()
 }
 
+// LoggerUser is the logging account's own user row, by its id. It
+// takes no scope on purpose: every page names the account to every
+// viewer (Viewer.logger), as service lines name it. ok is false when
+// the archive has no row for it.
+func LoggerUser(ctx context.Context, db *sql.DB, id int64) (u User, ok bool, err error) {
+	m, err := usersByID(ctx, db, scope.Everything(), []int64{id})
+	if err != nil {
+		return User{}, false, err
+	}
+	u, ok = m[id]
+	return u, ok, nil
+}
+
 // VisibleUsers is the users among ids that exist and that the scope
 // sees, in the order of ids: every user for a viewer that sees all
 // users, else those that appear in its visible groups.

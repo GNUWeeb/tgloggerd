@@ -54,6 +54,18 @@ type Viewer struct {
 	Pinned []Pin `json:"pinned,omitempty"`
 	// Chat is the chat view's settings.
 	Chat *settings.Chat `json:"chat,omitempty"`
+	// Logger is the logging account, for every viewer; nil while the
+	// web does not know it.
+	Logger *Logger `json:"logger"`
+}
+
+// Logger is the logging account as a user reference: its user row,
+// and its photo's URL when the viewer may have it.
+type Logger struct {
+	ID       int64   `json:"id"`
+	Name     string  `json:"name"`
+	Username *string `json:"username"`
+	Photo    *string `json:"photo"`
 }
 
 // Pin is a pinned group in the menu, with its photo's URL when the
