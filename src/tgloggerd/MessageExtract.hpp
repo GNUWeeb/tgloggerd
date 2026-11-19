@@ -170,6 +170,12 @@ void extract_message_content(const td_api::message &message,
  */
 std::string rich_message_text(const td_api::richMessage &m);
 
+/*
+ * Whether @content is a rich message TDLib delivered without all of its
+ * blocks (richMessage.is_full false), so getFullRichMessage has the rest.
+ */
+bool rich_message_is_partial(const td_api::MessageContent &content);
+
 /* The message's text or caption with its entities, or nullptr for content
  * that has none. Mirrors extract_message_content's text sources. */
 const td_api::formattedText *

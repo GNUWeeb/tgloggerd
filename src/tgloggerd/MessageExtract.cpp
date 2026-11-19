@@ -2751,6 +2751,14 @@ void extract_message_content(const td_api::MessageContent &content,
 		out.content_extra = tdlib_extra_json(content);
 }
 
+bool rich_message_is_partial(const td_api::MessageContent &content)
+{
+	if (content.get_id() != td_api::messageRichMessage::ID)
+		return false;
+	const auto &c = static_cast<const td_api::messageRichMessage &>(content);
+	return c.message_ && !c.message_->is_full_;
+}
+
 std::string rich_message_text(const td_api::richMessage &m)
 {
 	std::vector<std::string> lines;
