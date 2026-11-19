@@ -38,11 +38,11 @@ again.
 
 The pass does not re-read media rows (decision
 [2026-11-18-msg-repair-scope](../design/decisions/2026-11-18-msg-repair-scope.md)),
-and rows that already have a `tdlib_type` (the rich messages, which are
-stored with TDLib's JSON) are not touched either; `msg-rich-store` has
-its own pass for those. A re-read service row gets the current
-description as its `text`, which differs from the old one only for the
-topic and boost notices.
+and the rich messages stored before their mapping are re-read by the
+same pass since msg-rich-store (decision
+[2026-11-19-msg-rich-reread](../design/decisions/2026-11-19-msg-rich-reread.md)).
+A re-read service row gets the current description as its `text`,
+which differs from the old one only for the topic and boost notices.
 
 ## Depends on
 
