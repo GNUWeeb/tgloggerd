@@ -215,6 +215,41 @@ describe('files', () => {
 		}
 	});
 
+	it('draws a .webm video and a .tgs sticker as their type icons, never as a broken <img>', async () => {
+		const p = fixture<FilesProps>('/files').props;
+		// thumb null as Go sends them; and an older server's own-URL thumb.
+		const webm = { ...p.rows[0]!, id: 4249, name: 'clip.webm', ext: 'webm', file_type: 'video' as const, stored: true, url: '/files/tok-webm', thumb: null };
+		const oldWebm = { ...webm, id: 4250, name: 'old.webm', url: '/files/tok-old', thumb: '/files/tok-old' };
+		const tgs = { ...p.rows[0]!, id: 4251, name: 'duck.tgs', ext: 'tgs', file_type: 'sticker' as const, stored: true, url: '/files/tok-tgs.tgs', thumb: '/files/tok-tgs.tgs' };
+		const rows = [webm, oldWebm, tgs];
+		const { unmount } = renderPage('/files', 'superadmin', { props: { ...p, rows } });
+		for (const f of rows) {
+			const card = screen.getAllByRole('button').find((b) => b.classList.contains('a-filecard') && within(b).queryByText(f.name))!;
+			expect(card.querySelector('img')).toBeNull();
+			expect(card.querySelector(f.file_type === 'video' ? '.a-thumb-video' : '.a-thumb-sticker')).toBeTruthy();
+		}
+		unmount();
+		for (const f of rows) {
+			const r = renderPage(`/files?view=list&file=${f.id}`, 'superadmin', { props: { ...p, rows, preview: f } });
+			const d = await screen.findByRole('dialog', { name: f.name });
+			expect(d.querySelector('img')).toBeNull();
+			expect(d.querySelector(f.file_type === 'video' ? '.a-preview .a-thumb-video' : '.a-preview .a-thumb-sticker')).toBeTruthy();
+			expect(within(d).queryByRole('button', { name: 'View bigger' })).toBeNull();
+			// Nor the list's small thumbnails.
+			expect(document.querySelectorAll('.a-table img[src*="tok-"]')).toHaveLength(0);
+			r.unmount();
+		}
+	});
+
+	it('lists a .webm video and a .tgs sticker in the stand-in with no thumb, as Go sends them', () => {
+		const rows = fixture<FilesProps>('/files').props.rows;
+		for (const ext of ['webm', 'tgs']) {
+			const f = rows.find((r) => r.ext === ext && r.stored)!;
+			expect(f, `a stored .${ext} file`).toBeTruthy();
+			expect(f.thumb).toBeNull();
+		}
+	});
+
 	it('switches between grid and list', async () => {
 		const calls = fakeApi('superadmin');
 		renderPage('/files');

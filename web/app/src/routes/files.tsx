@@ -5,7 +5,7 @@ import { Link, setQuery, useNav, useQueryParams } from '../nav.tsx';
 import { Btn, KV, PageHead, Pill } from '../ui/primitives.tsx';
 import { DataTable, emptyText, FilterBar, Pager, useListNav, type Col } from '../ui/list.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { Thumb, TypeIcon, duration } from '../ui/media.tsx';
+import { Thumb, TypeIcon, drawableThumb, duration } from '../ui/media.tsx';
 import { ago, bytes, dateTime, fmt } from '../format.ts';
 import type { PageData, Viewer } from '../page.ts';
 import type { Cond, FieldDef, FileRow, ListProps } from '../types.ts';
@@ -46,9 +46,9 @@ const chatHref = (c: NonNullable<FileRow['chat']>) => (c.kind === 'group' ? `/gr
 // The file's picture (a photo, or a video's poster) whole, at its own
 // shape: never cropped, within the pane and most of the window's height.
 // A stored picture opens bigger, in the chat's viewer, on a click.
-function PreviewImage({ f, onZoom }: { f: FileRow; onZoom: (() => void) | null }) {
+function PreviewImage({ f, src, onZoom }: { f: FileRow; src: string; onZoom: (() => void) | null }) {
 	const video = f.file_type === 'video' || f.file_type === 'animation';
-	const img = <img className="a-preview-img" src={f.thumb!} alt="" />;
+	const img = <img className="a-preview-img" src={src} alt="" />;
 	if (onZoom) return <button type="button" className="a-preview-media a-preview-zoom" onClick={onZoom} aria-label="View bigger">{img}</button>;
 	return (
 		<span className="a-preview-media">
@@ -61,7 +61,8 @@ function PreviewImage({ f, onZoom }: { f: FileRow; onZoom: (() => void) | null }
 function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void }) {
 	const big = f.file_type === 'photo' || f.file_type === 'video' || f.file_type === 'animation' || f.file_type === 'sticker';
 	const [zoom, setZoom] = useState(false);
-	const zoomable = (f.file_type === 'photo' || f.file_type === 'sticker') && !!f.url;
+	const pic = drawableThumb(f.thumb, f.ext);
+	const zoomable = (f.file_type === 'photo' || f.file_type === 'sticker') && !!pic && !!f.url;
 	const unzoom = useCallback(() => setZoom(false), []);
 	return (
 		// While the bigger view is open, Esc and clicks belong to it.
@@ -78,7 +79,7 @@ function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void
 			</>}>
 			<div className="a-previewgrid">
 				<div className={`a-preview ${big ? 'big' : ''}`}>
-					{f.stored && f.thumb ? <PreviewImage f={f} onZoom={zoomable ? () => setZoom(true) : null} />
+					{f.stored && pic ? <PreviewImage f={f} src={pic} onZoom={zoomable ? () => setZoom(true) : null} />
 						: f.stored ? <Thumb type={f.file_type} thumb={null} stored ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
 						: <div className="a-preview-missing"><CloudOff size={28} /><span>{f.url ? 'Not stored. Fetch from Telegram downloads it from there, if Telegram still has it.' : 'Not stored in the archive; only its details were kept.'}</span></div>}
 				</div>
@@ -121,7 +122,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 		{ key: 'id', label: 'ID', sort: true, align: 'right', cls: 'a-hide-md', render: (f) => <span className="num">{f.id}</span> },
 		{ key: 'name', label: 'File', sort: true, cls: 'c-name', render: (f) => (
 			<button type="button" className="a-usercell a-plain" onClick={() => show(f)}>
-				<Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} size={30} radius={6} />
+				<Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} ext={f.ext} size={30} radius={6} />
 				<span><span className="a-uname a-clip">{f.name}</span><span className="a-handle">{f.chat?.title ?? NO_MESSAGE}</span></span>
 			</button>
 		) },
@@ -160,7 +161,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 			) : (
 				<DataTable L={L} cols={cols} noun="files" empty={emptyText(L, member, 'files', 'No files match these filters.')}
 					href={(f) => setQuery(page.url, { file: f.id })} open={show}
-					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
+					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} ext={f.ext} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
 			)}
 			{preview && <Preview f={preview} v={v} onClose={() => show(null)} />}
 		</Shell>

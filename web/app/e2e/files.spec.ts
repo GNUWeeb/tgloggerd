@@ -98,3 +98,16 @@ test('a very tall picture does not stretch its grid card or its row', async ({ p
 	});
 	expect(m).toEqual({ fit: 'contain', inside: true });
 });
+
+test('the grid shows .webm and .tgs files as type icons and draws no broken picture', async ({ page }) => {
+	await page.goto('/files');
+	for (const ext of ['webm', 'tgs']) {
+		const card = page.locator('.a-filecard', { has: page.locator('.a-uname', { hasText: new RegExp(`\\.${ext}$`) }) }).first();
+		await expect(card).toBeVisible();
+		await expect(card.locator('img')).toHaveCount(0);
+		await expect(card.locator('.a-thumb-doc')).toBeVisible();
+	}
+	const imgs = page.locator('.a-filecard img');
+	await expect.poll(() => imgs.evaluateAll((els) => els.every((i) => (i as HTMLImageElement).complete))).toBe(true);
+	expect(await imgs.evaluateAll((els) => els.filter((i) => (i as HTMLImageElement).naturalWidth === 0).map((i) => i.getAttribute('src')))).toEqual([]);
+});

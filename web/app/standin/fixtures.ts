@@ -323,13 +323,18 @@ const orphan = (f) => f.id % 23 === 0;
 
 // The sample files with what the mockup data lacks: a SHA-256 for
 // stored bytes, the last access and the last update (a few days after
-// first seen, by id), and the odd file of unknown type.
+// first seen, by id), and the odd file of unknown type. A sticker has
+// the format its chat message gives it (webp, webm or tgs), and every
+// fifth video is a .webm.
 const DAY_MS = 86400000;
 const shift = (at: string, days: number) => new Date(Math.min(Date.parse(iso(at)) + days * DAY_MS, Date.parse(NOW))).toISOString().replace('T', ' ').slice(0, 19);
 let fileData = null;
 function allFiles() {
+	const extOf = (f) => (f.file_type === 'sticker' ? STICKER_FORMATS[f.id % 3] : f.file_type === 'video' && f.id % 5 === 0 ? 'webm' : f.ext);
 	fileData ??= files().map((f) => ({
 		...f,
+		ext: extOf(f),
+		name: extOf(f) === f.ext ? f.name : f.name.replace(/\.[^.]*$/, '') + '.' + extOf(f),
 		file_type: f.id % 97 === 0 ? 'unknown' : f.file_type,
 		sha256: f.stored ? createHash('sha256').update(`standin-file-${f.id}`).digest('hex') : null,
 		updated_at: shift(f.created_at, (f.id % 5) / 2),
@@ -341,14 +346,15 @@ const pictureType = (t: string) => t === 'photo' || t === 'sticker';
 
 // A file as Go sends it (FileRow): url when the bytes are stored or the
 // viewer may have them fetched from Telegram; thumb only for a stored
-// photo or sticker.
+// photo or sticker an <img> can draw (not a .webm or .tgs).
 function fileRow(f, fetch: boolean) {
 	const fetchable = !f.stored && fetch;
-	const url = f.stored || fetchable ? `/files/standin-${f.id}` : null;
+	const url = f.stored || fetchable ? `/files/standin-${f.id}${f.ext === 'tgs' ? '.tgs' : ''}` : null;
+	const drawable = f.ext !== 'webm' && f.ext !== 'tgs';
 	const base = {
 		id: f.id, file_type: f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored, fetchable,
 		created_at: iso(f.created_at), accessed_at: iso(f.accessed_at), duration: f.duration, tg_file_id: f.tg_file_id, sha256: f.sha256,
-		url, thumb: f.stored && pictureType(f.file_type) ? url : null,
+		url, thumb: f.stored && pictureType(f.file_type) && drawable ? url : null,
 	};
 	if (orphan(f)) return { ...base, chat: null, sender: null, message: null };
 	return {
