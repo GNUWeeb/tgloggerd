@@ -74,6 +74,9 @@ type FileOrigin struct {
 	ChatKind  string // "group" or "user"
 	SenderID  int64  // 0: the logging account, or a chat
 	Sender    string // the sender's name, "" with SenderID 0
+	// Extra is the message's content_extra (docs/design/message-types.md
+	// section 4.2.1): a video's or audio file's length, among others.
+	Extra []byte
 }
 
 // FileOrigins are the first visible messages of the files ids, by file
@@ -90,7 +93,8 @@ func FileOrigins(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) 
 	}
 	gf, ga := sc.GroupFilter("fm.chat_id")
 	q := "SELECT gm.file_id, gm.id, gm.chat_id, g.title, gm.sender_user_id, " +
-		"su.first_name, su.last_name FROM telegram_group_messages gm " +
+		"su.first_name, su.last_name, gm.content_extra " +
+		"FROM telegram_group_messages gm " +
 		"JOIN (SELECT fm.file_id, MIN(fm.id) AS id FROM telegram_group_messages fm " +
 		"WHERE fm.file_id IN (" + placeholders(len(ids)) + ") AND " + gf +
 		" GROUP BY fm.file_id) x ON x.id = gm.id " +
@@ -106,7 +110,8 @@ func FileOrigins(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) 
 	}
 	for _, r := range rows {
 		o := FileOrigin{Scope: "group", MessageID: r.Uint("id"), ChatID: r.Int("chat_id"),
-			ChatTitle: GroupTitle(r.Str("title")), ChatKind: "group"}
+			ChatTitle: GroupTitle(r.Str("title")), ChatKind: "group",
+			Extra: []byte(r.Str("content_extra"))}
 		if !r.Null("sender_user_id") {
 			o.SenderID = r.Int("sender_user_id")
 			o.Sender = DisplayName(r.Str("first_name"), r.Str("last_name"))
@@ -117,7 +122,7 @@ func FileOrigins(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) 
 		return out, nil
 	}
 	q = "SELECT pm.file_id, pm.id, pm.chat_id, pu.first_name AS peer_first, " +
-		"pu.last_name AS peer_last, pm.sender_id, pm.is_outgoing " +
+		"pu.last_name AS peer_last, pm.sender_id, pm.is_outgoing, pm.content_extra " +
 		"FROM telegram_private_messages pm " +
 		"JOIN (SELECT fp.file_id, MIN(fp.id) AS id FROM telegram_private_messages fp " +
 		"WHERE fp.file_id IN (" + placeholders(len(ids)) + ") GROUP BY fp.file_id) x " +
@@ -135,7 +140,7 @@ func FileOrigins(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) 
 		}
 		peer := DisplayName(r.Str("peer_first"), r.Str("peer_last"))
 		o := FileOrigin{Scope: "private", MessageID: r.Uint("id"), ChatID: r.Int("chat_id"),
-			ChatTitle: peer, ChatKind: "user"}
+			ChatTitle: peer, ChatKind: "user", Extra: []byte(r.Str("content_extra"))}
 		if !r.Bool("is_outgoing") && !r.Null("sender_id") {
 			// Incoming private messages come from the peer.
 			o.SenderID, o.Sender = r.Int("sender_id"), peer

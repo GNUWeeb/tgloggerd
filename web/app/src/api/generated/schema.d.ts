@@ -2054,6 +2054,7 @@ export interface components {
             created_at: string;
             /** @description Last access: ingested again or served, what eviction goes by. Always sent; optional in this description. */
             accessed_at?: string;
+            /** @description A video's, audio file's, voice note's or video note's length in seconds, from the stored detail (content_extra) of the message the row names; absent when that message has none, or when the file came in no message the viewer sees. */
             duration?: number;
             tg_file_id: string;
             /** @description The bytes' SHA-256, 64 lowercase hex digits; null for a row recorded without its bytes. Always sent; optional in this description. */

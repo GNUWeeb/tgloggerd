@@ -8,6 +8,7 @@ package server
 import (
 	"fmt"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -530,5 +531,51 @@ func TestGroupTabsBatched(t *testing.T) {
 	}
 	if polls > page+6 {
 		t.Errorf("polls: %d statements, the group page %d", polls, page)
+	}
+}
+
+// The files page gives its rows, and the file it previews, the same
+// length as the Files tab: a video's, an audio file's, a voice note's
+// and a video note's, from the message that carried them; a photo,
+// whose message stores none, has no duration.
+func TestFilesListDuration(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, tabsFixture)
+	q := url.Values{"f": {`[{"field":"id","op":">","value":"840050"},` +
+		`{"field":"id","op":"<","value":"840060"}]`}, "per": {"100"}}
+	st, b := e.page("admin", "/files?"+q.Encode())
+	if st != 200 {
+		t.Fatalf("files page: %d %v", st, b)
+	}
+	rows := b["props"].(map[string]any)["rows"].([]any)
+	if len(rows) != 9 {
+		t.Fatalf("%d rows", len(rows))
+	}
+	dur := map[float64]any{}
+	for _, r := range rows {
+		r := r.(map[string]any)
+		if d, ok := r["duration"]; ok {
+			dur[r["id"].(float64)] = d
+		}
+	}
+	if js(dur) != `{"840053":42,"840055":185,"840056":7,"840059":12}` {
+		t.Errorf("durations %s", js(dur))
+	}
+
+	for _, c := range []struct {
+		id  int
+		dur any
+	}{{840053, 42.0}, {840055, 185.0}, {840051, nil}} {
+		st, b := e.page("admin", fmt.Sprintf("/files?file=%d", c.id))
+		if st != 200 {
+			t.Fatalf("preview %d: %d %v", c.id, st, b)
+		}
+		p, _ := b["props"].(map[string]any)["preview"].(map[string]any)
+		if p == nil || p["id"] != float64(c.id) {
+			t.Fatalf("preview %d: %v", c.id, p)
+		}
+		if d, ok := p["duration"]; d != c.dur || (c.dur == nil && ok) {
+			t.Errorf("preview %d: duration %v, want %v", c.id, d, c.dur)
+		}
 	}
 }

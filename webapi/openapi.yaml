@@ -5627,6 +5627,11 @@ components:
             by. Always sent; optional in this description.
         duration:
           type: integer
+          description: >-
+            A video's, audio file's, voice note's or video note's
+            length in seconds, from the stored detail (content_extra)
+            of the message the row names; absent when that message has
+            none, or when the file came in no message the viewer sees.
         tg_file_id:
           type: string
         sha256:

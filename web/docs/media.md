@@ -165,7 +165,12 @@ FileRow in webapi/openapi.yaml) gives each row `url` when the file is
 stored or fetchable by the same rule and a `fetchable` flag as in the
 chat API; the list's thumbnails are of stored pictures only (a
 picture's own bytes, a video's still: see "Video stills"), so showing
-the list fetches nothing.
+the list fetches nothing. A row names the first message the viewer
+sees that carried the file (`chat`, `message`), and its `duration` is
+the length in seconds of a video, audio file, voice note or video note
+that message stored in its `content_extra`. It is read with the
+message, so a page costs no extra query, and is absent when the message
+stored none or the viewer sees no message that carried the file.
 
 ## Caching
 

@@ -1022,6 +1022,10 @@ type listFile struct {
 	Sender     *listIDName   `json:"sender"`
 	Message    *listMsgRef   `json:"message"`
 	Minithumb  string        `json:"minithumb,omitempty"` // a video's blurred preview, a data: URL
+	// Duration is a video's, audio's, voice note's or video note's
+	// length in seconds, from the content_extra of the message that
+	// carried it; left out when unknown.
+	Duration int `json:"duration,omitempty"`
 }
 
 // filesProps are the files page's (FilesProps).
@@ -1069,7 +1073,8 @@ func isVideo(fileType, ext string) bool {
 // picture has a thumbnail, so that listing files fetches nothing: a
 // stored photo or sticker is its own, and a video's is the stored
 // cover, else the stored Telegram thumbnail, of a message that carried
-// it.
+// it. A file's length is that of the same message, read in the same
+// batch (logdb.FileOrigins).
 func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool,
 	rows []logdb.Row) ([]listFile, error) {
 	ids := make([]uint64, 0, len(rows))
@@ -1092,6 +1097,7 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool
 		if o, ok := origins[f.ID]; ok {
 			f.Chat = &listChatName{ID: o.ChatID, Title: o.ChatTitle, Kind: o.ChatKind}
 			f.Message = &listMsgRef{Scope: o.Scope, ID: o.MessageID}
+			f.Duration = parseExtra(o.Extra).Duration
 			if o.SenderID != 0 {
 				f.Sender = &listIDName{ID: o.SenderID, Name: o.Sender}
 			}
