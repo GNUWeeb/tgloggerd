@@ -97,11 +97,15 @@ function LiveDot() {
 function LiveNoticeBar() {
 	const n = useLiveNotice();
 	if (!n.shown) return null;
+	// A slot of no height that sticks under the top bar: the notice
+	// floats over the page instead of pushing it down.
 	return (
-		<div className="a-livenotice" role="status">
-			<RefreshCw size={14} /><span>New activity since this page loaded.</span>
-			<button type="button" className="a-link" onClick={n.apply}>Refresh</button>
-			<button type="button" className="a-icon-btn" aria-label="Dismiss" onClick={n.dismiss}><X size={14} /></button>
+		<div className="a-livenotice-slot">
+			<div className="a-livenotice" role="status">
+				<RefreshCw size={14} /><span>New activity since this page loaded.</span>
+				<button type="button" className="a-link" onClick={n.apply}>Refresh</button>
+				<button type="button" className="a-icon-btn" aria-label="Dismiss" onClick={n.dismiss}><X size={14} /></button>
+			</div>
 		</div>
 	);
 }

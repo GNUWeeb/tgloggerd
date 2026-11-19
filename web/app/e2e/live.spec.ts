@@ -17,11 +17,17 @@ test('a message list keeps its rows and offers a refresh', async ({ page, emit }
 	await page.goto('/group_messages');
 	await expect(page.locator('.a-livestate.is-live')).toBeVisible();
 	const first = await page.locator('tbody tr').first().textContent();
+	// The notice floats over the page: showing or closing it moves
+	// nothing.
+	const top = () => page.locator('main.a-content').evaluate((el) => el.getBoundingClientRect().top);
+	const before = await top();
 	await emit({ kind: 'message.new', chat_id: G });
 	await expect(page.locator('.a-livenotice')).toBeVisible();
+	expect(await top()).toBe(before);
 	expect(await page.locator('tbody tr').first().textContent()).toBe(first);
 	await page.click('.a-livenotice button:has-text("Refresh")');
 	await expect(page.locator('.a-livenotice')).toHaveCount(0);
+	expect(await top()).toBe(before);
 	await expect(page.locator('tbody tr').first()).toContainText('Live message');
 });
 
