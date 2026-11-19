@@ -34,6 +34,8 @@ describe('search engine options', () => {
 		const { calls } = show({ engine: { ...ENGINE, options: ['phrase', 'fuzzy', 'highlight'] } });
 		const g = within(options()!);
 		expect(g.getAllByRole('checkbox').map((c) => c.closest('label')!.textContent)).toEqual(['Allow typos', 'Highlight matches']);
+		// The search box reaches the engine here, so no matches hint.
+		expect(g.queryByText('works with a matches filter')).toBeNull();
 		fireEvent.click(g.getByRole('checkbox', { name: 'Allow typos' }));
 		await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\//).at(-1)?.query.get('fuzzy')).toBe('1'));
 	});
@@ -81,6 +83,47 @@ describe('search engine options', () => {
 		expect(within(f).getAllByRole('button').map((b) => b.textContent)).toEqual(['Rust & friends1,200', 'Other3']);
 		fireEvent.click(within(f).getByRole('button', { name: /Rust & friends/ }));
 		await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\//).at(-1)?.query.get('f')).toBe(JSON.stringify([{ field: 'chat_id', op: '=', value: '-1001' }])));
+	});
+});
+
+// The message lists' own text filter, with the search's full-text
+// matches added when the list's registry offers it.
+describe('text matches on the message lists', () => {
+	const conditions = () => [...(screen.getByRole('combobox', { name: 'Condition' }) as HTMLSelectElement).options].map((o) => o.value);
+	function filterText(url: string, extra: Partial<MessagesProps> = {}) {
+		const calls = fakeApi('superadmin');
+		const page = fixture<MessagesProps>(url);
+		renderPage(url, 'superadmin', { props: { ...page.props, ...extra } });
+		fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+		fireEvent.change(screen.getByRole('combobox', { name: 'Field' }), { target: { value: 'text' } });
+		return { calls, page };
+	}
+	const apply = (op: string, value: string) => {
+		fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: op } });
+		fireEvent.change(screen.getByRole('textbox', { name: /Value/ }), { target: { value } });
+		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+	};
+	const lastF = (calls: ReturnType<typeof fakeApi>) => callsTo(calls, 'GET', /^\/api\/page\//).at(-1)?.query.get('f');
+
+	for (const url of ['/group_messages', '/private_messages']) {
+		it(`offers and applies text matches on ${url}`, async () => {
+			const { calls } = filterText(url);
+			expect(conditions()).toEqual(['contains', '=', 'empty', 'matches']);
+			apply('matches', 'kernel rc');
+			await waitFor(() => expect(lastF(calls)).toBe(JSON.stringify([{ field: 'text', op: 'matches', value: 'kernel rc' }])));
+		});
+
+		it(`keeps the plain text filter on ${url}`, async () => {
+			const { calls } = filterText(url);
+			apply('contains', 'kernel');
+			await waitFor(() => expect(lastF(calls)).toBe(JSON.stringify([{ field: 'text', op: 'contains', value: 'kernel' }])));
+		});
+	}
+
+	it('keeps the text field\'s own operators when the search lacks matches', () => {
+		const p = fixture<MessagesProps>('/group_messages').props;
+		filterText('/group_messages', { fields: p.fields!.map((f) => (f.key === 'text' ? { ...f, operators: f.operators.filter((o) => o !== 'matches') } : f)) });
+		expect(conditions()).toEqual(['contains', '=', 'empty']);
 	});
 });
 

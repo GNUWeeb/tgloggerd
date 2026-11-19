@@ -2,7 +2,7 @@ import { ArrowUpRight, Forward, Pencil, Trash2 } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
 import { Avatar, PageHead } from '../ui/primitives.tsx';
-import { DataTable, emptyText, FilterBar, useListNav, type Col } from '../ui/list.tsx';
+import { DataTable, emptyText, FilterBar, useListNav, withMatches, type Col } from '../ui/list.tsx';
 import { TypeIcon, CONTENT_TYPES } from '../ui/media.tsx';
 import { CONTENT_LABELS, typeLabel } from '../ui/labels.ts';
 import { deletedLabel } from '../ui/deletion.ts';
@@ -88,10 +88,13 @@ function Messages({ page }: { page: PageData<MessagesProps> }) {
 		{ key: 'flags', label: '', render: (m) => <MsgFlags m={m} /> },
 		{ key: 'open', label: '', render: (m) => <Link to={chatPath(m)} className="a-icon-btn sm" title="Show in chat" aria-label="Show in chat"><ArrowUpRight size={14} /></Link> },
 	];
+	// The own text field hides the search's, so it takes the search's
+	// matches, which the search engine answers.
+	const fields = withMatches(FIELDS[scope], L.fields, 'text');
 	return (
 		<Shell crumbs={[[title, null]]}>
 			<PageHead title={title} sub={v.account?.role === 'member' ? 'Messages in your groups. Full-text search over text and captions.' : `${fmt(page.props.archive_total ?? L.total)} messages. Full-text search over text and captions.`} />
-			<FilterBar L={L} fields={FIELDS[scope]} placeholder="Search message text" name={title} quick={QUICK[scope]} />
+			<FilterBar L={L} fields={fields} placeholder="Search message text" name={title} quick={QUICK[scope]} />
 			<EngineOptions p={page.props} />
 			<BackendNote b={page.props.backend} />
 			<Facets facets={page.props.facets} conds={L.conds} onConds={L.setConds} />
