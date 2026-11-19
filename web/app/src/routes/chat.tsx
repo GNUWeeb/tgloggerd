@@ -219,6 +219,9 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	// the new window's own loads.
 	const win = useRef<AbortController | null>(null);
 	const busy = useRef<AbortSignal | null>(null);
+	// The last message after which a page came back empty: a window too
+	// short to scroll does not ask again by itself (a scroll may).
+	const emptyAfter = useRef<number | null>(null);
 	const msgsRef = useRef(msgs);
 	msgsRef.current = msgs;
 	// A scroll to make once the next messages are rendered: keep the view
@@ -249,6 +252,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		const ac = new AbortController();
 		win.current = ac;
 		busy.current = null;
+		emptyAfter.current = null;
 		return () => ac.abort();
 	}, [p]);
 	useEffect(() => { setMsgs(p.messages); setOlder(p.has_older); setNewer(p.has_newer); setFlash(p.at); setUnseen(0); }, [p]);
@@ -293,8 +297,11 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 			const w = await track(fetchChatWindow(scope, chatId, { after: last.message_id }, 60, sig, topic));
 			if (sig.aborted) return;
 			const have = new Set(msgsRef.current.map((c) => c.id));
-			msgsRef.current = [...msgsRef.current, ...w.messages.filter((x) => !have.has(x.id))];
-			setMsgs(msgsRef.current);
+			const add = w.messages.filter((x) => !have.has(x.id));
+			if (add.length) {
+				msgsRef.current = [...msgsRef.current, ...add];
+				setMsgs(msgsRef.current);
+			} else emptyAfter.current = last.message_id;
 			setNewer(w.has_newer);
 		} catch { /* aborted, or failed: the next scroll asks again */ } finally { if (busy.current === sig) busy.current = null; }
 	}, [msgs, newer, scope, chatId, topic]);
@@ -317,9 +324,12 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		return () => el.removeEventListener('scroll', on);
 	}, [loadOlder, loadNewer]);
 
-	// A window too short to scroll gives no scroll event: load on.
+	// A window too short to scroll gives no scroll event: load on, until
+	// a page adds nothing.
 	useEffect(() => {
 		const el = scroller.current;
+		const last = msgs[msgs.length - 1];
+		if (last && last.message_id === emptyAfter.current) return;
 		if (el && newer && prefs(v).autoLoad && el.scrollHeight - el.clientHeight < 300) void loadNewer();
 	}, [msgs, newer, loadNewer]);
 

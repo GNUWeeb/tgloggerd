@@ -2,7 +2,8 @@
 // The chat's window loads belong to the window that asked for them: an
 // answer that comes back after the page moved to another window (a
 // jump, the oldest, another chat) is dropped, and it does not hold up
-// the new window's own loads.
+// the new window's own loads. A window too short to scroll loads on by
+// itself, but not again after a page that added nothing.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup, type Call } from '../test/page.tsx';
@@ -127,5 +128,16 @@ describe('window loads', () => {
 		h.release();
 		await tick();
 		expect(screen.queryByText('stale message 1')).toBeNull();
+	});
+
+	it('does not ask again by itself after a short window got an empty page', async () => {
+		const url = `/groups/${gid()}/chat?after=0`;
+		// Answered after a moment, so that a load that keeps asking runs at
+		// a pace the test can count instead of starving it.
+		const calls = fakeApi('superadmin', { 'GET /api/chats/group/:id/messages': async () => { await tick(10); return { messages: [], has_older: true, has_newer: true }; } });
+		renderPage(url);
+		await waitFor(() => expect(after(calls)).toHaveLength(1));
+		await tick(150);
+		expect(after(calls)).toHaveLength(1);
 	});
 });
