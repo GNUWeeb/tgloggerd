@@ -11,6 +11,8 @@ import { MessageMedia } from './chat-media.tsx';
 import { Counts, KindDetail, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
 import { fetchMembers, seesMembers, type MemberCount } from '../api/members.ts';
+import { entitiesOf } from '../api/entities.ts';
+import { RichText, type RichChat } from '../ui/richtext.tsx';
 import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
 import { bytes, fmt } from '../format.ts';
@@ -87,7 +89,7 @@ function LinkPreview({ lp }: { lp: NonNullable<ChatMessage['link_preview']> }) {
 		: <div className="c-lp">{inner}</div>;
 }
 
-function Bubble({ m, v, isGroup, first, last, flash, onReply, tag }: { m: ChatMessage; v: Viewer; isGroup: boolean; first: boolean; last: boolean; flash: boolean; onReply: (id: number) => void; tag?: ReactNode }) {
+function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: ChatMessage; v: Viewer; isGroup: boolean; first: boolean; last: boolean; flash: boolean; onReply: (id: number) => void; tag?: ReactNode; chat?: RichChat }) {
 	const out = !m.sender;
 	const ct = m.content_type;
 	const sticker = ct === 'sticker';
@@ -125,9 +127,9 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag }: { m: ChatMe
 						{r.resolved === false ? <span className="c-sub">not in the archive</span> : <span className={r.deleted ? 'c-replydel' : ''}>{r.snippet}{r.deleted ? ' (deleted)' : ''}</span>}
 					</a>)}
 				<MessageMedia msg={m} onClick={pref.mediaOnClick} />
-				{m.detail && <KindDetail d={m.detail} text={m.text} v={v} />}
+				{m.detail && <KindDetail d={m.detail} text={m.text} entities={entitiesOf(m)} chat={chat} v={v} />}
 				{m.content_type === 'unknown' && <div className="c-unknown c-sub">{m.tdlib_type ? `A kind of message this view does not show yet (${m.tdlib_type})` : 'A kind of message this view does not show'}</div>}
-				{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) && <div className="c-text">{m.text}</div>}
+				{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) && <div className="c-text"><RichText text={m.text} entities={entitiesOf(m)} chat={chat} /></div>}
 				{m.link_preview && <LinkPreview lp={m.link_preview} />}
 				{m.author_signature && <div className="c-sign">- {m.author_signature}</div>}
 				<Reactions list={m.reactions} />
@@ -145,10 +147,10 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag }: { m: ChatMe
 							<div key={i}>
 								<span className="c-sub">{hm(e.at, v)}{e.content_type && e.content_type !== m.content_type ? ` . was ${e.content_type}` : ''}</span>
 								{e.media && <EditMedia m={e.media} type={e.content_type ?? m.content_type} />}
-								{e.text ? <div>{e.text}</div> : !e.media && <div className="c-sub">(no text)</div>}
+								{e.text ? <div><RichText text={e.text} entities={entitiesOf(e)} chat={chat} /></div> : !e.media && <div className="c-sub">(no text)</div>}
 							</div>
 						))}
-						<div><span className="c-sub">{m.edited_at ? hm(m.edited_at, v) : ''} (current)</span><div>{m.text}</div></div>
+						<div><span className="c-sub">{m.edited_at ? hm(m.edited_at, v) : ''} (current)</span><div><RichText text={m.text} entities={entitiesOf(m)} chat={chat} /></div></div>
 					</div></div>
 				)}
 			</div>
@@ -156,7 +158,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag }: { m: ChatMe
 	);
 }
 
-function Feed({ msgs: all, v, isGroup, flash, onReply, tag }: { msgs: ChatMessage[]; v: Viewer; isGroup: boolean; flash: number | null; onReply: (id: number) => void; tag?: (m: ChatMessage) => ReactNode }) {
+function Feed({ msgs: all, v, isGroup, flash, onReply, tag, chat }: { msgs: ChatMessage[]; v: Viewer; isGroup: boolean; flash: number | null; onReply: (id: number) => void; tag?: (m: ChatMessage) => ReactNode; chat?: RichChat }) {
 	const pref = prefs(v);
 	const msgs = all.filter((m) => (pref.showDeleted || !m.deleted_at) && (pref.showService || m.content_type !== 'service'));
 	const out: ReactElement[] = [];
@@ -183,7 +185,7 @@ function Feed({ msgs: all, v, isGroup, flash, onReply, tag }: { msgs: ChatMessag
 			return;
 		}
 		const same = (a?: ChatMessage) => !!a && a.content_type !== 'service' && dayKey(a.date, v) === d && (a.sender?.id ?? 0) === (m.sender?.id ?? 0);
-		out.push(<Bubble key={m.id} m={m} v={v} isGroup={isGroup} first={!same(msgs[i - 1])} last={!same(msgs[i + 1])} flash={flash === m.message_id} onReply={onReply} tag={tag?.(m)} />);
+		out.push(<Bubble key={m.id} m={m} v={v} isGroup={isGroup} first={!same(msgs[i - 1])} last={!same(msgs[i + 1])} flash={flash === m.message_id} onReply={onReply} tag={tag?.(m)} chat={chat} />);
 	});
 	return <>{out}</>;
 }
@@ -415,6 +417,9 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const sub = p.chat.kind === 'group'
 		? `${TYPE_LABEL[p.chat.group.type]}${counted != null ? ` . ${fmt(counted)} members` : ''}${p.chat.group.members ? ` . ${fmt(p.chat.group.members)} members seen` : ''} . ${fmt(group?.msg_count ?? p.chat.group.msg_count)} messages`
 		: `private chat with the logging account . ${fmt(p.chat.count)} messages`;
+	// Hashtags search this chat's messages; a signed-out visitor has no
+	// search, so there they are only styled.
+	const richChat: RichChat | undefined = publicView ? undefined : { scope, id: chatId };
 	const body = (
 		<div className={`c-chat ${publicView ? 'public' : ''}`}>
 			<header className="c-head">
@@ -461,7 +466,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 			<div className="c-scroll" ref={scroller}>
 				<div className="c-feed">
 					{older ? (prefs(v).autoLoad ? <div className="c-loading">Loading older messages...</div> : <div className="c-loading"><button type="button" className="a-link" onClick={() => void loadOlder()}>Load older messages</button></div>) : <div className="c-start">Beginning of the archived history</div>}
-					<Feed msgs={msgs} v={v} isGroup={isGroup} flash={flash} onReply={onReply} tag={tagOf} />
+					<Feed msgs={msgs} v={v} isGroup={isGroup} flash={flash} onReply={onReply} tag={tagOf} chat={richChat} />
 					{newer && (prefs(v).autoLoad ? <div className="c-loading">Loading newer messages...</div> : <div className="c-loading"><button type="button" className="a-link" onClick={() => void loadNewer()}>Load newer messages</button></div>)}
 				</div>
 			</div>
