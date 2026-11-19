@@ -1309,6 +1309,16 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 			return [201, { group_id: g.id }];
 		}
 		const i = mcpExposed.findIndex((e) => String(e.group.id) === m[1]);
+		// The note alone changes: who exposed the group and when stay. As
+		// in Go, the body is checked first, then that the viewer sees the
+		// group, then that it is exposed.
+		if (method === 'PATCH') {
+			if (typeof body.note !== 'string') return [400, { error: 'bad_request', message: 'A note is required.' }];
+			const g = getGroup(Number(m[1]));
+			if (!g || !s.group(g) || i < 0) return [404, { error: 'not_found' }];
+			mcpExposed[i].note = Array.from(body.note).slice(0, 255).join('');
+			return [204, null];
+		}
 		if (i < 0) return [404, { error: 'not_found' }];
 		mcpExposed[i].group.exposed = false; mcpExposed.splice(i, 1); return [204, null];
 	}
