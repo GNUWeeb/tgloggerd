@@ -1,9 +1,10 @@
 # video-thumbnails
 
 Show a thumbnail for every video before it is played, wherever the web
-shows one: a still frame instead of a generic film icon. The daemon
-and the Go service do their part (below); what is left is drawing it,
-the videos Telegram sends no picture for, and the rows logged before.
+shows one: a still frame instead of a generic film icon. The daemon,
+the Go service and the React application do their part (below); what
+is left is the videos Telegram sends no picture for, and the rows
+logged before.
 
 ## Why
 
@@ -20,13 +21,10 @@ telegram_message_files role `thumbnail`, file_type `thumbnail`) for
 new and edited messages; the Go service gives it as ChatMedia's (and
 the message page's) `poster` and `thumb` after a stored cover, and as
 FileRow's `thumb` with the minithumb beside it (FileRow `minithumb`);
-web/docs/media.md, "Video stills". Left:
+web/docs/media.md, "Video stills"; and the React application draws
+the stills and blurred previews in the chat, on the message page and
+in the files grid and preview. Left:
 
-- The React side: draw FileRow's `thumb` (else its `minithumb`, else
-  the type icon) for videos in the files grid and the file preview,
-  and the chat's `poster` (`minithumb` as the placeholder) for videos,
-  video notes, animations and .webm stickers, in the chat's media and
-  albums and on the message page.
 - Old rows: messages logged before the daemon stored thumbnails have
   none. A one-off pass could ask TDLib for each such message again and
   store its thumbnail through the fetch path, under the store's cap.
@@ -56,10 +54,6 @@ Nothing.
 
 ## Done when
 
-- The files grid, the file preview and the chat show a still image for
-  a stored video, video note, animation and .webm sticker that has a
-  Telegram thumbnail or cover, and the minithumb (or the type icon)
-  for one that has none.
 - Old rows have their thumbnails, or the project owner has decided
   they need none.
 - The project owner has decided on generated frames, and they are
