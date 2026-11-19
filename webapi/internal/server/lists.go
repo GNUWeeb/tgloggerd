@@ -1155,9 +1155,11 @@ type messagesProps struct {
 // snippetRunes is how much of a message's text a list shows.
 const snippetRunes = 300
 
-func listSnippet(text, contentType string) string {
+// listSnippet is a row's text, or its summary when it has none
+// (snippets.go), cut to snippetRunes with an ellipsis.
+func (v view) listSnippet(k kinds, row uint64, text, contentType, fileName string) string {
 	if text == "" {
-		return "[" + contentType + "]"
+		text = v.summary(k, row, contentType, fileName)
 	}
 	if utf8.RuneCountInString(text) <= snippetRunes {
 		return text
@@ -1182,12 +1184,26 @@ func loadMessages(ctx context.Context, pr *pageRequest, l *listSpec, msgScope st
 	p := messagesProps{listState: run.state, Rows: []listMessage{}, Scope: msgScope,
 		Backend: run.res.Backend, Highlights: run.res.Highlights, Facets: run.res.Facets,
 		Engine: s.listEngineCaps(ctx, sc, l.entity)}
+	// The rows without text are summarised by their kind.
+	textless := []logdb.Message{}
+	for _, r := range run.res.Rows {
+		if r.Str("text") == "" {
+			textless = append(textless, logdb.Message{RowID: r.Uint("id"),
+				ContentType: r.Str("content_type"), Extra: []byte(r.Str("kind_extra"))})
+		}
+	}
+	k, err := s.loadSummaries(ctx, sc, textless)
+	if err != nil {
+		return nil, err
+	}
+	v := pr.view()
 	var fwd []uint64
 	for _, r := range run.res.Rows {
 		m := listMessage{ID: r.Uint("id"), Scope: msgScope, MessageID: r.Int("message_id"),
 			Date: unixTime(r.Int("date_unix")), ContentType: r.Str("content_type"),
-			Snippet: listSnippet(r.Str("text"), r.Str("content_type")),
-			Edited:  r.Int("edit_date") != 0, DeletedAt: dbTimePtr(r, "deleted_at")}
+			Snippet: v.listSnippet(k, r.Uint("id"), r.Str("text"), r.Str("content_type"),
+				r.Str("kind_file")),
+			Edited: r.Int("edit_date") != 0, DeletedAt: dbTimePtr(r, "deleted_at")}
 		if msgScope == "group" {
 			m.Chat = listChat{ID: r.Int("chat_id"), Title: logdb.GroupTitle(r.Str("group_title")),
 				Kind: "group", Photo: s.photoPtr(r.Uint("group_photo"))}

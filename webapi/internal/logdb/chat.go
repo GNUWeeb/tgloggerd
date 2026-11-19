@@ -104,6 +104,11 @@ type Reply struct {
 	Snippet     string
 	ContentType string
 	Deleted     bool // the target is marked deleted
+	// Extra and FileName are the target's content_extra and its
+	// file's name, read only when it has no text: what its summary
+	// is made of (a poll's question, a venue's title).
+	Extra    []byte
+	FileName string
 }
 
 // Forward is a forwarded message's origin.
@@ -249,7 +254,10 @@ func (t chatTables) messageSelect() string {
 		"fw.origin_sender_user_id, fw.origin_chat_id, fw.origin_message_id, fw.origin_date, " +
 		"rm.id, rm.chat_id, rm.message_id, " +
 		t.rSenderUser + ", " + t.rSenderChat + ", " + t.rOutgoing + ", " +
-		"LEFT(COALESCE(rm.text, ''), 120), rm.content_type, rm.deleted_at IS NOT NULL " +
+		"LEFT(COALESCE(rm.text, ''), 120), rm.content_type, rm.deleted_at IS NOT NULL, " +
+		"IF(COALESCE(rm.text, '') = '', rm.content_extra, NULL), " +
+		"IF(COALESCE(rm.text, '') = '', (SELECT rf.orig_file_name FROM telegram_files rf " +
+		"WHERE rf.id = rm.file_id), NULL) " +
 		"FROM " + t.msgs + " m " +
 		"LEFT JOIN telegram_files f ON f.id = m.file_id " +
 		"LEFT JOIN " + t.fwd + " fw ON fw." + t.fk + " = m.id " +
@@ -276,6 +284,8 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 			rmChat, rmMsg, rmU, rmC sql.NullInt64
 			rmOut, rmDeleted        sql.NullBool
 			rmSnippet, rmCtype      sql.NullString
+			rmExtra                 []byte
+			rmFile                  sql.NullString
 		)
 		dest := []any{&m.RowID, &m.ChatID, &m.MessageID, &sUser, &sChat, &m.Outgoing, &sig,
 			&m.IsChannelPost, &m.Date, &m.EditDate, &m.ContentType, &m.ServiceType,
@@ -284,7 +294,7 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 		dest = append(dest, &deleted, &album, &topic, &m.Pinned, &views, &fwds, &replies,
 			&m.Reactions, &rChat, &rMsg, &oType, &oName, &oUser, &oChat,
 			&oMsg, &oDate, &rmID, &rmChat, &rmMsg, &rmU, &rmC, &rmOut, &rmSnippet, &rmCtype,
-			&rmDeleted)
+			&rmDeleted, &rmExtra, &rmFile)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
@@ -300,7 +310,7 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 			m.Reply = &Reply{MessageID: rmMsg.Int64, ChatID: rmChat.Int64, Resolved: true,
 				RowID: uint64(rmID.Int64), SenderUser: rmU.Int64, SenderChat: rmC.Int64,
 				Outgoing: rmOut.Bool, Snippet: rmSnippet.String, ContentType: rmCtype.String,
-				Deleted: rmDeleted.Bool}
+				Deleted: rmDeleted.Bool, Extra: rmExtra, FileName: rmFile.String}
 		case rMsg.Valid:
 			chat := m.ChatID
 			if rChat.Valid {
