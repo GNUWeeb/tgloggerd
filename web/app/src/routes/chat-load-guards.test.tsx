@@ -71,9 +71,10 @@ describe('window loads', () => {
 		await waitFor(() => expect(pages(calls)).toHaveLength(1));
 		await waitFor(() => expect(document.getElementById(`m${latest.messages.at(-1)!.message_id}`)).toBeTruthy());
 		expect(screen.queryByText('Loading newer messages...')).toBeNull();
-		// The new window's own load is not held up by the old one.
-		s.scrollTo(100);
-		await waitFor(() => expect(before(calls)).toHaveLength(1));
+		// The new window's own load is not held up by the old one. Its
+		// messages can be drawn before the scroll listener is attached to
+		// the new window, so scroll until it is, as a reader would.
+		await waitFor(() => { s.scrollTo(100); expect(before(calls).length).toBeGreaterThan(0); });
 		expect(before(calls)[0]!.query.get('before')).toBe(String(latest.messages[0]!.message_id));
 		h.release();
 		await tick();
