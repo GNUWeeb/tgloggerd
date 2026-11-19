@@ -23,15 +23,21 @@ owner's answers:
   until someone needs them) and every kind added later follow it, so
   a new kind is never silently dropped.
 - Discord to Telegram gains `audio` (audio/* attachments, a document
-  today) and `animation` (image/gif attachments and animated stickers,
-  a photo today) beside its five flags. Voice messages, embeds, polls
-  and system messages need gwdiscord to parse more of a message
-  (flags, embeds, poll, type) and discordd to render them; that is
-  the follow-up item fwd-discord-kinds, not this one.
-- Part by part, as before: a caption or text follows `text`, a file
+  today) and `animation` (image/gif attachments, a photo today) beside
+  its five flags. Every Discord sticker, animated or not, stays under
+  `sticker`, as it is today, so no route changes what it forwards.
+  Voice messages, embeds, polls and system messages need gwdiscord
+  to parse more of a message (flags, embeds, poll, type) and discordd
+  to render them; that is the follow-up item fwd-discord-kinds, not
+  this one.
+- Part by part, as before: a message's own text or caption (a text
+  message, a message with a file, paid media) follows `text`, a file
   its type's flag, and a kind's summary line (location, contact, poll,
-  story, ...; message-types.md section 4.10) its kind's flag. A rich
-  message's text is its content, so it follows `other`, not `text`.
+  story, ...; message-types.md section 4.10) its kind's flag. A kind's
+  own text follows the kind's flag too, so turning a kind off drops
+  all of it: a poll's description, a game's text, an invoice's
+  description, a checklist's title, a service line, and a rich
+  message's text (under `other`).
   Edits are filtered like the message.
 - Storage: one TINYINT(1) column per flag, as migration 000031 did;
   both daemons keep turning them into a bitmask in memory. Each new

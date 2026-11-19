@@ -27,8 +27,6 @@ of their own.
   no flag of their own keep following `fwd_other`. A migration adds
   the flags, each copying the flag its type followed until now, so no
   route changes what it forwards.
-- Go (webapi): the forwarding API reads and writes the new flags;
-  OpenAPI and web/docs/platform-forwarding.md follow.
 - React (frontend): the route form and the route list show the new
   flags in the agreed layout.
 
@@ -41,5 +39,5 @@ Nothing.
 - A route can carry polls and drop service messages (and each other
   new flag works on its own), in both directions where it applies.
 - Existing routes forward exactly what they forwarded before.
-- Daemon, Go and React tests cover the flags, the migration's
-  defaults and the form.
+- Daemon and React tests cover the flags and the form (the Go
+  service, the migration and its defaults are done).

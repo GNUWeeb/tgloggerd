@@ -1953,15 +1953,12 @@ void TDLib::Impl::build_forward_message(const td_api::message &message,
 
 	/*
 	 * Content with nothing to read but its structure (a location, a poll,
-	 * a contact, ...) is forwarded as a short rendering of it, after any
-	 * text or caption so that the entities, which index into that text,
-	 * stay where they are.
+	 * a contact, ...) is forwarded as a short rendering of it, which the
+	 * forwarder sends after any text or caption, so that the entities,
+	 * which index into that text, stay where they are.
 	 */
-	if (message.content_) {
-		std::string summary = forward_summary(*message.content_);
-		if (!summary.empty())
-			fm.text += (fm.text.empty() ? "" : "\n") + summary;
-	}
+	if (message.content_)
+		fm.summary = forward_summary(*message.content_);
 }
 
 void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,

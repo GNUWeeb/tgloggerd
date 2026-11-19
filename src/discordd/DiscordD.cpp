@@ -424,16 +424,6 @@ static std::vector<std::string> split_for_telegram(const std::string &s)
 	return out;
 }
 
-/* The FWD_* bit an attachment is filtered by, from its MIME type. */
-static unsigned attachment_type(const gwdiscord::Attachment &a)
-{
-	if (a.content_type.compare(0, 6, "image/") == 0)
-		return FWD_PHOTO;
-	if (a.content_type.compare(0, 6, "video/") == 0)
-		return FWD_VIDEO;
-	return FWD_DOCUMENT; /* including one Discord sent no type for */
-}
-
 /*
  * Render the parts of `m` a route forwarding `types` (FWD_* bits) should get,
  * or "" when none of them is enabled and the route gets nothing at all.

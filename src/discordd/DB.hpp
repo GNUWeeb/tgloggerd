@@ -6,6 +6,7 @@
 #define DISCORDD__DB_HPP
 
 #include "DiscordBots.hpp"
+#include "RouteFilter.hpp"
 
 #include <mysql/Database.hpp>
 
@@ -16,19 +17,6 @@
 #include <vector>
 
 namespace discordd {
-
-/*
- * The content types a route can be told to forward, one bit each. A message is
- * filtered part by part: its text follows FWD_TEXT, each attachment the bit of
- * its own type, each sticker FWD_STICKER.
- */
-enum : unsigned {
-	FWD_STICKER  = 1u << 0,
-	FWD_TEXT     = 1u << 1,
-	FWD_PHOTO    = 1u << 2,	/* an attachment of an image type */
-	FWD_VIDEO    = 1u << 3,	/* an attachment of a video type */
-	FWD_DOCUMENT = 1u << 4,	/* every other attachment */
-};
 
 /* One enabled Discord channel -> Telegram chat route, with its bots. */
 struct Route {

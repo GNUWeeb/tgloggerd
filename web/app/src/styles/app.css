@@ -525,6 +525,17 @@
 .app .a-checkchip input { position: absolute; opacity: 0; pointer-events: none; }
 .app .a-checkchip.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); }
 .app .a-checkchip:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.app .a-typepicker { border: 0; margin: 0; padding: 0; min-width: 0; }
+.app .a-typepicker legend { padding: 0; margin-bottom: 6px; }
+.app .a-typepresets { margin-bottom: 4px; }
+.app .a-typegroups { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; }
+.app .a-typegroup + .a-typegroup { border-top: 1px solid var(--border); }
+.app .a-typegroup-head { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 6px 0 10px; }
+.app .a-typegroup-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 550; cursor: pointer; flex: none; }
+.app .a-field .a-typegroup-name input { width: 16px; height: 16px; padding: 0; margin: 0; accent-color: var(--accent); }
+.app .a-typegroup-toggle svg { transition: transform .15s; }
+.app .a-typegroup-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.app .a-typegroup-body { padding: 0 10px 10px 34px; }
 .app .a-warnicon { color: var(--danger); flex: none; }
 .app .a-settings { display: grid; grid-template-columns: 180px minmax(0, 640px); gap: 24px; align-items: start; }
 .app .a-settingsnav { display: grid; gap: 2px; position: sticky; top: 72px; }

@@ -16,18 +16,23 @@
 --                              none)
 -- A test's own rows take ids from 100.
 
+-- The flags beyond migration 000031's are written as that migration's
+-- successor leaves them (fwd_other's value; for Discord to Telegram audio
+-- fwd_document's, animation fwd_photo's), so webhook 3 is still text only.
 INSERT INTO telegram_discord_webhooks (id, telegram_chat_id, telegram_chat_type, webhook_url,
 	enabled, fwd_sticker, fwd_text, fwd_photo, fwd_video, fwd_document, fwd_other,
+	fwd_animation, fwd_video_note, fwd_voice, fwd_audio, fwd_poll, fwd_checklist, fwd_dice,
+	fwd_game, fwd_location, fwd_contact, fwd_story, fwd_paid_media, fwd_invoice, fwd_service,
 	created_at) VALUES
 	(1, -1001000000001, 'group',
 	 'https://discord.com/api/webhooks/1100000000000000001/fixtureSecretTokenOne', 1,
-	 1, 1, 1, 1, 1, 1, '2026-10-01 10:00:00'),
+	 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, '2026-10-01 10:00:00'),
 	(2, 9299000001, 'private',
 	 'https://discord.com/api/webhooks/1100000000000000002/fixtureSecretTokenTwo', 1,
-	 1, 1, 1, 1, 1, 1, '2026-10-02 10:00:00'),
+	 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, '2026-10-02 10:00:00'),
 	(3, -1001000000003, 'group',
 	 'https://discordapp.com/api/webhooks/1100000000000000003/fixtureSecretTokenThree', 0,
-	 0, 1, 0, 0, 0, 0, '2026-10-03 10:00:00');
+	 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '2026-10-03 10:00:00');
 
 INSERT INTO discord_endpoints (id, webhook_url) VALUES
 	(1, 'https://discord.com/api/webhooks/1100000000000000001/fixtureSecretTokenOne');
@@ -46,9 +51,10 @@ INSERT INTO discord_channels (id, guild_id, name, type) VALUES
 	(710000000000000001, 720000000000000001, 'general', 0);
 
 INSERT INTO discord_telegram_routes (id, discord_channel_id, telegram_chat_id, telegram_bot_id,
-	enabled, fwd_sticker, fwd_text, fwd_photo, fwd_video, fwd_document, created_at) VALUES
-	(1, 710000000000000001, -1001000000001, 1, 1, 1, 1, 1, 1, 1, '2026-10-05 10:00:00'),
-	(2, 710000000000000002, -1001000000002, 2, 1, 1, 1, 0, 0, 1, '2026-10-06 10:00:00');
+	enabled, fwd_sticker, fwd_text, fwd_photo, fwd_video, fwd_document, fwd_audio,
+	fwd_animation, created_at) VALUES
+	(1, 710000000000000001, -1001000000001, 1, 1, 1, 1, 1, 1, 1, 1, 1, '2026-10-05 10:00:00'),
+	(2, 710000000000000002, -1001000000002, 2, 1, 1, 1, 0, 0, 1, 1, 0, '2026-10-06 10:00:00');
 
 INSERT INTO discord_telegram_sent_messages (discord_message_id, route_id, telegram_chat_id,
 	telegram_message_id, created_at) VALUES

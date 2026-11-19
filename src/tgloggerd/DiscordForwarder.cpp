@@ -293,31 +293,35 @@ int64_t now_epoch(void)
 	return (int64_t)std::time(nullptr);
 }
 
-/* The FWD_* bit a media message's file is filtered by. */
-unsigned media_type(const std::string &kind)
+/*
+ * What a webhook taking @types gets of @fm's text and summary line
+ * (ForwardFilter.hpp), rendered for Discord and fitted into its 2000-char
+ * limit; empty when it gets neither. The summary is plain text after the
+ * text, so the entities, which index into the text, stay valid.
+ */
+std::string render_text_parts(const ForwardMessage &fm, unsigned types)
 {
-	if (kind == "sticker")
-		return FWD_STICKER;
-	if (kind == "photo")
-		return FWD_PHOTO;
-	if (kind == "video")
-		return FWD_VIDEO;
-	if (kind == "document")
-		return FWD_DOCUMENT;
-	return FWD_OTHER; /* voice, audio, animation, ... */
+	const ForwardParts p = forward_parts(fm.kind, fm.has_file, types);
+	std::string out;
+	if (p.text && !fm.text.empty())
+		out = render_markdown(fm.text, fm.entities);
+	if (p.summary && !fm.summary.empty()) {
+		if (!out.empty())
+			out += "\n";
+		out += discord_escape(fm.summary);
+	}
+	return truncate_escaped(out, 2000);
 }
 
-/*
- * The FWD_* bit a message's text is filtered by. A text message's body and a
- * media message's caption are both "text"; what a service message or an
- * unrecognised content type says is part of that message, so it follows
- * "other" instead.
- */
-unsigned text_type(const ForwardMessage &fm)
+/* The FWD_* bits of the webhook posting to @url, or every bit when the
+ * webhook is gone (it then gets what it was sent before). */
+unsigned types_of(const std::vector<DiscordWebhook> &hooks,
+		  const std::string &url)
 {
-	if (fm.kind == "text" || fm.has_file)
-		return FWD_TEXT;
-	return FWD_OTHER;
+	for (const auto &w : hooks)
+		if (w.webhook_url == url)
+			return w.types;
+	return ~0u;
 }
 
 /* Keep the webhooks that forward content of `type`. */
@@ -819,7 +823,7 @@ void DiscordForwarder::forward(const ForwardMessage &fm)
 			now_epoch() + media_ttl_, fm.sender_id,
 			fm.sender_chat_id, fm.sender_name,
 			fm.reply_to_chat_id, fm.reply_to_msg_id,
-			!fm.text.empty(), media_type(fm.kind) };
+			!fm.text.empty(), forward_kind_type(fm.kind) };
 	}
 
 	/* A caption/quote (if any) is sent now; the media (if any) follows. */
@@ -829,19 +833,20 @@ void DiscordForwarder::forward(const ForwardMessage &fm)
 void DiscordForwarder::do_text_forward(ForwardMessage fm,
 				       std::vector<DiscordWebhook> hooks)
 {
-	std::string content =
-		truncate_escaped(render_markdown(fm.text, fm.entities), 2000);
-
-	/* No text to post: a media message with no caption (sticker/photo) or an
-	 * empty service message. Such a reply's preview is posted by
-	 * do_media_forward, right before the media, so it stays above it. */
-	if (content.empty())
-		return;
-
-	/* Only the webhooks that take this text. Those that do not but take
-	 * the media get the reply preview from do_media_forward instead. */
-	hooks = hooks_taking(std::move(hooks), text_type(fm));
-	if (hooks.empty())
+	/*
+	 * Each webhook gets the parts its flags take, so two webhooks may get
+	 * different content. One that gets nothing here (a media message with
+	 * no caption, an empty service message, every part filtered out) but
+	 * takes the media gets the reply preview from do_media_forward, right
+	 * before the media, so it stays above it.
+	 */
+	std::vector<std::pair<std::string, std::string>> posts; /* url, content */
+	for (const auto &hook : hooks) {
+		std::string c = render_text_parts(fm, hook.types);
+		if (!c.empty())
+			posts.emplace_back(hook.webhook_url, std::move(c));
+	}
+	if (posts.empty())
 		return;
 
 	ReplyInfo ri = resolve_reply(fm);
@@ -851,10 +856,9 @@ void DiscordForwarder::do_text_forward(ForwardMessage fm,
 	s.name = forwarded_author_name(s.name, fm.sender_id, fm.message_id);
 	pr_info(l_, "discord: forwarding chat_id=%lld (%s%s) to %zu webhook(s): %.60s",
 		(long long)fm.chat_id, fm.kind.empty() ? "text" : fm.kind.c_str(),
-		ri.ok ? "+reply" : "", hooks.size(), content.c_str());
+		ri.ok ? "+reply" : "", posts.size(), posts.front().second.c_str());
 
-	for (const auto &hook : hooks) {
-		const std::string &url = hook.webhook_url;
+	for (const auto &[url, content] : posts) {
 		/* The replied-message preview goes first (own message), so the reply
 		 * text lands below it -- Discord draws content above embeds, so they
 		 * cannot share one message. Jump link is per-channel. */
@@ -887,19 +891,21 @@ void DiscordForwarder::do_edit_forward(ForwardMessage fm)
 	if (sent.empty())
 		return; /* nothing forwarded, or expired, or media-only */
 
-	std::string content =
-		truncate_escaped(render_markdown(fm.text, fm.entities), 2000);
-	if (content.empty())
-		return; /* edited to empty -> leave the Discord message as-is */
-
-	/* A webhook message edit changes only content, leaving the reply embed
-	 * (and username/avatar) intact. */
-	std::string payload = "{\"content\":\"" + json_escape(content) +
-			      "\",\"allowed_mentions\":{\"parse\":[]}}";
-
 	pr_info(l_, "discord: editing chat_id=%lld msg_id=%lld (%zu message(s))",
 		(long long)fm.chat_id, (long long)fm.message_id, sent.size());
+	/* Each message is re-rendered with the flags of the webhook it went
+	 * to, so an edit shows only the parts that webhook takes. */
+	const std::vector<DiscordWebhook> hooks = webhooks_for(fm.chat_id);
 	for (const auto &s : sent) {
+		std::string content =
+			render_text_parts(fm, types_of(hooks, s.webhook_url));
+		if (content.empty())
+			continue; /* edited to empty -> leave it as-is */
+
+		/* A webhook message edit changes only content, leaving the reply
+		 * embed (and username/avatar) intact. */
+		std::string payload = "{\"content\":\"" + json_escape(content) +
+				      "\",\"allowed_mentions\":{\"parse\":[]}}";
 		DiscordResponse r = client_.patch_json(s.webhook_url,
 						       s.discord_message_id, payload);
 		if (!r.ok()) {
@@ -941,10 +947,13 @@ void DiscordForwarder::do_delete_forward(int64_t chat_id, int64_t message_id)
 	 *   media part = the media link (empty for an image, whose embed stays)
 	 */
 	std::string text_content, media_content;
+	unsigned text_bit = FWD_TEXT; /* the bit the text follows */
 	try {
 		auto mf = db_->getMessageForward(chat_id, message_id);
 		if (mf) {
 			text_content = discord_escape(mf->text);
+			text_bit = forward_text_type(mf->content_type,
+						     mf->file_id.has_value());
 
 			if (mf->file_id) {
 				auto fi = db_->getFileInfo(*mf->file_id);
@@ -960,9 +969,15 @@ void DiscordForwarder::do_delete_forward(int64_t chat_id, int64_t message_id)
 	pr_info(l_, "discord: tombstoning deleted chat_id=%lld msg_id=%lld "
 		"(%zu message(s))", (long long)chat_id, (long long)message_id,
 		sent.size());
+	/* A webhook whose flags leave the text out shows no text in its
+	 * tombstone either. */
+	const std::vector<DiscordWebhook> hooks = webhooks_for(chat_id);
 	for (const auto &s : sent) {
+		const bool text_shown =
+			(types_of(hooks, s.webhook_url) & text_bit) != 0;
 		const std::string &orig = s.kind == "media" ? media_content
-							    : text_content;
+					: text_shown        ? text_content
+							    : std::string();
 		/* Prepend a bold "(Deleted)" to the original content, then re-fit
 		 * it into Discord's 2000-char limit (the self-contained bold prefix
 		 * is kept, the tail trimmed). orig is already discord-escaped (text)

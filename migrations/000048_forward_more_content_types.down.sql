@@ -1,0 +1,19 @@
+ALTER TABLE discord_telegram_routes
+	DROP COLUMN fwd_animation,
+	DROP COLUMN fwd_audio;
+
+ALTER TABLE telegram_discord_webhooks
+	DROP COLUMN fwd_service,
+	DROP COLUMN fwd_invoice,
+	DROP COLUMN fwd_paid_media,
+	DROP COLUMN fwd_story,
+	DROP COLUMN fwd_contact,
+	DROP COLUMN fwd_location,
+	DROP COLUMN fwd_game,
+	DROP COLUMN fwd_dice,
+	DROP COLUMN fwd_checklist,
+	DROP COLUMN fwd_poll,
+	DROP COLUMN fwd_audio,
+	DROP COLUMN fwd_voice,
+	DROP COLUMN fwd_video_note,
+	DROP COLUMN fwd_animation;

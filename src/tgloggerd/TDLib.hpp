@@ -218,6 +218,10 @@ struct ForwardMessage {
 	std::string	sender_username;
 	std::string	text;	/* message text or media caption; may be empty */
 	std::vector<FmtEntity> entities; /* formatting over `text` (UTF-16 spans) */
+	/* A short plain-text rendering of content with nothing to read but
+	 * its structure (a location, a poll, ...); sent after the text.
+	 * Kept apart so each follows its own filter. May be empty. */
+	std::string	summary;
 	std::string	kind;	/* content category; empty for plain unknown */
 	int64_t		reply_to_chat_id = 0; /* replied chat_id; 0 = same chat */
 	int64_t		reply_to_msg_id = 0;  /* replied server msg id; 0 = none */
