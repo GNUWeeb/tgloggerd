@@ -13,6 +13,7 @@ import { compact, dateTime, fmt } from '../format.ts';
 import { TypeIcon, duration, type ContentType } from '../ui/media.tsx';
 import { contentLabel } from '../ui/labels.ts';
 import { PaidMedia } from './chat-paid.tsx';
+import { Animation, Picture, type Media } from './chat-media.tsx';
 import type { Viewer } from '../page.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
 import type { TextEntity } from '../api/entities.ts';
@@ -122,6 +123,13 @@ export function KindFallback({ ct, tdlib }: { ct: ContentType; tdlib?: string | 
 	return <div className="c-unknown c-sub k-placeholder"><TypeIcon type={ct} size={14} />{`${contentLabel(ct)} (${UNRECORDED[ct]!} not recorded)`}</div>;
 }
 
+// A game's or an invoice's picture as the chat draws media: a photo
+// opens in the viewer, a game's animation plays.
+function Cover({ m, v }: { m: Media; v: Viewer }) {
+	const click = v.chat?.media === 'click';
+	return m.render === 'animation' || m.render === 'video' ? <Animation m={m} onClick={click} /> : <Picture m={m} single onClick={click} />;
+}
+
 // The kinds whose message text belongs inside the card (a checklist's
 // title, a game's text): the bubble leaves the text to the card.
 export const TEXT_INSIDE: ReadonlySet<string> = new Set(['checklist']);
@@ -175,8 +183,8 @@ export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; t
 		case 'game':
 			return (
 				<div className="k-card">
-					{d.photo?.thumb && <img className="k-cover" src={d.photo.thumb} alt="" loading="lazy" />}
-					<Head icon={Gamepad2}>{d.title} <span className="c-sub">. game</span></Head>
+					{d.photo && <Cover m={d.photo} v={v} />}
+					<Head icon={Gamepad2}>{d.title} <span className="c-sub">. game{d.short_name && <> <span className="mono">{d.short_name}</span></>}</span></Head>
 					{d.description && <div className="c-sub">{d.description}</div>}
 				</div>
 			);
@@ -223,7 +231,7 @@ export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; t
 		case 'invoice':
 			return (
 				<div className="k-card">
-					{d.photo?.thumb && <img className="k-cover" src={d.photo.thumb} alt="" loading="lazy" />}
+					{d.photo && <Cover m={d.photo} v={v} />}
 					<Head icon={Receipt}>{d.title}</Head>
 					{d.description && <div className="c-sub">{d.description}</div>}
 					<div className="k-amount">{money(d.total_amount, d.currency)}{d.is_test && <span className="c-sub"> . test invoice</span>}</div>

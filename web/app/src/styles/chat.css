@@ -223,7 +223,6 @@
 .app .k-head { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .app .k-head svg { color: var(--c-accent); flex: none; }
 .app .k-coords { color: var(--c-link); font-size: 13px; }
-.app .k-cover { width: 100%; max-height: 180px; object-fit: cover; border-radius: 8px; }
 .app .k-contact { flex-direction: row; align-items: center; gap: 10px; }
 .app .k-ref { display: inline-flex; align-items: center; gap: 4px; color: var(--c-link); margin-right: 8px; }
 .app .k-refs { display: inline-flex; flex-wrap: wrap; align-items: center; row-gap: 2px; }

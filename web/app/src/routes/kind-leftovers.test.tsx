@@ -3,7 +3,7 @@
 // says when its detail is thin or missing, and the fields each card
 // shows.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MessageMedia, kindOf, type Media } from './chat-media.tsx';
 import { PLAIN_KINDS } from '../test/kinds.ts';
@@ -107,5 +107,25 @@ describe('a kind whose detail is missing', () => {
 		showPage(sample(samples(), (m) => m.content_type === 'poll' && m.detail === null));
 		expect(within(document.querySelector('.a-msgkind') as HTMLElement).getByText('Poll (its options were not recorded)')).toBeTruthy();
 		expect(screen.queryByText('(no text)')).toBeNull();
+	});
+});
+
+describe('a game and an invoice', () => {
+	it('show a game\'s short name and play its animation cover', () => {
+		const game = sample(showChat(), (m) => m.detail?.kind === 'game');
+		if (game.detail?.kind !== 'game') throw new Error('no game sample');
+		const b = bubble(game);
+		expect(b.getByText('lumberjack')).toBeTruthy();
+		const video = b.getByRole('link', { name: 'Animation' }).querySelector('video')!;
+		expect(video.getAttribute('src')).toBe(game.detail.photo!.url);
+		expect(video.loop).toBe(true);
+		expect(video.muted).toBe(true);
+	});
+
+	it('open an invoice\'s photo in the viewer', () => {
+		const inv = sample(showChat(), (m) => m.detail?.kind === 'invoice');
+		if (inv.detail?.kind !== 'invoice') throw new Error('no invoice sample');
+		fireEvent.click(bubble(inv).getByRole('link', { name: 'Photo' }));
+		expect(screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('img')!.getAttribute('src')).toBe(inv.detail.photo!.url);
 	});
 });
