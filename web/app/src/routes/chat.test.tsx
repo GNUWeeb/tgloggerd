@@ -95,6 +95,17 @@ describe('chat', () => {
 			expect(document.querySelector(`#m${msgs[2]!.message_id} .c-edited`)).toBeNull();
 		});
 
+		it('name the kind of an earlier version by its label', () => {
+			const p = fixture<ChatProps>(chatUrl()).props;
+			const msgs = [...p.messages];
+			msgs[2] = { ...msgs[2]!, content_type: 'text', edits: [{ at: '2026-11-17T09:00:00Z', text: 'before', entities: [], content_type: 'video_note' }], edited_at: '2026-11-17T09:05:00Z', deleted_at: null };
+			renderPage(chatUrl(), 'superadmin', { props: { ...p, messages: msgs } });
+			const row = document.querySelector(`#m${msgs[2]!.message_id}`) as HTMLElement;
+			fireEvent.click(within(row).getByRole('button', { name: /edited/ }));
+			expect(row.textContent).toContain('was Video message');
+			expect(row.textContent).not.toContain('video_note');
+		});
+
 		it('load media only on click when asked to', () => {
 			const page = withPrefs({ media: 'click' });
 			const photo = page.props.messages.find((m) => m.content_type === 'photo' && m.media?.stored)!;

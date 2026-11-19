@@ -125,8 +125,8 @@ describe('chat parity', () => {
 		}]);
 		fireEvent.click(within(row(0)).getByRole('button', { name: /edited/ }));
 		const list = row(0).querySelector('.c-edits') as HTMLElement;
-		expect(within(list).getByText(/was document/)).toBeTruthy();
-		expect(within(list).getByText('document: notes.pdf')).toBeTruthy();
+		expect(within(list).getByText(/was File/)).toBeTruthy();
+		expect(within(list).getByText('File: notes.pdf')).toBeTruthy();
 		expect(within(list).getByRole('link', { name: 'Earlier photo' }).querySelector('img')!.getAttribute('src')).toBe('/files/old');
 	});
 
