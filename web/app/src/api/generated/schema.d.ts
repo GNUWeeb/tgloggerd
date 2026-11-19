@@ -2598,7 +2598,7 @@ export interface components {
             /** @description false when TDLib had only the start of the message and the rest was not logged. */
             is_full: boolean;
         };
-        /** @description A run of a rich message's text with its formatting, in the shape of a message's text and entities (TextEntity, offsets in UTF-16 code units), so the text entities renderer draws it. Formatting maps onto the entity types bold, italic, underline, strikethrough, spoiler, code (fixed width, and a formula's source), text_url (a link, a button's URL), email, phone_number, mention (an @username), mention_name (user_id resolved through the scope as for message entities), hashtag, cashtag, bot_command, bank_card_number and custom_emoji, plus three a message's text never has: subscript, superscript and marked (highlighted). A custom emoji's text is its alternative text, a formula's its source; an icon and an anchor add no text. */
+        /** @description A run of a rich message's text with its formatting, in the shape of a message's text and entities (TextEntity, offsets in UTF-16 code units), so the text entities renderer draws it. Formatting maps onto the entity types bold, italic, underline, strikethrough, spoiler, code (fixed width, and a formula's source), text_url (a link, a button's URL), email, phone_number, mention (an @username), mention_name (user_id resolved through the scope as for message entities), hashtag, cashtag, bot_command, bank_card_number and custom_emoji, plus three a message's text never has: subscript, superscript and marked (highlighted). A custom emoji's text is its alternative text, a formula's its source; an icon and an anchor add no text. A text_url's url is an http, https, tg, mailto or tel link; a link of another scheme keeps its text without the entity. */
         RichText: {
             text: string;
             entities: components["schemas"]["TextEntity"][];
@@ -2627,7 +2627,7 @@ export interface components {
             spoiler?: boolean;
             autoplay?: boolean;
             loop?: boolean;
-            /** @description A link as stored (not checked); a client opens it with rel=noopener. */
+            /** @description A link: only http, https, tg, mailto and tel links are sent, others are left out; a client opens it with rel=noopener. */
             url?: string;
             author?: string;
             title?: string;
@@ -2665,7 +2665,7 @@ export interface components {
             /** @enum {string} */
             valign: "top" | "middle" | "bottom";
         };
-        /** @description A related article. photo is absent when no file is known. */
+        /** @description A related article. url is empty for a link that is not http, https, tg, mailto or tel; photo is absent when no file is known. */
         RichArticle: {
             url: string;
             title: string;
@@ -2675,7 +2675,7 @@ export interface components {
             date: string | null;
             photo?: components["schemas"]["ChatMedia"];
         };
-        /** @description A button of a button row. url is where a link button goes; absent for the other buttons (callbacks and the like), which an archive cannot press. */
+        /** @description A button of a button row. url is where a link button goes; absent for the other buttons (callbacks and the like), which an archive cannot press, and for a link that is not http, https, tg, mailto or tel. */
         RichButton: {
             text: components["schemas"]["RichText"];
             url?: string;

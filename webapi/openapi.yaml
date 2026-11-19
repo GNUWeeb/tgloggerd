@@ -6768,7 +6768,9 @@ components:
         three a message's text never has: subscript, superscript and
         marked (highlighted). A custom emoji's text is its alternative
         text, a formula's its source; an icon and an anchor add no
-        text.
+        text. A text_url's url is an http, https, tg, mailto or tel
+        link; a link of another scheme keeps its text without the
+        entity.
       required: [text, entities]
       properties:
         text:
@@ -6904,7 +6906,10 @@ components:
           type: boolean
         url:
           type: string
-          description: A link as stored (not checked); a client opens it with rel=noopener.
+          description: >-
+            A link: only http, https, tg, mailto and tel links are
+            sent, others are left out; a client opens it with
+            rel=noopener.
         author:
           type: string
         title:
@@ -6988,7 +6993,10 @@ components:
           enum: [top, middle, bottom]
     RichArticle:
       type: object
-      description: A related article. photo is absent when no file is known.
+      description: >-
+        A related article. url is empty for a link that is not http,
+        https, tg, mailto or tel; photo is absent when no file is
+        known.
       required: [url, title, description, author, date]
       properties:
         url:
@@ -7009,7 +7017,8 @@ components:
       description: >-
         A button of a button row. url is where a link button goes;
         absent for the other buttons (callbacks and the like), which an
-        archive cannot press.
+        archive cannot press, and for a link that is not http, https,
+        tg, mailto or tel.
       required: [text]
       properties:
         text:
