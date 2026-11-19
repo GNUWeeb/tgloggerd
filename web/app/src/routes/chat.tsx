@@ -9,7 +9,7 @@ import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
 import { LinkPreview } from './chat-preview.tsx';
-import { Counts, KindDetail, KindFallback, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
+import { Counts, KindDetail, KindFallback, Reactions, TopicStrip, TopicTag, richPage, textInside } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
 import { fetchMembers, seesMembers } from '../api/members.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
@@ -121,7 +121,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 					</a>)}
 				<MessageMedia msg={m} onClick={pref.mediaOnClick} />
 				{m.detail ? <KindDetail d={m.detail} text={m.text} entities={m.entities} chat={chat} v={v} tdlib={m.tdlib_type} /> : <KindFallback ct={m.content_type} tdlib={m.tdlib_type} />}
-				{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) && <div className="c-text"><RichText text={m.text} entities={m.entities} chat={chat} /></div>}
+				{m.text && !textInside(m.detail) && <div className="c-text"><RichText text={m.text} entities={m.entities} chat={chat} /></div>}
 				{m.link_preview && <LinkPreview lp={m.link_preview} />}
 				{m.author_signature && <div className="c-sign">- {m.author_signature}</div>}
 				<Reactions list={m.reactions} />
@@ -140,7 +140,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 							<div key={`${i}:${e.at}`}>
 								<span className="c-sub">{hm(e.at, v)}{e.content_type && e.content_type !== m.content_type ? ` . was ${contentLabel(e.content_type)}` : ''}</span>
 								{e.media && <EditMedia m={e.media} type={e.content_type ?? m.content_type} />}
-								{e.text ? <div><RichText text={e.text} entities={e.entities} chat={chat} /></div> : !e.media && !e.detail && <div className="c-sub">(no text)</div>}
+								{e.text && !richPage(e.detail) ? <div><RichText text={e.text} entities={e.entities} chat={chat} /></div> : !e.media && !e.detail && <div className="c-sub">(no text)</div>}
 								{e.detail && <EditDetail d={e.detail} text={e.text} entities={e.entities} chat={chat} v={v} />}
 							</div>
 						))}

@@ -6,7 +6,7 @@
 // may not are null or left out, and the *_total fields still count
 // them, so the page says how many more there were but never who.
 import type { ReactNode } from 'react';
-import { Building2, Check, CircleDashed, CircleHelp, Contact, Dices, Eye, Gamepad2, Gift, LayoutTemplate, ListChecks, Lock, MapPin, MessageSquare, Navigation, Phone, PhoneMissed, PhoneOff, Pin, Receipt, Repeat2, Square, SquareCheck, Star, TimerOff, Trophy, Video, AppWindow, type LucideIcon } from 'lucide-react';
+import { Building2, Check, CircleDashed, CircleHelp, Contact, Dices, Eye, Gamepad2, Gift, ListChecks, Lock, MapPin, MessageSquare, Navigation, Phone, PhoneMissed, PhoneOff, Pin, Receipt, Repeat2, Square, SquareCheck, Star, TimerOff, Trophy, Video, AppWindow, type LucideIcon } from 'lucide-react';
 import { Link } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { compact, dateTime, fmt } from '../format.ts';
@@ -17,6 +17,7 @@ import { VcardExtra } from './chat-vcard.tsx';
 import { Animation, Picture, type Media } from './chat-media.tsx';
 import type { Viewer } from '../page.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
+import { RichBlocks } from '../ui/richblocks.tsx';
 import type { TextEntity } from '../api/entities.ts';
 import type { S } from '../api/schema.ts';
 
@@ -91,8 +92,7 @@ function callTitle(d: S['CallDetail']): string {
 }
 const CALL_ICON: Record<S['CallDetail']['outcome'], LucideIcon> = { missed: PhoneMissed, declined: PhoneOff, disconnected: PhoneOff, hung_up: Phone, upgraded: Phone, ended: Phone, active: Phone };
 
-const PLACEHOLDER: Record<'rich' | 'widget' | 'expired' | 'unsupported', [string, LucideIcon]> = {
-	rich: ['A rich message, which this archive does not show', LayoutTemplate],
+const PLACEHOLDER: Record<'widget' | 'expired' | 'unsupported', [string, LucideIcon]> = {
 	widget: ['A widget, which this archive does not show', AppWindow],
 	expired: ['Self-destructing media that has expired', TimerOff],
 	unsupported: ['A message Telegram itself could not read', CircleHelp],
@@ -144,11 +144,16 @@ function Cover({ m, v }: { m: Media; v: Viewer }) {
 // The kinds whose message text belongs inside the card (a checklist's
 // title, a game's text): the bubble leaves the text to the card.
 export const TEXT_INSIDE: ReadonlySet<string> = new Set(['checklist']);
+// A rich message's blocks hold its text, so the bubble draws the blocks
+// instead; without them (the layout was not kept) the text stands.
+export const richPage = (d: Detail | null | undefined) => d?.kind === 'rich' && d.blocks !== null;
+export const textInside = (d: Detail | null | undefined) => !!d && (TEXT_INSIDE.has(d.kind) || richPage(d));
 
 // The texts inside a card (a poll's question and explanation, a
 // checklist's title and tasks) are drawn with their entities; a
 // hashtag in them searches `chat`. tdlib is the message's TDLib class.
-export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; text: string; entities?: TextEntity[]; chat?: RichChat; v: Viewer; tdlib?: string | null }) {
+// full: the message page, which draws a rich message's page in full.
+export function KindDetail({ d, text, entities, chat, v, tdlib, full = false }: { d: Detail; text: string; entities?: TextEntity[]; chat?: RichChat; v: Viewer; tdlib?: string | null; full?: boolean }) {
 	switch (d.kind) {
 		case 'location':
 			return (
@@ -287,6 +292,9 @@ export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; t
 					<PaidMedia items={d.items} onClick={v.chat?.media === 'click'} />
 				</div>
 			);
+		case 'rich':
+			if (d.blocks) return <RichBlocks d={{ ...d, blocks: d.blocks }} chat={chat} v={v} collapse={!full} />;
+			return text ? null : <div className="c-unknown c-sub k-placeholder">A rich message whose page was not kept</div>;
 		default:
 			return <Placeholder kind={d.kind} tdlib={tdlib} />;
 	}
