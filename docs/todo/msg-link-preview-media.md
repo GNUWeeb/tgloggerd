@@ -21,11 +21,15 @@ preview of a Telegram message or story only its URL and title.
   message-types.md section 4.8.
 - Go (webapi): the preview's `extra` keys and its media as ChatMedia
   on `link_preview` (ChatMessage and MessageFull); a `message` preview
-  whose target is in the archive and visible links to it. OpenAPI and
-  web/docs follow.
+  whose target is in the archive and visible links to it. Done: the
+  LinkPreview schema's `type`, `author`, `media`, `duration`, `embed`
+  and `target`, described in web/docs/message-kinds.md.
 - React (frontend): the preview plays its video or animation with the
-  chat's components, shows its duration, links a Telegram message
-  preview to the archived message.
+  chat's components (`media`, with the photo as its poster), shows its
+  duration, links a Telegram message preview to the archived message
+  (`target`, to `/groups/{chat_id}/chat?at=<message_id>`), and opens
+  an embed's URL (`embed.url`) in a new tab. The app's fixtures that
+  build a `link_preview` gain its required `type`.
 - Left out: running an embed's player (its URL opens in a new tab).
 
 ## Design notes
@@ -44,4 +48,5 @@ Nothing.
 - A new message with a YouTube or video link stores the preview's
   extras and media, and the chat plays the preview's video.
 - A preview of a Telegram message in the archive links to it.
-- Go and React tests cover the extras, the media and the link.
+- React tests cover the extras, the media and the link (Go's are
+  done).

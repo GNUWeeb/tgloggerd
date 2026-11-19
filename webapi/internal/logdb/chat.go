@@ -8,6 +8,7 @@ package logdb
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strconv"
@@ -141,7 +142,30 @@ type LinkPreview struct {
 	Site        string
 	Title       string
 	Description string
-	Photo       FileRef // ID 0 = none
+	Author      string
+	// Type is the TDLib preview type, lower-cased without its prefix
+	// ("article", "video", "message", ...).
+	Type  string
+	Photo FileRef // ID 0 = none
+	// Extra is the type's own fields (docs/design/message-types.md
+	// section 4.8), nil when it has none or was logged before them.
+	Extra []byte
+	// Media is the preview's own video, animation or audio
+	// (telegram_message_files, role preview_media); ID 0 = none.
+	Media FileRef
+	// Target is the archived message a message preview's link names,
+	// nil when it names none or that message is not in the archive.
+	// It is not checked against any scope: the caller shows it when
+	// the scope sees its group or the group is Exposed, as OpenChat
+	// lets a request open the chat.
+	Target *PreviewTarget
+}
+
+// PreviewTarget is a logged group message a link preview points at.
+type PreviewTarget struct {
+	ChatID    int64
+	MessageID int64
+	Exposed   bool // its group is in telegram_public_groups
 }
 
 // Message is a logged message.
@@ -626,33 +650,161 @@ func completeMessages(ctx context.Context, db *sql.DB, group bool, ms []Message)
 		return err
 	}
 	rows, err := db.QueryContext(ctx, "SELECT p."+t.fk+", p.url, p.site_name, p.title, "+
-		"LEFT(COALESCE(p.description, ''), 1000), COALESCE(p.photo_file_id, 0), "+
-		fileColumnsOf("f")+" FROM telegram_link_previews p "+
-		"LEFT JOIN telegram_files f ON f.id = p.photo_file_id WHERE p."+t.fk+
+		"LEFT(COALESCE(p.description, ''), 1000), p.author, p.type, p.extra, "+
+		"COALESCE(p.photo_file_id, 0), "+fileColumnsOf("f")+", COALESCE(mf.file_id, 0), "+
+		fileColumnsOf("pf")+" FROM telegram_link_previews p "+
+		"LEFT JOIN telegram_files f ON f.id = p.photo_file_id "+
+		"LEFT JOIN telegram_message_files mf ON mf."+t.fk+" = p."+t.fk+
+		" AND mf.role = 'preview_media' AND mf.position = 0 "+
+		"LEFT JOIN telegram_files pf ON pf.id = mf.file_id WHERE p."+t.fk+
 		" IN ("+idList(ms)+")")
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	var previews []*LinkPreview
 	for rows.Next() {
 		var (
-			mid   uint64
-			p     LinkPreview
-			photo uint64
-			f     nullFile
+			mid          uint64
+			p            LinkPreview
+			photo, media uint64
+			f, pf        nullFile
 		)
-		dest := append([]any{&mid, &p.URL, &p.Site, &p.Title, &p.Description, &photo}, f.dest()...)
-		if err := rows.Scan(dest...); err != nil {
+		dest := append([]any{&mid, &p.URL, &p.Site, &p.Title, &p.Description, &p.Author,
+			&p.Type, &p.Extra, &photo}, f.dest()...)
+		dest = append(dest, &media)
+		if err := rows.Scan(append(dest, pf.dest()...)...); err != nil {
+			rows.Close()
 			return err
 		}
 		if photo != 0 {
 			p.Photo = f.ref(photo)
 		}
+		if media != 0 {
+			p.Media = pf.ref(media)
+		}
 		if m := byRow[mid]; m != nil {
 			m.Preview = &p
+			previews = append(previews, &p)
 		}
 	}
-	return rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return previewTargets(ctx, db, previews)
+}
+
+// messageLink is the target of a message preview's link as the daemon
+// keeps it in extra: TDLib's chat id or a public username, and the
+// message's server id.
+type messageLink struct {
+	ChatID    int64  `json:"chat_id"`
+	Username  string `json:"username"`
+	MessageID int64  `json:"message_id"`
+}
+
+// previewTargets sets the Target of the message previews among ps whose
+// link names a logged group message: a username resolves to the group
+// that holds it as an active username now (telegram_group_usernames,
+// whose collation compares case-insensitively). Two queries at most,
+// whatever the number of previews.
+func previewTargets(ctx context.Context, db *sql.DB, ps []*LinkPreview) error {
+	links := map[*LinkPreview]messageLink{}
+	var names []any
+	seen := map[string]bool{}
+	for _, p := range ps {
+		if p.Type != "message" || len(p.Extra) == 0 {
+			continue
+		}
+		var l messageLink
+		if json.Unmarshal(p.Extra, &l) != nil || l.MessageID <= 0 ||
+			(l.ChatID >= 0 && l.Username == "") {
+			continue
+		}
+		l.Username = strings.ToLower(l.Username)
+		links[p] = l
+		if l.ChatID >= 0 && !seen[l.Username] {
+			seen[l.Username] = true
+			names = append(names, l.Username)
+		}
+	}
+	if len(links) == 0 {
+		return nil
+	}
+	owners := map[string]int64{}
+	if len(names) > 0 {
+		rows, err := db.QueryContext(ctx, "SELECT username, group_id FROM telegram_group_usernames "+
+			"WHERE username IN ("+placeholders(len(names))+") AND kind = 'active' "+
+			"AND group_id IS NOT NULL", names...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var (
+				name string
+				id   int64
+			)
+			if err := rows.Scan(&name, &id); err != nil {
+				rows.Close()
+				return err
+			}
+			owners[strings.ToLower(name)] = id
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
+	type key struct{ chat, msg int64 }
+	want := map[key]bool{}
+	var conds []string
+	var args []any
+	for p, l := range links {
+		if l.ChatID >= 0 {
+			l.ChatID = owners[l.Username]
+			if l.ChatID == 0 {
+				delete(links, p)
+				continue
+			}
+			links[p] = l
+		}
+		k := key{l.ChatID, l.MessageID}
+		if !want[k] {
+			want[k] = true
+			conds = append(conds, "(m.chat_id = ? AND m.message_id = ?)")
+			args = append(args, k.chat, k.msg)
+		}
+	}
+	if len(conds) == 0 {
+		return nil
+	}
+	rows, err := db.QueryContext(ctx, "SELECT m.chat_id, m.message_id, pg.group_id IS NOT NULL "+
+		"FROM telegram_group_messages m LEFT JOIN telegram_public_groups pg ON pg.group_id = m.chat_id "+
+		"WHERE "+strings.Join(conds, " OR "), args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	found := map[key]*bool{}
+	for rows.Next() {
+		var (
+			k       key
+			exposed bool
+		)
+		if err := rows.Scan(&k.chat, &k.msg, &exposed); err != nil {
+			return err
+		}
+		found[k] = &exposed
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for p, l := range links {
+		if e := found[key{l.ChatID, l.MessageID}]; e != nil {
+			p.Target = &PreviewTarget{ChatID: l.ChatID, MessageID: l.MessageID, Exposed: *e}
+		}
+	}
+	return nil
 }
 
 // MessageFile is a file of a message beyond its main one

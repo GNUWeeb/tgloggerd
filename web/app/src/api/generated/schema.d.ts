@@ -2825,13 +2825,33 @@ export interface components {
             deleted_at: string | null;
             link_preview: components["schemas"]["LinkPreview"] | null;
         };
-        /** @description A message's link preview card (telegram_link_previews): the site, the page's title and description, its URL, and its photo when it has one. */
+        /** @description A message's link preview card (telegram_link_previews): the site, the page's title and description, its URL, its media, and what the preview's type adds (docs/design/message-types.md section 4.8). Previews logged before the daemon kept a preview's extras have only type, site, title, desc, url and the photo as media. */
         LinkPreview: {
+            /** @description The preview's TDLib type, lower-cased without the prefix (article, photo, video, animation, audio, document, sticker, embedded_video_player, embedded_animation_player, embedded_audio_player, external_video, external_audio, chat, user, message, story, ...); unsupported when TDLib gave none the daemon knows. Open-ended: the daemon records new types as TDLib adds them. */
+            type: string;
             site: string;
             title: string;
             desc: string;
             url?: string;
+            /** @description The page's author; absent when none. */
+            author?: string;
+            /** @description The preview's own video, animation or audio (telegram_message_files, role preview_media) when the daemon kept one: a video, animation or audio preview's medium, or the cached medium of an embedded player; render says which. Its poster (video and animation) and its thumb are then the preview's photo, when it has one. Without such a medium, the preview's photo, rendering as an image, with w and h for article, photo, app and web_app previews when known. Absent when the preview has neither. Never carries a minithumb. */
             media?: components["schemas"]["ChatMedia"];
+            /** @description Length in seconds of a video, animation or audio preview or of an embedded player; absent when unknown. */
+            duration?: number;
+            /** @description An embedded player (embedded_video_player, embedded_animation_player, embedded_audio_player): the player's URL, to open in a new tab (the web does not run it), and its expected size in pixels, each absent when unknown. Absent for other types. */
+            embed?: {
+                url: string;
+                w?: number;
+                h?: number;
+            };
+            /** @description A message preview's target, when its link names a message that is in the archive and the viewer may see its chat: the chat (a negative group id, as in /groups/{chat_id}/chat) and the message's id, to link to /groups/{chat_id}/chat?at=<message_id>. The link's username resolves through the groups' usernames; a message not in the archive, a chat the viewer may not see, or a link that names no message leaves it absent, and the card links to url. */
+            target?: {
+                /** Format: int64 */
+                chat_id: number;
+                /** Format: int64 */
+                message_id: number;
+            };
         };
         /** @description Messages oldest first, and whether more lie either side. */
         ChatWindow: {

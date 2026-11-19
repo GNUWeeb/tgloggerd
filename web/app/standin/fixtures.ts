@@ -223,6 +223,59 @@ export function viewOf(persona: Persona, chatId?: number): View {
 	};
 }
 
+// A message's link preview, as Go sends it. The mockup's previews are
+// articles; by message id some become the other kinds a preview may be:
+// a video or an audio with its own medium (the preview's photo as its
+// poster and thumb), an embedded player, a Telegram message link (with
+// its target when the viewer may see the archived message's chat), and
+// a type the daemon does not know.
+const LP_KINDS = ['article', 'video', 'audio', 'embedded_video_player', 'message', 'unsupported'];
+function linkPreview(m, lp, v: View) {
+	const n = m.message_id % 1000;
+	const photo = (w = 1280, h = 720) => chatMedia({ fileId: 990000 + n, w, h, size: 52000 }, 'photo', v.fetch);
+	const article = {
+		type: 'article', site: lp.site, title: lp.title, desc: lp.desc,
+		url: lp.site === 'GitHub' ? 'https://github.com/torvalds/linux/commit/0123456789ab' : 'https://docs.kernel.org/',
+		...(lp.site === 'GitHub' ? { media: photo(1200, 600) } : {}),
+	};
+	// A preview's own medium never carries a minithumb.
+	const own = (type, md) => {
+		const { minithumb: _m, ...x } = chatMedia({ fileId: 992000 + n, ...md }, type, v.fetch);
+		const pic = photo().url;
+		return { ...x, ...(md.title ? { title: md.title, performer: md.performer } : {}), thumb: pic, ...(type === 'audio' ? {} : { poster: pic }) };
+	};
+	switch (LP_KINDS[m.message_id % LP_KINDS.length]) {
+		case 'video': return {
+			type: 'video', site: 'Example Video', title: 'Building the kernel in five minutes', desc: 'A quick walk through make menuconfig and a first boot.',
+			url: `https://video.example.org/watch/${n}`, author: 'Kernel Basics', duration: 312,
+			media: own('video', { w: 1280, h: 720, size: 18_400_000, duration: 312 }),
+		};
+		case 'audio': return {
+			type: 'audio', site: 'Example Podcasts', title: 'Episode 42: scheduling', desc: 'How the scheduler picks the next task.',
+			url: `https://podcasts.example.org/episode/${n}`, author: 'Systems Talk', duration: 1820,
+			media: own('audio', { size: 29_100_000, duration: 1820, name: 'episode-42.mp3', title: 'Episode 42: scheduling', performer: 'Systems Talk' }),
+		};
+		case 'embedded_video_player': return {
+			type: 'embedded_video_player', site: 'Example Tube', title: 'Talk: io_uring in practice', desc: 'A conference talk on asynchronous I/O.',
+			url: `https://tube.example.org/watch?v=${n}`, author: 'Open Source Summit', duration: 2450,
+			embed: { url: `https://tube.example.org/embed/${n}`, w: 1280, h: 720 }, media: photo(),
+		};
+		case 'message': {
+			// A message in another sample group with a public username.
+			const g = groups.find((x) => x.id !== m.chat.id && x.username);
+			const all = chatStream(g);
+			const t = all[n % all.length];
+			return {
+				type: 'message', site: 'Telegram', title: g.title, desc: t.text || 'A message in this group.',
+				url: `https://t.me/${g.username}/${t.message_id}`,
+				...(v.group(g.id) ? { target: { chat_id: g.id, message_id: t.message_id } } : {}),
+			};
+		}
+		case 'unsupported': return { type: 'unsupported', site: lp.site, title: lp.title, desc: '', url: 'https://example.org/new-kind' };
+		default: return article;
+	}
+}
+
 export function chatMessage(m, view: boolean | View = false) {
 	const v: View = typeof view === 'boolean' ? { ...ALL, fetch: view } : view;
 	const fetch = v.fetch;
@@ -259,11 +312,7 @@ export function chatMessage(m, view: boolean | View = false) {
 			...(i === 0 && m.media ? { media: chatMedia({ ...m.media, fileId: m.media.fileId + 500000 }, ct, fetch) } : {}),
 		})),
 		edited_at: m.edited_at ? iso(m.edited_at) : null, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
-		link_preview: lp ? {
-			site: lp.site, title: lp.title, desc: lp.desc,
-			url: lp.site === 'GitHub' ? 'https://github.com/torvalds/linux/commit/0123456789ab' : 'https://docs.kernel.org/',
-			...(lp.site === 'GitHub' ? { media: chatMedia({ fileId: 990000 + (m.message_id % 1000), w: 1200, h: 600, size: 52000 }, 'photo', fetch) } : {}),
-		} : null,
+		link_preview: lp ? linkPreview(m, lp, v) : null,
 		...(m.forward ? { forward_from: forwardFrom(m.forward, m) } : {}),
 		...(channel ? { sender_chat: groupSummary(m.chat), is_channel_post: true, ...(m.message_id % 3 === 0 && s ? { author_signature: s.name } : {}) } : {}),
 		...(bare ? { service_type: SERVICE_TYPES[m.text] ?? 'custom' } : {}),

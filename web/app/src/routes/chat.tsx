@@ -122,7 +122,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 				<MessageMedia msg={m} onClick={pref.mediaOnClick} />
 				{m.detail ? <KindDetail d={m.detail} text={m.text} entities={m.entities} chat={chat} v={v} tdlib={m.tdlib_type} /> : <KindFallback ct={m.content_type} tdlib={m.tdlib_type} />}
 				{m.text && !textInside(m.detail) && <div className="c-text"><RichText text={m.text} entities={m.entities} chat={chat} /></div>}
-				{m.link_preview && <LinkPreview lp={m.link_preview} />}
+				{m.link_preview && <LinkPreview lp={m.link_preview} onClick={pref.mediaOnClick} />}
 				{m.author_signature && <div className="c-sign">- {m.author_signature}</div>}
 				<Reactions list={m.reactions} />
 				<div className="c-meta">
