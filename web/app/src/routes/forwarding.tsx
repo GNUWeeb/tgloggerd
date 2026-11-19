@@ -7,7 +7,7 @@ import { ArrowLeftRight, ArrowRight, BotMessageSquare, Crown, Network, Pencil, P
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
-import { ChatPicker, CheckChips, Field, SecretInput, Seg, Switch, type PickItem } from '../ui/forms.tsx';
+import { ChatPicker, Field, SecretInput, Seg, Switch, type PickItem } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
 import { ApiError, api, ok } from '../api/client.ts';
 import { ago, fmt } from '../format.ts';
@@ -15,6 +15,8 @@ import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 import { BOT_STATUS, BotAvatar, BotName } from './bots.tsx';
+import { TypePicker } from '../ui/TypePicker.tsx';
+import { typeLabel } from '../ui/fwdtypes.ts';
 
 type Person = S['FwdPerson'];
 type Owned = S['Owned'];
@@ -27,17 +29,11 @@ export type ForwardingIndexProps = S['ForwardingIndexProps'];
 export type T2DProps = S['T2DProps'];
 export type D2TProps = S['D2TProps'];
 
-type T2DKind = S['T2DRoute']['types'][number];
-type D2TKind = S['D2TRoute']['types'][number];
-const KINDS: [T2DKind, string][] = [['sticker', 'Sticker'], ['text', 'Text message'], ['photo', 'Photo'], ['video', 'Video'], ['document', 'Document'], ['other', 'Others']];
-const D2T_KINDS = KINDS.filter((k): k is [D2TKind, string] => k[0] !== 'other');
-const LABEL = Object.fromEntries(KINDS);
-
 function errText(x: unknown) { return x instanceof ApiError ? x.message : 'The server could not be reached.'; }
 
-function Types({ types, all }: { types: string[]; all: [string, string][] }) {
+function Types({ types, all }: { types: string[]; all: readonly string[] }) {
 	if (types.length === all.length) return <span className="a-muted">All content</span>;
-	return <>{types.map((t) => <Pill key={t}>{LABEL[t]}</Pill>)}</>;
+	return <>{types.map((t) => <Pill key={t}>{typeLabel(t)}</Pill>)}</>;
 }
 
 function ChatCell({ c }: { c: PickItem }) {
@@ -176,7 +172,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 	return (
 		<Shell crumbs={[['Platform forwarding', '/platform-fwd'], ['Telegram to Discord', null]]}>
 			<PageHead title="Telegram to Discord" sub="Each new message in the Telegram chat is posted to the Discord channel behind the webhook."
-				actions={<Btn primary icon={Plus} onClick={() => setEdit({ chat: null, url: '', types: KINDS.map((k) => k[0]), enabled: true, federation_id: null })}>Add webhook</Btn>} />
+				actions={<Btn primary icon={Plus} onClick={() => setEdit({ chat: null, url: '', types: [...page.props.type_options], enabled: true, federation_id: null })}>Add webhook</Btn>} />
 			{!member && <OwnerFilter value={own} onChange={setOwn} routes={page.props.routes} meId={meId} />}
 			{err && !edit && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			<div className="a-card a-tablecard">
@@ -187,7 +183,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 							<tr key={r.id} className={r.enabled ? '' : 'a-off'}>
 								<td><ChatCell c={r.chat} /></td>
 								<td className="mono a-dim a-clip a-urlcell">{r.url_masked}</td>
-								<td className="a-wrapcell"><Types types={r.types} all={KINDS} /></td>
+								<td className="a-wrapcell"><Types types={r.types} all={page.props.type_options} /></td>
 								<td><OwnerCell r={r} /></td>
 								<td className="a-hide-md"><Pill><Network size={11} />{r.federation.name}</Pill></td>
 								<td className="r num" title={r.last_sent ? `last sent ${ago(r.last_sent, v)}` : 'never sent'}>{fmt(r.sent)}</td>
@@ -207,7 +203,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 				<Modal title={edit.id ? 'Edit webhook' : 'Add webhook'} onClose={() => { setEdit(null); setErr(''); setNote(''); }}
 					footer={<>
 						<Btn ghost icon={Send} disabled={!edit.id && !edit.url} onClick={() => void act(() => ok(api.POST('/api/forwarding/telegram-discord/test', { body: edit.id && !edit.url ? { id: edit.id } : { webhook_url: edit.url } })), 'Test message sent.')}>Send test message</Btn>
-						<span className="a-grow" /><Btn ghost onClick={() => setEdit(null)}>Cancel</Btn><Btn primary disabled={!edit.chat} onClick={() => void save(edit)}>Save</Btn>
+						<span className="a-grow" /><Btn ghost onClick={() => setEdit(null)}>Cancel</Btn><Btn primary disabled={!edit.chat || !edit.types.length} onClick={() => void save(edit)}>Save</Btn>
 					</>}>
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 					{note && <div className="a-banner" role="status"><span>{note}</span></div>}
@@ -218,9 +214,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 					<Field label="Discord webhook URL" hint={edit.id ? 'Stored and never shown again; enter a new URL to replace it.' : 'Discord: channel settings, Integrations, Webhooks, Copy Webhook URL.'}>
 						<SecretInput id="webhook-url" value={edit.url} onChange={(url) => setEdit({ ...edit, url })} what="webhook URL" placeholder={edit.id ? '(unchanged)' : 'https://discord.com/api/webhooks/...'} />
 					</Field>
-					<Field label="Content to forward" hint="Each part of a message is filtered on its own: a caption follows Text message, the media its own type.">
-						<CheckChips items={KINDS} value={edit.types} onChange={(t) => setEdit({ ...edit, types: t })} />
-					</Field>
+					<TypePicker options={page.props.type_options} value={edit.types} onChange={(t) => setEdit({ ...edit, types: t })} />
 					<Switch checked={edit.enabled} onChange={(on) => setEdit({ ...edit, enabled: on })} label="Enabled" />
 				</Modal>
 			)}
@@ -301,12 +295,12 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 		? ok(api.PATCH('/api/forwarding/discord-telegram/{id}', { params: { path: { id: d.id } }, body: changes(d, d.was) }))
 		: ok(api.POST('/api/forwarding/discord-telegram', { body: { discord_channel_id: d.channel_id, chat_id: d.chat!.id, discord_bot_id: d.discord_bot_id!, telegram_bot_id: d.telegram_bot_id!, types: d.types, enabled: d.enabled, federation_id: d.federation_id ?? undefined } }))));
 	const editOf = (r: D2TRoute): Draft => ({ id: r.id, was: r, channel_id: r.channel_id, chat: r.chat, discord_bot_id: r.discord_bot?.id ?? null, telegram_bot_id: r.telegram_bot.id, types: r.types, enabled: r.enabled, federation_id: r.federation.id });
-	const ready = (d: Draft) => !!d.channel_id && !!d.chat && d.discord_bot_id !== null && d.telegram_bot_id !== null;
+	const ready = (d: Draft) => !!d.types.length && !!d.channel_id && !!d.chat && d.discord_bot_id !== null && d.telegram_bot_id !== null;
 	const rows = byOwner(page.props.routes, own, meId);
 	return (
 		<Shell crumbs={[['Platform forwarding', '/platform-fwd'], ['Discord to Telegram', null]]}>
 			<PageHead title="Discord to Telegram" sub="Each new message in the Discord channel is read by a Discord bot and sent to the Telegram chat by a Telegram bot that is a member there."
-				actions={<><Btn ghost to="/platform-fwd/bots" icon={BotMessageSquare}>Bots</Btn><Btn primary icon={Plus} onClick={() => setEdit({ channel_id: '', chat: null, discord_bot_id: null, telegram_bot_id: null, types: D2T_KINDS.map((k) => k[0]), enabled: true, federation_id: null })}>Add route</Btn></>} />
+				actions={<><Btn ghost to="/platform-fwd/bots" icon={BotMessageSquare}>Bots</Btn><Btn primary icon={Plus} onClick={() => setEdit({ channel_id: '', chat: null, discord_bot_id: null, telegram_bot_id: null, types: [...page.props.type_options], enabled: true, federation_id: null })}>Add route</Btn></>} />
 			{!member && <OwnerFilter value={own} onChange={setOwn} routes={page.props.routes} meId={meId} />}
 			{err && !edit && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			<div className="a-card a-tablecard">
@@ -322,7 +316,7 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 									<td><ChatCell c={r.chat} /></td>
 									<td>{r.discord_bot ? <BotCell b={r.discord_bot} kind="discord" /> : <button type="button" className="a-plain a-linkbtn" onClick={() => setEdit(editOf(r))}><BotCell b={null} kind="discord" /><span className="a-link sm a-block">Pick one</span></button>}</td>
 									<td><BotCell b={r.telegram_bot} kind="telegram" /></td>
-									<td className="a-wrapcell"><Types types={r.types} all={D2T_KINDS} /></td>
+									<td className="a-wrapcell"><Types types={r.types} all={page.props.type_options} /></td>
 									<td><OwnerCell r={r} /></td>
 									<td className="a-hide-md"><Pill><Network size={11} />{r.federation.name}</Pill></td>
 									<td className="r num">{fmt(r.sent)}</td>
@@ -356,7 +350,7 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 					<Field label="Telegram bot" hint="Sends into the chat; it must already be a member there.">
 						<BotSelect kind="telegram" value={edit.telegram_bot_id} onChange={(id) => setEdit({ ...edit, telegram_bot_id: id })} />
 					</Field>
-					<Field label="Content to forward"><CheckChips items={D2T_KINDS} value={edit.types} onChange={(t) => setEdit({ ...edit, types: t })} /></Field>
+					<TypePicker options={page.props.type_options} value={edit.types} onChange={(t) => setEdit({ ...edit, types: t })} />
 					<Switch checked={edit.enabled} onChange={(on) => setEdit({ ...edit, enabled: on })} label="Enabled" />
 				</Modal>
 			)}
