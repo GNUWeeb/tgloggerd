@@ -7,7 +7,7 @@ sections 4.1 to 4.7): what the chat window
 message page (`/api/page/messages/{scope}/{id}`) send beyond the text
 and the media, and what each viewer may see of it. The shapes are in
 webapi/openapi.yaml: ContentType, MessageKinds, MessageDetail,
-ServiceInfo, ChatTopic, TextEntity; the code is
+ServiceInfo, ChatTopic, LinkPreview, TextEntity; the code is
 webapi/internal/server/kinds.go, service.go and textentities.go.
 
 ## Content types
@@ -158,7 +158,18 @@ its `topics` (pinned first, then the newest); `?topic=<id>` on the
 chat page and `topic` on the chat window keep the window to one topic,
 with the cursors and has_older/has_newer counted within it. The
 topic's rows are read through the (chat_id, topic_kind, topic_id)
-index. A private chat takes no topic (400 on the API).
+index. A private chat takes no topic (400 on the API). The message page
+has no topic list, so its message also carries `topic`: the ChatTopic
+`topic_id` names (name, icon colour, closed, hidden), read by its
+primary key, or null when `topic_id` is null or the topic was never
+seen.
+
+## Link previews
+
+A message with a link preview card (telegram_link_previews) carries it
+as `link_preview` ({site, title, desc, url, media}, the LinkPreview
+schema; media is its photo as ChatMedia), both in the chat window and
+on the message page; null when it has none.
 
 ## Search
 

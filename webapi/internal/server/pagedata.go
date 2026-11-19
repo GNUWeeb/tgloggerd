@@ -769,6 +769,11 @@ type messageFullJSON struct {
 	EditedAt    *string           `json:"edited_at"`
 	Media       *messageMediaJSON `json:"media"`
 	Album       []chatMediaJSON   `json:"album"`
+	LinkPreview *linkPreviewJSON  `json:"link_preview"`
+	// Topic is the forum topic topic_id names, as the chat page lists
+	// it, so the page can show its name; null when topic_id is, or the
+	// topic was never seen.
+	Topic *topicJSON `json:"topic"`
 	messageExtraJSON
 	messageKindsJSON
 }
@@ -817,8 +822,12 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 		ID: m.RowID, Scope: scopeName(group), MessageID: m.MessageID, Date: iso(m.Date),
 		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Snippet: snippet(m),
 		Forwarded: v.forwardName(n, m), Edited: m.EditDate > 0, DeletedAt: isoPtr(m.DeletedAt),
-		Text: m.Text, Entities: entities, Edits: v.edits(k, m), messageExtraJSON: v.messageExtra(n, m),
-		messageKindsJSON: v.messageKinds(k, m),
+		Text: m.Text, Entities: entities, Edits: v.edits(k, m), LinkPreview: v.linkPreview(m),
+		messageExtraJSON: v.messageExtra(n, m), messageKindsJSON: v.messageKinds(k, m),
+	}
+	if t := d.Topic; t != nil {
+		j.Topic = &topicJSON{ID: t.ID, Name: t.Name, IconColor: t.Color, Closed: t.Closed,
+			Hidden: t.Hidden}
 	}
 	if m.EditDate > 0 {
 		j.EditedAt = isoPtr(m.EditDate)

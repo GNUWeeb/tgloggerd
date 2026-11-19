@@ -501,6 +501,21 @@ func (c Chat) Topics(ctx context.Context, db *sql.DB) ([]Topic, error) {
 	return out, rows.Err()
 }
 
+// topic is one of a group's forum topics, nil when it was never seen.
+func (c Chat) topic(ctx context.Context, db *sql.DB, id int64) (*Topic, error) {
+	var t Topic
+	err := db.QueryRowContext(ctx, "SELECT topic_id, name, icon_color, is_closed, is_hidden "+
+		"FROM telegram_forum_topics WHERE chat_id = ? AND topic_id = ?", c.ID, id).
+		Scan(&t.ID, &t.Name, &t.Color, &t.Closed, &t.Hidden)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
 // KnownMembers is how many people the archive has seen in a group:
 // the distinct users who sent a message there and its administrators.
 // The logger does not record Telegram's own member count, so this is

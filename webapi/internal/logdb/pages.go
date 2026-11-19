@@ -377,6 +377,9 @@ type MessageDetail struct {
 	// Album is the other messages of the message's album, in message
 	// order (none when it is not in one).
 	Album []Message
+	// Topic is the forum topic of a group message, nil when it has
+	// none or the topic was never seen (telegram_forum_topics).
+	Topic *Topic
 }
 
 // albumSpan bounds the message ids an album's other items are looked
@@ -442,6 +445,11 @@ func LoadMessage(ctx context.Context, db *sql.DB, sc scope.Scope, group bool, ro
 		d.ChatGroup = gs[d.ChatID]
 		if d.ChatGroup.ID == 0 {
 			d.ChatGroup = Group{ID: d.ChatID, Title: "(no title)"}
+		}
+		if d.TopicID != 0 {
+			if d.Topic, err = c.topic(ctx, db, d.TopicID); err != nil {
+				return MessageDetail{}, err
+			}
 		}
 	} else {
 		us, err := usersByID(ctx, db, sc, []int64{d.ChatID})
