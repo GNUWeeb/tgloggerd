@@ -2,7 +2,7 @@
 // prefetched by the chat and shown on the group page's Members tab, and
 // a superadmin hiding a channel's list.
 import { test, expect } from './fixtures.ts';
-import { MEMBER_SAMPLES as M } from '../standin/members.ts';
+import { MEMBER_SAMPLES as M, membersApi } from '../standin/members.ts';
 
 test('a group chat prefetches its members, and the Members tab pages them', async ({ page }) => {
 	const id = M.LONG;
@@ -38,4 +38,39 @@ test('a superadmin hides a channel\'s list from admins', async ({ page, as }) =>
 	await page.goto(`/groups/${id}/members`);
 	await expect(page.locator('.a-membersoff')).toContainText('Hidden by a superadmin');
 	await expect(page.getByRole('button', { name: 'Hide member list' })).toHaveCount(0);
+});
+
+test('the Members tab searches by name, @username and id', async ({ page }) => {
+	const id = M.LONG;
+	type Member = { user: { id: number; name: string; username: string } };
+	const all = (membersApi(String(id), new URLSearchParams('limit=200'), 'superadmin', () => true)[1] as { members: Member[] }).members;
+	const u = all.find((m) => m.user.username && m.user.name)!.user;
+	const unstored = all.at(-1)!.user;
+	await page.goto(`/groups/${id}/members`);
+	const rows = page.locator('.a-table tbody tr');
+	await expect(rows).toHaveCount(50);
+	const box = page.getByRole('searchbox', { name: 'Search members by name, @username or ID' });
+
+	await box.fill(u.name.split(' ')[0]!);
+	await expect(page).toHaveURL(/\?q=/);
+	await expect(rows.filter({ hasText: u.name }).first()).toBeVisible();
+
+	await box.fill('@' + u.username.toUpperCase());
+	await expect(page).toHaveURL(new RegExp(`\\?q=${encodeURIComponent('@' + u.username.toUpperCase())}$`));
+	await expect(rows.first()).toContainText(u.name);
+
+	await box.fill(String(unstored.id));
+	await expect(rows.first()).toContainText(`User ${unstored.id}`);
+	await expect(rows.first()).toContainText('matched by ID');
+	// A reload keeps the search.
+	await page.reload();
+	await expect(box).toHaveValue(String(unstored.id));
+	await expect(rows.first()).toContainText('matched by ID');
+
+	await box.fill('zzzqqqxxx');
+	await expect(page.locator('.a-empty')).toContainText('No member matches zzzqqqxxx.');
+	await box.press('Escape');
+	await expect(box).toHaveValue('');
+	await expect(page).toHaveURL(new RegExp(`/groups/${id}/members$`));
+	await expect(rows).toHaveCount(50);
 });
