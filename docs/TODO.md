@@ -127,7 +127,6 @@ Accounts, roles and federations:
 [design/web-accounts.md](design/web-accounts.md).
 
 - [`web-admin-restrictions`](todo/web-admin-restrictions.md): Let a superadmin hide private messages and specific groups from an admin, with 404 everywhere.
-- [`fwd-more-types`](todo/fwd-more-types.md): Let each forwarding route pick more message types than today's six, with a route form that fits them.
 - [`fwd-discord-kinds`](todo/fwd-discord-kinds.md): Forward Discord voice messages, embeds, polls and system messages, each under its own flag.
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
