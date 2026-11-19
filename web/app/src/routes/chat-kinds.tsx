@@ -210,7 +210,7 @@ export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; t
 					<div className="k-question"><RichText text={d.question} entities={d.question_entities} chat={chat} /></div>
 					<div className="c-sub">{label}{d.multiple ? ' . several answers' : ''}{d.closed ? ' . closed' : d.close_date ? ` . closes ${dateTime(d.close_date, v)}` : ''}</div>
 					<ul className="k-options">{d.options.map((o, i) => (
-						<li key={i} className={o.correct ? 'correct' : ''}>
+						<li key={i} className={o.correct ? 'correct' : ''} title={`${fmt(o.voters)} ${o.voters === 1 ? 'vote' : 'votes'}`}>
 							<span className="k-opt"><span>{o.text}{o.correct && <Check size={13} className="k-right" aria-label="correct answer" />}</span><span className="num">{o.percent}%</span></span>
 							<span className="k-bar"><span style={{ width: `${o.percent}%` }} /></span>
 						</li>
@@ -232,6 +232,7 @@ export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; t
 						</li>
 					))}</ul>
 					{more > 0 && <div className="c-sub">and {fmt(more)} more task{more === 1 ? '' : 's'}</div>}
+					{(d.others_can_add || d.others_can_mark) && <div className="c-sub">{[d.others_can_add ? 'others can add tasks' : '', d.others_can_mark ? 'others can mark tasks done' : ''].filter(Boolean).join(' . ')}</div>}
 				</div>
 			);
 		}

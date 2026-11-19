@@ -3,7 +3,7 @@
 // says when its detail is thin or missing, and the fields each card
 // shows.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MessageMedia, kindOf, type Media } from './chat-media.tsx';
 import { PLAIN_KINDS } from '../test/kinds.ts';
@@ -166,5 +166,26 @@ describe('a venue', () => {
 		card({ ...base, provider: 'foursquare', venue_id: '' });
 		card({ ...base, provider: '', venue_id: 'x1' });
 		expect(screen.queryByRole('link', { name: /^On / })).toBeNull();
+	});
+});
+
+describe('a poll and a checklist', () => {
+	it('give each poll option its voters as its title', () => {
+		const poll = sample(showChat(), (m) => m.detail?.kind === 'poll' && m.detail.type === 'regular');
+		if (poll.detail?.kind !== 'poll') throw new Error('no poll sample');
+		const items = document.getElementById(`m${poll.message_id}`)!.querySelectorAll('.k-options li');
+		poll.detail.options.forEach((o, i) => expect(items[i]!.getAttribute('title')).toBe(`${o.voters.toLocaleString('en-US')} ${o.voters === 1 ? 'vote' : 'votes'}`));
+	});
+
+	it('say whether others may add tasks or mark them done', () => {
+		const list = sample(showChat(), (m) => m.detail?.kind === 'checklist');
+		expect(bubble(list).getByText('others can add tasks . others can mark tasks done')).toBeTruthy();
+		cleanup();
+		const base = { kind: 'checklist' as const, tasks: [], tasks_total: 0 };
+		const r = card({ ...base, others_can_add: false, others_can_mark: true });
+		expect(screen.getByText('others can mark tasks done')).toBeTruthy();
+		r.unmount();
+		card({ ...base, others_can_add: false, others_can_mark: false });
+		expect(screen.queryByText(/others can/)).toBeNull();
 	});
 });
