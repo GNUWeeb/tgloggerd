@@ -70,6 +70,8 @@ add_executable(tgloggerd
 	src/tgloggerd/models/ForumTopic.cpp
 	src/tgloggerd/models/Emoji.hpp
 	src/tgloggerd/models/Emoji.cpp
+	src/tgloggerd/models/Community.hpp
+	src/tgloggerd/models/Community.cpp
 	src/tgloggerd/models/Backfill.cpp
 	src/tgloggerd/helpers/common.c
 	src/tgloggerd/helpers/common.h
@@ -86,6 +88,8 @@ add_executable(tgloggerd
 	src/tgloggerd/MessageExtract.hpp
 	src/tgloggerd/EmojiExtract.cpp
 	src/tgloggerd/EmojiExtract.hpp
+	src/tgloggerd/CommunityExtract.cpp
+	src/tgloggerd/CommunityExtract.hpp
 	src/tgloggerd/TDLib.cpp
 	src/tgloggerd/TDLib.hpp
 	src/tgloggerd/FileToken.cpp
@@ -278,6 +282,34 @@ add_executable(gift_test EXCLUDE_FROM_ALL
 target_include_directories(gift_test PRIVATE src)
 target_compile_options(gift_test PRIVATE -Wall -Wextra)
 target_link_libraries(gift_test PRIVATE Td::TdStatic tdjson_private
+	nlohmann_json::nlohmann_json Threads::Threads)
+
+# What the community tables keep of TDLib's community, its full info
+# and the service lines naming one, over hand-built TDLib objects; not
+# part of the default build:
+#   cmake --build build --target community_test && build/community_test
+add_executable(community_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/community_test.cpp
+	src/tgloggerd/CommunityExtract.cpp)
+target_include_directories(community_test PRIVATE src)
+target_compile_options(community_test PRIVATE -Wall -Wextra)
+target_link_libraries(community_test PRIVATE Td::TdStatic tdjson_private
+	Threads::Threads)
+
+# The community upserts and chat-list replacement against a throwaway
+# MySQL with every migration applied (TGL_TEST_MYSQL_* in the test's
+# header); not part of the default build:
+#   cmake --build build --target community_db_test && build/community_db_test
+file(GLOB TGLOGGERD_MODEL_SOURCES src/tgloggerd/models/*.cpp)
+add_executable(community_db_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/community_db_test.cpp
+	src/tgloggerd/DB.cpp
+	${TGLOGGERD_MODEL_SOURCES}
+	src/mysql/ConnectionPool.cpp
+	src/mysql/Database.cpp)
+target_include_directories(community_db_test PRIVATE src)
+target_compile_options(community_db_test PRIVATE -Wall -Wextra)
+target_link_libraries(community_db_test PRIVATE connector-jdbc
 	nlohmann_json::nlohmann_json Threads::Threads)
 
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
