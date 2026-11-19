@@ -120,13 +120,19 @@ const groupSummary = (g) => ({ id: g.id, title: g.title, username: g.username, t
 
 const chatRef = (c) => ({ id: c.id, title: c.title || c.name, kind: c.kind, photo: null });
 
-function messageRow(m) {
-	const s = senderOf(m);
-	// A kind sample (kinds.ts) is listed as its kind.
+// A message's kind as the lists show and filter it: a kind sample
+// (kinds.ts) as its kind, a service row with its action.
+function listedKind(m) {
 	const k = sampleOf(m);
 	const ct = k?.content_type ?? m.content_type;
-	// A service row says its action, as the message page does.
 	const svc = ct === 'service' ? (k ? k.service?.(ALL).type : SERVICE_TYPES[m.text] ?? 'custom') : undefined;
+	return { content_type: ct, service_type: svc, tdlib_type: k?.tdlib_type };
+}
+
+function messageRow(m) {
+	const s = senderOf(m);
+	const k = sampleOf(m);
+	const { content_type: ct, service_type: svc } = listedKind(m);
 	return {
 		id: m.id, scope: m.scope, message_id: m.message_id, date: iso(m.date), chat: chatRef(m.chat),
 		sender: m.is_outgoing ? null : userSummary(s, false), content_type: ct,
@@ -357,20 +363,25 @@ const orphan = (f) => f.id % 23 === 0;
 const DAY_MS = 86400000;
 const shift = (at: string, days: number) => new Date(Math.min(Date.parse(iso(at)) + days * DAY_MS, Date.parse(NOW))).toISOString().replace('T', ' ').slice(0, 19);
 let fileData = null;
+// The mockup's media has no GIFs, video notes or stored thumbnails;
+// some of its videos and photos stand for them.
+const fileType = (f) => (f.id % 97 === 0 ? 'unknown'
+	: f.file_type === 'video' && f.id % 6 === 1 ? 'animation' : f.file_type === 'video' && f.id % 6 === 2 ? 'video_note'
+		: f.file_type === 'photo' && f.id % 40 === 7 ? 'thumbnail' : f.file_type);
 function allFiles() {
 	const extOf = (f) => (f.file_type === 'sticker' ? STICKER_FORMATS[f.id % 3] : f.file_type === 'video' && f.id % 5 === 0 ? 'webm' : f.ext);
 	fileData ??= files().map((f) => ({
 		...f,
 		ext: extOf(f),
 		name: extOf(f) === f.ext ? f.name : f.name.replace(/\.[^.]*$/, '') + '.' + extOf(f),
-		file_type: f.id % 97 === 0 ? 'unknown' : f.file_type,
+		file_type: fileType(f),
 		sha256: f.stored ? createHash('sha256').update(`standin-file-${f.id}`).digest('hex') : null,
 		updated_at: shift(f.created_at, (f.id % 5) / 2),
 		accessed_at: shift(f.created_at, f.id % 9),
 	}));
 	return fileData;
 }
-const pictureType = (t: string) => t === 'photo' || t === 'sticker';
+const pictureType = (t: string) => t === 'photo' || t === 'thumbnail' || t === 'sticker';
 
 // A file as Go sends it (FileRow): url when the bytes are stored or the
 // viewer may have them fetched from Telegram; thumb the URL itself for a
@@ -384,7 +395,8 @@ function fileRow(f, fetch: boolean) {
 	const drawable = f.ext !== 'webm' && f.ext !== 'tgs';
 	const still = videoType(f) ? videoStill(f.id) : null;
 	const base = {
-		id: f.id, file_type: f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored, fetchable,
+		// A thumbnail is filtered as such but answered as a photo, as in Go.
+		id: f.id, file_type: f.file_type === 'thumbnail' ? 'photo' : f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored, fetchable,
 		created_at: iso(f.created_at), accessed_at: iso(f.accessed_at), duration: f.duration, tg_file_id: f.tg_file_id, sha256: f.sha256,
 		url, thumb: still ? still.poster : f.stored && pictureType(f.file_type) && drawable ? url : null,
 		...(still?.minithumb ? { minithumb: still.minithumb } : {}),
@@ -419,7 +431,8 @@ function listState(q: URLSearchParams, defSort: string, defPer = 25, persona?: P
 // keys) and its registry's fields, as one chain. A refused search, or one
 // containing the sample word for a slow one, answers the plain list with
 // the reason; q and conds are then empty, as applied.
-function searchList(st, registry: string, rows: Record<string, unknown>[], keep: ((x) => boolean) | null, query: (st, keep) => { rows: unknown[]; total: number; page: number; pages: number }, estimate = false) {
+// view: a row as the filters see it, when that differs from the stored one.
+function searchList(st, registry: string, rows: Record<string, unknown>[], keep: ((x) => boolean) | null, query: (st, keep) => { rows: unknown[]; total: number; page: number; pages: number }, estimate = false, view = (x) => x) {
 	const fields = REGISTRY[registry]!;
 	let error: ListError | null = null;
 	let test: ((r) => boolean) | null = null;
@@ -429,7 +442,7 @@ function searchList(st, registry: string, rows: Record<string, unknown>[], keep:
 		if (typeof t === 'function') test = t; else error = t;
 	}
 	const applied = error ? { ...st, q: '', conds: [] } : st;
-	const want = (x) => (!keep || keep(x)) && (!test || test(x));
+	const want = (x) => (!keep || keep(x)) && (!test || test(view(x)));
 	const r = query({ ...applied, conds: [] }, want);
 	// Without a search the biggest list counts by the table's estimate.
 	const exact = !(estimate && !applied.q && !applied.conds.length);
@@ -578,7 +591,7 @@ export function load(url: string, persona: Persona): Loaded {
 		const scope = path.includes('private') ? 'private' : 'group';
 		if (!allowed(s, scope === 'group' ? 'group_messages' : 'private_messages')) return notFound;
 		const all = scope === 'group' ? groupMessages() : privateMessages();
-		const { st, r, extra, all: matched } = searchList(listState(u.searchParams, 'date', 50, persona), 'messages', all, scope === 'group' && s.role !== 'superadmin' ? (x) => s.group(x.chat) : null, (state, keep) => queryMessages(scope, state, keep), scope === 'group');
+		const { st, r, extra, all: matched } = searchList(listState(u.searchParams, 'date', 50, persona), 'messages', all, scope === 'group' && s.role !== 'superadmin' ? (x) => s.group(x.chat) : null, (state, keep) => queryMessages(scope, state, keep), scope === 'group', (m) => ({ ...m, ...listedKind(m) }));
 		// The search engine's part (engine.ts): its text is the search box's
 		// and every text matches condition's.
 		const text = [st.q, ...st.conds.filter((c) => c.field === 'text' && c.op === 'matches').map((c) => c.value)].filter(Boolean).join(' ');

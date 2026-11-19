@@ -4,7 +4,8 @@
 // refused search or one that runs out of time answering the plain list
 // and the reason. Only what the sample data can answer is modelled.
 
-export type Cond = { field: string; op: string; value: string; n?: 'AND' | 'OR' };
+// value is a list for `in` (one of), a string for the others.
+export type Cond = { field: string; op: string; value: string | string[]; n?: 'AND' | 'OR' };
 type Row = Record<string, unknown>;
 type FieldType = 'text' | 'int' | 'bool' | 'datetime' | 'enum';
 // needs_chat: no index of its own, so only beside a chat_id = filter.
@@ -14,7 +15,13 @@ const TEXT = ['=', '!=', 'LIKE', 'NOT LIKE', '%LIKE%', 'NOT %LIKE%'];
 const CMP = ['=', '!=', '<', '>', '<=', '>='];
 const BOOL = ['=', '!='];
 const NULLS = ['IS NULL', 'IS NOT NULL'];
-const OWN_OPS = ['=', '!=', '>', '<', '>=', '<=', 'contains', 'empty', 'is'];
+const OWN_OPS = ['=', '!=', '>', '<', '>=', '<=', 'contains', 'empty', 'is', 'in'];
+
+// The known service and TDLib types, as Go lists them: a sample of the
+// daemon's names (docs/design/message-types.md). A value not listed is
+// still taken, as Go takes a type newer than its list.
+const SERVICE_TYPES = ['chat_create', 'chat_change_title', 'chat_change_photo', 'chat_delete_photo', 'chat_add_members', 'chat_join_by_link', 'chat_join_by_request', 'chat_delete_member', 'chat_upgrade_to', 'chat_upgrade_from', 'pin_message', 'screenshot_taken', 'chat_set_message_auto_delete_time', 'forum_topic_created', 'forum_topic_edited', 'contact_registered', 'video_chat_started', 'video_chat_ended', 'gift', 'custom_service_action'];
+const TDLIB_TYPES = ['messageText', 'messagePhoto', 'messageVideo', 'messageVideoNote', 'messageDocument', 'messageAudio', 'messageVoiceNote', 'messageSticker', 'messageAnimation', 'messagePaidMedia', 'messageLocation', 'messageLiveLocation', 'messageVenue', 'messageContact', 'messageDice', 'messageStakeDice', 'messagePoll', 'messageChecklist', 'messageStory', 'messageCall', 'messageChatAddMembers', 'messagePinMessage'];
 
 // The registries: the fields each list's search offers.
 export const REGISTRY: Record<string, SField[]> = {
@@ -42,8 +49,8 @@ export const REGISTRY: Record<string, SField[]> = {
 	messages: [
 		{ key: 'text', label: 'Text', type: 'text', sortable: false, operators: ['matches', '%LIKE%', 'NOT %LIKE%', ...NULLS] },
 		{ key: 'message_id', label: 'Message ID', type: 'int', sortable: true, operators: CMP },
-		{ key: 'tdlib_type', label: 'TDLib type', type: 'text', sortable: false, operators: ['=', '!='], needs_chat: true },
-		{ key: 'service_type', label: 'Service type', type: 'text', sortable: false, operators: ['=', '!='], needs_chat: true },
+		{ key: 'tdlib_type', label: 'TDLib type', type: 'enum', sortable: false, operators: ['=', '!='], enum: TDLIB_TYPES.join(','), needs_chat: true },
+		{ key: 'service_type', label: 'Service type', type: 'enum', sortable: false, operators: ['=', '!='], enum: SERVICE_TYPES.join(','), needs_chat: true },
 	],
 };
 
@@ -62,7 +69,9 @@ function matches(text: string, q: string): boolean {
 	});
 }
 
-function ownMatch(v: unknown, c: Cond): boolean {
+function ownMatch(v: unknown, cond: Cond): boolean {
+	if (cond.op === 'in') return (cond.value as string[]).includes(String(v));
+	const c = { ...cond, value: String(cond.value) };
 	const num = typeof v === 'number';
 	switch (c.op) {
 		case 'contains': return has(String(v ?? ''), c.value);
@@ -80,17 +89,19 @@ function ownMatch(v: unknown, c: Cond): boolean {
 
 function searchMatch(f: SField, row: Row, c: Cond): boolean {
 	const raw = f.get ? f.get(row) : row[f.key];
+	if (c.op === 'in') return raw !== null && raw !== undefined && (c.value as string[]).includes(String(raw));
 	if (c.op === 'IS NULL') return raw === null || raw === undefined || raw === '';
 	if (c.op === 'IS NOT NULL') return !(raw === null || raw === undefined || raw === '');
 	if (f.type === 'bool') return (c.op === '=') === (Boolean(raw) === (c.value === '1'));
-	if (f.type === 'int') return ownMatch(Number(raw), { ...c, value: c.value });
+	if (f.type === 'int') return ownMatch(Number(raw), c);
 	const s = String(raw ?? '');
+	const v = String(c.value);
 	switch (c.op) {
-		case 'LIKE': return like(c.value, s);
-		case 'NOT LIKE': return !like(c.value, s);
-		case '%LIKE%': return has(s, c.value);
-		case 'NOT %LIKE%': return !has(s, c.value);
-		case 'matches': return matches(s, c.value);
+		case 'LIKE': return like(v, s);
+		case 'NOT LIKE': return !like(v, s);
+		case '%LIKE%': return has(s, v);
+		case 'NOT %LIKE%': return !has(s, v);
+		case 'matches': return matches(s, v);
 		default: return ownMatch(s, c);
 	}
 }
@@ -101,13 +112,17 @@ export type ListError = { code: 'bad_search' | 'search_timeout'; message: string
 export function compile(conds: Cond[], own: string[], fields: SField[]): ((r: Row) => boolean) | ListError {
 	const tests: ((r: Row) => boolean)[] = [];
 	for (const c of conds) {
+		// One of a list takes a non-empty list; the others a string.
+		if ((c.op === 'in') !== Array.isArray(c.value) || (c.op === 'in' && !c.value.length)) return { code: 'bad_search', message: c.op === 'in' ? `${c.field} in takes a list of values.` : `${c.field} takes a single value.` };
 		// A list's own key with one of its own operators keeps its own
 		// meaning (the message lists' text contains); else the registry's.
 		const f = own.includes(c.field) && OWN_OPS.includes(c.op) ? undefined : fields.find((x) => x.key === c.field);
 		if (f) {
-			if (!f.operators.includes(c.op)) return { code: 'bad_search', message: `${f.label} does not take ${c.op}.` };
-			if (f.type === 'int' && !NULLS.includes(c.op) && !/^-?\d+$/.test(c.value)) return { code: 'bad_search', message: `${f.label} takes a whole number.` };
-			if (f.type === 'datetime' && !/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(c.value)) return { code: 'bad_search', message: `${f.label} takes a date and time, YYYY-MM-DD HH:MM:SS.` };
+			// Go takes `in` on every enum field; it is not listed among the
+			// operators until the schema has it.
+			if (!f.operators.includes(c.op) && !(c.op === 'in' && f.type === 'enum')) return { code: 'bad_search', message: `${f.label} does not take ${c.op}.` };
+			if (f.type === 'int' && !NULLS.includes(c.op) && !/^-?\d+$/.test(String(c.value))) return { code: 'bad_search', message: `${f.label} takes a whole number.` };
+			if (f.type === 'datetime' && !/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(String(c.value))) return { code: 'bad_search', message: `${f.label} takes a date and time, YYYY-MM-DD HH:MM:SS.` };
 			tests.push((r) => searchMatch(f, r, c));
 		} else if (own.includes(c.field)) {
 			if (!OWN_OPS.includes(c.op)) return { code: 'bad_search', message: `${c.field} does not take ${c.op}.` };
