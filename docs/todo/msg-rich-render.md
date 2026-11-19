@@ -13,13 +13,11 @@ media made available by `msg-rich-store`.
 
 ## Scope
 
-- Go (webapi): a `RichDetail` replacing the placeholder for `rich`: the
-  blocks converted from TDLib's JSON into a small documented shape
-  (block type, rich text with its formatting, the media of a block as
-  ChatMedia from the `rich` file rows by position, links), with
-  unknown block types passed as a typed placeholder; a message whose
-  JSON was over the cap sends its plain text only. OpenAPI and
-  web/docs/message-kinds.md follow.
+- Go (webapi): done. `RichDetail` (webapi/openapi.yaml: RichDetail,
+  RichBlock, RichText; web/docs/message-kinds.md, "Rich messages")
+  sends every block type, a block of an unknown class as type
+  `unknown` with its class in `name`, and null blocks when the page
+  was not kept (the message text is shown then).
 - React (frontend): a block renderer without innerHTML: text blocks,
   lists, quotes, preformatted code, tables, dividers, media with the
   chat's components, links with rel=noopener; collapsed to a few
@@ -29,11 +27,13 @@ media made available by `msg-rich-store`.
 
 ## Design notes
 
-TDLib's page blocks are some thirty types (message-types.md section
-3.1); start with the types the stored rows use, and send any other as its type name so the page
-shows "a block this view does not show". The text formatting reuses
-the text entities renderer (the text-entities item in the web
-interface section, treated as landed).
+The API sends a block's rich text as `{text, entities}`, so the text
+entities renderer (the text-entities item in the web interface
+section, treated as landed) draws it; it adds the entity types
+`subscript`, `superscript` and `marked`. A block of type `unknown`
+shows "a block this view does not show". The app's stand-in still
+sends the old placeholder for `rich` (web/app/standin/kinds.ts) and
+must send a RichDetail.
 
 ## Depends on
 
@@ -44,5 +44,5 @@ landed.
 
 - A stored rich message shows its blocks and its media in the chat
   (collapsed) and on its message page (in full).
-- Go tests convert sample JSON of each supported block type; React
-  tests draw them; no block is drawn through innerHTML.
+- React tests draw each block type; no block is drawn through
+  innerHTML.
