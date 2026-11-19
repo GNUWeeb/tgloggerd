@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 // The chat's live events for messages inside the window: edits and
-// deletions update the message in place.
+// deletions update the message in place, and messages the daemon
+// stores late (a recheck against Telegram found them missing) come as
+// message.new for ids inside the window: each is put in its place by
+// message id, not appended, and the reader's view stays where it was.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, configure, screen, waitFor } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup, type Call } from '../test/page.tsx';
@@ -36,6 +39,8 @@ const gid = () => fixture<GroupsProps>('/groups').props.rows[0]!.id;
 const url = () => `/groups/${gid()}/chat`;
 const windowCalls = (calls: Call[]) => callsTo(calls, 'GET', /^\/api\/chats\/group\/-?\d+\/messages$/);
 const around = (calls: Call[]) => windowCalls(calls).filter((c) => c.query.get('around'));
+const after = (calls: Call[]) => windowCalls(calls).filter((c) => c.query.get('after'));
+const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 // The chat's whole window, as the server has it now.
 const full = () => fixture<ChatProps>(url()).props.messages;
@@ -71,6 +76,114 @@ async function open(missing: number[] = []) {
 	act(() => FakeSource.last!.open());
 	return FakeSource.last!;
 }
+
+describe('messages filled in later', () => {
+	it('puts a message filled mid-window between its neighbours', async () => {
+		const all = full();
+		const gap = all[20]!;
+		const calls = server(full);
+		const s = await open([gap.message_id]);
+		expect(document.getElementById('m' + gap.message_id)).toBeNull();
+		const tails = after(calls).length;
+		act(() => s.emit({ seq: 1, kind: 'message.new', chat_id: gid(), message_id: gap.message_id }));
+		await waitFor(() => expect(document.getElementById('m' + gap.message_id)).toBeTruthy());
+		const o = order();
+		const at = o.indexOf(gap.message_id);
+		expect(o[at - 1]).toBe(all[19]!.message_id);
+		expect(o[at + 1]).toBe(all[21]!.message_id);
+		expect(o.filter((x) => x === gap.message_id)).toHaveLength(1);
+		expect(around(calls)[0]!.query.get('around')).toBe(String(gap.message_id));
+		// Not news: no tail fetch, nothing counted as unseen.
+		expect(after(calls)).toHaveLength(tails);
+		expect(screen.queryByRole('button', { name: /new$/ })).toBeNull();
+	});
+
+	it('fills a burst of two with one fetch, each in its place', async () => {
+		const all = full();
+		const a = all[30]!, b = all[31]!;
+		const calls = server(full);
+		const s = await open([a.message_id, b.message_id]);
+		act(() => {
+			s.emit({ seq: 1, kind: 'message.new', chat_id: gid(), message_id: a.message_id });
+			s.emit({ seq: 2, kind: 'message.new', chat_id: gid(), message_id: b.message_id });
+		});
+		await waitFor(() => expect(document.getElementById('m' + b.message_id)).toBeTruthy());
+		const o = order();
+		const at = o.indexOf(a.message_id);
+		expect(o.slice(at - 1, at + 3)).toEqual([all[29]!.message_id, a.message_id, b.message_id, all[32]!.message_id]);
+		await tick(300);
+		expect(around(calls)).toHaveLength(1);
+	});
+
+	it('does not fetch a message already in the window', async () => {
+		const all = full();
+		const calls = server(full);
+		const s = await open();
+		act(() => s.emit({ seq: 1, kind: 'message.new', chat_id: gid(), message_id: all[10]!.message_id }));
+		await tick(300);
+		expect(around(calls)).toHaveLength(0);
+		expect(order().filter((x) => x === all[10]!.message_id)).toHaveLength(1);
+	});
+
+	it('ignores one older than the window, which the older page brings', async () => {
+		const page = fixture<ChatProps>(url());
+		expect(page.props.has_older).toBe(true);
+		const calls = server(full);
+		const s = await open();
+		const before = windowCalls(calls).length;
+		act(() => s.emit({ seq: 1, kind: 'message.new', chat_id: gid(), message_id: page.props.messages[0]!.message_id - 1 }));
+		await tick(300);
+		expect(windowCalls(calls)).toHaveLength(before);
+	});
+
+	it('puts one older than the window first when the window holds the oldest', async () => {
+		const all = full();
+		const calls = server(full);
+		const page = fixture<ChatProps>(url());
+		renderPage(url(), 'superadmin', { props: { ...page.props, has_older: false, messages: all.slice(1) } });
+		await waitFor(() => expect(FakeSource.last?.url).toMatch(/chat%3A|chat:/));
+		act(() => FakeSource.last!.open());
+		act(() => FakeSource.last!.emit({ seq: 1, kind: 'message.new', chat_id: gid(), message_id: all[0]!.message_id }));
+		await waitFor(() => expect(order()[0]).toBe(all[0]!.message_id));
+		expect(around(calls)).toHaveLength(1);
+	});
+
+	it('still fetches the tail for a message at or after the newest', async () => {
+		const last = full().at(-1)!;
+		const calls = server(full);
+		const s = await open();
+		const tails = after(calls).length;
+		act(() => s.emit({ seq: 1, kind: 'message.new', chat_id: gid(), message_id: last.message_id + 1 }));
+		await waitFor(() => expect(after(calls).length).toBe(tails + 1));
+		expect(after(calls).at(-1)!.query.get('after')).toBe(String(last.message_id));
+		expect(around(calls)).toHaveLength(0);
+	});
+
+	it('keeps the message the reader looks at in place when one lands above it', async () => {
+		const all = full();
+		const gap = all[5]!;
+		// Each row 100 px tall in DOM order, the view scrolled to 3000.
+		let top = 3000;
+		vi.spyOn(HTMLElement.prototype, 'scrollTop', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('c-scroll') ? top : 0; });
+		vi.spyOn(HTMLElement.prototype, 'scrollTop', 'set').mockImplementation(function (this: HTMLElement, v: number) { if (this.classList.contains('c-scroll')) top = v; });
+		vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('c-scroll') ? 10_000 : 0; });
+		vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('c-scroll') ? 800 : 0; });
+		vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+			const rows = [...document.querySelectorAll('.c-feed > *')];
+			const i = rows.indexOf(this);
+			const y = i < 0 ? 0 : i * 100 - top;
+			return { top: y, bottom: y + 100, left: 0, right: 0, width: 0, height: 100, x: 0, y, toJSON: () => ({}) } as DOMRect;
+		});
+		const calls = server(full);
+		const s = await open([gap.message_id]);
+		top = 3000;
+		act(() => s.emit({ seq: 1, kind: 'message.new', chat_id: gid(), message_id: gap.message_id }));
+		await waitFor(() => expect(document.getElementById('m' + gap.message_id)).toBeTruthy());
+		expect(around(calls)).toHaveLength(1);
+		// One row went in above the view: the view moved down with it.
+		expect(top).toBe(3100);
+	});
+});
 
 describe('edits and deletions in the window', () => {
 	it('updates an edited message in place', async () => {

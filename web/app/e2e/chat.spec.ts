@@ -43,6 +43,23 @@ test('edits and deletions change the bubble in place', async ({ page, emit }) =>
 	await expect(page.locator(`#m${e.message_id} .c-bubble.deleted`)).toBeVisible();
 });
 
+test('a message filled in later lands in its place, not at the bottom', async ({ page, emit }) => {
+	await page.goto(`/groups/${G}/chat`);
+	await expect(page.locator('.a-livestate.is-live')).toBeVisible();
+	// A free message id between two messages of the window.
+	const msgs = (await (await page.request.get(`/api/page/groups/${G}/chat`)).json()).props.messages as { message_id: number }[];
+	const i = msgs.findIndex((m, k) => k > 0 && k < msgs.length - 2 && msgs[k + 1]!.message_id - m.message_id > 1);
+	expect(i, 'a gap in the window').toBeGreaterThan(0);
+	const gap = msgs[i]!.message_id + 1;
+	await emit({ kind: 'message.new', chat_id: G, message_id: gap });
+	await expect(page.locator(`#m${gap}`)).toContainText('Found on recheck');
+	// Between its neighbours (a day line may sit between rows).
+	const ids = await page.locator('.c-feed > [id^="m"]').evaluateAll((els) => els.map((el) => el.id));
+	const at = ids.indexOf(`m${gap}`);
+	expect([ids[at - 1], ids[at + 1]]).toEqual([`m${msgs[i]!.message_id}`, `m${msgs[i + 1]!.message_id}`]);
+	await expect(page.locator('.c-unseen')).toHaveCount(0);
+});
+
 test('without the stream the chat polls, and goes live again when it returns', async ({ page, emit, standinUrl }) => {
 	await page.goto(`/groups/${G}/chat`);
 	await expect(page.locator('.a-livestate.is-live')).toBeVisible();

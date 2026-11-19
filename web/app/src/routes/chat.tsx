@@ -244,20 +244,26 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	// The last message after which a page came back empty: a window too
 	// short to scroll does not ask again by itself (a scroll may).
 	const emptyAfter = useRef<number | null>(null);
+	// Ids of messages filled into the window's stretch, to fetch (below).
+	const gaps = useRef(new Set<number>());
 	const msgsRef = useRef(msgs);
 	msgsRef.current = msgs;
 	// A scroll to make once the next messages are rendered: keep the view
 	// where it was after older ones went in above it, or follow new ones
-	// at the bottom. Done in a layout effect, not a frame callback, which
-	// can run before React has rendered them.
-	const afterRender = useRef<{ prepend: number } | { bottom: true } | null>(null);
+	// at the bottom, or keep the message the reader looks at in place
+	// when one went in between. Done in a layout effect, not a frame
+	// callback, which can run before React has rendered them.
+	const afterRender = useRef<{ prepend: number } | { bottom: true } | { anchor: string; top: number } | null>(null);
 	useLayoutEffect(() => {
 		const el = scroller.current;
 		const a = afterRender.current;
 		afterRender.current = null;
 		if (!el || !a) return;
 		if ('prepend' in a) el.scrollTop += el.scrollHeight - a.prepend;
-		else el.scrollTop = el.scrollHeight;
+		else if ('anchor' in a) {
+			const t = document.getElementById(a.anchor);
+			if (t) el.scrollTop += t.getBoundingClientRect().top - a.top;
+		} else el.scrollTop = el.scrollHeight;
 	}, [msgs]);
 	const liveState = useLiveState();
 	const refetch = useRefetcher();
@@ -283,6 +289,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		win.current = ac;
 		busy.current = null;
 		emptyAfter.current = null;
+		gaps.current.clear();
 		return () => ac.abort();
 	}, [p]);
 
@@ -397,10 +404,57 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		setMsgs((cur) => cur.map((m) => got.get(m.id) ?? m));
 	}, [scope, chatId, topic]);
 
+	// Messages filled into the window's stretch later (a recheck found
+	// them missing): fetched around their ids and put in their place by
+	// message id. They are not new to the reader, so they neither count
+	// as unseen nor move the view.
+	const fillGaps = useCallback(async () => {
+		const sig = win.current?.signal;
+		if (!sig) return;
+		const ids = [...gaps.current].sort((a, b) => a - b);
+		gaps.current.clear();
+		for (const id of ids) {
+			// An earlier answer of this run may have brought it already.
+			if (msgsRef.current.some((m) => m.message_id === id)) continue;
+			const w = await fetchChatWindow(scope, chatId, { around: id }, 5, sig, topic);
+			if (sig.aborted) return;
+			const cur = msgsRef.current;
+			const first = cur[0], last = cur[cur.length - 1];
+			if (!first || !last) return;
+			const have = new Set(cur.map((m) => m.id));
+			// Only what lies inside the window: older ones come with the
+			// older page, newer ones with the tail.
+			const add = w.messages.filter((m) => !have.has(m.id) && m.message_id < last.message_id && (m.message_id > first.message_id || !older));
+			if (!add.length) continue;
+			const next = [...cur];
+			for (const m of add) {
+				const i = next.findIndex((x) => x.message_id > m.message_id);
+				next.splice(i < 0 ? next.length : i, 0, m);
+			}
+			const el = scroller.current;
+			if (el) {
+				const top = el.getBoundingClientRect().top;
+				const seen = [...el.querySelectorAll<HTMLElement>('.c-feed > [id^="m"]')].find((x) => x.getBoundingClientRect().bottom > top);
+				if (seen) afterRender.current = { anchor: seen.id, top: seen.getBoundingClientRect().top };
+			}
+			msgsRef.current = next;
+			setMsgs(next);
+		}
+	}, [scope, chatId, topic, older]);
+
 	const following = live && !newer && !publicView;
 	useLive(following ? [`chat:${chatId}`] : null, (e) => {
 		const run = (key: string, fn: () => Promise<unknown>) => (refetch ? refetch.request(key, 250, fn) : void fn().catch(() => {}));
-		if (e.kind === 'message.new' || e.kind === 'resync') run(`chat:${chatId}:tail`, fetchNewer);
+		const cur = msgsRef.current;
+		const first = cur[0], last = cur[cur.length - 1];
+		if (e.kind === 'message.new' && e.message_id !== undefined && first && last && e.message_id < last.message_id) {
+			// Inside the window: put in its place, unless already there.
+			// Older than the window: the older page brings it.
+			if ((e.message_id > first.message_id || !older) && !cur.some((m) => m.message_id === e.message_id)) {
+				gaps.current.add(e.message_id);
+				run(`chat:${chatId}:gaps`, fillGaps);
+			}
+		} else if (e.kind === 'message.new' || e.kind === 'resync') run(`chat:${chatId}:tail`, fetchNewer);
 		else if ((e.kind === 'message.edited' || e.kind === 'message.deleted' || e.kind === 'file.stored') && e.message_id !== undefined && msgsRef.current.some((m) => m.message_id === e.message_id)) {
 			const id = e.message_id;
 			run(`chat:${chatId}:m${id}`, () => replaceMessage(id));
