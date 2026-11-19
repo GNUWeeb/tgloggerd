@@ -184,7 +184,12 @@ function samples(): Sample[] {
 			edited_at: '2026-11-16T08:05:00Z', edits: () => [{ at: '2026-11-16T08:00:00Z', text: 'The meetup is on Thursday, see #meetup.', content_type: 'text', detail: null, entities: entitiesIn('The meetup is on Thursday, see #meetup.', [['Thursday', 'italic'], ['#meetup', 'hashtag']]) }] },
 		{ content_type: 'video_note', media: { round: true } },
 		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.2088, lon: 106.8456, accuracy: null, live: null }), kinds: { reactions: [{ emoji: '📍', count: 2 }] } },
-		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.9175, lon: 107.6191, accuracy: 12, live: { period: 3600, heading: 90, proximity_radius: 0, updates: 17 } }) },
+		// A live location with its 17 earlier positions, one a minute.
+		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.9175, lon: 107.6191, accuracy: 12, live: { period: 3600, heading: 90, proximity_radius: 0, updates: 17 } }),
+			edited_at: '2026-11-16T07:17:00Z', edits: () => Array.from({ length: 17 }, (_, i) => ({
+				at: `2026-11-16T07:${String(i).padStart(2, '0')}:00Z`, text: '', content_type: 'location', entities: [],
+				detail: { kind: 'location', lat: Number((-6.9175 - (17 - i) * 0.0004).toFixed(4)), lon: Number((107.6191 - (17 - i) * 0.0003).toFixed(4)), accuracy: 12, live: { period: 3600, heading: 90, proximity_radius: 0, updates: i } },
+			})) },
 		{ content_type: 'venue', detail: () => ({ kind: 'venue', lat: -6.1754, lon: 106.8272, title: 'Monas', address: 'Gambir, Central Jakarta', provider: 'foursquare', venue_id: '4b0588f0f964a520a6d822e3', venue_type: 'arts_entertainment/monument' }) },
 		{ content_type: 'contact', detail: (v) => ({ kind: 'contact', first_name: nameOf(a!).split(' ')[0] ?? 'Dewi', last_name: nameOf(a!).split(' ').slice(1).join(' '), phone: v.full ? '+62 812 0000 0101' : null, vcard: v.full ? 'BEGIN:VCARD\nVERSION:3.0\nTEL:+6281200000101\nEND:VCARD' : null, user: withPhoto(refOf(v, a!)) }) },
 		{ content_type: 'dice', detail: () => ({ kind: 'dice', emoji: '🎲', value: 4, stake: false }) },
@@ -197,7 +202,14 @@ function samples(): Sample[] {
 			explanation_entities: entitiesIn('Linus wrote the first version in 1991.', [['the first version', 'text_url', { url: 'https://example.org/linux-0.01' }], ['1991', 'bold']]),
 		}) },
 		{ content_type: 'poll', detail: poll('Pick your favourite syscall', 'regular', Array.from({ length: 25 }, (_, i) => `syscall_${i + 1}`)) },
-		{ content_type: 'checklist', text: 'Release checklist', detail: (v) => ({
+		// A checklist whose first version had two tasks, none done.
+		{ content_type: 'checklist', text: 'Release checklist', edited_at: '2026-11-16T08:40:00Z', edits: () => [{
+			at: '2026-11-16T08:30:00Z', text: 'Release checklist', content_type: 'checklist', entities: [],
+			detail: { kind: 'checklist', tasks_total: 2, others_can_add: true, others_can_mark: true, tasks: [
+				{ id: 1, text: 'Tag the release', done: false, done_by: null, done_at: null, entities: [] },
+				{ id: 2, text: 'Write the changelog', done: false, done_by: null, done_at: null, entities: [] },
+			] },
+		}], detail: (v) => ({
 			kind: 'checklist', tasks_total: 4, others_can_add: true, others_can_mark: true,
 			tasks: [
 				{ id: 1, text: 'Tag the release', done: true, done_by: refOf(v, b!), done_at: '2026-11-16T09:00:00Z', entities: [] },
