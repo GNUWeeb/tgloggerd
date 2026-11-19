@@ -210,7 +210,7 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 		: title;
 	let body: ReactNode;
 	if (data && table) body = <SeriesTable points={data.points} period={data.period} variant={variant} tz={data.tz} h12={h12} caption={summary} unit={PERIOD_LABEL[data.period]} />;
-	else if (data) body = <SeriesChart points={data.points} period={data.period} variant={variant} tz={data.tz} h12={h12} label={summary} />;
+	else if (data) body = <SeriesChart points={data.points} period={data.period} variant={variant} tz={data.tz} h12={h12} label={summary} live={data.live} />;
 	else body = <div className="a-sc-empty a-muted">{load.error ? '' : 'Loading the chart...'}</div>;
 	return (
 		<Card title={title} className="a-dash-wide" action={

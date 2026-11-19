@@ -51,9 +51,12 @@ export interface SeriesChartProps {
 	noun?: string;
 	// The chart's accessible name, summarising the range and the total.
 	label: string;
+	// The last period is still running (the end is Now): its count is
+	// only what has come so far, so it is drawn as unfinished.
+	live?: boolean;
 }
 
-export function SeriesChart({ points, period, variant = 'bars', tz, h12 = false, noun = 'messages', label }: SeriesChartProps) {
+export function SeriesChart({ points, period, variant = 'bars', tz, h12 = false, noun = 'messages', label, live = false }: SeriesChartProps) {
 	const box = useRef<HTMLDivElement>(null);
 	const [width, setWidth] = useState(720);
 	const [at, setAt] = useState<number | null>(null);
@@ -85,6 +88,13 @@ export function SeriesChart({ points, period, variant = 'bars', tz, h12 = false,
 	const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(plotW / 90))));
 	const xticks = points.map((_, i) => i).filter((i) => (n - 1 - i) % every === 0);
 	const line = points.map((_, i) => `${i ? 'L' : 'M'}${xc(i).toFixed(2)},${y(values[i]!).toFixed(2)}`).join('');
+	// With a running last period, the line is solid up to the period
+	// before it and dashed into it, so a partial count does not read as
+	// a drop.
+	const partial = live && n > 1;
+	const pt = (i: number) => `${xc(i).toFixed(2)},${y(values[i]!).toFixed(2)}`;
+	const solid = partial ? points.slice(0, -1).map((_, i) => `${i ? 'L' : 'M'}${pt(i)}`).join('') : line;
+	const last = n - 1;
 	const pick = (e: PointerEvent<SVGRectElement>) => {
 		const r = e.currentTarget.getBoundingClientRect();
 		const scale = r.width > 0 ? plotW / r.width : 1;
@@ -117,10 +127,11 @@ export function SeriesChart({ points, period, variant = 'bars', tz, h12 = false,
 					<line className="a-sc-base" x1={left} x2={width - M.right} y1={base} y2={base} />
 					<g className="a-sc-marks">
 						{variant === 'bars'
-							? points.map((p, i) => (p.n > 0 ? <path key={i} className={`a-sc-bar ${i === shown ? 'on' : ''}`} d={barPath(xc(i) - barW / 2, barW, y(p.n), base)} /> : null))
+							? points.map((p, i) => (p.n > 0 ? <path key={i} className={`a-sc-bar ${i === shown ? 'on' : ''} ${live && i === last ? 'partial' : ''}`} d={barPath(xc(i) - barW / 2, barW, y(p.n), base)} /> : null))
 							: <>
 								{variant === 'area' && n > 0 && <path className="a-sc-area" d={`${line}L${xc(n - 1).toFixed(2)},${base}L${xc(0).toFixed(2)},${base}Z`} />}
-								{n > 1 ? <path className="a-sc-line" d={line} /> : n === 1 && <circle className="a-sc-dot" cx={xc(0)} cy={y(values[0]!)} r={3} />}
+								{n > 1 ? <path className="a-sc-line" d={solid} /> : n === 1 && <circle className="a-sc-dot" cx={xc(0)} cy={y(values[0]!)} r={3} />}
+								{partial && <path className="a-sc-line partial" d={`M${pt(last - 1)}L${pt(last)}`} />}
 							</>}
 					</g>
 					{shown !== null && <line className="a-sc-cross" x1={tipX} x2={tipX} y1={M.top} y2={base} />}
@@ -131,7 +142,7 @@ export function SeriesChart({ points, period, variant = 'bars', tz, h12 = false,
 			</div>
 			{shown !== null && (
 				<div className="a-sc-tip" role="status" style={{ left: tipX, top: Math.max(0, y(values[shown]!) - 8), transform: `translate(${tipX < width * 0.15 ? '0' : tipX > width * 0.85 ? '-100%' : '-50%'}, -100%)` }}>
-					<b className="num">{fmt(values[shown]!)}</b> <span className="a-muted">{noun}{variant === 'total' ? ' so far' : ''}</span>
+					<b className="num">{fmt(values[shown]!)}</b> <span className="a-muted">{noun}{variant === 'total' || (live && shown === last) ? ' so far' : ''}</span>
 					{variant === 'total' && <div className="sm">+{fmt(points[shown]!.n)} in this period</div>}
 					<div className="a-muted sm">{periodLabel(points[shown]!.at, period, tz, h12)}</div>
 				</div>

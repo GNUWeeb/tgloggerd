@@ -473,6 +473,10 @@
 .app .a-sc-bar { fill: currentColor; opacity: .75; }
 .app .a-sc-bar.on { opacity: 1; }
 .app .a-sc-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+/* The running last period: dashed into, or a lighter bar. */
+.app .a-sc-line.partial { stroke-dasharray: 4 4; }
+.app .a-sc-bar.partial { opacity: .4; }
+.app .a-sc-bar.partial.on { opacity: .6; }
 .app .a-sc-area { fill: currentColor; opacity: .15; }
 .app .a-sc-dot { fill: currentColor; stroke: var(--panel); stroke-width: 2; pointer-events: none; }
 .app .a-sc-cross { stroke: var(--fg-3); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }

@@ -196,6 +196,13 @@ describe('dashboard chart drawings', () => {
 	const answer = { 'PATCH /api/account/preferences': () => ({ prefs: {} }) };
 	// The y of each vertex of the line, top down.
 	const ys = (d: string) => [...d.matchAll(/[ML][\d.]+,([\d.]+)/g)].map((m) => Number(m[1]));
+	// The whole line's points: the solid part, then the dashed segment
+	// into a running last period (which starts at the solid part's end).
+	const lineYs = (img: Element) => {
+		const solid = ys(img.querySelector('.a-sc-line:not(.partial)')!.getAttribute('d')!);
+		const dash = img.querySelector('.a-sc-line.partial');
+		return dash ? [...solid, ...ys(dash.getAttribute('d')!).slice(1)] : solid;
+	};
 
 	it('draws bars by default, then a line, an area and a running total', async () => {
 		const calls = fakeApi('superadmin', answer);
@@ -207,8 +214,7 @@ describe('dashboard chart drawings', () => {
 
 		fireEvent.change(control('Show as'), { target: { value: 'line' } });
 		expect(img.querySelectorAll('.a-sc-bar')).toHaveLength(0);
-		const line = img.querySelector('.a-sc-line')!.getAttribute('d')!;
-		const ly = ys(line);
+		const ly = lineYs(img);
 		expect(ly).toHaveLength(4);
 		// 5 is the highest point, 0 on the baseline.
 		expect(Math.min(...ly)).toBe(ly[2]);
@@ -216,12 +222,12 @@ describe('dashboard chart drawings', () => {
 		expect(img.querySelector('.a-sc-area')).toBeNull();
 
 		fireEvent.change(control('Show as'), { target: { value: 'area' } });
-		expect(img.querySelector('.a-sc-line')!.getAttribute('d')).toBe(line);
+		expect(lineYs(img)).toEqual(ly);
 		expect(img.querySelector('.a-sc-area')!.getAttribute('d')).toMatch(/Z$/);
 
 		fireEvent.change(control('Show as'), { target: { value: 'total' } });
 		expect(screen.getByRole('heading', { name: 'Messages per hour, running total' })).toBeTruthy();
-		const ty = ys(img.querySelector('.a-sc-line')!.getAttribute('d')!);
+		const ty = lineYs(img);
 		// 2, 2, 7, 8: never falling, flat where nothing came.
 		expect(ty[1]).toBe(ty[0]);
 		expect(ty[2]).toBeLessThan(ty[1]!);
