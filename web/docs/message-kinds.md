@@ -121,7 +121,10 @@ files of role `rich`, numbered in order of appearance
   daemon's way: depth first, and only the media that have a file
   (a photo's largest size, a video, an animation, an audio file, a
   document, a voice note, an embed's poster, an embedded post's author
-  photo, a related article's photo).
+  photo, a related article's photo). A video's or an animation's
+  `poster` (and `thumb`) is its still thumbnail, the message's file of
+  role `thumbnail` at the same position, when that is stored; a block
+  has no cover.
 - `blocks` is null when the page was not kept: its JSON was over the
   daemon's cap (256 KiB), or the row was stored before the mapping and
   not read again yet. The chat then shows the message `text`, which
