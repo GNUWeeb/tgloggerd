@@ -1135,6 +1135,10 @@ type listMessage struct {
 	Forwarded   *string   `json:"forwarded"`
 	Edited      bool      `json:"edited"`
 	DeletedAt   *string   `json:"deleted_at"`
+	// ServiceType is a service message's action (chat_add_members,
+	// pin_message, ...), as the chat's MessageExtra gives it, so a
+	// list can label the row; null for every other row.
+	ServiceType *string `json:"service_type"`
 }
 
 // messagesProps are the message lists' (MessagesProps).
@@ -1204,6 +1208,9 @@ func loadMessages(ctx context.Context, pr *pageRequest, l *listSpec, msgScope st
 			Snippet: v.listSnippet(k, r.Uint("id"), r.Str("text"), r.Str("content_type"),
 				r.Str("kind_file")),
 			Edited: r.Int("edit_date") != 0, DeletedAt: dbTimePtr(r, "deleted_at")}
+		if st := r.Str("service_type"); st != "" && m.ContentType == "service" {
+			m.ServiceType = &st
+		}
 		if msgScope == "group" {
 			m.Chat = listChat{ID: r.Int("chat_id"), Title: logdb.GroupTitle(r.Str("group_title")),
 				Kind: "group", Photo: s.photoPtr(r.Uint("group_photo"))}

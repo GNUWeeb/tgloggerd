@@ -114,6 +114,11 @@ and `refs`, the users and chats it names that the viewer may see, and
 `message_id`, the message of the chat it is about (the pinned
 message, a changed poll or checklist, a giveaway), for `?at=` links.
 
+The message lists (the group_messages and private_messages pages,
+MessageRow) carry the same action as `service_type` on a service
+message's row, read from the stored column in the list's own query, so
+a list can label the row; it is null on every other row.
+
 The logger's own description of an action (the text column) names
 nobody: "added 2 members to the group". Where the action names people,
 the service rebuilds the text for the viewer with the names it may see

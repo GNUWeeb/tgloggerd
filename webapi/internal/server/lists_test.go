@@ -259,7 +259,7 @@ func TestListMessages(t *testing.T) {
 		"sender": map[string]any{"id": 9299100001, "name": `<i>Tom & "Jerry"</i> O'Neil`,
 			"username": "tom_jerry", "type": "regular", "photo": nil},
 		"content_type": "text", "snippet": "templates & <generics> in C++",
-		"forwarded": "Secret Admirer", "edited": false, "deleted_at": nil}
+		"forwarded": "Secret Admirer", "edited": false, "deleted_at": nil, "service_type": nil}
 	if js(p["rows"].([]any)[0]) != js(tom) {
 		t.Errorf("newest:\n got %s\nwant %s", js(p["rows"].([]any)[0]), js(tom))
 	}
@@ -323,7 +323,7 @@ func TestListMessages(t *testing.T) {
 		"sender": map[string]any{"id": 9299000001, "name": "Dewi Kusuma", "username": "dewikusuma",
 			"type": "regular", "photo": e.file(880007)},
 		"content_type": "text", "snippet": "never mind", "forwarded": nil, "edited": false,
-		"deleted_at": "2026-11-17T15:32:00Z"}
+		"deleted_at": "2026-11-17T15:32:00Z", "service_type": nil}
 	if js(p["rows"].([]any)[0]) != js(deleted) || num(p["archive_total"]) != 6 {
 		t.Errorf("private:\n got %s\nwant %s", js(p["rows"].([]any)[0]), js(deleted))
 	}
@@ -337,6 +337,37 @@ func TestListMessages(t *testing.T) {
 	st, b := e.get("member", "/api/page/private_messages")
 	if st != 404 || b["route"] != "not_found" {
 		t.Errorf("member private messages: %d %v", st, b["route"])
+	}
+}
+
+// A message list's row carries a service message's action, from the
+// stored service_type, so the list can label it; every other row has
+// null.
+func TestListMessagesServiceType(t *testing.T) {
+	t.Parallel()
+	e := newSearchEnvOpts(t, searchOpts{fixtures: []string{"list_service"}})
+	for _, c := range []struct{ list, chat, want, ids string }{
+		{"group_messages", "-1001000000003", "pin_message", "601,600,13,12"},
+		{"private_messages", "9299000002", "contact_registered", "601,600,6,5"},
+	} {
+		p := e.props("superadmin", c.list, "f",
+			`[{"field":"chat_id","op":"=","value":"`+c.chat+`"}]`)
+		if listIDs(p) != c.ids {
+			t.Fatalf("%s: %s", c.list, listIDs(p))
+		}
+		rows := p["rows"].([]any)
+		plain, svc := rows[0].(map[string]any), rows[1].(map[string]any)
+		if v, ok := svc["service_type"]; !ok || v != c.want || svc["content_type"] != "service" {
+			t.Errorf("%s service row: %v", c.list, svc)
+		}
+		if v, ok := plain["service_type"]; !ok || v != nil {
+			t.Errorf("%s plain row: %v", c.list, plain)
+		}
+		for _, r := range rows[2:] {
+			if r := r.(map[string]any); r["service_type"] != nil {
+				t.Errorf("%s row %v: %v", c.list, r["id"], r["service_type"])
+			}
+		}
 	}
 }
 

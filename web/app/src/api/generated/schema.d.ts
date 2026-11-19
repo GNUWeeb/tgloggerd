@@ -2099,6 +2099,8 @@ export interface components {
             forwarded: string | null;
             edited: boolean;
             deleted_at: string | null;
+            /** @description A service message's action (chat_add_members, pin_message, ...; docs/design/message-types.md section 4.2.3), as MessageExtra.service_type gives it, so a list can label the row; null for every other row. Always sent by the message lists; optional for the message page, which gives it as MessageExtra does. */
+            service_type?: string | null;
         };
         /** @description A version of a message before an edit, from `at` until the next version (or the message as it is). */
         Edit: {
