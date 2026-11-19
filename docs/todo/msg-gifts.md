@@ -22,6 +22,9 @@ gift does not say which gift. So the web can only say "sent a gift".
   the same role for the animation stickers of `gifted_premium`,
   `gifted_stars`, `gifted_grams`, `giveaway_prize_stars` and the
   prize sticker of `messageGiveaway`. Fetcher sources for them.
+  Done: the daemon half; the keys are in message-types.md section
+  4.2.3 (an upgraded gift's object, a gift theme), the files and
+  their positions in section 4.3 (role `gift`).
 - Go (webapi): a gift detail on ServiceInfo (sticker as ChatMedia,
   model, symbol, backdrop, price, sender and receiver through the
   scope), and the giveaway's prize sticker; OpenAPI and web/docs

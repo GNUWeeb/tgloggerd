@@ -228,6 +228,14 @@ service messages keep `content_type = 'service'` and get the
 | messageTonWalletTransfer | not | sender, transaction, peer address, amount, comment | ton_wallet_transfer |
 | messageTonConnectRequest | not | session, state, dApp name, topic | ton_connect_request |
 
+A gift is kept as Telegram shows it: its sticker (an upgraded gift's
+model and symbol stickers) and the animation stickers of gifted
+Premium, Stars, grams and giveaway prizes, and a giveaway's prize
+sticker, are message files with role `gift` (section 4.3); an upgraded
+gift's model, symbol, backdrop and original details, and the gift a
+chat theme comes from, are curated keys (section 4.2.3). Rows stored
+before keep what they have. A Premium gift code's code is never kept.
+
 Every service_type is the TDLib class name without its `message`
 prefix in snake case, which is what the existing ones already are
 except `chat_create` (two classes share it) and `payment_successful`
@@ -439,7 +447,7 @@ false.
 | chat_has_protected_content_disable_requested | `expired` |
 | pin_message | `message_id` |
 | chat_set_background | `background`: `{id, name, dark, type, dark_theme_dimming}` and the fields of its type (below), `old_background_message_id`, `only_for_self` |
-| chat_set_theme | `theme_name`, or `theme_kind` for a gift theme |
+| chat_set_theme | `theme_name`, or `theme_kind` for a gift theme; a gift theme also `gift_id` and `gift_name` (its upgraded gift's id and unique name) |
 | chat_set_message_auto_delete_time | `seconds`, `from_user_id` |
 | chat_boost | `boost_count` |
 | forum_topic_created | `name`, `name_implicit`, `icon_color`, `icon_custom_emoji_id` |
@@ -458,7 +466,7 @@ false.
 | gifted_premium, premium_gift_code | `gifter_user_id`, `receiver_user_id` or `creator`, `text`, `currency`, `amount`, `cryptocurrency`, `cryptocurrency_amount`, `month_count`, `day_count`, `from_giveaway`, `unclaimed`, `has_code` |
 | gifted_stars, gifted_grams, giveaway_prize_stars | gifter and receiver, amounts, `star_count` or `gram_amount`, `transaction_id`, giveaway chat and message |
 | giveaway_created, giveaway_completed, giveaway_winners | `star_count`; `giveaway_message_id`, `winner_count`, `unclaimed_prize_count`; the winners, prize and selection date |
-| gift, upgraded_gift, refunded_upgraded_gift | `gift` (`{id, star_count, emoji, ...}` or, upgraded, `{id, title, name, number, owner}`), `sender`, `receiver`, `origin`, `received_gift_id`, `text`, its flags and dates |
+| gift, upgraded_gift, refunded_upgraded_gift | `gift` (`{id, star_count, emoji, ...}` or, upgraded, the upgraded gift below), `sender`, `receiver`, `origin`, `received_gift_id`, `text`, its flags and dates |
 | upgraded_gift_purchase_offer(_rejected) | `gift`, `state`, `price`, `expiration_date` or `offer_message_id`, `expired` |
 | paid_messages_refunded | `message_count`, `star_count` |
 | paid_message_price_changed, direct_message_price_changed | `paid_message_star_count`, `enabled` |
@@ -488,6 +496,22 @@ colour of a gradient, the three or four of a freeform gradient;
 `rotation_angle` is a gradient's clockwise rotation in degrees (0-359,
 a multiple of 45, absent when 0). The flags are absent when false and
 `intensity` when 0, as for the other keys.
+
+An upgraded gift (the `gift` of upgraded_gift and of the two purchase
+offer types) is `{id, regular_gift_id, title, name, number,
+publisher_chat_id, owner}` and what it looks like:
+
+| Key | Meaning |
+|---|---|
+| `model` | `{name, rarity, crafted}`: the model; `crafted` when it is only obtained by crafting gifts |
+| `symbol` | `{name, rarity}`: the symbol on the backdrop's pattern |
+| `backdrop` | `{name, center_color, edge_color, symbol_color, text_color, rarity}`: colours are RGB integers (0xRRGGBB) as TDLib gives them, kept even when 0 (black) |
+| `original_details` | `{sender, receiver, text, date}`: the gift it was upgraded from, as TDLib gives it (sender left out for a private gift) |
+
+A rarity is `rarity_per_mille` (how many of 1000 upgraded gifts get the
+attribute; 0 means under 0.1% and is kept) or, when Telegram names it
+instead, `rarity`: `uncommon`, `rare`, `epic` or `legendary`. The
+model's and the symbol's stickers are message files (section 4.3).
 
 Kept out on purpose: a Premium gift code (anyone who can read the
 archive could redeem it; `has_code` records that there was one), an
@@ -528,14 +552,14 @@ A video note's round video is now the main file, like any other media.
 | `thumbnail` | the still thumbnail TDLib offers with a video, an animation, a video note or a video (.webm) sticker, when it is an image (JPEG, PNG or WebP; MPEG-4, GIF, TGS and WebM thumbnails are not stored), file_type `thumbnail`: the picture the web shows before the video plays |
 | `poll`, `preview` | reserved: poll media (msg-polls); other thumbnails (a document's, a photo's sizes) and a video's other qualities are not stored, since they repeat the media |
 | `rich` | the media inside a rich message's page blocks, `position` their order of appearance, depth first through collages, slideshows, quotes, lists, collapsible blocks, covers and embedded posts: each photo (largest size), video, animation, audio file, document and voice note, an embedded page's poster, an embedded post's author photo, the photos of related articles; not a chat link's photo (the chat's own) nor the icons inside rich text |
-| `gift` | a gift's sticker, an upgraded gift's model sticker, the animation sticker of a gifted premium, stars, grams or giveaway prize (msg-gifts) |
+| `gift` | file_type `sticker`: at position 0 the gift's sticker (gift, refunded_upgraded_gift), an upgraded gift's model sticker (upgraded_gift and the two purchase offer types), the animation sticker of gifted_premium, gifted_stars, gifted_grams and giveaway_prize_stars, or a giveaway's prize sticker; at position 1 an upgraded gift's symbol sticker. Each keeps its position when the other is missing. Not a premium_gift_code's sticker |
 | `background` | a chat background's document at position 0: the wallpaper (JPEG) or the pattern (PNG or TGV), file_type `document`; a fill or a chat theme has none |
 | `preview_media` | a link preview's own video, animation or audio, beyond its image in `telegram_link_previews.photo_file_id` (msg-link-preview-media) |
 
 The last four roles come with migration 000045; nothing writes them
 until their items land (`rich` is written since msg-rich-store,
 `preview_media` since msg-link-preview-media, `background` since
-msg-chat-backgrounds). The
+msg-chat-backgrounds, `gift` since msg-gifts). The
 ENUM append keeps every existing value's number, so it is instant
 (`ALGORITHM=INSTANT`, confirmed on a copy with rows), and its down
 file first deletes the rows that use them.
