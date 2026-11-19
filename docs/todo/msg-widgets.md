@@ -1,8 +1,7 @@
 # msg-widgets
 
-Show a widget message as more than a placeholder: its size, and its
-HTML in a sandbox or behind an "open" action, once a sandbox is chosen
-(optional).
+Show a widget message as more than a placeholder: its box at its size,
+and its HTML as escaped source on the message page, never rendered.
 
 ## Why
 
@@ -14,12 +13,15 @@ No widget appears in the archive so far, so this is low priority.
 
 - Daemon (TDLib session): curated `{width, height, widget_id,
   has_caption}` alongside `tdlib`, no migration.
-- Decide how the HTML may be shown: a sandboxed iframe from a separate
-  origin with no scripts, a download, or not at all; a decision file.
-- Go (webapi): a `WidgetDetail` with the size and, per the decision, a
-  URL that serves the HTML with a strict Content-Security-Policy.
-- React (frontend): the widget's box at its size, showing the HTML per
-  the decision.
+- How the HTML is shown, decided by the owner on 2026-11-20 (decision
+  file 2026-11-20-msg-widgets-html): never rendered. The message page
+  shows the widget's box at its size with a note, and the HTML as
+  escaped source text.
+- Go (webapi): a `WidgetDetail` with the size and the HTML as a
+  string, sent as text only; nothing serves it as a page.
+- React (frontend): the widget's box at its size with a note, and on
+  the message page the HTML as escaped source (a code block), never
+  through innerHTML or an iframe.
 
 ## Design notes
 
