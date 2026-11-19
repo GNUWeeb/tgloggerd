@@ -81,6 +81,20 @@ describe('files', () => {
 		expect(lastPageCall(calls).query.get('file')).toBeNull();
 	});
 
+	it('shows a photo whole in the preview, never cropped to a shape', async () => {
+		const p = fixture<FilesProps>('/files?view=list').props;
+		const f = { ...p.rows[0]!, id: 4245, name: 'tall.jpg', file_type: 'photo' as const, stored: true, url: '/files/tok-tall', thumb: '/files/tok-tall' };
+		renderPage('/files?view=list&file=4245', 'superadmin', { props: { ...p, rows: [f], preview: f } });
+		const d = await screen.findByRole('dialog', { name: 'tall.jpg' });
+		const img = d.querySelector<HTMLImageElement>('.a-preview img')!;
+		expect(img.getAttribute('src')).toBe('/files/tok-tall');
+		expect(img.classList.contains('a-preview-img')).toBe(true);
+		// Not the list's square thumbnail: no cover fit, no fixed shape.
+		expect(img.closest('.a-thumb')).toBeNull();
+		expect(img.style.objectFit).toBe('');
+		expect(img.style.aspectRatio).toBe('');
+	});
+
 	it('shows a file seen in no visible message without links, and cannot open its message', async () => {
 		const p = fixture<FilesProps>('/files?view=list').props;
 		const orphan = { ...p.rows[0]!, id: 4242, name: 'lonely.pdf', chat: null, message: null, sender: null };

@@ -163,9 +163,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		return;
 	}
 	if (fm) {
-		const hue = (Number(fm[1]) * 47) % 360;
+		const id = Number(fm[1]);
+		const hue = (id * 47) % 360;
+		// Landscape, portrait or wide by the id, so a page that crops a
+		// picture to one shape shows it.
+		const [w, h] = [[400, 300], [300, 400], [480, 240]][id % 3]!;
 		res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' });
-		res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="400" height="300" fill="hsl(${hue} 55% 60%)"/><circle cx="300" cy="80" r="40" fill="hsl(${hue} 70% 85%)"/><path d="M0 300 L140 150 L240 250 L300 200 L400 300 Z" fill="hsl(${hue} 45% 35%)"/></svg>`);
+		res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 400 300" preserveAspectRatio="none"><rect width="400" height="300" fill="hsl(${hue} 55% 60%)"/><circle cx="300" cy="80" r="40" fill="hsl(${hue} 70% 85%)"/><path d="M0 300 L140 150 L240 250 L300 200 L400 300 Z" fill="hsl(${hue} 45% 35%)"/></svg>`);
 		return;
 	}
 	if (url.pathname.startsWith('/app/') || url.pathname.startsWith('/@') || url.pathname.startsWith('/node_modules/')) {

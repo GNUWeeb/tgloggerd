@@ -1,4 +1,4 @@
-import { CloudDownload, CloudOff, Copy, Download, LayoutGrid, List, MessageSquare } from 'lucide-react';
+import { CloudDownload, CloudOff, Copy, Download, LayoutGrid, List, MessageSquare, Play } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, setQuery, useNav, useQueryParams } from '../nav.tsx';
 import { Btn, KV, PageHead, Pill } from '../ui/primitives.tsx';
@@ -39,6 +39,18 @@ const QUICK: [string, Cond[]][] = [
 const NO_MESSAGE = 'no visible message';
 const chatHref = (c: NonNullable<FileRow['chat']>) => (c.kind === 'group' ? `/groups/${c.id}` : `/users/${c.id}`);
 
+// The file's picture (a photo, or a video's poster) whole, at its own
+// shape: never cropped, within the pane and most of the window's height.
+function PreviewImage({ f }: { f: FileRow }) {
+	const video = f.file_type === 'video' || f.file_type === 'animation';
+	return (
+		<span className="a-preview-media">
+			<img className="a-preview-img" src={f.thumb!} alt="" />
+			{video && <span className="a-thumb-play"><Play size={36} fill="currentColor" /></span>}
+		</span>
+	);
+}
+
 function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void }) {
 	const big = f.file_type === 'photo' || f.file_type === 'video' || f.file_type === 'animation' || f.file_type === 'sticker';
 	return (
@@ -55,7 +67,8 @@ function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void
 			</>}>
 			<div className="a-previewgrid">
 				<div className={`a-preview ${big ? 'big' : ''}`}>
-					{f.stored ? <Thumb type={f.file_type} thumb={f.thumb} stored ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
+					{f.stored && f.thumb ? <PreviewImage f={f} />
+						: f.stored ? <Thumb type={f.file_type} thumb={null} stored ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
 						: <div className="a-preview-missing"><CloudOff size={28} /><span>{f.url ? 'Not stored. Fetch from Telegram downloads it from there, if Telegram still has it.' : 'Not stored in the archive; only its details were kept.'}</span></div>}
 				</div>
 				<KV rows={[
