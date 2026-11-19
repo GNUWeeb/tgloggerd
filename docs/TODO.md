@@ -110,6 +110,8 @@ Storing every kind of Telegram message faithfully:
 
 - [`msg-repair-census`](todo/msg-repair-census.md): Count what the repair pass left without a kind or detail, turn it off, and adjust these items.
 - [`msg-widgets`](todo/msg-widgets.md): Show a widget message's size and, once a sandbox is chosen, its HTML (optional).
+- [`msg-rich-full`](todo/msg-rich-full.md): Store a rich message in full when TDLib delivers it without all of its blocks.
+- [`msg-rich-video-thumbnails`](todo/msg-rich-video-thumbnails.md): Keep the still thumbnail of each video inside a rich message's blocks.
 - [`msg-link-preview-types`](todo/msg-link-preview-types.md): Store and show the link preview types still kept as unsupported, and the media of the mapped ones.
 
 ## Web backend in Go
