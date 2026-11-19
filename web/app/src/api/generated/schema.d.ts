@@ -2384,6 +2384,8 @@ export interface components {
             /** @description Whose story it is, when the viewer may see them. */
             poster: components["schemas"]["ChatRef"] | null;
             story_id: number;
+            /** @description The poster's active username, for a t.me/<username>/s/<id> link; null without one, and when poster is null (a poster the viewer may not see). */
+            username?: string | null;
         };
         InvoiceDetail: {
             /**

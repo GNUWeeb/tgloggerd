@@ -316,6 +316,23 @@ func (v view) ref(k kinds, id int64) (chatRefJSON, bool) {
 	return chatRefJSON{}, false
 }
 
+// refUsername is the active username of the user (positive id) or
+// chat (negative id), from the rows loadKinds read for the visible
+// ones; nil for one the viewer may not see or without a username.
+func refUsername(k kinds, id int64) *string {
+	var u string
+	switch {
+	case id > 0:
+		u = k.users[id].Username
+	case id < 0:
+		u = k.groups[id].Username
+	}
+	if u == "" {
+		return nil
+	}
+	return &u
+}
+
 // refPtr is ref as a nullable field.
 func (v view) refPtr(k kinds, id int64) *chatRefJSON {
 	if r, ok := v.ref(k, id); ok {
@@ -433,6 +450,10 @@ type storyJSON struct {
 	Kind    string       `json:"kind"`
 	Poster  *chatRefJSON `json:"poster"`
 	StoryID int64        `json:"story_id"`
+	// Username is the poster's active username, for a link to the
+	// story; nil without one or when the viewer may not see the
+	// poster.
+	Username *string `json:"username"`
 }
 
 type invoiceJSON struct {
@@ -638,7 +659,8 @@ func (v view) detail(k kinds, m logdb.Message) any {
 		}
 		return j
 	case "story":
-		return storyJSON{Kind: ctype, Poster: v.refPtr(k, x.PosterChatID), StoryID: x.StoryID}
+		return storyJSON{Kind: ctype, Poster: v.refPtr(k, x.PosterChatID), StoryID: x.StoryID,
+			Username: refUsername(k, x.PosterChatID)}
 	case "invoice":
 		j := invoiceJSON{Kind: ctype, Title: x.Title, Description: formattedText(x.Description),
 			Currency: x.Currency, TotalAmount: x.TotalAmount, IsTest: x.IsTest}

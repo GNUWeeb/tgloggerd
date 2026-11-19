@@ -39,6 +39,10 @@ of messages.
   (a reference: stories are not archived), `invoice`, `giveaway`,
   `call` (`outcome`: missed, declined, disconnected, hung_up, upgraded,
   ended, or for a group call active), `paid_media`.
+- `story`: its `poster` and `story_id`, and `username`, the poster's
+  active username for a `t.me/<username>/s/<id>` link: read with the
+  poster in the same batch, and null without one or when the poster
+  is hidden from the viewer (`poster` null).
 - `poll`: the question, the type (regular or quiz), the flags, the
   latest results and the options still in it, a quiz's correct option
   marked. A poll message whose poll was never stored has no detail.

@@ -239,6 +239,53 @@ func TestKindDetails(t *testing.T) {
 	}
 }
 
+// TestStoryUsername: a story's detail names its poster's active
+// username, a user's or a chat's, from the batch that names the
+// poster; null without one and for a poster the viewer may not see.
+func TestStoryUsername(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, "kinds", "story_posters")
+	const storyLab = -1001000000041
+	grantMember(t, e, []int64{storyLab})
+	window := func(role string, chat int64) map[int]map[string]any {
+		b := e.want(200, role, "GET", fmt.Sprintf("/api/chats/group/%d/messages?limit=100", chat), nil)
+		out := map[int]map[string]any{}
+		for _, m := range asList(b["messages"]) {
+			m := m.(map[string]any)
+			out[int(m["id"].(float64))] = m
+		}
+		return out
+	}
+	ms := window("superadmin", storyLab)
+	if d := detailOf(t, ms, 4101); refID(d["poster"]) != dewi || d["username"] != "dewikusuma" ||
+		num(d["story_id"]) != 31 {
+		t.Errorf("user's story %v", d)
+	}
+	if d := detailOf(t, ms, 4102); refID(d["poster"]) != kernelChat || d["username"] != "linuxkernelid" {
+		t.Errorf("chat's story %v", d)
+	}
+	// A poster without a username.
+	if d, ok := detailOf(t, window("superadmin", kindsLab), 4010)["username"]; !ok || d != nil {
+		t.Errorf("story without username: %v %v", d, ok)
+	}
+	// The member sees Story Lab but neither poster.
+	mem := window("member", storyLab)
+	for _, row := range []int{4101, 4102} {
+		if d := detailOf(t, mem, row); d["poster"] != nil || d["username"] != nil {
+			t.Errorf("member story %d: %v", row, d)
+		}
+	}
+	if text := js(mem); strings.Contains(text, "dewikusuma") || strings.Contains(text, "linuxkernelid") {
+		t.Error("member window names a hidden poster")
+	}
+	// The message page carries the same detail.
+	b := e.want(200, "superadmin", "GET", "/api/page/messages/group/4101", nil)
+	msg := b["props"].(map[string]any)["message"].(map[string]any)
+	if d, _ := msg["detail"].(map[string]any); d["username"] != "dewikusuma" {
+		t.Errorf("message page story %v", msg["detail"])
+	}
+}
+
 // What the detail names is resolved through the scope: a member sees
 // only the people of its groups and no phone; an admin restricted from
 // a group does not see it named.

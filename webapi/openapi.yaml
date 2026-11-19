@@ -6334,6 +6334,12 @@ components:
             - type: 'null'
         story_id:
           type: integer
+        username:
+          type: [string, 'null']
+          description: >-
+            The poster's active username, for a t.me/<username>/s/<id>
+            link; null without one, and when poster is null (a poster
+            the viewer may not see).
     InvoiceDetail:
       type: object
       required: [kind, title, description, currency, total_amount, is_test, photo]
