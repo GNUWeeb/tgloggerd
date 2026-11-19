@@ -9,7 +9,7 @@ import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
 import { LinkPreview } from './chat-preview.tsx';
-import { Counts, KindDetail, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
+import { Counts, KindDetail, KindFallback, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
 import { fetchMembers, seesMembers } from '../api/members.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
@@ -116,8 +116,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 						{r.resolved === false ? <span className="c-sub">not in the archive</span> : <span className={r.deleted ? 'c-replydel' : ''}>{r.snippet}{r.deleted ? ' (deleted)' : ''}</span>}
 					</a>)}
 				<MessageMedia msg={m} onClick={pref.mediaOnClick} />
-				{m.detail && <KindDetail d={m.detail} text={m.text} entities={m.entities} chat={chat} v={v} tdlib={m.tdlib_type} />}
-				{m.content_type === 'unknown' && <div className="c-unknown c-sub">{m.tdlib_type ? `A kind of message this view does not show yet (${m.tdlib_type})` : 'A kind of message this view does not show'}</div>}
+				{m.detail ? <KindDetail d={m.detail} text={m.text} entities={m.entities} chat={chat} v={v} tdlib={m.tdlib_type} /> : <KindFallback ct={m.content_type} tdlib={m.tdlib_type} />}
 				{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) && <div className="c-text"><RichText text={m.text} entities={m.entities} chat={chat} /></div>}
 				{m.link_preview && <LinkPreview lp={m.link_preview} />}
 				{m.author_signature && <div className="c-sign">- {m.author_signature}</div>}

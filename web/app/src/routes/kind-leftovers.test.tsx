@@ -83,3 +83,12 @@ describe('an expired message', () => {
 		expect(within(document.querySelector('.a-msgkind') as HTMLElement).getByText('Expired video message')).toBeTruthy();
 	});
 });
+
+describe('an unknown kind', () => {
+	it('says on its page what the chat says, naming its TDLib class', () => {
+		const m = sample(samples(), (x) => x.content_type === 'unknown' && !!x.tdlib_type);
+		showPage(m);
+		expect(within(document.querySelector('.a-msgkind') as HTMLElement).getByText('A kind of message this view does not show yet (messageFancyNewThing)')).toBeTruthy();
+		expect(screen.queryByText('(no text)')).toBeNull();
+	});
+});

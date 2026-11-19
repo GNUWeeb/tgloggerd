@@ -92,6 +92,15 @@ const EXPIRED: Readonly<Record<string, string>> = {
 	messageExpiredVoiceNote: 'Expired voice message',
 };
 
+// What stands in for a kind's card when there is none to draw: for an
+// unknown kind, which TDLib class it was, when known. Null when the
+// kind needs nothing.
+export const hasFallback = (ct: string): boolean => ct === 'unknown';
+export function KindFallback({ ct, tdlib }: { ct: string; tdlib?: string | null }) {
+	if (ct === 'unknown') return <div className="c-unknown c-sub">{tdlib ? `A kind of message this view does not show yet (${tdlib})` : 'A kind of message this view does not show'}</div>;
+	return null;
+}
+
 // The kinds whose message text belongs inside the card (a checklist's
 // title, a game's text): the bubble leaves the text to the card.
 export const TEXT_INSIDE: ReadonlySet<string> = new Set(['checklist']);
