@@ -257,6 +257,15 @@ public:
 	 * for rows that carry the flag only (a deletion Telegram reported is
 	 * never undone). Returns the ids it restored.
 	 */
+	/*
+	 * The newest message id stored for each of @chat_ids (deleted ones
+	 * too), for the recheck catch-up's gap test; a chat with nothing
+	 * stored is left out. Groups have negative ids, private chats
+	 * positive.
+	 */
+	std::unordered_map<int64_t, int64_t> newestStoredMessageIds(
+		const std::vector<int64_t> &chat_ids);
+
 	std::vector<int64_t> restoreRecheckDeleted(
 		int64_t chat_id, bool is_group,
 		const std::vector<int64_t> &message_ids);

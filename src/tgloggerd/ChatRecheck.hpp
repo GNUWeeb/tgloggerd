@@ -130,7 +130,10 @@ public:
 	explicit Queue(size_t max = kQueueMax) : max_(max) {}
 
 	Admit push(const Item &it, Clock::time_point now);
-	std::optional<Item> pop(Clock::time_point now);
+	/* The next recheck to run: an asked-for one first; a background
+	 * one (the catch-up) only when @background_ok. */
+	std::optional<Item> pop(Clock::time_point now,
+				bool background_ok = true);
 
 	size_t size(void) const { return asked_.size() + background_.size(); }
 	bool empty(void) const { return size() == 0; }
@@ -212,6 +215,19 @@ Verdict selectDeleted(const Page &p, const Stored &s);
 std::vector<int64_t> catchUpChats(
 	const std::unordered_map<int64_t, int64_t> &last_message_date,
 	int64_t now);
+
+/*
+ * Of the catch-up's @chats (in their order) with TDLib's last message id
+ * for each (@tdlib_last, server ids), those with a gap at the newest end:
+ * nothing stored for the chat, or the newest stored message (@stored_max,
+ * 0 for none) older than TDLib's last. A chat whose newest message is
+ * already stored is left out: a recheck costs a history read, which under
+ * Telegram's flood limits takes a minute or more.
+ */
+std::vector<int64_t> gapChats(
+	const std::vector<int64_t> &chats,
+	const std::unordered_map<int64_t, int64_t> &tdlib_last,
+	const std::unordered_map<int64_t, int64_t> &stored_max);
 
 } /* namespace recheck */
 } /* namespace tgloggerd */

@@ -998,6 +998,11 @@ struct TDLib::Impl {
 	std::function<void(int64_t, bool, const std::vector<int64_t> &)>
 							recheck_found_handler_;
 	std::unordered_map<int64_t, int64_t>		chat_last_date_;
+	/* Each chat's last message's server id, for the catch-up's gaps. */
+	std::unordered_map<int64_t, int64_t>		chat_last_id_;
+	std::function<void(std::vector<int64_t>,
+			   std::unordered_map<int64_t, int64_t>)>
+							recheck_catchup_handler_;
 	int						recheck_inflight_ = 0;
 	int						recheck_in_tick_ = 0;
 	time_t						recheck_paused_until_ = 0;
@@ -3182,7 +3187,11 @@ void TDLib::Impl::drain_recheck(void)
 		std::optional<recheck::Item> it;
 		{
 			std::lock_guard<std::mutex> lk(refetch_mtx_);
-			it = recheck_q_.pop(recheck::Clock::now());
+			/* One slot stays free for a recheck asked for:
+			 * a background one starts only when none is in
+			 * flight. */
+			it = recheck_q_.pop(recheck::Clock::now(),
+					    recheck_inflight_ == 0);
 		}
 		if (!it)
 			return;
@@ -3283,6 +3292,8 @@ void TDLib::Impl::note_chat_last_message(int64_t chat_id,
 {
 	if (m && m->date_ > 0)
 		chat_last_date_[chat_id] = m->date_;
+	if (m && is_server_msg_id(m->id_))
+		chat_last_id_[chat_id] = to_server_msg_id(m->id_);
 }
 
 void TDLib::Impl::queue_recheck_catchup(void)
@@ -3290,6 +3301,24 @@ void TDLib::Impl::queue_recheck_catchup(void)
 	if (stopped_ || closing_)
 		return;
 	auto chats = recheck::catchUpChats(chat_last_date_, std::time(nullptr));
+	/*
+	 * Only the chats with a gap at the newest end are worth a history
+	 * read, which under Telegram's flood limits takes a minute or more;
+	 * telling them apart needs the database, on the serial worker.
+	 */
+	if (recheck_catchup_handler_) {
+		std::unordered_map<int64_t, int64_t> last;
+		for (int64_t c : chats) {
+			auto it = chat_last_id_.find(c);
+			if (it != chat_last_id_.end())
+				last[c] = it->second;
+		}
+		pr_info(l_, "recheck: restart catch-up: %zu chat(s) with a"
+			" message in the last 48 h; checking which have a gap",
+			chats.size());
+		recheck_catchup_handler_(std::move(chats), std::move(last));
+		return;
+	}
 	size_t queued = 0, recent = 0, busy = 0;
 	{
 		std::lock_guard<std::mutex> lk(refetch_mtx_);
@@ -4757,6 +4786,25 @@ void TDLib::setCommunityHandlers(
 void TDLib::fetchCommunityFullInfo(int64_t community_id)
 {
 	impl_->enqueue_community_full_info(community_id);
+}
+
+void TDLib::setRecheckCatchUpHandler(
+	std::function<void(std::vector<int64_t>,
+			   std::unordered_map<int64_t, int64_t>)> cb)
+{
+	impl_->recheck_catchup_handler_ = std::move(cb);
+}
+
+size_t TDLib::queueRecheckCatchUp(const std::vector<int64_t> &chats)
+{
+	size_t queued = 0;
+	std::lock_guard<std::mutex> lk(impl_->refetch_mtx_);
+	const auto now = recheck::Clock::now();
+	for (int64_t c : chats)
+		if (impl_->recheck_q_.push({ c, 0, true }, now) ==
+		    recheck::Admit::Queued)
+			queued++;
+	return queued;
 }
 
 recheck::Admit TDLib::recheckChat(int64_t chat_id, int64_t around)
