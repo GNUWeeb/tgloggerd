@@ -128,6 +128,9 @@ private:
 	 * before db_ on destruction; start() also drains them explicitly.
 	 */
 	std::unique_ptr<ThreadPool> serial_;
+	/* Per recheck page (RecheckAnswer::seq): how many of its messages
+	 * were not stored before; serial_ only. */
+	std::unordered_map<uint64_t, size_t> recheck_new_;
 	std::unique_ptr<ThreadPool> files_;
 
 	/*

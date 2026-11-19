@@ -396,8 +396,42 @@ static void testSlotForAsked(void)
 	CHECK(it && it->chat_id == -7, "an asked one goes regardless");
 }
 
+static void testPaging(void)
+{
+	printf("a short answer reads another page\n");
+	CHECK(askAgain(1, true, 1), "short and something new: page 2");
+	CHECK(askAgain(2, true, 5), "and page 3");
+	CHECK(!askAgain(3, true, 5), "never more than three pages");
+	CHECK(!askAgain(1, true, 0), "nothing new: stop, a quiet chat costs one read");
+	CHECK(!askAgain(1, false, 9), "a full answer: no more pages");
+
+	Page p;
+	p.around = 0;
+	p.ids = { 100 };
+	p.total = 1;
+	CHECK(isShort(p, true), "one message above stored older ones is short");
+	CHECK(!isShort(p, false), "but not at the chat's start");
+	p.ids.clear();
+	for (int64_t id = 51; id <= 100; id++)
+		p.ids.push_back(id);
+	p.total = 50;
+	CHECK(!isShort(p, true), "a full newest page is not short");
+
+	Page c;
+	c.cont = true;
+	c.around = 900;	/* the recheck's, not this page's */
+	c.ids = { 10, 11, 12 };
+	c.total = 3;
+	CHECK(isShort(c, true), "a later page judges all of it as older");
+	for (int64_t id = 13; id < 60; id++)
+		c.ids.push_back(id);
+	c.total = c.ids.size();
+	CHECK(!isShort(c, true), "and 50 of them are a full page");
+}
+
 int main(void)
 {
+	testPaging();
 	testGapChats();
 	testSlotForAsked();
 	testRepairYields();

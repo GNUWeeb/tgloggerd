@@ -542,10 +542,17 @@ int TgLoggerd::start(void)
 				}
 			});
 		});
-	tdlib_->setRecheckFoundHandler([this](int64_t chat_id, bool is_group,
-					      const std::vector<int64_t> &ids) {
-		serial_->post([this, chat_id, is_group, ids] {
+	tdlib_->setRecheckFoundHandler([this](const RecheckAnswer &a) {
+		serial_->post([this, a] {
+			const int64_t chat_id = a.chat_id;
+			const bool is_group = a.is_group;
+			const std::vector<int64_t> &ids = a.page.ids;
 			try {
+				/* Before the page is stored: how much of it is
+				 * new, for the decision to read another page. */
+				recheck_new_[a.seq] = ids.size() -
+					db_->countStoredMessages(chat_id,
+								 is_group, ids);
 				auto back = db_->restoreRecheckDeleted(
 					chat_id, is_group, ids);
 				for (int64_t id : back)
@@ -568,39 +575,64 @@ int TgLoggerd::start(void)
 			try {
 				std::vector<int64_t> marked;
 				const char *why = "fewer than two messages returned";
+				bool older_exists = false;
 				if (auto span = recheck::spanOf(a.page)) {
-					auto v = recheck::selectDeleted(a.page,
-						db_->listRecheckStored(a.chat_id,
-							a.is_group, *span));
+					auto s = db_->listRecheckStored(a.chat_id,
+						a.is_group, *span);
+					older_exists = s.older_exists;
+					auto v = recheck::selectDeleted(a.page, s);
 					why = v.why;
 					if (v.concluded)
 						marked = db_->markDeletedOnRecheck(
 							a.chat_id, a.is_group,
 							v.deleted);
+				} else if (!a.page.ids.empty()) {
+					/* One message: is there an older one
+					 * stored, i.e. is this not the start? */
+					const int64_t id = a.page.ids.front();
+					older_exists = db_->listRecheckStored(
+						a.chat_id, a.is_group,
+						recheck::Span{ id, id }).older_exists;
 				}
+				size_t fresh = 0;
+				if (auto n = recheck_new_.find(a.seq);
+				    n != recheck_new_.end()) {
+					fresh = n->second;
+					recheck_new_.erase(n);
+				}
+				const bool more = recheck::askAgain(
+					a.item.page,
+					recheck::isShort(a.page, older_exists),
+					fresh);
+				if (more)
+					tdlib_->recheckNextPage(a);
 				for (int64_t id : marked) {
 					publish_message(*events_, a.chat_id, id,
 							MsgChange::Deleted,
 							std::nullopt);
 				}
 				if (marked.size() > recheck::kWarnMarked)
-					pr_warn(l_, "recheck: chat %lld around %lld:"
-						" %zu returned, %zu marked deleted"
-						" (after %llds)",
+					pr_warn(l_, "recheck: chat %lld around %lld"
+						" page %d: %zu returned, %zu new, %zu"
+						" marked deleted (after %llds)%s",
 						(long long)a.chat_id,
 						(long long)a.page.around,
-						a.page.total, marked.size(),
-						(long long)a.waited_secs);
+						a.item.page, a.page.total, fresh,
+						marked.size(),
+						(long long)a.waited_secs,
+						more ? "; reading the next page" : "");
 				else
-					pr_info(l_, "recheck: chat %lld around %lld:"
-						" %zu returned, %zu marked deleted"
-						" (after %llds)%s%s",
+					pr_info(l_, "recheck: chat %lld around %lld"
+						" page %d: %zu returned, %zu new, %zu"
+						" marked deleted (after %llds)%s%s%s",
 						(long long)a.chat_id,
 						(long long)a.page.around,
-						a.page.total, marked.size(),
+						a.item.page, a.page.total, fresh,
+						marked.size(),
 						(long long)a.waited_secs,
 						*why ? "; none concluded: " : "",
-						why);
+						why,
+						more ? "; reading the next page" : "");
 			} catch (const std::exception &e) {
 				pr_error(l_, "recheck: chat %lld around %lld: %s",
 					 (long long)a.chat_id,

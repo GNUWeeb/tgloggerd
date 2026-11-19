@@ -191,6 +191,28 @@ std::unordered_map<int64_t, int64_t> DB::newestStoredMessageIds(
 	return out;
 }
 
+size_t DB::countStoredMessages(int64_t chat_id, bool is_group,
+			       const std::vector<int64_t> &message_ids)
+{
+	if (message_ids.empty())
+		return 0;
+	std::string sql = std::string("SELECT COUNT(*) FROM ") +
+		message_table(is_group) + (is_group
+			? " FORCE INDEX (uq_group_messages_chat_msg)"
+			: " FORCE INDEX (uq_private_messages_chat_msg)") +
+		" WHERE chat_id = ? AND message_id IN (";
+	std::vector<mysql::Param> params{ chat_id };
+	for (size_t i = 0; i < message_ids.size(); i++) {
+		sql += i ? ", ?" : "?";
+		params.push_back(message_ids[i]);
+	}
+	sql += ")";
+	auto rows = db_.query(sql, params);
+	if (rows.empty() || !rows[0][0].has_value())
+		return 0;
+	return (size_t)std::stoull(*rows[0][0]);
+}
+
 std::vector<int64_t> DB::restoreRecheckDeleted(
 	int64_t chat_id, bool is_group, const std::vector<int64_t> &message_ids)
 {

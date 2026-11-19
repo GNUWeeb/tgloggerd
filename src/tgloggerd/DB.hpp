@@ -266,6 +266,10 @@ public:
 	std::unordered_map<int64_t, int64_t> newestStoredMessageIds(
 		const std::vector<int64_t> &chat_ids);
 
+	/* How many of @message_ids are stored for @chat_id (deleted or not). */
+	size_t countStoredMessages(int64_t chat_id, bool is_group,
+				   const std::vector<int64_t> &message_ids);
+
 	std::vector<int64_t> restoreRecheckDeleted(
 		int64_t chat_id, bool is_group,
 		const std::vector<int64_t> &message_ids);
