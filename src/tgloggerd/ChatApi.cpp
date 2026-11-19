@@ -10,6 +10,7 @@
 #include <td/telegram/td_api.h>
 
 #include <chrono>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -293,11 +294,155 @@ InternalApi::Response answer(const ChatRef &ref, const std::string &outcome,
 	return r;
 }
 
+/* The body's "username", parsed with the chat username rules; a 400 when
+ * missing, malformed, or an invite link. */
+ChatRef requireUsername(const InternalApi::Request &req)
+{
+	const auto &b = req.body;
+	if (!b.is_object() || !b.contains("username") ||
+	    !b["username"].is_string())
+		throw InternalApi::Error::badRequest(
+			"want {\"username\": \"<@username>\"}");
+	auto ref = parseChatRef(b["username"].get<std::string>());
+	if (!ref || ref->kind != ChatRef::Kind::Username)
+		throw InternalApi::Error::badRequest(
+			"not a public username (@name, name, "
+			"https://t.me/name)");
+	return *ref;
+}
+
+/*
+ * How long an answer to POST /v1/users/resolve is reused for the same
+ * username without asking Telegram again. Only answers that will not
+ * change soon are kept: ok, not_found, not_a_user.
+ */
+constexpr std::chrono::seconds kUserResolveCacheTtl = 10min;
+
+struct CachedUserAnswer {
+	std::chrono::steady_clock::time_point	at;
+	nlohmann::json				body;
+};
+
+/* The username as a cache key: Telegram usernames are case-insensitive. */
+std::string usernameKey(const std::string &name)
+{
+	std::string k = name;
+	for (char &ch : k)
+		if (ch >= 'A' && ch <= 'Z')
+			ch = (char)(ch - 'A' + 'a');
+	return k;
+}
+
+nlohmann::json userAnswer(const std::string &outcome, const std::string &message,
+			  nlohmann::json user)
+{
+	return {
+		{ "outcome", outcome },
+		{ "message", message },
+		{ "user", std::move(user) },
+	};
+}
+
+/*
+ * POST /v1/users/resolve: find the user or bot behind a public username,
+ * read-only on the account, and have the daemon store it as it stores a
+ * user it sees in a chat.
+ */
+InternalApi::Response resolveUser(TDLib &t, const InternalApi::Request &req)
+{
+	static std::mutex cache_mtx;
+	static std::map<std::string, CachedUserAnswer> cache;
+
+	ChatRef ref = requireUsername(req);
+	const std::string key = usernameKey(ref.value);
+	const auto now = std::chrono::steady_clock::now();
+	{
+		std::lock_guard<std::mutex> lk(cache_mtx);
+		auto it = cache.find(key);
+		if (it != cache.end() && now - it->second.at < kUserResolveCacheTtl) {
+			InternalApi::Response r;
+			r.body = it->second.body;
+			return r;
+		}
+	}
+
+	nlohmann::json body;
+	try {
+		auto c = call<td_api::chat>(
+			t, td_api::make_object<td_api::searchPublicChat>(ref.value));
+		if (!c->type_ ||
+		    c->type_->get_id() != td_api::chatTypePrivate::ID) {
+			body = userAnswer("not_a_user",
+					  "that username is a group or a "
+					  "channel, not a user", nullptr);
+		} else {
+			int64_t uid = static_cast<const td_api::chatTypePrivate &>(
+				*c->type_).user_id_;
+			auto u = call<td_api::user>(
+				t, td_api::make_object<td_api::getUser>(uid));
+			std::string username = ref.value;
+			if (u->usernames_ &&
+			    !u->usernames_->active_usernames_.empty())
+				username = u->usernames_->active_usernames_[0];
+			const bool is_bot = u->type_ &&
+				u->type_->get_id() == td_api::userTypeBot::ID;
+			/*
+			 * Store it the way a user seen in a message is stored:
+			 * the profile row, its usernames and type, the full
+			 * info and the profile photo (downloaded into the
+			 * store, with its history), through the msg_count
+			 * refetch path on the TDLib loop.
+			 */
+			t.refetchUser(uid);
+			body = userAnswer("ok", "", {
+				{ "user_id", uid },
+				{ "username", username },
+				{ "is_bot", is_bot },
+			});
+		}
+	} catch (const TdFailure &f) {
+		ChatOutcome o = classifyChatError(f.code, f.message);
+		if (o.outcome == "unavailable")
+			throw InternalApi::Error::unavailable(
+				"TDLib is not ready: " + f.message);
+		if (o.outcome == "timeout")
+			throw InternalApi::Error::timeout(
+				"Telegram did not answer in time");
+		if (o.outcome == "not_found") {
+			body = userAnswer("not_found", "no such username",
+					  nullptr);
+		} else if (o.outcome == "flood_wait") {
+			body = userAnswer("flood_wait", o.message, nullptr);
+			body["retry_after"] = o.retry_after;
+		} else {
+			body = userAnswer("error", f.message, nullptr);
+		}
+	}
+
+	const std::string outcome = body["outcome"].get<std::string>();
+	if (outcome == "ok" || outcome == "not_found" || outcome == "not_a_user") {
+		std::lock_guard<std::mutex> lk(cache_mtx);
+		/* Drop what has expired, so the cache stays small. */
+		for (auto it = cache.begin(); it != cache.end();)
+			it = now - it->second.at >= kUserResolveCacheTtl
+				     ? cache.erase(it) : std::next(it);
+		cache[key] = CachedUserAnswer{ now, body };
+	}
+
+	InternalApi::Response r;
+	r.body = std::move(body);
+	return r;
+}
+
 } /* namespace */
 
 void registerChatApi(InternalApi &api, TDLib &tdlib)
 {
 	TDLib *t = &tdlib;
+
+	api.route("POST", "/v1/users/resolve", [t](const InternalApi::Request &req) {
+		return resolveUser(*t, req);
+	});
 
 	api.route("POST", "/v1/chats/resolve", [t](const InternalApi::Request &req) {
 		ChatRef ref = requireRef(req);

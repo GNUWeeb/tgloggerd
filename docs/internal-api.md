@@ -468,6 +468,53 @@ visible join in the chat): the web asks for a confirmation and audits
 every attempt. Once joined, chat-membership tracking picks the chat
 up, and its media start being downloaded.
 
+### POST /v1/users/resolve
+
+Finds the user or bot behind a public username and has the daemon store
+it, so that the web can link to its user page even when the account
+never saw it in a chat (a forwarding bot, say). Read-only on the
+account: `searchPublicChat` and `getUser`, then the daemon's own user
+refresh (`getUser`, `getUserFullInfo`, the profile photo download). No
+joining, no messages.
+
+    {"username": "@FreezingNightBot"}
+
+    200 {
+      "outcome": "ok",
+      "message": "",
+      "user": {"user_id": 123456789, "username": "FreezingNightBot", "is_bot": true}
+    }
+
+`username` follows the username rules of `/v1/chats/resolve`: `@<name>`,
+`<name>` or `https://t.me/<name>`. An invite link, a malformed name or a
+body that is not `{"username": "<string>"}` is a 400, and nothing
+reaches Telegram. In the reply, `user.username` is the user's first
+active username as Telegram has it (its own capitalisation), and `user`
+is null unless `outcome` is `ok`:
+
+| `outcome` | Meaning |
+|---|---|
+| `ok` | Found; `user` says who. |
+| `not_found` | No such username. |
+| `not_a_user` | The username is a group or a channel. |
+| `flood_wait` | Telegram rate-limited the account; `retry_after` is the wait in seconds (0 if Telegram gave none). |
+| `error` | Anything else; `message` is Telegram's error. |
+
+On `ok` the user is stored as a user seen in a message is: its row in
+`telegram_users` (names, usernames, type, flags), its full info, and its
+profile photo, downloaded into the store with its history. That happens
+on the daemon's own loop right after the answer, through the same
+refresh the msg_count crossings use, so the row appears within moments
+and the photo once its download is done (a user refreshed in the last
+few minutes is not fetched again). The web shows the photo once its
+file is stored.
+
+An answer of `ok`, `not_found` or `not_a_user` is reused for the same
+username (case-insensitively) for 10 minutes without asking Telegram
+again, so the call is cheap to repeat. Errors: 503 when TDLib is not
+authorized or the daemon is shutting down; 504 when Telegram did not
+answer a step within 15 seconds.
+
 ### POST /v1/users/{id}/lookup-name
 
 "Look up real name": reads the own name of a user who is a contact of the

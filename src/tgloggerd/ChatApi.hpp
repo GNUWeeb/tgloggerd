@@ -13,10 +13,11 @@ class TDLib;
 
 /*
  * Register the chat routes of the internal API (docs/internal-api.md):
- * POST /v1/chats/resolve (preview an invite link or public username) and
- * POST /v1/chats/join (make the account join it). Curated operations: the
- * input is parsed and normalised here (ChatRef.hpp), never handed to TDLib
- * as is. tdlib must outlive the API.
+ * POST /v1/chats/resolve (preview an invite link or public username),
+ * POST /v1/chats/join (make the account join it) and
+ * POST /v1/users/resolve (find and store the user or bot behind a public
+ * username). Curated operations: the input is parsed and normalised here
+ * (ChatRef.hpp), never handed to TDLib as is. tdlib must outlive the API.
  */
 void registerChatApi(InternalApi &api, TDLib &tdlib);
 
