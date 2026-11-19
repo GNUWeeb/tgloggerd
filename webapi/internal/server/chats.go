@@ -251,14 +251,6 @@ type forwardJSON struct {
 	Date      *string `json:"date,omitempty"`
 }
 
-type linkPreviewJSON struct {
-	Site  string         `json:"site"`
-	Title string         `json:"title"`
-	Desc  string         `json:"desc"`
-	URL   string         `json:"url"`
-	Media *chatMediaJSON `json:"media,omitempty"`
-}
-
 type chatMessageJSON struct {
 	ID          uint64           `json:"id"`
 	MessageID   int64            `json:"message_id"`
@@ -568,16 +560,6 @@ func (v view) chatMessage(n names, k kinds, group bool, chatID int64, m logdb.Me
 	}
 	j.LinkPreview = v.linkPreview(m)
 	return j
-}
-
-// linkPreview is a message's link preview card, nil when it has none.
-func (v view) linkPreview(m logdb.Message) *linkPreviewJSON {
-	p := m.Preview
-	if p == nil {
-		return nil
-	}
-	return &linkPreviewJSON{Site: p.Site, Title: p.Title, Desc: p.Description,
-		URL: p.URL, Media: v.media("photo", p.Photo, nil)}
 }
 
 // chatMessages turns a window's rows into messages, folding each run

@@ -283,9 +283,36 @@ seen.
 ## Link previews
 
 A message with a link preview card (telegram_link_previews) carries it
-as `link_preview` ({site, title, desc, url, media}, the LinkPreview
-schema; media is its photo as ChatMedia), both in the chat window and
-on the message page; null when it has none.
+as `link_preview` (the LinkPreview schema), both in the chat window and
+on the message page; null when it has none. The card has:
+
+- `type`, the preview's TDLib type (`article`, `video`,
+  `embedded_video_player`, `message`, ...), `site`, `title`, `desc`,
+  `url`, and `author` when the page names one.
+- `media`, as ChatMedia: the preview's own video, animation or audio
+  (telegram_message_files, role `preview_media`) when the daemon kept
+  one, its detail from the preview's `extra` (an embedded player's
+  from `extra.media`; an audio's title from `audio_title`), with the
+  preview's photo as its `poster` (video, animation) and `thumb`.
+  Without such a medium it is the photo, rendering as an image, sized
+  for article, photo, app and web_app previews. A card never carries a
+  `minithumb`.
+- `duration`, the length of a video, animation or audio preview or of
+  an embedded player; `embed` ({url, w, h}) for an embedded player,
+  whose URL the web opens in a new tab rather than running it.
+- `target` ({chat_id, message_id}) for a `message` preview whose link
+  names a logged group message the viewer may open: a group the scope
+  sees, or an exposed one, as the chat page itself decides. A
+  `t.me/c/` link names the chat by id; a public link by a username,
+  resolved to the group that holds it as an active username now
+  (telegram_group_usernames, case-insensitive). The client links it to
+  `/groups/{chat_id}/chat?at=<message_id>`. The lookups take two
+  queries per window at most, by the usernames' unique key and the
+  messages' (chat_id, message_id) key; nothing is asked of Telegram.
+
+The extras (`extra`, docs/design/message-types.md section 4.8) and the
+medium exist only for previews logged since the daemon kept them;
+older cards have the photo alone.
 
 ## Search
 
