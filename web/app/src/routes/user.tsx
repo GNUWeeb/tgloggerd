@@ -6,6 +6,7 @@ import { Avatar, Btn, Card, KV, Pill, Stat, Tabs, Empty } from '../ui/primitives
 import { Flags, Sparkline, userFlags } from '../ui/bits.tsx';
 import { LookupName } from './lookupname.tsx';
 import { PhotoCarousel } from '../ui/PhotoCarousel.tsx';
+import { PhotoImg } from '../ui/PhotoImg.tsx';
 import { OlderChanges, UsernamePill, useHistoryPages, usernameTitle } from '../ui/history.tsx';
 import { api, ok } from '../api/client.ts';
 import { ago, dateTime, fmt } from '../format.ts';
@@ -32,7 +33,7 @@ function HistItem({ e, v, onPhoto }: { e: HistoryEntry; v: Viewer; onPhoto?: (id
 	const [I, title] = KIND[e.kind];
 	let body;
 	if (e.kind === 'photo') {
-		const img = e.photo ? <img className="a-tl-photo" src={e.photo} alt="" width={72} height={72} /> : null;
+		const img = e.photo ? <PhotoImg className="a-tl-photo" src={e.photo} alt="" width={72} height={72} /> : null;
 		// A photo set opens the carousel at it.
 		body = e.removed || !img ? <span className="a-muted">Photo removed</span>
 			: e.photo_id !== undefined && onPhoto ? <button type="button" className="a-tl-photobtn" onClick={() => onPhoto(e.photo_id!)} aria-label={`Show this photo, set ${dateTime(e.at, v)}`}>{img}</button> : img;

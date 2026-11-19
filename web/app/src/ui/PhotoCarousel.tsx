@@ -7,15 +7,29 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { track } from './busy.ts';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, CloudOff, ExternalLink, LoaderCircle, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CloudOff, ExternalLink, ImageOff, LoaderCircle, X } from 'lucide-react';
 import { api, ApiError, ok } from '../api/client.ts';
 import { dateTime } from '../format.ts';
 import type { Viewer } from '../page.ts';
 import type { S } from '../api/schema.ts';
+import { NOT_AVAILABLE, PhotoImg, usePhotoState } from './PhotoImg.tsx';
 
 type Photos = S['UserPhotos'];
 
 const SWIPE = 50;
+
+// The photo on the stage: a spinner while it loads (the picture, hidden,
+// still takes no room), and a note if it cannot be loaded.
+function StageImg({ src, alt }: { src: string; alt: string }) {
+	const { state, ref, onLoad, onError } = usePhotoState(src);
+	if (state === 'failed') return <div className="a-carousel-note" title={NOT_AVAILABLE}><ImageOff size={28} aria-hidden="true" /><span>{NOT_AVAILABLE}</span></div>;
+	return (
+		<>
+			<img ref={ref} className={`a-carousel-img${state === 'loading' ? ' loading' : ''}`} src={src} alt={alt} draggable={false} onLoad={onLoad} onError={onError} />
+			{state === 'loading' && <div className="a-carousel-note a-carousel-wait" role="status" aria-label="Loading the photo"><LoaderCircle size={22} className="a-spin" /></div>}
+		</>
+	);
+}
 
 export function PhotoCarousel({ kind, id, start, title, viewer, onClose }: { kind: 'users' | 'groups'; id: number; start: number | null; title: string; viewer: Viewer; onClose: () => void }) {
 	const [photos, setPhotos] = useState<Photos | null>(null);
@@ -78,7 +92,7 @@ export function PhotoCarousel({ kind, id, start, title, viewer, onClose }: { kin
 				{err ? <div className="a-carousel-note" role="alert">{err}</div>
 					: !photos ? <div className="a-carousel-note"><LoaderCircle size={22} className="a-spin" /></div>
 						: !p ? <div className="a-carousel-note">No photo is recorded.</div>
-							: p.url ? <img key={p.id} className="a-carousel-img" src={p.url} alt={`Photo of ${title}, set ${dateTime(p.at, viewer)}`} draggable={false} />
+							: p.url ? <StageImg key={p.id} src={p.url} alt={`Photo of ${title}, set ${dateTime(p.at, viewer)}`} />
 								: <div className="a-carousel-note"><CloudOff size={28} /><span>This photo's file is not stored.</span></div>}
 				{n > 1 && <button type="button" className="a-carousel-nav prev" onClick={() => go(at - 1)} disabled={at === 0} aria-label="Newer photo"><ChevronLeft size={26} /></button>}
 				{n > 1 && <button type="button" className="a-carousel-nav next" onClick={() => go(at + 1)} disabled={at === n - 1} aria-label="Older photo"><ChevronRight size={26} /></button>}
@@ -92,7 +106,7 @@ export function PhotoCarousel({ kind, id, start, title, viewer, onClose }: { kin
 				<div className="a-carousel-strip" role="group" aria-label="All photos">
 					{photos!.items.map((x, i) => (
 						<button key={x.id} type="button" className={i === at ? 'on' : ''} aria-current={i === at ? 'true' : undefined} aria-label={`Photo set ${dateTime(x.at, viewer)}`} onClick={() => go(i)}>
-							{x.url ? <img src={x.url} alt="" loading="lazy" /> : <CloudOff size={14} />}
+							{x.url ? <PhotoImg className="a-photo-fill" src={x.url} alt="" lazy iconSize={14} /> : <CloudOff size={14} />}
 						</button>
 					))}
 				</div>

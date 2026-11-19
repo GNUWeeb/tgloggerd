@@ -156,4 +156,64 @@ describe('photo carousel', () => {
 		renderPage(`/users/${id}`, 'superadmin', { props: { ...page, user: { ...page.user, photo: null } } });
 		expect(screen.queryByRole('button', { name: /^Show the photos of / })).toBeNull();
 	});
+
+	it('shows a neutral box while a photo loads, and a placeholder when it fails, in the viewer and its strip', async () => {
+		const { id, p } = userWithPhotos();
+		fakeApi('superadmin', serve);
+		const page = fixture<Extract<UserProps, { limited?: false }>>(`/users/${id}`).props;
+		renderPage(`/users/${id}`, 'superadmin', { props: { ...page, user: { ...page.user, photo: '/files/now' } } });
+		fireEvent.click(screen.getByRole('button', { name: /^Show the photos of / }));
+		await waitFor(() => expect(count()).toContain(`of ${p.items.length}`));
+		// The stage: a spinner and the picture hidden until it loads.
+		const stage = box().querySelector('.a-carousel-stage')!;
+		const img = stage.querySelector('img.a-carousel-img')!;
+		expect(img.classList.contains('loading')).toBe(true);
+		expect(within(box()).getByRole('status', { name: 'Loading the photo' })).toBeTruthy();
+		fireEvent.load(img);
+		expect(img.classList.contains('loading')).toBe(false);
+		expect(within(box()).queryByRole('status', { name: 'Loading the photo' })).toBeNull();
+		// It fails: a note, no picture left to show broken.
+		fireEvent.error(img);
+		expect(stage.querySelector('img')).toBeNull();
+		expect(within(stage as HTMLElement).getByText('Photo not available')).toBeTruthy();
+		// The strip's thumbnails likewise: a box while loading, then the
+		// placeholder.
+		const strip = within(box()).getByRole('group', { name: 'All photos' });
+		const thumb = strip.querySelectorAll('img')[1]!;
+		expect(thumb.parentElement!.classList.contains('loading')).toBe(true);
+		fireEvent.error(thumb);
+		const buttons = within(strip).getAllByRole('button');
+		expect(buttons[1]!.querySelector('img')).toBeNull();
+		expect(within(buttons[1]!).getByRole('img', { name: 'Photo not available' }).getAttribute('title')).toBe('Photo not available');
+		// Moving on to another photo starts its own load.
+		fireEvent.keyDown(window, { key: 'ArrowRight' });
+		expect(box().querySelector('.a-carousel-stage img.a-carousel-img.loading')).toBeTruthy();
+	});
+
+	it('shows a placeholder for a failed history photo of a user', async () => {
+		const { id, p } = userWithPhotos();
+		const page = fixture<Extract<UserProps, { limited?: false }>>(`/users/${id}`).props;
+		renderPage(`/users/${id}/history`, 'superadmin', { props: { ...page, history: [{ kind: 'photo', at: p.items[1]!.at, photo: '/files/standin-gone-1', photo_id: p.items[1]!.id }], history_next: null } });
+		const btn = screen.getByRole('button', { name: /^Show this photo/ });
+		const img = btn.querySelector('img')!;
+		expect(img.parentElement!.classList.contains('loading')).toBe(true);
+		fireEvent.error(img);
+		expect(btn.querySelector('img')).toBeNull();
+		expect(within(btn).getByRole('img', { name: 'Photo not available' }).classList.contains('a-tl-photo')).toBe(true);
+	});
+
+	it('shows a placeholder for a failed history photo of a group', async () => {
+		const g = fixture<GroupsProps>('/groups').props.rows.find((r) => (groupPhotos(String(r.id), 'superadmin')[1] as Photos).items.length > 1)!;
+		const p = groupPhotos(String(g.id), 'superadmin')[1] as Photos;
+		const page = fixture<{ group: object }>(`/groups/${g.id}/history`).props;
+		renderPage(`/groups/${g.id}/history`, 'superadmin', { props: { ...page, history: [{ kind: 'photo', at: p.items[0]!.at, photo: '/files/standin-gone-2', photo_id: p.items[0]!.id }], history_next: null } });
+		const btn = screen.getByRole('button', { name: /^Show this photo/ });
+		const img = btn.querySelector('img')!;
+		fireEvent.load(img);
+		expect(img.parentElement!.classList.contains('shown')).toBe(true);
+		fireEvent.error(img);
+		expect(btn.querySelector('img')).toBeNull();
+		expect(within(btn).getByRole('img', { name: 'Photo not available' })).toBeTruthy();
+	});
 });
+
