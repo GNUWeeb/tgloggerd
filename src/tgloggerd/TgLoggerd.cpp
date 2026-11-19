@@ -470,6 +470,12 @@ int TgLoggerd::start(void)
 		serial_->post([this, pm] {
 			try {
 				auto r = db_->upsertPrivateMessage(pm);
+				if (r.restored)
+					pr_warn(l_, "recheck: chat %lld: message"
+						" %lld marked deleted on an earlier"
+						" recheck came back; restored",
+						(long long)pm.chat_id,
+						(long long)pm.message_id);
 				publish_message(*events_, pm.chat_id,
 						pm.message_id, r.change,
 						pm.sender_id);
@@ -488,6 +494,12 @@ int TgLoggerd::start(void)
 		serial_->post([this, gm] {
 			try {
 				auto r = db_->upsertGroupMessage(gm);
+				if (r.restored)
+					pr_warn(l_, "recheck: chat %lld: message"
+						" %lld marked deleted on an earlier"
+						" recheck came back; restored",
+						(long long)gm.chat_id,
+						(long long)gm.message_id);
 				publish_message(*events_, gm.chat_id,
 						gm.message_id, r.change,
 						gm.sender_user_id);

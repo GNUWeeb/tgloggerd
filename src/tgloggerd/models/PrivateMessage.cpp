@@ -56,7 +56,15 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		" media_album_id = new.media_album_id,"
 		/* What the copy says now: a fact check can be removed, a
 		 * message unpinned. Not content, so no edit_date guard. */
-		" meta = new.meta,"
+		/* ...but a message deleted on a recheck keeps the flag that
+		 * tells it from a deletion Telegram reported, for as long as it
+		 * stays deleted (the restore below clears both). */
+		" meta = IF(telegram_private_messages.deleted_at IS NOT NULL AND"
+		"  JSON_EXTRACT(telegram_private_messages.meta, '$.deleted_on_recheck') ="
+		"  CAST('true' AS JSON),"
+		"  JSON_SET(IF(JSON_TYPE(new.meta) = 'OBJECT', new.meta, JSON_OBJECT()),"
+		"   '$.deleted_on_recheck', CAST('true' AS JSON)),"
+		"  new.meta),"
 		" is_pinned = new.is_pinned,"
 		/* A copy that reports no totals keeps the stored ones. */
 		" view_count = COALESCE(new.view_count, telegram_private_messages.view_count),"
@@ -118,6 +126,8 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			"       (entities <=> CAST(? AS JSON)),"
 			"       tdlib_type, content_extra, " +
 			std::string(kCuratedExtraSame) +
+			", JSON_EXTRACT(meta, '$.deleted_on_recheck') ="
+			"  CAST('true' AS JSON)"
 			" FROM telegram_private_messages"
 			" WHERE chat_id = ? AND message_id = ?",
 			{ entities_param, extra_param, (int64_t)msg.chat_id,
@@ -257,6 +267,23 @@ MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 				{ (int64_t)pm_id });
 			refetch.change = MsgChange::Deleted;
 			return;
+		}
+
+		/*
+		 * The message is here again, so a deletion an earlier recheck
+		 * concluded for it was wrong: undo it. Only a deletion with the
+		 * recheck flag; one Telegram reported stays. Before the expiry
+		 * check below: an expired message still exists.
+		 */
+		if (old_deleted && old[11].value_or("0") == "1") {
+			tx.execute(
+				"UPDATE telegram_private_messages SET deleted_at = NULL,"
+				" meta = NULLIF(JSON_REMOVE(meta, '$.deleted_on_recheck'),"
+				" JSON_OBJECT())"
+				" WHERE id = ? AND deleted_at IS NOT NULL",
+				{ (int64_t)pm_id });
+			refetch.restored = true;
+			refetch.change = MsgChange::Edited;
 		}
 
 		/*

@@ -243,6 +243,51 @@ int main()
 		CHECK(!near.count(kGroup), "a basic group is not counted");
 	}
 
+	printf("a message back through the normal store path:\n");
+	{
+		groupMessage(db, 30, R"({"fact_check": {"text": "y"}})");
+		groupMessage(db, 31);
+		groupMessage(db, 32);
+		CHECK(ids(db.markDeletedOnRecheck(kGroup, true, { 30, 32 })) == "30,32",
+		      "two marked on a recheck");
+		groupMessage(db, 31, nullptr, true); /* a deletion Telegram reported */
+
+		/* A fact check written while 32 stays deleted keeps the flag. */
+		db.setMessageFactCheck(kGroup, 32, true, std::string(R"({"text": "z"})"));
+		CHECK(one(raw, "SELECT JSON_EXTRACT(meta, '$.deleted_on_recheck') = TRUE"
+			  " FROM telegram_group_messages WHERE chat_id = ? AND message_id = 32",
+			  { kGroup }) == "1",
+		      "the flag stays when meta changes but the message is not back");
+
+		models::GroupMessage m;
+		m.chat_id = kGroup;
+		m.message_id = 30;
+		m.date = 1700000030;
+		m.content.content_type = models::MessageContentType::Text;
+		m.content.text = "message 30";
+		m.meta = std::string(R"({"fact_check": {"text": "y"}})");
+		auto r = db.upsertGroupMessage(m);
+		CHECK(r.restored && r.change == MsgChange::Edited,
+		      "a flagged row stored again is restored, as an edit");
+		CHECK(one(raw, "SELECT CONCAT(deleted_at IS NULL, meta)"
+			  " FROM telegram_group_messages WHERE chat_id = ? AND message_id = 30",
+			  { kGroup }) == R"(1{"fact_check": {"text": "y"}})",
+		      "deleted_at cleared and the flag gone, the rest of meta kept");
+
+		m.message_id = 31;
+		m.date = 1700000031;
+		m.content.text = "message 31";
+		m.meta.reset();
+		r = db.upsertGroupMessage(m);
+		CHECK(!r.restored, "a deletion Telegram reported is not undone");
+		CHECK(one(raw, "SELECT CONCAT(deleted_at IS NOT NULL, IFNULL(meta, 'NULL'))"
+			  " FROM telegram_group_messages WHERE chat_id = ? AND message_id = 31",
+			  { kGroup }) == "1NULL",
+		      "it stays deleted, without a flag");
+		r = db.upsertGroupMessage(m);
+		CHECK(!r.restored, "and storing it again changes nothing");
+	}
+
 	printf("restore a recheck deletion:\n");
 	auto back = db.restoreRecheckDeleted(kGroup, true, { 12, 15, 16, 99 });
 	CHECK(ids(back) == "12",

@@ -58,6 +58,9 @@ struct MsgCountRefetch {
 	std::optional<int64_t> user;
 	std::optional<int64_t> group;
 	MsgChange change = MsgChange::None;
+	/* A deletion concluded on a recheck was undone: the message came
+	 * back (change is then at least Edited). */
+	bool restored = false;
 };
 
 /* One enabled Discord webhook integration: mirror chat_id -> webhook_url. */
