@@ -10,7 +10,7 @@ import type { Cond, FieldDef, GroupSummary, ListProps } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 import { safeFragment } from '../api/engine.ts';
-import { BackendNote, EngineOptions, Highlighted, type Noun } from '../ui/SearchEngine.tsx';
+import { BackendNote, EngineOptions, Highlighted, MATCHES_HINT, type Noun } from '../ui/SearchEngine.tsx';
 
 export type GroupRow = S['GroupsProps']['rows'][number];
 export type GroupsProps = S['GroupsProps'];
@@ -58,7 +58,7 @@ function Groups({ page }: { page: PageData<GroupsProps> }) {
 		<Shell crumbs={[['Groups', null]]}>
 			<PageHead title="Groups" sub={member ? `${L.total} groups granted to you` : `${fmt(page.props.archive_total ?? L.total)} groups and channels the logger has seen`} />
 			<FilterBar L={L} fields={withMatches(FIELDS, L.fields, 'description')} placeholder="Title, @username or ID" name="Groups" quick={QUICK} />
-			<EngineOptions p={page.props} noun={NOUN} facets={false} />
+			<EngineOptions p={page.props} noun={NOUN} facets={false} hint={MATCHES_HINT} />
 			<BackendNote b={page.props.backend} noun={NOUN} />
 			<DataTable
 				L={L} cols={cols} noun="groups" empty={emptyText(L, member, 'groups', 'No groups match these filters.')}

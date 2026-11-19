@@ -34,6 +34,8 @@ describe('search engine options', () => {
 		const { calls } = show({ engine: { ...ENGINE, options: ['phrase', 'fuzzy', 'highlight'] } });
 		const g = within(options()!);
 		expect(g.getAllByRole('checkbox').map((c) => c.closest('label')!.textContent)).toEqual(['Allow typos', 'Highlight matches']);
+		// The search box reaches the engine here, so no matches hint.
+		expect(g.queryByText('works with a matches filter')).toBeNull();
 		fireEvent.click(g.getByRole('checkbox', { name: 'Allow typos' }));
 		await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\//).at(-1)?.query.get('fuzzy')).toBe('1'));
 	});

@@ -10,7 +10,7 @@ import type { Cond, FieldDef } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 import { safeFragment } from '../api/engine.ts';
-import { BackendNote, EngineOptions, Highlighted, type Noun } from '../ui/SearchEngine.tsx';
+import { BackendNote, EngineOptions, Highlighted, MATCHES_HINT, type Noun } from '../ui/SearchEngine.tsx';
 
 export type UsersProps = S['UsersProps'];
 type UserRow = S['UserRow'];
@@ -63,7 +63,7 @@ function Users({ page }: { page: PageData<UsersProps> }) {
 		<Shell crumbs={[['Users', null]]}>
 			<PageHead title="Users" sub={full && page.props.archive_total ? `${fmt(page.props.archive_total)} users seen across all logged chats` : `${fmt(L.total)} people in your groups`} />
 			<FilterBar L={L} fields={full ? withMatches(FIELDS, L.fields, 'bio') : FIELDS.filter((f) => ['id', 'name', 'username'].includes(f.key))} placeholder="Name, @username or ID" name="Users" quick={full ? QUICK : undefined} />
-			<EngineOptions p={page.props} noun={NOUN} facets={false} />
+			<EngineOptions p={page.props} noun={NOUN} facets={false} hint={full ? MATCHES_HINT : undefined} />
 			<BackendNote b={page.props.backend} noun={NOUN} />
 			<DataTable
 				L={L} cols={cols} noun="users" empty={emptyText(L, !full, 'users', 'No users match these filters.')}

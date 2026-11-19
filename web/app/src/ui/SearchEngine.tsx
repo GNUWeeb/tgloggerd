@@ -34,11 +34,16 @@ const SYNTAX: [EngineOption | 'always', string, string | ((n: Noun) => string)][
 	['fuzzy', 'word~', 'the word, or one a letter or two off'],
 ];
 
+// The users and groups lists' search box is not the engine's; only a
+// bio or description matches filter is.
+export const MATCHES_HINT = 'works with a matches filter';
+
 export const offered = (p: EngineProps) => (p.engine?.available ? p.engine.options : []);
 
 // facets: false on the lists without chats to count hits by (users,
-// groups), whatever the capabilities say.
-export function EngineOptions({ p, noun = MESSAGES, facets = true }: { p: EngineProps; noun?: Noun; facets?: boolean }) {
+// groups), whatever the capabilities say. hint: how to reach the engine
+// on a list whose search box does not.
+export function EngineOptions({ p, noun = MESSAGES, facets = true, hint }: { p: EngineProps; noun?: Noun; facets?: boolean; hint?: string }) {
 	const { page, navigate } = useNav();
 	const [help, setHelp] = useState(false);
 	const opts = offered(p).filter((o) => facets || o !== 'facets');
@@ -54,6 +59,7 @@ export function EngineOptions({ p, noun = MESSAGES, facets = true }: { p: Engine
 						<input type="checkbox" checked={q.get(k) === '1'} onChange={(e) => set(k, e.target.checked)} />{label}
 					</label>
 				))}
+				{hint && <span className="a-muted sm">{hint}</span>}
 				<button type="button" className="a-btn a-btn-ghost a-engine-help" aria-expanded={help} onClick={() => setHelp((x) => !x)}><CircleHelp size={14} />Search syntax</button>
 			</div>
 			{help && (

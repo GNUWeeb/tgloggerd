@@ -43,6 +43,8 @@ describe('search engine on the users list', () => {
 		const g = within(options()!);
 		expect(g.getAllByRole('checkbox').map((c) => c.closest('label')!.textContent)).toEqual(['Allow typos', 'Highlight matches']);
 		expect(g.getByText('Highlight matches').closest('label')!.title).toBe('Show the matching parts of each user.');
+		// The engine answers only a bio matches filter, which says so.
+		expect(g.getByText('works with a matches filter')).toBeTruthy();
 		fireEvent.click(screen.getByRole('button', { name: /Search syntax/ }));
 		expect(document.querySelector('.a-engine-syntax dd')!.textContent).toBe('users with the word rank higher');
 		fireEvent.click(g.getByRole('checkbox', { name: 'Highlight matches' }));
@@ -91,6 +93,7 @@ describe('search engine on the groups list', () => {
 	it('offers the options the engine names, but never the chats with the most hits', () => {
 		groups({ engine: engine('description') });
 		expect(within(options()!).getAllByRole('checkbox').map((c) => c.closest('label')!.textContent)).toEqual(['Allow typos', 'Highlight matches']);
+		expect(within(options()!).getByText('works with a matches filter')).toBeTruthy();
 	});
 
 	it('says when the database answered', () => {
