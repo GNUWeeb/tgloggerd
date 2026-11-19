@@ -17,7 +17,8 @@ preview of a Telegram message or story only its URL and title.
   chat and message or story of a `message` or `story` preview), and its
   video, animation or audio in `telegram_message_files` under role
   `preview_media`, stored or recorded under the storage cache rules,
-  with a fetcher source for it.
+  with a fetcher source for it. Done; its `extra` keys are listed in
+  message-types.md section 4.8.
 - Go (webapi): the preview's `extra` keys and its media as ChatMedia
   on `link_preview` (ChatMessage and MessageFull); a `message` preview
   whose target is in the archive and visible links to it. OpenAPI and

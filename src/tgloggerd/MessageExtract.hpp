@@ -12,6 +12,7 @@
 #include <td/telegram/td_api.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -192,9 +193,38 @@ struct ExtraFile {
  * cover, a live photo's video, each paid media item, a game's photo and
  * animation, an invoice's photo and paid media, the photo of a chat photo
  * change or suggestion, the still thumbnail of a video, an animation, a
- * video note or a video sticker, the media in a rich message's blocks.
+ * video note or a video sticker, the media in a rich message's blocks,
+ * a link preview's own medium (link_preview_media_files).
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
+
+/*
+ * A link preview's own video, animation or audio, role "preview_media"
+ * at position 0: the medium of a video, animation or audio preview, or
+ * the cached medium of an embedded player. Its image is not listed; it
+ * goes to telegram_link_previews.photo_file_id.
+ */
+std::vector<ExtraFile> link_preview_media_files(const td_api::linkPreview &lp);
+
+/*
+ * The curated telegram_link_previews.extra of @lp: the fields of its type
+ * that have no column (message-types.md section 4.8), as a JSON object,
+ * or nullopt when the type carries none.
+ */
+std::optional<std::string> link_preview_extra_json(const td_api::linkPreview &lp);
+
+/* The message a Telegram message link names: a chat id (t.me/c/ links)
+ * or a public username, and the message's server id. */
+struct MessageLinkTarget {
+	int64_t		chat_id = 0;
+	std::string	username;
+	int64_t		message_id = 0;
+};
+
+/* Parse @url as a t.me (telegram.me, telegram.dog) or tg:// message
+ * link into @out; false, leaving @out alone, when it is not one. */
+bool telegram_message_link_target(const std::string &url,
+				  MessageLinkTarget &out);
 
 /*
  * The media in a rich message's page blocks, role "rich", position their

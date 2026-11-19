@@ -48,6 +48,10 @@ struct LinkPreview {
 	std::optional<std::string>	description_entities;
 	bool		show_media_above_description = false;
 	bool		skip_confirmation = false;
+
+	/* The type's own fields that have no column, a curated JSON
+	 * object (message-types.md 4.8); nullopt if the type has none. */
+	std::optional<std::string>	extra;
 };
 
 } /* namespace models */

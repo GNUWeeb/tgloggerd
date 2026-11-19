@@ -209,6 +209,18 @@ target_compile_options(rich_message_test PRIVATE -Wall -Wextra)
 target_link_libraries(rich_message_test PRIVATE Td::TdStatic tdjson_private
 	nlohmann_json::nlohmann_json Threads::Threads)
 
+# How a link preview's type is stored (extra, its own medium, the target
+# of a message link) over hand-built TDLib objects; not part of the
+# default build:
+#   cmake --build build --target link_preview_test && build/link_preview_test
+add_executable(link_preview_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/link_preview_test.cpp
+	src/tgloggerd/MessageExtract.cpp)
+target_include_directories(link_preview_test PRIVATE src)
+target_compile_options(link_preview_test PRIVATE -Wall -Wextra)
+target_link_libraries(link_preview_test PRIVATE Td::TdStatic tdjson_private
+	nlohmann_json::nlohmann_json Threads::Threads)
+
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
 # Telegram). Added last: it links Td::TdStatic and connector-jdbc from the
 # subprojects above, and pulls in the self-contained gwdiscord library. Its

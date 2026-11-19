@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdio>
+#include <cstring>
 #include <exception>
 #include <string>
 #include <optional>
@@ -2693,10 +2694,11 @@ const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
  * item, a game's photo and animation, an invoice's photo and paid media,
  * the photo of a chat photo change or suggestion, the still
  * thumbnail of a video, an animation, a video note or a video sticker
- * (the picture shown before it plays), and the media in a rich
- * message's page blocks (rich_message_files). Other thumbnails and a video's
- * other qualities are not listed: the first only repeat the media, the
- * second are the same video again.
+ * (the picture shown before it plays), the media in a rich message's
+ * page blocks (rich_message_files), and a text message's link preview's
+ * own video, animation or audio (link_preview_media_files). Other
+ * thumbnails and a video's other qualities are not listed: the first
+ * only repeat the media, the second are the same video again.
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content)
 {
@@ -2828,10 +2830,418 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 			out = rich_message_files(*c.message_);
 		break;
 	}
+	case td_api::messageText::ID: {
+		auto &c = static_cast<const td_api::messageText &>(content);
+		if (c.link_preview_)
+			out = link_preview_media_files(*c.link_preview_);
+		break;
+	}
 	default:
 		break;
 	}
 	return out;
+}
+
+std::vector<ExtraFile> link_preview_media_files(const td_api::linkPreview &lp)
+{
+	std::vector<ExtraFile> out;
+	auto add = [&out](const td_api::file *f, const char *category,
+			  const std::string &name) {
+		if (f)
+			out.push_back(ExtraFile{ f, category, name,
+						 "preview_media", 0 });
+	};
+	const td_api::LinkPreviewType *t = lp.type_.get();
+	if (!t)
+		return out;
+
+	switch (t->get_id()) {
+	case td_api::linkPreviewTypeVideo::ID: {
+		auto &v = static_cast<const td_api::linkPreviewTypeVideo &>(*t);
+		if (v.video_)
+			add(v.video_->video_.get(), "video",
+			    v.video_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeEmbeddedVideoPlayer::ID: {
+		auto &v = static_cast<
+			const td_api::linkPreviewTypeEmbeddedVideoPlayer &>(*t);
+		if (v.video_)
+			add(v.video_->video_.get(), "video",
+			    v.video_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeAnimation::ID: {
+		auto &a = static_cast<const td_api::linkPreviewTypeAnimation &>(*t);
+		if (a.animation_)
+			add(a.animation_->animation_.get(), "animation",
+			    a.animation_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeEmbeddedAnimationPlayer::ID: {
+		auto &a = static_cast<
+			const td_api::linkPreviewTypeEmbeddedAnimationPlayer &>(*t);
+		if (a.animation_)
+			add(a.animation_->animation_.get(), "animation",
+			    a.animation_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeAudio::ID: {
+		auto &a = static_cast<const td_api::linkPreviewTypeAudio &>(*t);
+		if (a.audio_)
+			add(a.audio_->audio_.get(), "audio",
+			    a.audio_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeEmbeddedAudioPlayer::ID: {
+		auto &a = static_cast<
+			const td_api::linkPreviewTypeEmbeddedAudioPlayer &>(*t);
+		if (a.audio_)
+			add(a.audio_->audio_.get(), "audio",
+			    a.audio_->file_name_);
+		break;
+	}
+	default:
+		break;
+	}
+	return out;
+}
+
+namespace {
+
+bool all_digits(const std::string &s)
+{
+	if (s.empty() || s.size() > 18)
+		return false;
+	for (char ch : s)
+		if (ch < '0' || ch > '9')
+			return false;
+	return true;
+}
+
+bool is_username(const std::string &s)
+{
+	if (s.size() < 4 || s.size() > 32)
+		return false;
+	for (char ch : s)
+		if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+		      (ch >= '0' && ch <= '9') || ch == '_'))
+			return false;
+	return true;
+}
+
+std::string ascii_lower(std::string s)
+{
+	for (char &ch : s)
+		if (ch >= 'A' && ch <= 'Z')
+			ch = (char)(ch - 'A' + 'a');
+	return s;
+}
+
+/* The value of @key in the query string @q ("a=1&b=2"), or "". */
+std::string query_param(const std::string &q, const std::string &key)
+{
+	size_t i = 0;
+	while (i <= q.size()) {
+		size_t amp = q.find('&', i);
+		if (amp == std::string::npos)
+			amp = q.size();
+		const std::string kv = q.substr(i, amp - i);
+		const size_t eq = kv.find('=');
+		if (eq != std::string::npos && kv.substr(0, eq) == key)
+			return kv.substr(eq + 1);
+		i = amp + 1;
+	}
+	return std::string();
+}
+
+/* The chat id TDLib gives the channel or supergroup of a t.me/c/ link. */
+int64_t channel_chat_id(const std::string &digits)
+{
+	return -1000000000000LL - std::stoll(digits);
+}
+
+} /* namespace */
+
+bool telegram_message_link_target(const std::string &url,
+				  MessageLinkTarget &out)
+{
+	std::string rest = url;
+	const std::string lower = ascii_lower(url);
+	std::string path, query;
+
+	auto split = [&path, &query](const std::string &r) {
+		size_t end = r.find('#');
+		std::string s = r.substr(0, end);
+		size_t q = s.find('?');
+		path = s.substr(0, q);
+		query = q == std::string::npos ? std::string()
+					       : s.substr(q + 1);
+	};
+
+	if (lower.rfind("tg://", 0) == 0) {
+		split(rest.substr(5));
+		const std::string what = ascii_lower(path);
+		const std::string post = query_param(query, "post");
+		if (!all_digits(post))
+			return false;
+		if (what == "resolve") {
+			const std::string domain = query_param(query, "domain");
+			if (!is_username(domain))
+				return false;
+			out = MessageLinkTarget{ 0, domain, std::stoll(post) };
+			return true;
+		}
+		if (what == "privatepost") {
+			const std::string ch = query_param(query, "channel");
+			if (!all_digits(ch))
+				return false;
+			out = MessageLinkTarget{ channel_chat_id(ch), "",
+						 std::stoll(post) };
+			return true;
+		}
+		return false;
+	}
+
+	for (const char *scheme : { "https://", "http://" })
+		if (lower.rfind(scheme, 0) == 0) {
+			rest = rest.substr(strlen(scheme));
+			break;
+		}
+	const size_t slash = rest.find('/');
+	if (slash == std::string::npos)
+		return false;
+	std::string host = ascii_lower(rest.substr(0, slash));
+	if (host.rfind("www.", 0) == 0)
+		host = host.substr(4);
+	if (host != "t.me" && host != "telegram.me" && host != "telegram.dog")
+		return false;
+	split(rest.substr(slash + 1));
+
+	std::vector<std::string> seg;
+	size_t i = 0;
+	while (i <= path.size()) {
+		size_t e = path.find('/', i);
+		if (e == std::string::npos)
+			e = path.size();
+		if (e > i)
+			seg.push_back(path.substr(i, e - i));
+		i = e + 1;
+	}
+
+	/* t.me/c/<channel>/<message>, or .../<topic>/<message>. */
+	if ((seg.size() == 3 || seg.size() == 4) && seg[0] == "c") {
+		if (!all_digits(seg[1]) || !all_digits(seg.back()) ||
+		    (seg.size() == 4 && !all_digits(seg[2])))
+			return false;
+		out = MessageLinkTarget{ channel_chat_id(seg[1]), "",
+					 std::stoll(seg.back()) };
+		return true;
+	}
+	/* t.me/<username>/<message>, or .../<topic>/<message>. */
+	if ((seg.size() == 2 || seg.size() == 3) && is_username(seg[0])) {
+		if (!all_digits(seg.back()) ||
+		    (seg.size() == 3 && !all_digits(seg[1])))
+			return false;
+		out = MessageLinkTarget{ 0, seg[0], std::stoll(seg.back()) };
+		return true;
+	}
+	return false;
+}
+
+std::optional<std::string> link_preview_extra_json(const td_api::linkPreview &lp)
+{
+	nlohmann::json j = nlohmann::json::object();
+	const td_api::LinkPreviewType *t = lp.type_.get();
+	if (!t)
+		return std::nullopt;
+
+	auto put_audio = [](nlohmann::json &o, const td_api::audio *a) {
+		if (!a)
+			return;
+		put_num(o, "duration", a->duration_);
+		put_str(o, "mime", a->mime_type_);
+		put_str(o, "audio_title", a->title_);
+		put_str(o, "performer", a->performer_);
+		put_str(o, "file_name", a->file_name_);
+	};
+	auto put_animation = [](nlohmann::json &o, const td_api::animation *a) {
+		if (!a)
+			return;
+		put_num(o, "width", a->width_);
+		put_num(o, "height", a->height_);
+		put_num(o, "duration", a->duration_);
+		put_str(o, "mime", a->mime_type_);
+		put_minithumbnail(o, a->minithumbnail_.get());
+	};
+	/* An embedded player's own size and duration, and its cached
+	 * medium's, which can differ, under "media". */
+	auto put_player = [&j](const std::string &url, int32_t w, int32_t h,
+			       int32_t duration) {
+		put_str(j, "embed_url", url);
+		put_num(j, "embed_width", w);
+		put_num(j, "embed_height", h);
+		put_num(j, "duration", duration);
+	};
+	auto put_media = [&j](nlohmann::json m) {
+		if (!m.empty())
+			j["media"] = std::move(m);
+	};
+
+	switch (t->get_id()) {
+	case td_api::linkPreviewTypeArticle::ID:
+		put_photo(j, static_cast<const td_api::linkPreviewTypeArticle &>(
+				     *t).photo_.get());
+		break;
+	case td_api::linkPreviewTypePhoto::ID:
+		put_photo(j, static_cast<const td_api::linkPreviewTypePhoto &>(
+				     *t).photo_.get());
+		break;
+	case td_api::linkPreviewTypeApp::ID:
+		put_photo(j, static_cast<const td_api::linkPreviewTypeApp &>(
+				     *t).photo_.get());
+		break;
+	case td_api::linkPreviewTypeWebApp::ID:
+		put_photo(j, static_cast<const td_api::linkPreviewTypeWebApp &>(
+				     *t).photo_.get());
+		break;
+	case td_api::linkPreviewTypeEmbeddedVideoPlayer::ID: {
+		auto &v = static_cast<
+			const td_api::linkPreviewTypeEmbeddedVideoPlayer &>(*t);
+		put_player(v.url_, v.width_, v.height_, v.duration_);
+		nlohmann::json m = nlohmann::json::object();
+		put_video(m, v.video_.get());
+		put_media(std::move(m));
+		break;
+	}
+	case td_api::linkPreviewTypeEmbeddedAnimationPlayer::ID: {
+		auto &a = static_cast<
+			const td_api::linkPreviewTypeEmbeddedAnimationPlayer &>(*t);
+		put_player(a.url_, a.width_, a.height_, a.duration_);
+		nlohmann::json m = nlohmann::json::object();
+		put_animation(m, a.animation_.get());
+		put_media(std::move(m));
+		break;
+	}
+	case td_api::linkPreviewTypeEmbeddedAudioPlayer::ID: {
+		auto &a = static_cast<
+			const td_api::linkPreviewTypeEmbeddedAudioPlayer &>(*t);
+		put_player(a.url_, a.width_, a.height_, a.duration_);
+		nlohmann::json m = nlohmann::json::object();
+		put_audio(m, a.audio_.get());
+		put_media(std::move(m));
+		break;
+	}
+	case td_api::linkPreviewTypeVideo::ID: {
+		auto &v = static_cast<const td_api::linkPreviewTypeVideo &>(*t);
+		put_video(j, v.video_.get());
+		if (v.video_)
+			put_str(j, "file_name", v.video_->file_name_);
+		put_num(j, "start_timestamp", v.start_timestamp_);
+		put_flag(j, "cover", v.cover_ != nullptr);
+		break;
+	}
+	case td_api::linkPreviewTypeAnimation::ID: {
+		auto &a = static_cast<const td_api::linkPreviewTypeAnimation &>(*t);
+		put_animation(j, a.animation_.get());
+		if (a.animation_)
+			put_str(j, "file_name", a.animation_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeAudio::ID:
+		put_audio(j, static_cast<const td_api::linkPreviewTypeAudio &>(
+				     *t).audio_.get());
+		break;
+	case td_api::linkPreviewTypeDocument::ID: {
+		auto &d = static_cast<const td_api::linkPreviewTypeDocument &>(*t);
+		if (d.document_) {
+			put_str(j, "mime", d.document_->mime_type_);
+			put_str(j, "file_name", d.document_->file_name_);
+		}
+		break;
+	}
+	case td_api::linkPreviewTypeSticker::ID: {
+		auto &s = static_cast<const td_api::linkPreviewTypeSticker &>(*t);
+		if (auto *st = s.sticker_.get()) {
+			put_str(j, "emoji", st->emoji_);
+			put_id(j, "sticker_id", st->id_);
+			put_id(j, "set_id", st->set_id_);
+			put_str(j, "format",
+				sticker_format_name(st->format_.get()));
+			put_num(j, "width", st->width_);
+			put_num(j, "height", st->height_);
+		}
+		break;
+	}
+	case td_api::linkPreviewTypeChat::ID: {
+		auto &c = static_cast<const td_api::linkPreviewTypeChat &>(*t);
+		if (c.type_) {
+			switch (c.type_->get_id()) {
+			case td_api::inviteLinkChatTypeBasicGroup::ID:
+				j["chat_type"] = "basic_group";
+				break;
+			case td_api::inviteLinkChatTypeSupergroup::ID:
+				j["chat_type"] = "supergroup";
+				break;
+			case td_api::inviteLinkChatTypeChannel::ID:
+				j["chat_type"] = "channel";
+				break;
+			default:
+				break;
+			}
+		}
+		put_flag(j, "creates_join_request", c.creates_join_request_);
+		break;
+	}
+	case td_api::linkPreviewTypeUser::ID:
+		put_flag(j, "is_bot",
+			 static_cast<const td_api::linkPreviewTypeUser &>(*t)
+				 .is_bot_);
+		break;
+	case td_api::linkPreviewTypeVideoChat::ID: {
+		auto &v = static_cast<const td_api::linkPreviewTypeVideoChat &>(*t);
+		put_flag(j, "is_live_stream", v.is_live_stream_);
+		put_flag(j, "joins_as_speaker", v.joins_as_speaker_);
+		break;
+	}
+	case td_api::linkPreviewTypeMessage::ID: {
+		/* TDLib names no target: it is the message the link names. */
+		MessageLinkTarget tg;
+		if (telegram_message_link_target(lp.url_, tg)) {
+			put_num(j, "chat_id", tg.chat_id);
+			put_str(j, "username", tg.username);
+			put_num(j, "message_id", tg.message_id);
+		}
+		break;
+	}
+	case td_api::linkPreviewTypeStory::ID: {
+		auto &s = static_cast<const td_api::linkPreviewTypeStory &>(*t);
+		put_num(j, "poster_chat_id", s.story_poster_chat_id_);
+		put_num(j, "story_id", s.story_id_);
+		break;
+	}
+	case td_api::linkPreviewTypeExternalVideo::ID: {
+		auto &v = static_cast<const td_api::linkPreviewTypeExternalVideo &>(*t);
+		put_str(j, "media_url", v.url_);
+		put_str(j, "mime", v.mime_type_);
+		put_num(j, "width", v.width_);
+		put_num(j, "height", v.height_);
+		put_num(j, "duration", v.duration_);
+		break;
+	}
+	case td_api::linkPreviewTypeExternalAudio::ID: {
+		auto &a = static_cast<const td_api::linkPreviewTypeExternalAudio &>(*t);
+		put_str(j, "media_url", a.url_);
+		put_str(j, "mime", a.mime_type_);
+		put_num(j, "duration", a.duration_);
+		break;
+	}
+	default:
+		break;
+	}
+	if (j.empty())
+		return std::nullopt;
+	return j.dump();
 }
 
 models::Poll extract_poll(const td_api::poll &p)
