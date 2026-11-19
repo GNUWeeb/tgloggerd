@@ -239,6 +239,22 @@ the same upstream:
         proxy_buffering    off;
     }
 
+The files list page is /files, without the slash: nginx answers a
+request for a proxied prefix location's path without its trailing
+slash with a redirect to it, so /files would be sent to /files/ and
+answer 404. Route /files itself to the service too, with the page
+location's settings:
+
+    location = /files {
+        proxy_pass         http://10.0.88.7:8081;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection        "";
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
 nginx passes Range and the conditional headers on by default. The
 service logs, audits and throttles logins by the request's client:
 the first X-Forwarded-For hop, read from the right, that is not in
