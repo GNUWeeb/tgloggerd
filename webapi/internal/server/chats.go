@@ -565,11 +565,18 @@ func (v view) chatMessage(n names, k kinds, group bool, chatID int64, m logdb.Me
 	if m.EditDate > 0 {
 		j.EditedAt = isoPtr(m.EditDate)
 	}
-	if p := m.Preview; p != nil {
-		j.LinkPreview = &linkPreviewJSON{Site: p.Site, Title: p.Title, Desc: p.Description,
-			URL: p.URL, Media: v.media("photo", p.Photo, nil)}
-	}
+	j.LinkPreview = v.linkPreview(m)
 	return j
+}
+
+// linkPreview is a message's link preview card, nil when it has none.
+func (v view) linkPreview(m logdb.Message) *linkPreviewJSON {
+	p := m.Preview
+	if p == nil {
+		return nil
+	}
+	return &linkPreviewJSON{Site: p.Site, Title: p.Title, Desc: p.Description,
+		URL: p.URL, Media: v.media("photo", p.Photo, nil)}
 }
 
 // chatMessages turns a window's rows into messages, folding each run

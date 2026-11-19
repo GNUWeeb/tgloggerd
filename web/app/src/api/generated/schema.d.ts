@@ -2506,6 +2506,10 @@ export interface components {
                 thumb: string | null;
                 url: string | null;
             }) | null;
+            /** @description The link preview card, as ChatMessage.link_preview; null when the message has none. Always sent; optional here only until the app's message page reads it. */
+            link_preview?: components["schemas"]["LinkPreview"] | null;
+            /** @description The forum topic topic_id names, as ChatProps.topics lists it, for its name and colour; null when topic_id is null or the topic was never seen. Always sent; optional here only until the app's message page reads it. */
+            topic?: components["schemas"]["ChatTopic"] | null;
         };
         /** @description A message's file (web/docs/media.md) and its detail. url is the /files/<token> URL when the bytes are stored or may be fetched from Telegram, else null; thumb is the same URL for media that render as an image, and for other media its poster, else its minithumb (a blurred preview), when known; else null. */
         ChatMedia: components["schemas"]["MediaDetail"] & components["schemas"]["ChatMediaFile"];
@@ -2565,13 +2569,15 @@ export interface components {
             edits: components["schemas"]["Edit"][];
             edited_at: string | null;
             deleted_at: string | null;
-            link_preview: {
-                site: string;
-                title: string;
-                desc: string;
-                url?: string;
-                media?: components["schemas"]["ChatMedia"];
-            } | null;
+            link_preview: components["schemas"]["LinkPreview"] | null;
+        };
+        /** @description A message's link preview card (telegram_link_previews): the site, the page's title and description, its URL, and its photo when it has one. */
+        LinkPreview: {
+            site: string;
+            title: string;
+            desc: string;
+            url?: string;
+            media?: components["schemas"]["ChatMedia"];
         };
         /** @description Messages oldest first, and whether more lie either side. */
         ChatWindow: {

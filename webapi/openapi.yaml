@@ -6543,6 +6543,23 @@ components:
                         url:
                           type: [string, 'null']
                 - type: 'null'
+            link_preview:
+              description: >-
+                The link preview card, as ChatMessage.link_preview; null
+                when the message has none. Always sent; optional here
+                only until the app's message page reads it.
+              oneOf:
+                - $ref: '#/components/schemas/LinkPreview'
+                - type: 'null'
+            topic:
+              description: >-
+                The forum topic topic_id names, as ChatProps.topics lists
+                it, for its name and colour; null when topic_id is null
+                or the topic was never seen. Always sent; optional here
+                only until the app's message page reads it.
+              oneOf:
+                - $ref: '#/components/schemas/ChatTopic'
+                - type: 'null'
     ChatMedia:
       description: >-
         A message's file (web/docs/media.md) and its detail. url is the
@@ -6680,20 +6697,26 @@ components:
           type: [string, 'null']
         link_preview:
           oneOf:
-            - type: object
-              required: [site, title, desc]
-              properties:
-                site:
-                  type: string
-                title:
-                  type: string
-                desc:
-                  type: string
-                url:
-                  type: string
-                media:
-                  $ref: '#/components/schemas/ChatMedia'
+            - $ref: '#/components/schemas/LinkPreview'
             - type: 'null'
+    LinkPreview:
+      type: object
+      description: >-
+        A message's link preview card (telegram_link_previews): the
+        site, the page's title and description, its URL, and its photo
+        when it has one.
+      required: [site, title, desc]
+      properties:
+        site:
+          type: string
+        title:
+          type: string
+        desc:
+          type: string
+        url:
+          type: string
+        media:
+          $ref: '#/components/schemas/ChatMedia'
     ChatWindow:
       type: object
       description: Messages oldest first, and whether more lie either side.
