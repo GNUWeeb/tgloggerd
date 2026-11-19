@@ -286,7 +286,7 @@ func (v view) history(e logdb.HistoryEntry) historyJSON {
 			j.Removed = true
 		} else {
 			j.Photo = v.photo(e.Photo)
-			j.PhotoID = ptrTo(e.RowID())
+			j.PhotoID = ptrTo(e.PhotoID())
 		}
 	}
 	return j
