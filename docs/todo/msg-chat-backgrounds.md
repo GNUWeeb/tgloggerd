@@ -20,6 +20,8 @@ say "changed the chat background". A `chat_change_photo` (or
   (`intensity`, `is_inverted`, `is_moving`); an animated chat photo's
   video under role `chat_photo` at position 1. Both stored or recorded
   under the storage cache rules, with fetcher sources.
+  Done: the keys are in message-types.md sections 4.2.3 and the files
+  in section 4.3.
 - Go (webapi): `ServiceInfo.detail` gains the background (its image as
   ChatMedia and its fill) and the photo's animation; OpenAPI and
   web/docs follow.
