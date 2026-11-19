@@ -29,8 +29,8 @@ media object.
 text, the media kinds, service messages and unknown. It is built from
 the row's `content_extra`, the poll tables (`telegram_polls`,
 `telegram_poll_options`) and `telegram_message_files` (a game's or an
-invoice's photo, paid media's items), all read in one batch per page
-of messages.
+invoice's photo, paid media's items, a giveaway's prize sticker), all
+read in one batch per page of messages.
 
 - `location`: latitude, longitude, accuracy; a live location also its
   period, heading, proximity radius and `updates`, how many earlier
@@ -54,6 +54,9 @@ of messages.
   phones; a member gets null for both. The chat reads the vCard for
   its other numbers, e-mail addresses and organisation, and offers it
   as a `.vcf` download.
+- `giveaway`: the prize, the winner count and date, the chats taking
+  part, and `sticker`, the prize's sticker (the message's file of role
+  gift) as ChatMedia; null when it is not recorded.
 - `rich`: the page blocks; see "Rich messages" below.
 - `widget`, `expired`, `unsupported`: the kind alone; the chat shows
   a one-line placeholder.
@@ -250,6 +253,8 @@ names the viewer may not see:
 | video_chat_ended, video_chat_scheduled | `{kind: "video_chat", duration, start_date}`: seconds, or when it is to start; the other is null |
 | pin_message | `{kind: "pin", snippet}`: the pinned message quoted as a reply quotes it |
 | poll_option_added, poll_option_deleted | `{kind: "poll_option", text}`: the option's text |
+| gift, refunded_upgraded_gift, upgraded_gift, upgraded_gift_purchase_offer, upgraded_gift_purchase_offer_rejected, gifted_premium, gifted_stars, gifted_grams, giveaway_prize_stars | `{kind: "gift", sticker, symbol_sticker, star_count, price, sender, receiver, text, entities, upgraded}`: the gift (below) |
+| chat_set_theme | `{kind: "theme", theme_name, gift_id, gift_name}`: an emoji theme's name, or the upgraded gift a gift theme is made from |
 | forum_topic_* | `{kind: "topic", topic: {id, name, icon_color}}` |
 | chat_added_to_community, chat_removed_from_community, chat_join_from_community | `{kind: "community", community}`: a ChatRef |
 | chat_create, chat_upgrade_from | `{kind: "title", title, basic_group}`: basic_group a ChatRef or null |
@@ -257,6 +262,42 @@ names the viewer may not see:
 
     {"type": "pin_message", "refs": {...},
      "detail": {"kind": "pin", "snippet": "Release notes for 1.0 are out"}}
+
+A gift's `sticker` is the message's file of role gift at position 0
+as ChatMedia (render lottie for a `.tgs`, animation for a `.webm`,
+image for a `.webp`): a regular gift's sticker (with the gift's emoji),
+an upgraded gift's model sticker, or the animation sticker of the
+Premium, Stars or grams given; `symbol_sticker` is an upgraded gift's
+symbol sticker at position 1, drawn as a pattern over the backdrop.
+`star_count` is a regular gift's price in Stars, or the Stars of
+gifted_stars and giveaway_prize_stars; `price` a purchase offer's
+(`{stars}` or `{gram_cents}`). `sender` and `receiver` are ChatRefs
+(the giver of Premium, Stars or grams is `sender`), null for a private
+gift or one the viewer may not see; `text` and `entities` are the
+message the giver attached. `upgraded` (UpgradedGift) is the upgraded
+gift of upgraded_gift and the purchase offers: `id`,
+`regular_gift_id`, `title`, `name` (its unique name, for
+`https://t.me/nft/<name>`), `number`, `owner` (a ChatRef or null),
+`model` `{name, rarity_per_mille, rarity, crafted}`, `symbol` `{name,
+rarity_per_mille, rarity}`, `backdrop` `{name, center_color,
+edge_color, symbol_color, text_color, rarity_per_mille, rarity}`
+(colours RGB integers, `0xRRGGBB`; the backdrop is a radial gradient
+from the centre to the edge colour) and `original_details` `{sender,
+receiver, text, entities, date}`, the regular gift it was upgraded
+from. A rarity is `rarity_per_mille` (how many of 1000 upgraded gifts
+get it; 0 means under 0.1%) or, when Telegram names it instead,
+`rarity` (`uncommon`, `rare`, `epic`, `legendary`); the other is null.
+The people and chats a gift names go through the request scope as the
+refs do, so the owner or the original sender may be null for one
+viewer and not for another. Rows logged before the stickers and the
+look were kept have null for them; a gift with nothing stored has no
+detail.
+
+    {"kind": "gift", "sticker": {"render": "lottie", "ext": "tgs", ...},
+     "symbol_sticker": null, "star_count": 50, "price": null,
+     "sender": {"id": 9299000002, "kind": "user", ...},
+     "receiver": {"id": 9299000001, "kind": "user", ...},
+     "text": "Happy birthday", "entities": [], "upgraded": null}
 
 A pin has a detail only when the archive has the pinned message (pins
 logged before their message id was recorded have none); a message

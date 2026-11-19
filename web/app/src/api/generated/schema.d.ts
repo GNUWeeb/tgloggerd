@@ -2287,7 +2287,7 @@ export interface components {
             detail?: components["schemas"]["ServiceDetail"] | null;
         };
         /** @description A service action's detail beyond its line (docs/design/message-types.md section 4.2.3), from content_extra, the message's files and the rows it is about. A chat it names goes through the request scope as refs do. */
-        ServiceDetail: components["schemas"]["ServicePhotoDetail"] | components["schemas"]["ServiceVideoChatDetail"] | components["schemas"]["ServicePinDetail"] | components["schemas"]["ServicePollOptionDetail"] | components["schemas"]["ServiceTopicDetail"] | components["schemas"]["ServiceCommunityDetail"] | components["schemas"]["ServiceTitleDetail"] | components["schemas"]["ServiceBackgroundDetail"];
+        ServiceDetail: components["schemas"]["ServicePhotoDetail"] | components["schemas"]["ServiceVideoChatDetail"] | components["schemas"]["ServicePinDetail"] | components["schemas"]["ServicePollOptionDetail"] | components["schemas"]["ServiceTopicDetail"] | components["schemas"]["ServiceCommunityDetail"] | components["schemas"]["ServiceTitleDetail"] | components["schemas"]["ServiceBackgroundDetail"] | components["schemas"]["ServiceGiftDetail"] | components["schemas"]["ServiceThemeDetail"];
         /** @description chat_change_photo: the new group photo; suggest_profile_photo: the photo suggested. The message's file of role chat_photo at position 0; no detail when it is not recorded. */
         ServicePhotoDetail: {
             /**
@@ -2420,6 +2420,111 @@ export interface components {
             chats: components["schemas"]["ChatRef"][];
             /** Format: int64 */
             message_id: number | null;
+        };
+        /** @description A gift, as Telegram shows it on the service line (docs/design/message-types.md sections 3.5, 4.2.3 and 4.3). gift and refunded_upgraded_gift: a regular gift; upgraded_gift, upgraded_gift_purchase_offer and upgraded_gift_purchase_offer_rejected: an upgraded (unique) gift, with upgraded set; gifted_premium, gifted_stars, gifted_grams and giveaway_prize_stars: the animation sticker of the Premium, Stars or grams given. Rows logged before the gift's stickers and look were kept have only what was stored: null stickers, upgraded's model, symbol and backdrop null. No detail when nothing of it is stored. */
+        ServiceGiftDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "gift";
+            /** @description The message's file of role gift at position 0: a regular gift's sticker, an upgraded gift's model sticker, or the animation sticker of gifted Premium, Stars, grams or a giveaway prize (render lottie for a .tgs, animation for a .webm, image for a .webp); null when not recorded. */
+            sticker: components["schemas"]["ChatMedia"] | null;
+            /** @description An upgraded gift's symbol sticker, the file of role gift at position 1, drawn as a pattern over the backdrop in its symbol_color; null for the others and when not recorded. */
+            symbol_sticker: components["schemas"]["ChatMedia"] | null;
+            /**
+             * Format: int64
+             * @description A regular gift's price in Telegram Stars, or the Stars of gifted_stars and giveaway_prize_stars; null for the others.
+             */
+            star_count: number | null;
+            /** @description A purchase offer's price, in Stars or in hundredths of a gram (TON); null for the others. */
+            price: {
+                /** Format: int64 */
+                stars: number;
+            } | {
+                /** Format: int64 */
+                gram_cents: number;
+            } | null;
+            /** @description Who gave it (the gift's sender, or the gifter of Premium, Stars or grams), as a ref the viewer may see; null when it is not stored (a private gift) or hidden. */
+            sender: components["schemas"]["ChatRef"] | null;
+            /** @description Who received it, as sender is. */
+            receiver: components["schemas"]["ChatRef"] | null;
+            /** @description The message the giver attached (gift, upgraded_gift, gifted_premium); empty when none. */
+            text: string;
+            /** @description text's entities; empty when none. */
+            entities: components["schemas"]["TextEntity"][];
+            /** @description The upgraded gift of upgraded_gift and of the two purchase offer types; null for the others. */
+            upgraded: components["schemas"]["UpgradedGift"] | null;
+        };
+        /** @description An upgraded (unique) gift: its ids, title, number and owner, and what it looks like: the model (whose sticker is the detail's sticker), the symbol (symbol_sticker) and the backdrop, a gradient from center_color to edge_color behind them. Each is null when not stored (rows logged before they were kept). */
+        UpgradedGift: {
+            /** @description The upgraded gift's id (64-bit, as a decimal string). */
+            id: string;
+            /** @description The id of the regular gift it was upgraded from. */
+            regular_gift_id: string | null;
+            title: string;
+            /** @description Its unique name, as in https://t.me/nft/{name}; empty when not stored. */
+            name: string;
+            /**
+             * Format: int64
+             * @description Its number among the upgraded gifts of its kind; 0 when not stored.
+             */
+            number: number;
+            /** @description Its owner, as a ref the viewer may see; null when not stored or hidden. */
+            owner: components["schemas"]["ChatRef"] | null;
+            model: {
+                name: string;
+                rarity_per_mille: components["schemas"]["GiftRarityPerMille"];
+                rarity: components["schemas"]["GiftRarity"];
+                /** @description The model is only obtained by crafting gifts. */
+                crafted: boolean;
+            } | null;
+            symbol: {
+                name: string;
+                rarity_per_mille: components["schemas"]["GiftRarityPerMille"];
+                rarity: components["schemas"]["GiftRarity"];
+            } | null;
+            backdrop: {
+                name: string;
+                center_color: components["schemas"]["RgbColor"];
+                edge_color: components["schemas"]["RgbColor"];
+                symbol_color: components["schemas"]["RgbColor"];
+                text_color: components["schemas"]["RgbColor"];
+                rarity_per_mille: components["schemas"]["GiftRarityPerMille"];
+                rarity: components["schemas"]["GiftRarity"];
+            } | null;
+            /** @description The regular gift it was upgraded from, as it was sent: its sender (null for a private gift, when not stored or hidden), receiver, text and date; null when not stored. */
+            original_details: {
+                sender: components["schemas"]["ChatRef"] | null;
+                receiver: components["schemas"]["ChatRef"] | null;
+                text: string;
+                entities: components["schemas"]["TextEntity"][];
+                /** Format: date-time */
+                date: string | null;
+            } | null;
+        };
+        /** @description How many of 1000 upgraded gifts get this attribute (0 means under 0.1%); null when Telegram names the rarity instead (GiftRarity) or it is not stored. */
+        GiftRarityPerMille: number | null;
+        /**
+         * @description The rarity when Telegram names it instead of giving a proportion; null otherwise.
+         * @enum {string|null}
+         */
+        GiftRarity: "uncommon" | "rare" | "epic" | "legendary" | null;
+        /** @description An RGB colour as an integer (0xRRGGBB). */
+        RgbColor: number;
+        /** @description chat_set_theme: the theme set, an emoji chat theme's name, or for a theme made from an upgraded gift that gift's id and unique name (link to https://t.me/nft/{gift_name}). No detail when none is stored (the theme was reset, or rows logged before). */
+        ServiceThemeDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "theme";
+            /** @description An emoji chat theme's name; null for a gift theme. */
+            theme_name: string | null;
+            /** @description A gift theme's upgraded gift id; null for the others. */
+            gift_id: string | null;
+            /** @description A gift theme's upgraded gift's unique name; null for the others. */
+            gift_name: string | null;
         };
         /** @description A message kind's detail, from content_extra (docs/design/message-types.md section 4.2.2), the poll tables and telegram_message_files. Lists that can be long (poll options, checklist tasks, giveaway chats, group call participants) hold at most the first 20, with the full count in the matching *_total; a total counts the people and chats left out as hidden too, which says how many there were but not who. A user or a chat is a ChatRef (kind user or group). */
         MessageDetail: components["schemas"]["LocationDetail"] | components["schemas"]["VenueDetail"] | components["schemas"]["ContactDetail"] | components["schemas"]["DiceDetail"] | components["schemas"]["GameDetail"] | components["schemas"]["PollDetail"] | components["schemas"]["ChecklistDetail"] | components["schemas"]["StoryDetail"] | components["schemas"]["InvoiceDetail"] | components["schemas"]["GiveawayDetail"] | components["schemas"]["CallDetail"] | components["schemas"]["PaidMediaDetail"] | components["schemas"]["RichDetail"] | components["schemas"]["PlaceholderDetail"];
@@ -2606,6 +2711,8 @@ export interface components {
             /** @description The chats taking part (the boosted chat first) that the viewer may see, at most 20. */
             chats: components["schemas"]["ChatRef"][];
             chats_total: number;
+            /** @description The prize's sticker, the message's file of role gift at position 0 (render lottie for a .tgs, animation for a .webm, image for a .webp); null when not recorded (rows logged before it was kept). */
+            sticker: components["schemas"]["ChatMedia"] | null;
         };
         /** @description A call. outcome: missed, declined, disconnected, hung_up or upgraded (to a group call) for a private call, ended when Telegram gave no reason; for a group call active, missed or ended. */
         CallDetail: {

@@ -825,13 +825,15 @@ var filesKinds = map[string]string{
 	"game":       "'game'",
 	"invoice":    "'invoice'",
 	"paid_media": "'paid'",
+	// A giveaway's prize sticker (role gift).
+	"giveaway": "'gift'",
 	// The media of a rich message's page blocks, by position.
 	"rich": "'rich'",
 	// A new group photo, or a profile photo suggested (role
-	// chat_photo, and an animated one's video), and a chat
-	// background's image (role background), for the service
-	// message's detail.
-	"service": "'chat_photo', 'background'",
+	// chat_photo, and an animated one's video), a chat background's
+	// image (role background) and a gift's stickers (role gift), for
+	// the service message's detail.
+	"service": "'chat_photo', 'background', 'gift'",
 }
 
 // completeCovers adds the cover photos and the thumbnails of the
@@ -849,7 +851,7 @@ func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uin
 	}
 	rows, err := db.QueryContext(ctx, "SELECT mf."+t.fk+", mf.role, mf.position, mf.file_id, "+
 		fileColumnsOf("f")+" FROM telegram_message_files mf JOIN telegram_files f ON f.id = mf.file_id "+
-		"WHERE mf."+t.fk+" IN ("+idList(with)+") AND mf.role IN ('cover', 'thumbnail', 'game', 'invoice', 'paid', 'chat_photo', 'rich', 'background') "+
+		"WHERE mf."+t.fk+" IN ("+idList(with)+") AND mf.role IN ('cover', 'thumbnail', 'game', 'invoice', 'paid', 'chat_photo', 'rich', 'background', 'gift') "+
 		"ORDER BY mf."+t.fk+", mf.role, mf.position")
 	if err != nil {
 		return err

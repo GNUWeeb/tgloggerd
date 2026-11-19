@@ -267,6 +267,27 @@
 .app .c-bgpat img { filter: invert(1); }
 /* A pattern that cannot be drawn: a dotted hint over its fill. */
 .app .c-bgswatch.c-bghint::after { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle, rgb(255 255 255 / .55) 1.2px, transparent 1.6px); background-size: 8px 8px; }
+/* A gift on its service line (src/ui/servicegift.tsx): the sticker,
+   on an upgraded gift's backdrop, then its price, people and text. */
+.app .c-gift { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 280px; margin: 6px auto 2px; text-align: center; }
+.app .c-giftart { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 160px; padding: 10px 14px 8px; border-radius: 14px; }
+.app .c-giftart .c-sticker { width: 120px; height: 120px; }
+.app .c-giftart .c-sticker-emoji { font-size: 72px; }
+.app .c-giftsymbol { position: absolute; top: 8px; right: 8px; opacity: .8; }
+.app .c-giftsymbol .c-sticker { width: 28px; height: 28px; }
+.app .c-giftsymbol .c-sticker-emoji { font-size: 20px; }
+.app .c-giftnosticker { display: grid; place-items: center; width: 120px; height: 120px; color: var(--c-accent); }
+.app .c-gifttitle { font-weight: 700; }
+.app .c-giftbackdrop .c-gifttitle { color: #fff; }
+.app .c-giftline { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; font-size: 13px; }
+.app .c-giftstars { font-weight: 600; }
+.app .c-gifttext { display: block; }
+.app .c-giftattrs { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.app .c-giftpill { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, currentColor 18%, transparent); font-size: 11.5px; font-weight: 600; }
+.app .c-giftpill.rare { color: #4f9cf0; }
+.app .c-giftpill.epic { color: #a970e8; }
+.app .c-giftpill.legendary { color: #e8a03a; }
+.app .c-service .c-gift .k-ref { color: inherit; margin-right: 4px; }
 .app .c-svctopic { display: inline-flex; align-items: center; gap: 4px; }
 .app .c-editmedia { display: inline-block; margin: 4px 0; }
 .app .c-editmedia img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; display: block; }
@@ -335,6 +356,10 @@
 .app .k-checklist li.done > svg { color: var(--ok); }
 .app .k-checklist li.done .k-task { text-decoration: line-through; color: var(--fg-2); }
 .app .k-amount { font-weight: 700; font-size: 15px; }
+/* A giveaway's prize sticker, above its card. */
+.app .k-giftsticker { align-self: center; }
+.app .k-giftsticker .c-sticker { width: 120px; height: 120px; }
+.app .k-giftsticker .c-sticker-emoji { font-size: 72px; }
 .app .k-call { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 4px; }
 .app .k-callicon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--c-accent); color: #fff; flex: none; }
 .app .k-call.missed .k-callicon, .app .k-call.declined .k-callicon, .app .k-call.disconnected .k-callicon { background: var(--danger); }

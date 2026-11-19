@@ -10,6 +10,7 @@ import { BackgroundDetail } from './background.tsx';
 import { Link } from '../nav.tsx';
 import { Lightbox, plainClick } from '../routes/chat-media.tsx';
 import { TopicIcon } from '../routes/chat-kinds.tsx';
+import { GiftCard, ThemeDetail } from './servicegift.tsx';
 import { dateTime } from '../format.ts';
 import type { Viewer } from '../page.ts';
 import type { ChatMedia } from '../types.ts';
@@ -108,5 +109,9 @@ export function ServiceDetailView({ service, text, v, topicHref, self = false, p
 			// Its swatch (src/ui/background.tsx): 48px high on a line,
 			// the photo's size on the message page.
 			return <><BackgroundDetail d={d} size={Math.max(48, photoSize)} onClick={onClick} />{d.only_for_self && <span className="c-svcdetail"> for {self ? 'yourself' : 'themselves'}</span>}</>;
+		case 'gift':
+			return <GiftCard d={d} v={v} />;
+		case 'theme':
+			return <ThemeDetail d={d} />;
 	}
 }

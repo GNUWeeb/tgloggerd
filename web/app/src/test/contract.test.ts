@@ -49,7 +49,10 @@ const orphanId = (() => {
 
 // The kind samples (standin/kinds.ts): their chat, a forum topic, and
 // the message page of each sample.
-const sampleIds = (chatStream(KINDS_GROUP) as { id: number; message_id: number; chat: { id: number; kind: string } }[]).filter((m) => sampleOf(m)).map((m) => m.id);
+type Raw = { id: number; message_id: number; chat: { id: number; kind: string } };
+const sampleIds = (chatStream(KINDS_GROUP) as Raw[]).filter((m) => sampleOf(m)).map((m) => m.id);
+// The first private chat's samples: a call, service rows, gifts, themes.
+const privateSampleIds = (chatStream(privateMessages()[0]!.chat) as Raw[]).filter((m) => sampleOf(m)).map((m) => m.id);
 
 const PAGES: [Persona, string][] = [
 	...(['superadmin', 'admin', 'member'] as Persona[]).flatMap((a): [Persona, string][] => [
@@ -71,6 +74,7 @@ const PAGES: [Persona, string][] = [
 	['superadmin', `/groups/${KINDS_GROUP.id}/chat`], ['admin', `/groups/${KINDS_GROUP.id}/chat`], ['member', `/groups/${KINDS_GROUP.id}/chat`],
 	['superadmin', `/groups/${FORUM_GROUP.id}/chat`], ['superadmin', `/groups/${FORUM_GROUP.id}/chat?topic=${TOPICS[1]!.id}`], ['superadmin', `/groups/${FORUM_GROUP.id}/chat?topic=999`],
 	...sampleIds.map((id): [Persona, string] => ['superadmin', `/messages/group/${id}`]), ...sampleIds.map((id): [Persona, string] => ['member', `/messages/group/${id}`]),
+	...privateSampleIds.map((id): [Persona, string] => ['superadmin', `/messages/private/${id}`]),
 	['superadmin', `/groups/${KINDS_GROUP.id}/files`], ['superadmin', `/groups/${KINDS_GROUP.id}/polls`], ['public', `/groups/${exposedId}/files`], ['public', `/groups/${exposedId}/polls`],
 	['noemail', '/users'], ['noemail', '/'],
 	['newpw', '/users'], ['newpw', '/settings'], ['newpw', '/password/forgot'],

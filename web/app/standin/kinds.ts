@@ -257,7 +257,7 @@ function samples(): Sample[] {
 		{ content_type: 'story', detail: (v) => story(v, ha, 42) },
 		{ content_type: 'paid_media', text: 'Behind the scenes', detail: () => ({ kind: 'paid_media', star_count: 50, items: PAID_ITEMS }) },
 		{ content_type: 'invoice', detail: () => ({ kind: 'invoice', title: 'Conference ticket', description: 'One seat at the 2026 meetup.', currency: 'IDR', total_amount: 15000000, is_test: true, photo: INVOICE_PHOTO }) },
-		{ content_type: 'giveaway', detail: (v) => ({ kind: 'giveaway', prize: { premium_months: 3 }, winner_count: 5, winners_selection_date: '2026-12-01T12:00:00Z', only_new_members: false, prize_description: '', chats: refs(v, [KINDS_GROUP.id, groups[9]!.id]), chats_total: 2 }) },
+		{ content_type: 'giveaway', detail: (v) => ({ kind: 'giveaway', prize: { premium_months: 3 }, winner_count: 5, winners_selection_date: '2026-12-01T12:00:00Z', only_new_members: false, prize_description: '', chats: refs(v, [KINDS_GROUP.id, groups[9]!.id]), chats_total: 2, sticker: giftSticker(988009, 'tgs', '🎉') }) },
 		{ content_type: 'call', detail: (v) => ({ kind: 'call', video: true, group: true, duration: 0, outcome: 'active', participants: refs(v, [a!, b!, x!]), participants_total: 3 }) },
 		// A rich message with every block type the web draws.
 		{ content_type: 'rich', text: RICH_TEXT, detail: richDetail, edited_at: '2026-11-10T09:30:00Z',
@@ -286,6 +286,56 @@ function namingSamples(): Sample[] {
 	];
 }
 
+// A gift's sticker as Go sends it (role gift): an animated .tgs, a
+// .webm video or a .webp picture, served by the stand-in.
+const giftSticker = (id: number, f: 'tgs' | 'webm' | 'webp', emoji = '🎁') => ({
+	stored: true, fetchable: false, url: `/files/standin-${id}${f === 'tgs' ? '.tgs' : ''}`, thumb: f === 'webp' ? `/files/standin-${id}` : null,
+	render: f === 'tgs' ? 'lottie' : f === 'webm' ? 'animation' : 'image', ext: f, format: f, w: 512, h: 512, emoji, name: '', size: 24000,
+});
+// An upgraded gift: its model, symbol and backdrop, one rarity of each
+// form (a proportion, a named rarity, under 0.1%), and the gift it was
+// upgraded from. The name is the gift's t.me/nft/ link.
+export const UPGRADED_GIFT_NAME = 'PlushPepe-1234';
+const upgradedGift = (v: View, owner: number, from: number, to: number) => ({
+	id: '6012345678901234567', regular_gift_id: '5168103777563050263', title: 'Plush Pepe', name: UPGRADED_GIFT_NAME, number: 1234, owner: refOf(v, owner),
+	model: { name: 'Cozy Frog', rarity_per_mille: 15, rarity: null, crafted: true },
+	symbol: { name: 'Crown', rarity_per_mille: null, rarity: 'epic' },
+	backdrop: { name: 'Emerald', center_color: 0x7ab46f, edge_color: 0x2e5e45, symbol_color: 0x1f4733, text_color: 0xe8f5e3, rarity_per_mille: 0, rarity: null },
+	original_details: { sender: refOf(v, from), receiver: refOf(v, to), text: 'For the collection', entities: [], date: '2026-10-02T08:00:00Z' },
+});
+const GIFT_TEXT = 'Happy birthday, see you at the meetup!';
+type Gift = { sticker?: unknown; symbol_sticker?: unknown; star_count?: number | null; price?: unknown; sender?: Ref | null; receiver?: Ref | null; text?: string; entities?: Entity[]; upgraded?: unknown };
+const giftDetail = (g: Gift) => ({ kind: 'gift', sticker: null, symbol_sticker: null, star_count: null, price: null, sender: null, receiver: null, text: '', entities: [], upgraded: null, ...g });
+
+// Gift service messages, newest first, as Go describes them: a plain
+// gift with its text, an upgraded gift with every field, Premium,
+// Stars and grams given, a giveaway's Stars, an offer to buy the
+// upgraded gift (in grams) and a rejected one (in Stars, its look not
+// stored), a refunded gift, and a chat theme from a gift and an emoji
+// one. The first GROUP_GIFTS take the sample group's older service
+// messages after the naming ones (all it has left); the others go to
+// the first private chat, where themes are set.
+const GROUP_GIFTS = 6;
+function giftSamples(): Sample[] {
+	const [a, b] = posters();
+	const [x] = strangers();
+	const svc = (type: string, text: string, detail: (v: View) => unknown): Sample =>
+		({ content_type: 'service', service: (v) => ({ type, text, refs: { users: [], chats: [], message_id: null }, detail: detail(v) }) });
+	return [
+		svc('gift', 'sent a gift', (v) => giftDetail({ sticker: giftSticker(988001, 'tgs'), star_count: 50, sender: refOf(v, a!), receiver: refOf(v, b!), text: GIFT_TEXT, entities: entitiesIn(GIFT_TEXT, [['Happy birthday', 'bold']]) })),
+		svc('upgraded_gift', 'sent an upgraded gift', (v) => giftDetail({ sticker: giftSticker(988002, 'tgs', '🐸'), symbol_sticker: giftSticker(988003, 'tgs', '👑'), sender: refOf(v, a!), receiver: refOf(v, b!), upgraded: upgradedGift(v, b!, x!, a!) })),
+		svc('gifted_premium', 'gifted a Telegram Premium subscription', (v) => giftDetail({ sticker: giftSticker(988004, 'webm', '⭐'), sender: refOf(v, b!), receiver: refOf(v, a!), text: 'Enjoy the extra features' })),
+		svc('gifted_stars', 'gifted 500 Telegram Stars', (v) => giftDetail({ sticker: giftSticker(988005, 'tgs', '⭐'), star_count: 500, sender: refOf(v, a!), receiver: refOf(v, b!) })),
+		svc('gifted_grams', 'sent a gift of grams', (v) => giftDetail({ sticker: giftSticker(988006, 'webp', '💎'), sender: refOf(v, b!), receiver: refOf(v, a!) })),
+		svc('giveaway_prize_stars', 'won Telegram Stars in a giveaway', () => giftDetail({ sticker: giftSticker(988007, 'tgs', '⭐'), star_count: 1000 })),
+		svc('upgraded_gift_purchase_offer', 'offered to buy a gift', (v) => giftDetail({ sticker: giftSticker(988002, 'tgs', '🐸'), symbol_sticker: giftSticker(988003, 'tgs', '👑'), price: { gram_cents: 125050 }, sender: refOf(v, a!), receiver: refOf(v, b!), upgraded: upgradedGift(v, b!, x!, a!) })),
+		svc('upgraded_gift_purchase_offer_rejected', 'rejected an offer to buy a gift', (v) => giftDetail({ price: { stars: 2500 }, upgraded: { ...upgradedGift(v, a!, b!, a!), model: null, symbol: null, backdrop: null, original_details: null } })),
+		svc('refunded_upgraded_gift', 'the gift was refunded', () => giftDetail({ sticker: giftSticker(988008, 'tgs', '🧸'), star_count: 25 })),
+		svc('chat_set_theme', 'changed the chat theme', () => ({ kind: 'theme', theme_name: null, gift_id: '6012345678901234567', gift_name: UPGRADED_GIFT_NAME })),
+		svc('chat_set_theme', 'changed the chat theme', () => ({ kind: 'theme', theme_name: '🎄', gift_id: null, gift_name: null })),
+	];
+}
+
 // The sample of a message, by chat and message id.
 let byKey: Map<string, Sample> | null = null;
 function table(): Map<string, Sample> {
@@ -309,7 +359,8 @@ function table(): Map<string, Sample> {
 	// samples, so no other sample moves.
 	const plain = all.slice(0, start).reverse().find((m: { content_type: string }) => m.content_type === 'text');
 	if (plain) byKey.set(`group${KINDS_GROUP.id}:${plain.message_id}`, EMOJI_SAMPLE);
-	namingSamples().forEach((s, i) => {
+	const gifts = giftSamples();
+	[...namingSamples(), ...gifts.slice(0, GROUP_GIFTS)].forEach((s, i) => {
 		const m = older[i];
 		if (m) byKey!.set(`group${KINDS_GROUP.id}:${m.message_id}`, s);
 	});
@@ -325,6 +376,10 @@ function table(): Map<string, Sample> {
 		// A rich message stored before its layout was kept.
 		const r = ps[ps.length - 5];
 		if (r) byKey.set(`user${pm.id}:${r.message_id}`, { content_type: 'rich', text: RICH_PLAIN_TEXT, detail: richPlainDetail });
+		gifts.slice(GROUP_GIFTS).forEach((g, i) => {
+			const m = ps[ps.length - 6 - i];
+			if (m) byKey!.set(`user${pm.id}:${m.message_id}`, g);
+		});
 	}
 	return byKey;
 }

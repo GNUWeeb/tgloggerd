@@ -223,6 +223,9 @@ type kinds struct {
 	// emoji are the custom emoji and message effects the page shows
 	// (emoji.go).
 	emoji pageEmoji
+	// gifts are the gift and chat theme service messages' detail
+	// (service_gift.go), by row id.
+	gifts map[uint64]*giftExtra
 }
 
 // pollClosed is whether a poll is closed: stored as closed, or past its
@@ -253,6 +256,7 @@ func (s *Server) loadKindsWith(ctx context.Context, sc scope.Scope, chat int64, 
 	for _, m := range ms {
 		if m.ContentType == "service" {
 			k.addServiceDetail(m, &chats, &pins, &topics)
+			k.addGift(m, &users, &chats)
 			if x := parseServiceExtra(m.Extra); x != nil {
 				k.service[m.RowID] = x
 				for _, id := range x.parties() {
@@ -335,6 +339,7 @@ func (s *Server) loadKindsWith(ctx context.Context, sc scope.Scope, chat int64, 
 	mc := mentionCollector{s: s}
 	for _, m := range ms {
 		if m.ContentType == "service" {
+			k.addGiftTexts(&mc, m.RowID)
 			continue
 		}
 		mc.add(m.Text, m.Entities, "message")
@@ -585,6 +590,8 @@ type giveawayJSON struct {
 	PrizeDescription     string        `json:"prize_description"`
 	Chats                []chatRefJSON `json:"chats"`
 	ChatsTotal           int           `json:"chats_total"`
+	// Sticker is the prize's sticker, the file of role gift.
+	Sticker *chatMediaJSON `json:"sticker"`
 }
 
 type callJSON struct {
@@ -807,7 +814,8 @@ func (v view) kindDetail(k kinds, m logdb.Message, ctype string, x *kindExtra, u
 		chats := x.giveawayChats()
 		j := giveawayJSON{Kind: ctype, WinnerCount: x.WinnerCount,
 			WinnersSelectionDate: isoPtr(x.WinnersSelectionDate), OnlyNewMembers: x.OnlyNewMembers,
-			PrizeDescription: x.PrizeDescription, Chats: v.refList(k, chats), ChatsTotal: len(chats)}
+			PrizeDescription: x.PrizeDescription, Chats: v.refList(k, chats), ChatsTotal: len(chats),
+			Sticker: v.giftSticker(m, 0, "")}
 		if p := x.Prize; p != nil && (p.PremiumMonths != nil || p.Stars != nil) {
 			j.Prize = &prizeJSON{PremiumMonths: p.PremiumMonths, Stars: p.Stars}
 		}

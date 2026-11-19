@@ -101,7 +101,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						)}
 						{m.detail ? <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} tdlib={m.tdlib_type} full /></div>
 							: fallback && <div className="a-msgkind"><KindFallback ct={m.content_type} tdlib={m.tdlib_type} /></div>}
-						{m.text && !textInside(m.detail) ? <div className="a-msgtext">{partsOf(m.service, m.text) ? <ServiceText service={m.service} text={m.text} linkClass="a-link" /> : topicInText(m.text, svcDetail, topicHref) ?? <RichText text={m.text} entities={ents} chat={chat} />}{svcLine}</div> : !m.media && !m.detail && !fallback && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}{svcLine}</p>}
+						{m.text && !textInside(m.detail) ? <div className="a-msgtext">{partsOf(m.service, m.text) ? <ServiceText service={m.service} text={m.text} linkClass="a-link" /> : topicInText(m.text, svcDetail, topicHref) ?? <RichText text={m.text} entities={ents} chat={chat} />}{svcLine}</div> : !m.media && !m.detail && !fallback && <div className="a-muted a-msgnotext">{svcType ? serviceLabel(svcType) : '(no text)'}{svcLine}</div>}
 						{m.link_preview && <LinkPreview lp={m.link_preview} onClick={v.chat?.media === 'click'} />}
 						{svcAbout !== null && <p className="a-muted sm"><Link to={`${chatPath(m).split('?')[0]}?at=${svcAbout}`} className="a-link">The message this is about</Link></p>}
 						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies || m.effect_id !== null) && (
