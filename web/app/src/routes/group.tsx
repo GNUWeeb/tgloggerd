@@ -15,13 +15,22 @@ import type { PageData } from '../page.ts';
 import type { GroupAdmin, GroupFull, GroupHistoryEntry, UserSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
+import { seesMembers, type MemberCount, type MemberListFlags } from '../api/members.ts';
+import { HideMemberList, Members, type MembersProps } from './group-members.tsx';
 
-export type GroupProps = S['GroupProps'];
+// The member count and the list's switch are local until the API
+// description has them (api/members.ts).
+export type GroupProps = Omit<S['GroupProps'], 'group'> & MemberListFlags & { group: S['GroupProps']['group'] & MemberCount };
 // An exposed group to a viewer whose scope does not see it (signed out,
 // a member it is not granted to, an admin it is hidden from): the group
 // alone, without admins, history, posters, activity or files.
-export type GroupPublicProps = S['GroupPublicProps'];
-export type GroupPageProps = GroupProps | GroupPublicProps;
+export type GroupPublicProps = Omit<S['GroupPublicProps'], 'group'> & { group: S['GroupPublicProps']['group'] & MemberCount };
+// The Members tab (group_members): the list's page beside the group.
+// The other tabs' parts are taken as optional there, so the tab still
+// draws if the service sends the group alone with it.
+export type GroupMembersProps = Partial<Omit<GroupProps, 'group'>> & Pick<GroupProps, 'group'> & MembersProps;
+export type GroupPageProps = GroupProps | GroupMembersProps | GroupPublicProps;
+const isMembers = (p: GroupProps | GroupMembersProps): p is GroupMembersProps => 'available' in p && Array.isArray((p as GroupMembersProps).members);
 const isPublic = (p: GroupPageProps): p is GroupPublicProps => 'public' in p && p.public === true;
 
 const KIND = {
@@ -131,6 +140,7 @@ function PublicGroup({ page }: { page: PageData<GroupPublicProps> }) {
 			</div>
 			<div className="a-stats">
 				<Stat label="Messages" value={fmt(g.msg_count)} />
+				{g.member_count != null && <Stat label="Members" value={fmt(g.member_count)} />}
 				<Stat label="Members seen" value={fmt(g.members)} />
 				<Stat label="First seen" value={ago(g.created_at, v)} sub={dateTime(g.created_at, v)} />
 			</div>
@@ -149,20 +159,23 @@ function GroupPage({ page }: { page: PageData<GroupPageProps> }) {
 	return isPublic(p) ? <PublicGroup page={{ ...page, props: p }} /> : <Group page={{ ...page, props: p }} />;
 }
 
-function Group({ page }: { page: PageData<GroupProps> }) {
-	const { group: g, admins, history: first, history_next, top_posters, activity } = page.props;
+function Group({ page }: { page: PageData<GroupProps | GroupMembersProps> }) {
+	const { group: g, admins = [], history: first = [], history_next = null, top_posters = [], activity = [] } = page.props;
 	const v = page.viewer;
 	const load = useCallback((before: string) => ok(api.GET('/api/groups/{id}/history', { params: { path: { id: g.id }, query: { before } } })), [g.id]);
 	const h = useHistoryPages(first, history_next, load);
 	const history = h.entries;
 	// The photo carousel: undefined is closed, null opens at the current photo.
 	const [photos, setPhotos] = useState<number | null | undefined>(undefined);
-	const tab = page.route === 'group_admins' ? 'admins' : page.route === 'group_history' ? 'history' : 'group';
+	const tab = page.route === 'group_admins' ? 'admins' : page.route === 'group_history' ? 'history' : page.route === 'group_members' ? 'members' : 'group';
+	const mp = isMembers(page.props) ? page.props : null;
+	// Telegram's count: the list's own when on its tab, else the group's.
+	const memberCount = mp?.total ?? g.member_count ?? null;
 	const [kind, setKind] = useState<'all' | GroupHistoryEntry['kind']>('all');
 	const shown = kind === 'all' ? history : history.filter((e) => e.kind === kind);
 	const base = `/groups/${g.id}`;
 	const crumbs: [string, string | null][] = [['Groups', '/groups'], [g.title, tab === 'group' ? null : base]];
-	if (tab !== 'group') crumbs.push([tab === 'admins' ? 'Admins' : 'History', null]);
+	if (tab !== 'group') crumbs.push([tab === 'admins' ? 'Admins' : tab === 'members' ? 'Members' : 'History', null]);
 	const msgsHref = `/group_messages?f=${encodeURIComponent(JSON.stringify([{ field: 'chat_id', op: '=', value: String(g.id) }]))}`;
 	return (
 		<Shell crumbs={crumbs}>
@@ -176,6 +189,7 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 						{g.username && <span>@{g.username}</span>}
 						<span className="mono">{g.id}</span>
 						<Pill tone={g.type === 'channel' ? 'info' : ''}>{TYPE_LABEL[g.type]}</Pill>
+						{g.member_count != null && <span title={g.member_count_at ? `Counted ${dateTime(g.member_count_at, v)}` : undefined}>{fmt(g.member_count)} members</span>}
 						{g.exposed && <Pill tone="ok"><Globe size={11} />public</Pill>}
 					</div>
 				</div>
@@ -184,15 +198,20 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 			{g.exposed && <div className="a-banner"><Globe size={15} /><span>This group is exposed through MCP, so its chat and files are also readable on the web without signing in.</span></div>}
 			<Tabs items={[
 				['Overview', base, tab === 'group'],
+				// Only viewers who see users in full get the list (else 404).
+				...(seesMembers(v) ? [['Members', `${base}/members`, tab === 'members', memberCount != null ? compact(memberCount) : undefined] as [string, string, boolean, string | undefined]] : []),
 				['Admins', `${base}/admins`, tab === 'admins', g.admin_count],
-				['History', `${base}/history`, tab === 'history', h.hasMore ? `${history.length}+` : history.length],
+				['History', `${base}/history`, tab === 'history', page.props.history === undefined ? undefined : h.hasMore ? `${history.length}+` : history.length],
 				['Messages', msgsHref, false, compact(g.msg_count)],
 			]} />
 			{tab === 'group' && (
 				<div className="a-overview">
-					<div className="a-stats">
+					<div className={g.member_count != null ? 'a-stats a-stats-5' : 'a-stats'}>
 						<Stat label="Messages" value={fmt(g.msg_count)} />
-						<Stat label="Members" value={fmt(g.members)} />
+						{/* Telegram's count, when known; and the people the archive
+						    has seen there (posters and admins). */}
+						{g.member_count != null && <Stat label="Members" value={fmt(g.member_count)} />}
+						<Stat label="Members seen" value={fmt(g.members)} />
 						<Stat label="First seen" value={ago(g.created_at, v)} sub={dateTime(g.created_at, v)} />
 						<div className="a-card a-stat a-stat-spark"><span className="a-muted">Last 30 days</span><b className="num">{fmt(activity.reduce((a, b) => a + b, 0))}</b><span className="a-spark"><Sparkline data={activity} /></span></div>
 					</div>
@@ -227,6 +246,8 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 				</div>
 			)}
 			{tab === 'admins' && <Admins admins={admins} v={v} />}
+			{tab === 'members' && mp?.can_hide_member_list && <HideMemberList groupId={g.id} hidden={!!mp.hide_member_list} />}
+			{tab === 'members' && mp && <Members groupId={g.id} count={g.member_count ?? null} p={mp} v={v} />}
 			{tab === 'history' && (
 				<div className="a-history">
 					<div className="a-seg" role="tablist">

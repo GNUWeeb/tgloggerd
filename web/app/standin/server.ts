@@ -369,6 +369,19 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		send(res, status, out);
 		return;
 	}
+	// A group's member list and the switch that hides a channel's
+	// (members.ts). Signed out is 401, members get 404.
+	const mm = url.pathname.match(/^\/api\/groups\/(-?\d+)(\/members)?$/);
+	if (mm && (mm[2] ? req.method === 'GET' : req.method === 'PATCH')) {
+		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+		const role = fx.viewerOf(who).account.role;
+		const sees = (g: { id: number }) => !!fx.groupFor(who, String(g.id));
+		if (mm[2]) { const [st, out] = fx.membersApi(mm[1], url.searchParams, role, sees); send(res, st, out); return; }
+		if (!csrfOk(req)) { send(res, 403, { error: 'csrf' }); return; }
+		const [st, out] = fx.patchGroup(mm[1], JSON.parse((await readBody(req)) || '{}'), role, sees);
+		send(res, st, out);
+		return;
+	}
 	const hm = url.pathname.match(/^\/api\/(users|groups)\/(-?\d+)\/history$/);
 	if (hm && req.method === 'GET') {
 		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }

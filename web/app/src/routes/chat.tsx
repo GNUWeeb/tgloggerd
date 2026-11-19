@@ -10,6 +10,7 @@ import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
 import { Counts, KindDetail, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
+import { fetchMembers, seesMembers, type MemberCount } from '../api/members.ts';
 import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
 import { bytes, fmt } from '../format.ts';
@@ -247,6 +248,14 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		if (h) navigate(setQuery(page.url, { at: Number(h[1]), date: undefined, after: undefined, after_ts: undefined }), { replace: true, scroll: false });
 	}, []);
 
+	// Ask for the group's member list in the background, once per chat
+	// opened, so the service has it at hand when the group page's
+	// Members tab is opened next. Nobody waits for it: not tracked, not
+	// aborted, answer and errors ignored.
+	useEffect(() => {
+		if (isGroup && seesMembers(v)) fetchMembers(chatId).catch(() => {});
+	}, [isGroup, chatId]);
+
 	// A new page (another chat, or ?at=) replaces the window.
 	useEffect(() => {
 		const ac = new AbortController();
@@ -400,8 +409,11 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const back = isGroup ? `/groups/${chatId}` : `/users/${chatId}`;
 	// Signed out, only an exposed group is shown: its public page.
 	const info = publicView ? (isGroup ? back : null) : back;
+	// Telegram's member count, when the archive has it; beside it the
+	// members the archive has seen.
+	const counted = p.chat.kind === 'group' ? (group as MemberCount | null)?.member_count ?? (p.chat.group as MemberCount).member_count : null;
 	const sub = p.chat.kind === 'group'
-		? `${TYPE_LABEL[p.chat.group.type]}${p.chat.group.members ? ` . ${fmt(p.chat.group.members)} members seen` : ''} . ${fmt(group?.msg_count ?? p.chat.group.msg_count)} messages`
+		? `${TYPE_LABEL[p.chat.group.type]}${counted != null ? ` . ${fmt(counted)} members` : ''}${p.chat.group.members ? ` . ${fmt(p.chat.group.members)} members seen` : ''} . ${fmt(group?.msg_count ?? p.chat.group.msg_count)} messages`
 		: `private chat with the logging account . ${fmt(p.chat.count)} messages`;
 	const body = (
 		<div className={`c-chat ${publicView ? 'public' : ''}`}>
