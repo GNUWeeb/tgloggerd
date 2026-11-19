@@ -223,6 +223,92 @@ func TestListInOperator(t *testing.T) {
 	}
 }
 
+// The media kinds of the Media filter.
+const mediaKinds = `["photo","video","video_note","document","audio","voice","sticker",` +
+	`"animation","paid_media"]`
+
+// TestListKindFilters: the message lists' kind filters. "Media" is the
+// media kinds in one "in", which leaves out service, poll and location
+// rows; service_type and tdlib_type are enums that list the known
+// values and still take one they do not list.
+func TestListKindFilters(t *testing.T) {
+	t.Parallel()
+	e := newListSearchEnv(t, searchOpts{fixtures: []string{"list_service", "list_filters"}})
+	chat := `{"field":"chat_id","op":"=","value":"-1001000000002"},`
+
+	p := e.props("superadmin", "group_messages", fq(`[`+chat+
+		`{"field":"content_type","op":"in","value":`+mediaKinds+`}]`)...)
+	wantList(t, "media", p, 2, "703,11")
+	p = e.props("superadmin", "group_messages", fq(`[{"field":"content_type","op":"in","value":`+
+		mediaKinds+`}]`)...)
+	for _, r := range p["rows"].([]any) {
+		if k := r.(map[string]any)["content_type"]; k == "service" || k == "poll" ||
+			k == "location" || k == "text" {
+			t.Errorf("media row of kind %v", k)
+		}
+	}
+	// The private list takes service, as the group list does.
+	p = e.props("superadmin", "private_messages", fq(
+		`[{"field":"content_type","op":"=","value":"service"}]`)...)
+	wantList(t, "private service", p, 1, "600")
+
+	for _, c := range []struct {
+		path, conds string
+		ids         string
+	}{
+		{"group_messages", `{"field":"service_type","op":"=","value":"chat_add_members"}`, "700"},
+		{"group_messages", `{"field":"service_type","op":"in","value":["chat_add_members","pin_message"]}`,
+			"700"},
+		{"group_messages", `{"field":"tdlib_type","op":"in","value":["messagePoll","messageLocation"]}`,
+			"702,701"},
+		{"group_messages", `{"field":"tdlib_type","op":"!=","value":"messagePhoto"}`, "702,701,700"},
+		// A value the web does not know yet is taken, and matches
+		// what the daemon stored under it.
+		{"group_messages", `{"field":"service_type","op":"=","value":"chat_something_newer"}`, ""},
+		{"private_messages", `{"field":"service_type","op":"=","value":"contact_registered"}`, "600"},
+	} {
+		ch := chat
+		if c.path == "private_messages" {
+			ch = `{"field":"chat_id","op":"=","value":"9299000002"},`
+		}
+		p := e.props("superadmin", c.path, fq(`[`+ch+c.conds+`]`)...)
+		if p["error"] != nil || listIDs(p) != c.ids {
+			t.Errorf("%s %s: %v %s, want %s", c.path, c.conds, p["error"], listIDs(p), c.ids)
+		}
+	}
+
+	// The fields list them as open enums.
+	for _, path := range []string{"group_messages", "private_messages"} {
+		p := e.props("superadmin", path)
+		got := map[string]map[string]any{}
+		for _, f := range p["fields"].([]any) {
+			f := f.(map[string]any)
+			got[f["key"].(string)] = f
+		}
+		for key, want := range map[string]string{"service_type": logdb.ServiceTypes,
+			"tdlib_type": logdb.TDLibTypes} {
+			f := got[key]
+			if f["type"] != "enum" || f["enum"] != want || f["enum_open"] != true ||
+				f["needs_chat"] != true || js(f["operators"]) != `["=","!=","in"]` {
+				t.Errorf("%s %s: %v", path, key, f)
+			}
+		}
+		if f := got["content_type"]; f["enum_open"] != nil {
+			t.Errorf("%s content_type: %v", path, f)
+		}
+	}
+	for _, v := range []string{"chat_add_members", "pin_message", "contact_registered", "gift"} {
+		if !strings.Contains(","+logdb.ServiceTypes+",", ","+v+",") {
+			t.Errorf("ServiceTypes lacks %s", v)
+		}
+	}
+	for _, v := range []string{"messageText", "messageChatAddMembers", "messageUnsupported"} {
+		if !strings.Contains(","+logdb.TDLibTypes+",", ","+v+",") {
+			t.Errorf("TDLibTypes lacks %s", v)
+		}
+	}
+}
+
 func TestListRefusals(t *testing.T) {
 	t.Parallel()
 	e := newListSearchEnv(t, searchOpts{})

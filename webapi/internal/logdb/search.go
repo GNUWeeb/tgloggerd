@@ -124,6 +124,9 @@ type Field struct {
 	Ops        Op
 	Sortable   bool
 	Enum       string // Enum: the allowed values, comma-separated
+	// OpenEnum: Enum lists the known values, and any other value is
+	// taken too (a service type newer than the web).
+	OpenEnum bool
 	// Bind is the right-hand side of a column comparison, with
 	// exactly one ?; "" is a plain "?". sha256 binds UNHEX(?) so the
 	// unique index is used.
@@ -155,6 +158,7 @@ type FieldInfo struct {
 	Sortable  bool     `json:"sortable"`
 	Operators []string `json:"operators"`
 	Enum      *string  `json:"enum,omitempty"`
+	EnumOpen  bool     `json:"enum_open,omitempty"`
 	NeedsChat bool     `json:"needs_chat,omitempty"`
 }
 
@@ -362,7 +366,7 @@ func validValue(f *Field, v string) error {
 			return refuse("field '%s' expects a date/time value", f.Key)
 		}
 	case Enum:
-		if !csvHas(f.Enum, v) {
+		if !f.OpenEnum && !csvHas(f.Enum, v) {
 			return refuse("field '%s' expects one of: %s", f.Key, f.Enum)
 		}
 	}
@@ -964,7 +968,7 @@ func (e *Entity) fieldInfos(sc scope.Scope) []FieldInfo {
 		}
 		if f.Type == Enum {
 			v := f.Enum
-			fi.Enum = &v
+			fi.Enum, fi.EnumOpen = &v, f.OpenEnum
 		}
 		out = append(out, fi)
 	}

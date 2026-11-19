@@ -5360,6 +5360,12 @@ components:
         enum:
           type: string
           description: An enum field's values, comma-separated.
+        enum_open:
+          type: boolean
+          description: >-
+            Present (true) for an enum whose list is the known values
+            only (service_type, tdlib_type of the message entities): a
+            value it does not list is taken too.
         needs_chat:
           type: boolean
           description: >-
