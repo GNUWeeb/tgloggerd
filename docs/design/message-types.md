@@ -907,6 +907,7 @@ and the lines in `src/discordd/Render.cpp`):
 | rich embed (a bot's or webhook's) | `fwd_embed` | its author, title, description, `<name>: <value>` per field, and its URL |
 | poll | `fwd_poll` | `Poll: <question>` and one `- <answer>` line each, then `Closes <time>` |
 | system message | `fwd_system` | one line, such as `Joined the server`, `Pinned a message` or `Started a thread: <name>` |
+| forwarded message | the flags of its parts | `Forwarded:`, then the forwarded message's text, files, stickers and rich embeds, each under its own flag as above; a forwarded voice message is its `[voice message, 0:12] <link>` line, never a voice note |
 
 Embeds Discord adds when it unfurls a link are left out: the link is
 in the text already. A system message is any type but the default,
@@ -915,6 +916,15 @@ content is the event's detail and follows `fwd_system` with it. A
 message with nothing the route takes is not sent at all. A voice
 message is never edited, and a deleted one is tombstoned through its
 caption.
+
+A forward carries no parts of its own, only a copy of the message it
+forwarded (its snapshot). The author line is the forwarder's, and the
+`Forwarded:` line comes only with a part the route takes, so a forward
+with nothing the route takes is not sent either. The archive keeps the
+forwarded text as the forward's text (`discord_messages.content`) and
+the forwarded files with its own (`discord_attachments`); a forward is
+not recorded as a reply. Edits and deletes of a forward take the same
+paths as any other message.
 
 ### 4.11 Custom emoji (`telegram_custom_emoji`)
 
