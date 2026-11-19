@@ -108,6 +108,7 @@
 .app .rt-spoiler:not(.shown) { background: var(--fg-3); border-radius: 3px; cursor: pointer; }
 .app .rt-spoiler:not(.shown), .app .rt-spoiler:not(.shown) * { color: transparent !important; }
 .app .rt-spoiler:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+.app .rt-mark { background: color-mix(in srgb, var(--c-accent) 28%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
 .app .c-media { display: grid; place-items: center; width: 100%; border: 0; border-radius: 10px; cursor: zoom-in; padding: 0; }
 .app .c-media.single { width: 320px; max-width: 100%; }
 .app .c-bubble:not(.mediaonly) .c-media { margin: 2px 0 6px; }
