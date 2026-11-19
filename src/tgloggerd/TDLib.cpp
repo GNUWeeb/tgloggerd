@@ -536,136 +536,6 @@ const td_api::file *chat_photo_size_with_unique_id(
 	return nullptr;
 }
 
-const td_api::file *thumb_file(const td_api::thumbnail *t)
-{
-	return (t && t->file_) ? t->file_.get() : nullptr;
-}
-
-/*
- * The best image a link preview offers, and the preview's own metadata.
- *
- * The image is wherever the particular LinkPreviewType keeps it, and TDLib has
- * forty of them. They fall into three shapes:
- *
- *   photo / thumbnail : a `photo`, i.e. a list of sizes -- take the largest
- *   chatPhoto         : also a list of sizes, but a different type
- *   a media object    : animation/video/document/audio/sticker, whose picture
- *                       is its `thumbnail`, not the media itself
- *
- * The last distinction matters: for a preview of a YouTube link we want the
- * poster frame, not the video. The user asked for the preview's IMAGE, and
- * downloading the linked media instead would be a different, much larger thing.
- *
- * Returns the file to download, or nullptr when the preview has no image.
- */
-const td_api::file *link_preview_image(const td_api::LinkPreviewType *t,
-				       const char **type_name)
-{
-	*type_name = "unsupported";
-	if (!t)
-		return nullptr;
-
-	switch (t->get_id()) {
-	case td_api::linkPreviewTypeArticle::ID:
-		*type_name = "article";
-		return photo_best_size(
-			static_cast<const td_api::linkPreviewTypeArticle &>(*t)
-				.photo_.get());
-	case td_api::linkPreviewTypePhoto::ID:
-		*type_name = "photo";
-		return photo_best_size(
-			static_cast<const td_api::linkPreviewTypePhoto &>(*t)
-				.photo_.get());
-	case td_api::linkPreviewTypeApp::ID:
-		*type_name = "app";
-		return photo_best_size(
-			static_cast<const td_api::linkPreviewTypeApp &>(*t)
-				.photo_.get());
-	case td_api::linkPreviewTypeWebApp::ID:
-		*type_name = "web_app";
-		return photo_best_size(
-			static_cast<const td_api::linkPreviewTypeWebApp &>(*t)
-				.photo_.get());
-	case td_api::linkPreviewTypeEmbeddedVideoPlayer::ID:
-		*type_name = "embedded_video_player";
-		return photo_best_size(
-			static_cast<const td_api::linkPreviewTypeEmbeddedVideoPlayer &>(*t)
-				.thumbnail_.get());
-	case td_api::linkPreviewTypeEmbeddedAnimationPlayer::ID:
-		*type_name = "embedded_animation_player";
-		return photo_best_size(
-			static_cast<const td_api::linkPreviewTypeEmbeddedAnimationPlayer &>(*t)
-				.thumbnail_.get());
-	case td_api::linkPreviewTypeEmbeddedAudioPlayer::ID:
-		*type_name = "embedded_audio_player";
-		return photo_best_size(
-			static_cast<const td_api::linkPreviewTypeEmbeddedAudioPlayer &>(*t)
-				.thumbnail_.get());
-	case td_api::linkPreviewTypeChat::ID:
-		*type_name = "chat";
-		return chat_photo_best_size(
-			static_cast<const td_api::linkPreviewTypeChat &>(*t)
-				.photo_.get());
-	case td_api::linkPreviewTypeUser::ID:
-		*type_name = "user";
-		return chat_photo_best_size(
-			static_cast<const td_api::linkPreviewTypeUser &>(*t)
-				.photo_.get());
-	case td_api::linkPreviewTypeChannelBoost::ID:
-		*type_name = "channel_boost";
-		return chat_photo_best_size(
-			static_cast<const td_api::linkPreviewTypeChannelBoost &>(*t)
-				.photo_.get());
-	case td_api::linkPreviewTypeSupergroupBoost::ID:
-		*type_name = "supergroup_boost";
-		return chat_photo_best_size(
-			static_cast<const td_api::linkPreviewTypeSupergroupBoost &>(*t)
-				.photo_.get());
-	case td_api::linkPreviewTypeVideoChat::ID:
-		*type_name = "video_chat";
-		return chat_photo_best_size(
-			static_cast<const td_api::linkPreviewTypeVideoChat &>(*t)
-				.photo_.get());
-	case td_api::linkPreviewTypeVideo::ID: {
-		*type_name = "video";
-		auto &v = static_cast<const td_api::linkPreviewTypeVideo &>(*t);
-		return v.video_ ? thumb_file(v.video_->thumbnail_.get())
-				: nullptr;
-	}
-	case td_api::linkPreviewTypeAnimation::ID: {
-		*type_name = "animation";
-		auto &a = static_cast<const td_api::linkPreviewTypeAnimation &>(*t);
-		return a.animation_
-			       ? thumb_file(a.animation_->thumbnail_.get())
-			       : nullptr;
-	}
-	case td_api::linkPreviewTypeDocument::ID: {
-		*type_name = "document";
-		auto &d = static_cast<const td_api::linkPreviewTypeDocument &>(*t);
-		return d.document_ ? thumb_file(d.document_->thumbnail_.get())
-				   : nullptr;
-	}
-	case td_api::linkPreviewTypeAudio::ID:
-		*type_name = "audio";
-		return nullptr;
-	case td_api::linkPreviewTypeSticker::ID:
-		*type_name = "sticker";
-		return nullptr;
-	case td_api::linkPreviewTypeMessage::ID:   *type_name = "message"; return nullptr;
-	case td_api::linkPreviewTypeStory::ID:     *type_name = "story"; return nullptr;
-	case td_api::linkPreviewTypeInvoice::ID:   *type_name = "invoice"; return nullptr;
-	case td_api::linkPreviewTypeGroupCall::ID: *type_name = "group_call"; return nullptr;
-	case td_api::linkPreviewTypeExternalVideo::ID: *type_name = "external_video"; return nullptr;
-	case td_api::linkPreviewTypeExternalAudio::ID: *type_name = "external_audio"; return nullptr;
-	default:
-		/* A type this TDLib knows and we do not: record it as
-		 * unsupported rather than dropping the preview entirely -- the
-		 * url and title are still worth keeping. */
-		*type_name = "unsupported";
-		return nullptr;
-	}
-}
-
 const td_api::linkPreview *message_link_preview(const td_api::MessageContent &c)
 {
 	if (c.get_id() != td_api::messageText::ID)
@@ -2273,10 +2143,10 @@ void TDLib::Impl::handle_update_message_content(int64_t chat_id,
 				 !is_private_chat(chat_id));
 
 	/*
-	 * The preview's own video, animation or audio comes with it. A new
-	 * message has it from maybe_download_message_file (it is one of the
-	 * message's further files); a preview that resolves late, or changes
-	 * with an edit, has it from here, overwriting its (role, position).
+	 * The preview's own media come with it. A new message has them
+	 * from maybe_download_message_file (they are among the message's
+	 * further files); a preview that resolves late, or changes with an
+	 * edit, has them from here, each overwriting its (role, position).
 	 */
 	if (const td_api::linkPreview *lp = message_link_preview(*content);
 	    lp && message_file_handler_)

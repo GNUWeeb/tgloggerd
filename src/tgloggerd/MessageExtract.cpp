@@ -2885,11 +2885,11 @@ const td_api::file *chat_photo_animation(const td_api::chatPhoto *p)
  * pattern), the still thumbnail of a video, an animation, a video note
  * or a video sticker (the picture shown before it plays), the media in
  * a rich message's page blocks (rich_message_files), a text message's
- * link preview's own video, animation or audio
- * (link_preview_media_files), and the stickers of gift, gifted Premium,
- * Stars, grams and giveaway messages (role "gift"). Other thumbnails and
- * a video's other qualities are not listed: the first only repeat the
- * media, the second are the same video again.
+ * link preview's own media (link_preview_media_files), and the stickers
+ * of gift, gifted Premium, Stars, grams and giveaway messages (role
+ * "gift"). Other thumbnails and a video's other qualities are not
+ * listed: the first only repeat the media, the second are the same
+ * video again.
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content)
 {
@@ -3099,14 +3099,190 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 	return out;
 }
 
+/* The stickers of a sticker set or a gift collection preview kept as
+ * its media, the first ones (TDLib gives up to four of a set). */
+static constexpr size_t kLinkPreviewStickers = 5;
+
+/* The file of a media object's thumbnail, or nullptr. */
+static const td_api::file *thumb_file(const td_api::thumbnail *t)
+{
+	return (t && t->file_) ? t->file_.get() : nullptr;
+}
+
+/*
+ * The best image a link preview offers, and the preview's own metadata.
+ *
+ * The image is wherever the particular LinkPreviewType keeps it, and TDLib has
+ * forty of them. They fall into three shapes:
+ *
+ *   photo / thumbnail : a `photo`, i.e. a list of sizes -- take the largest
+ *   chatPhoto         : also a list of sizes, but a different type
+ *   a media object    : animation/video/document/audio/sticker, whose picture
+ *                       is its `thumbnail`, not the media itself
+ *
+ * The last distinction matters: for a preview of a YouTube link we want the
+ * poster frame, not the video. The card's image is a picture, and the linked
+ * media itself, where it is kept, is a preview_media file of the message
+ * (link_preview_media_files).
+ *
+ * Returns the file to download, or nullptr when the preview has no image.
+ */
+const td_api::file *link_preview_image(const td_api::LinkPreviewType *t,
+				       const char **type_name)
+{
+	*type_name = "unsupported";
+	if (!t)
+		return nullptr;
+
+	switch (t->get_id()) {
+	case td_api::linkPreviewTypeArticle::ID:
+		*type_name = "article";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeArticle &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypePhoto::ID:
+		*type_name = "photo";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypePhoto &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeApp::ID:
+		*type_name = "app";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeApp &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeWebApp::ID:
+		*type_name = "web_app";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeWebApp &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeEmbeddedVideoPlayer::ID:
+		*type_name = "embedded_video_player";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeEmbeddedVideoPlayer &>(*t)
+				.thumbnail_.get());
+	case td_api::linkPreviewTypeEmbeddedAnimationPlayer::ID:
+		*type_name = "embedded_animation_player";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeEmbeddedAnimationPlayer &>(*t)
+				.thumbnail_.get());
+	case td_api::linkPreviewTypeEmbeddedAudioPlayer::ID:
+		*type_name = "embedded_audio_player";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeEmbeddedAudioPlayer &>(*t)
+				.thumbnail_.get());
+	case td_api::linkPreviewTypeChat::ID:
+		*type_name = "chat";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeChat &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeUser::ID:
+		*type_name = "user";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeUser &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeChannelBoost::ID:
+		*type_name = "channel_boost";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeChannelBoost &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeSupergroupBoost::ID:
+		*type_name = "supergroup_boost";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeSupergroupBoost &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeVideoChat::ID:
+		*type_name = "video_chat";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeVideoChat &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeVideo::ID: {
+		*type_name = "video";
+		auto &v = static_cast<const td_api::linkPreviewTypeVideo &>(*t);
+		return v.video_ ? thumb_file(v.video_->thumbnail_.get())
+				: nullptr;
+	}
+	case td_api::linkPreviewTypeAnimation::ID: {
+		*type_name = "animation";
+		auto &a = static_cast<const td_api::linkPreviewTypeAnimation &>(*t);
+		return a.animation_
+			       ? thumb_file(a.animation_->thumbnail_.get())
+			       : nullptr;
+	}
+	case td_api::linkPreviewTypeDocument::ID: {
+		*type_name = "document";
+		auto &d = static_cast<const td_api::linkPreviewTypeDocument &>(*t);
+		return d.document_ ? thumb_file(d.document_->thumbnail_.get())
+				   : nullptr;
+	}
+	case td_api::linkPreviewTypeAudio::ID:
+		*type_name = "audio";
+		return nullptr;
+	case td_api::linkPreviewTypeSticker::ID:
+		*type_name = "sticker";
+		return nullptr;
+	case td_api::linkPreviewTypeMessage::ID:   *type_name = "message"; return nullptr;
+	case td_api::linkPreviewTypeStory::ID:     *type_name = "story"; return nullptr;
+	case td_api::linkPreviewTypeInvoice::ID:   *type_name = "invoice"; return nullptr;
+	case td_api::linkPreviewTypeGroupCall::ID: *type_name = "group_call"; return nullptr;
+	case td_api::linkPreviewTypeExternalVideo::ID: *type_name = "external_video"; return nullptr;
+	case td_api::linkPreviewTypeExternalAudio::ID: *type_name = "external_audio"; return nullptr;
+	case td_api::linkPreviewTypeDirectMessagesChat::ID:
+		*type_name = "direct_messages_chat";
+		return chat_photo_best_size(
+			static_cast<const td_api::linkPreviewTypeDirectMessagesChat &>(*t)
+				.photo_.get());
+	case td_api::linkPreviewTypeStoryAlbum::ID:
+		*type_name = "story_album";
+		return photo_best_size(
+			static_cast<const td_api::linkPreviewTypeStoryAlbum &>(*t)
+				.photo_icon_.get());
+	case td_api::linkPreviewTypeBackground::ID: {
+		/* As a document's: the document itself is a preview_media
+		 * file. */
+		*type_name = "background";
+		auto &b = static_cast<const td_api::linkPreviewTypeBackground &>(*t);
+		return b.document_ ? thumb_file(b.document_->thumbnail_.get())
+				   : nullptr;
+	}
+	case td_api::linkPreviewTypeVideoNote::ID: {
+		*type_name = "video_note";
+		auto &v = static_cast<const td_api::linkPreviewTypeVideoNote &>(*t);
+		return v.video_note_
+			       ? thumb_file(v.video_note_->thumbnail_.get())
+			       : nullptr;
+	}
+	/* An album's items and the stickers of the rest are preview_media
+	 * files, not the card's image. */
+	case td_api::linkPreviewTypeAlbum::ID:        *type_name = "album"; return nullptr;
+	case td_api::linkPreviewTypeGiftAuction::ID:  *type_name = "gift_auction"; return nullptr;
+	case td_api::linkPreviewTypeGiftCollection::ID: *type_name = "gift_collection"; return nullptr;
+	case td_api::linkPreviewTypeLiveStory::ID:    *type_name = "live_story"; return nullptr;
+	case td_api::linkPreviewTypePremiumGiftCode::ID: *type_name = "premium_gift_code"; return nullptr;
+	case td_api::linkPreviewTypeRequestManagedBot::ID: *type_name = "request_managed_bot"; return nullptr;
+	case td_api::linkPreviewTypeShareableChatFolder::ID: *type_name = "shareable_chat_folder"; return nullptr;
+	case td_api::linkPreviewTypeStickerSet::ID:   *type_name = "sticker_set"; return nullptr;
+	case td_api::linkPreviewTypeTextCompositionStyle::ID: *type_name = "text_composition_style"; return nullptr;
+	case td_api::linkPreviewTypeTheme::ID:        *type_name = "theme"; return nullptr;
+	case td_api::linkPreviewTypeUpgradedGift::ID: *type_name = "upgraded_gift"; return nullptr;
+	case td_api::linkPreviewTypeVoiceNote::ID:    *type_name = "voice_note"; return nullptr;
+	case td_api::linkPreviewTypeUnsupported::ID:  *type_name = "unsupported"; return nullptr;
+	default:
+		/* A type this TDLib knows and we do not: record it as
+		 * unsupported rather than dropping the preview entirely -- the
+		 * url and title are still worth keeping. */
+		*type_name = "unsupported";
+		return nullptr;
+	}
+}
+
 std::vector<ExtraFile> link_preview_media_files(const td_api::linkPreview &lp)
 {
 	std::vector<ExtraFile> out;
 	auto add = [&out](const td_api::file *f, const char *category,
-			  const std::string &name) {
+			  const std::string &name, int position = 0) {
 		if (f)
 			out.push_back(ExtraFile{ f, category, name,
-						 "preview_media", 0 });
+						 "preview_media", position });
 	};
 	const td_api::LinkPreviewType *t = lp.type_.get();
 	if (!t)
@@ -3114,10 +3290,113 @@ std::vector<ExtraFile> link_preview_media_files(const td_api::linkPreview &lp)
 
 	switch (t->get_id()) {
 	case td_api::linkPreviewTypeVideo::ID: {
+		/* The video at 0, its cover (largest size) at 1. */
 		auto &v = static_cast<const td_api::linkPreviewTypeVideo &>(*t);
 		if (v.video_)
 			add(v.video_->video_.get(), "video",
 			    v.video_->file_name_);
+		add(photo_best_size(v.cover_.get()), "photo", "", 1);
+		break;
+	}
+	case td_api::linkPreviewTypeDocument::ID: {
+		auto &d = static_cast<const td_api::linkPreviewTypeDocument &>(*t);
+		if (d.document_)
+			add(d.document_->document_.get(), "document",
+			    d.document_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeSticker::ID: {
+		auto &s = static_cast<const td_api::linkPreviewTypeSticker &>(*t);
+		if (s.sticker_)
+			add(s.sticker_->sticker_.get(), "sticker", "");
+		break;
+	}
+	case td_api::linkPreviewTypeVideoNote::ID: {
+		auto &v = static_cast<const td_api::linkPreviewTypeVideoNote &>(*t);
+		if (v.video_note_)
+			add(v.video_note_->video_.get(), "video_note", "");
+		break;
+	}
+	case td_api::linkPreviewTypeVoiceNote::ID: {
+		auto &v = static_cast<const td_api::linkPreviewTypeVoiceNote &>(*t);
+		if (v.voice_note_)
+			add(v.voice_note_->voice_.get(), "voice", "");
+		break;
+	}
+	case td_api::linkPreviewTypeAlbum::ID: {
+		/* Item i at position i; a missing item keeps its place. */
+		auto &a = static_cast<const td_api::linkPreviewTypeAlbum &>(*t);
+		for (size_t i = 0; i < a.media_.size(); i++) {
+			const td_api::LinkPreviewAlbumMedia *m = a.media_[i].get();
+			if (!m)
+				continue;
+			if (m->get_id() == td_api::linkPreviewAlbumMediaPhoto::ID) {
+				add(photo_best_size(
+					    static_cast<const td_api::linkPreviewAlbumMediaPhoto &>(
+						    *m).photo_.get()),
+				    "photo", "", (int)i);
+			} else if (m->get_id() ==
+				   td_api::linkPreviewAlbumMediaVideo::ID) {
+				auto *v = static_cast<
+					const td_api::linkPreviewAlbumMediaVideo &>(
+					*m).video_.get();
+				if (v)
+					add(v->video_.get(), "video",
+					    v->file_name_, (int)i);
+			}
+		}
+		break;
+	}
+	case td_api::linkPreviewTypeStickerSet::ID: {
+		auto &ss = static_cast<const td_api::linkPreviewTypeStickerSet &>(*t);
+		for (size_t i = 0;
+		     i < ss.stickers_.size() && i < kLinkPreviewStickers; i++)
+			if (ss.stickers_[i])
+				add(ss.stickers_[i]->sticker_.get(), "sticker", "",
+				    (int)i);
+		break;
+	}
+	case td_api::linkPreviewTypeGiftCollection::ID: {
+		auto &g = static_cast<const td_api::linkPreviewTypeGiftCollection &>(*t);
+		for (size_t i = 0;
+		     i < g.icons_.size() && i < kLinkPreviewStickers; i++)
+			if (g.icons_[i])
+				add(g.icons_[i]->sticker_.get(), "sticker", "",
+				    (int)i);
+		break;
+	}
+	case td_api::linkPreviewTypeBackground::ID: {
+		/* A wallpaper's JPEG or a pattern's PNG or TGV; a fill has
+		 * none. */
+		auto &b = static_cast<const td_api::linkPreviewTypeBackground &>(*t);
+		if (b.document_)
+			add(b.document_->document_.get(), "document",
+			    b.document_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeStoryAlbum::ID: {
+		/* The photo icon is the card's image. */
+		auto &a = static_cast<const td_api::linkPreviewTypeStoryAlbum &>(*t);
+		if (a.video_icon_)
+			add(a.video_icon_->video_.get(), "video",
+			    a.video_icon_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeGiftAuction::ID: {
+		auto &g = static_cast<const td_api::linkPreviewTypeGiftAuction &>(*t);
+		if (g.gift_ && g.gift_->sticker_)
+			add(g.gift_->sticker_->sticker_.get(), "sticker", "");
+		break;
+	}
+	case td_api::linkPreviewTypeUpgradedGift::ID: {
+		/* The model's sticker at 0, the symbol's at 1, as role
+		 * "gift" has them; each keeps its place alone. */
+		auto *g = static_cast<const td_api::linkPreviewTypeUpgradedGift &>(
+				  *t).gift_.get();
+		if (g && g->model_ && g->model_->sticker_)
+			add(g->model_->sticker_->sticker_.get(), "sticker", "", 0);
+		if (g && g->symbol_ && g->symbol_->sticker_)
+			add(g->symbol_->sticker_->sticker_.get(), "sticker", "", 1);
 		break;
 	}
 	case td_api::linkPreviewTypeEmbeddedVideoPlayer::ID: {
@@ -3304,6 +3583,24 @@ bool telegram_message_link_target(const std::string &url,
 		return true;
 	}
 	return false;
+}
+
+/*
+ * A sticker of a sticker set or gift collection preview: the keys of a
+ * sticker preview but its set, which the set preview names once. Its
+ * index is its preview_media position.
+ */
+static nlohmann::json preview_sticker_json(const td_api::sticker *st)
+{
+	nlohmann::json o = nlohmann::json::object();
+	if (!st)
+		return o;
+	put_str(o, "emoji", st->emoji_);
+	put_id(o, "sticker_id", st->id_);
+	put_str(o, "format", sticker_format_name(st->format_.get()));
+	put_num(o, "width", st->width_);
+	put_num(o, "height", st->height_);
+	return o;
 }
 
 std::optional<std::string> link_preview_extra_json(const td_api::linkPreview &lp)
@@ -3493,6 +3790,163 @@ std::optional<std::string> link_preview_extra_json(const td_api::linkPreview &lp
 		put_num(j, "duration", a.duration_);
 		break;
 	}
+	case td_api::linkPreviewTypeAlbum::ID: {
+		/* "items"[i] describes the preview_media file at position i;
+		 * an item of a kind not known is null. */
+		auto &a = static_cast<const td_api::linkPreviewTypeAlbum &>(*t);
+		put_str(j, "caption", a.caption_);
+		nlohmann::json items = nlohmann::json::array();
+		for (const auto &m : a.media_) {
+			if (!m) {
+				items.push_back(nullptr);
+				continue;
+			}
+			nlohmann::json e = nlohmann::json::object();
+			if (m->get_id() == td_api::linkPreviewAlbumMediaPhoto::ID) {
+				e["kind"] = "photo";
+				put_photo(e, static_cast<const td_api::linkPreviewAlbumMediaPhoto &>(
+						     *m).photo_.get());
+			} else if (m->get_id() ==
+				   td_api::linkPreviewAlbumMediaVideo::ID) {
+				auto *v = static_cast<
+					const td_api::linkPreviewAlbumMediaVideo &>(
+					*m).video_.get();
+				e["kind"] = "video";
+				put_video(e, v);
+				if (v)
+					put_str(e, "file_name", v->file_name_);
+			} else {
+				e = nullptr;
+			}
+			items.push_back(std::move(e));
+		}
+		put_json(j, "items", std::move(items));
+		break;
+	}
+	case td_api::linkPreviewTypeBackground::ID: {
+		auto &b = static_cast<const td_api::linkPreviewTypeBackground &>(*t);
+		put_str(j, "background_type",
+			tl_variant(b.background_type_.get(), "backgroundType"));
+		put_background_type(j, b.background_type_.get());
+		if (b.document_) {
+			put_str(j, "mime", b.document_->mime_type_);
+			put_str(j, "file_name", b.document_->file_name_);
+		}
+		break;
+	}
+	case td_api::linkPreviewTypeGiftAuction::ID: {
+		auto &g = static_cast<const td_api::linkPreviewTypeGiftAuction &>(*t);
+		put_json(j, "gift", gift_json(g.gift_.get()));
+		put_num(j, "auction_end_date", g.auction_end_date_);
+		if (g.gift_ && g.gift_->auction_info_) {
+			put_num(j, "gifts_per_round",
+				g.gift_->auction_info_->gifts_per_round_);
+			put_num(j, "auction_start_date",
+				g.gift_->auction_info_->start_date_);
+		}
+		break;
+	}
+	case td_api::linkPreviewTypeGiftCollection::ID: {
+		auto &g = static_cast<const td_api::linkPreviewTypeGiftCollection &>(*t);
+		nlohmann::json icons = nlohmann::json::array();
+		for (size_t i = 0;
+		     i < g.icons_.size() && i < kLinkPreviewStickers; i++)
+			icons.push_back(preview_sticker_json(g.icons_[i].get()));
+		put_json(j, "icons", std::move(icons));
+		break;
+	}
+	case td_api::linkPreviewTypeLiveStory::ID: {
+		auto &s = static_cast<const td_api::linkPreviewTypeLiveStory &>(*t);
+		put_num(j, "poster_chat_id", s.story_poster_chat_id_);
+		put_num(j, "story_id", s.story_id_);
+		break;
+	}
+	case td_api::linkPreviewTypeStickerSet::ID: {
+		auto &ss = static_cast<const td_api::linkPreviewTypeStickerSet &>(*t);
+		nlohmann::json stickers = nlohmann::json::array();
+		for (size_t i = 0;
+		     i < ss.stickers_.size() && i < kLinkPreviewStickers; i++) {
+			const td_api::sticker *st = ss.stickers_[i].get();
+			if (st && !j.contains("set_id"))
+				put_id(j, "set_id", st->set_id_);
+			stickers.push_back(preview_sticker_json(st));
+		}
+		put_json(j, "stickers", std::move(stickers));
+		break;
+	}
+	case td_api::linkPreviewTypeStoryAlbum::ID: {
+		auto &a = static_cast<const td_api::linkPreviewTypeStoryAlbum &>(*t);
+		put_photo(j, a.photo_icon_.get());
+		nlohmann::json v = nlohmann::json::object();
+		put_video(v, a.video_icon_.get());
+		if (!v.empty())
+			j["video"] = std::move(v);
+		break;
+	}
+	case td_api::linkPreviewTypeTextCompositionStyle::ID:
+		put_id(j, "custom_emoji_id",
+		       static_cast<const td_api::linkPreviewTypeTextCompositionStyle &>(
+			       *t).custom_emoji_id_);
+		break;
+	case td_api::linkPreviewTypeTheme::ID: {
+		/* The settings only; the theme's files are not kept. */
+		auto *ts = static_cast<const td_api::linkPreviewTypeTheme &>(*t)
+				   .settings_.get();
+		if (!ts)
+			break;
+		put_str(j, "base_theme",
+			tl_variant(ts->base_theme_.get(), "builtInTheme"));
+		j["accent_color"] = ts->accent_color_; /* 0 is black */
+		if (ts->background_) {
+			auto &b = *ts->background_;
+			nlohmann::json bg = nlohmann::json::object();
+			put_str(bg, "name", b.name_);
+			put_flag(bg, "dark", b.is_dark_);
+			put_str(bg, "type", tl_variant(b.type_.get(), "backgroundType"));
+			put_background_type(bg, b.type_.get());
+			put_json(j, "background", std::move(bg));
+		}
+		put_json(j, "outgoing_message_fill",
+			 background_fill_json(ts->outgoing_message_fill_.get()));
+		put_flag(j, "animate_outgoing_message_fill",
+			 ts->animate_outgoing_message_fill_);
+		if (ts->has_outgoing_message_accent_color_)
+			j["outgoing_message_accent_color"] =
+				ts->outgoing_message_accent_color_;
+		break;
+	}
+	case td_api::linkPreviewTypeUpgradedGift::ID:
+		put_json(j, "gift", upgraded_gift_json(
+			static_cast<const td_api::linkPreviewTypeUpgradedGift &>(
+				*t).gift_.get()));
+		break;
+	case td_api::linkPreviewTypeVideoNote::ID:
+		if (auto *v = static_cast<const td_api::linkPreviewTypeVideoNote &>(
+				      *t).video_note_.get()) {
+			put_num(j, "duration", v->duration_);
+			put_num(j, "length", v->length_);
+			put_minithumbnail(j, v->minithumbnail_.get());
+			if (!v->waveform_.empty())
+				j["waveform"] = base64(v->waveform_);
+			put_transcript(j, v->speech_recognition_result_.get());
+		}
+		break;
+	case td_api::linkPreviewTypeVoiceNote::ID:
+		if (auto *v = static_cast<const td_api::linkPreviewTypeVoiceNote &>(
+				      *t).voice_note_.get()) {
+			put_num(j, "duration", v->duration_);
+			put_str(j, "mime", v->mime_type_);
+			if (!v->waveform_.empty())
+				j["waveform"] = base64(v->waveform_);
+			put_transcript(j, v->speech_recognition_result_.get());
+		}
+		break;
+	/*
+	 * No keys: a direct messages chat (its photo is the image), a
+	 * premium gift code (the code in its link is redeemable, and TDLib
+	 * gives nothing else), a managed bot request, a shareable chat
+	 * folder, and the types listed with none in message-types.md 4.8.
+	 */
 	default:
 		break;
 	}

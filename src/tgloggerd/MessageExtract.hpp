@@ -202,10 +202,23 @@ struct ExtraFile {
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
 
 /*
- * A link preview's own video, animation or audio, role "preview_media"
- * at position 0: the medium of a video, animation or audio preview, or
- * the cached medium of an embedded player. Its image is not listed; it
- * goes to telegram_link_previews.photo_file_id.
+ * The image of a link preview, its telegram_link_previews.photo_file_id
+ * (nullptr when it has none), and in *@type_name the preview's type, the
+ * telegram_link_previews.type value ("unsupported" for a type not known).
+ */
+const td_api::file *link_preview_image(const td_api::LinkPreviewType *t,
+				       const char **type_name);
+
+/*
+ * A link preview's own media, role "preview_media" (message-types.md
+ * section 4.3): at position 0 the medium of a video, animation, audio,
+ * document, sticker, video note or voice note preview, the cached medium
+ * of an embedded player, a background's document, a story album's video
+ * icon or a gift auction's sticker; at position 1 a video preview's
+ * cover; an album's items, and the first stickers of a sticker set or
+ * gift collection, at their index; an upgraded gift's model sticker at
+ * 0 and symbol sticker at 1. Its image is not listed; it goes to
+ * telegram_link_previews.photo_file_id.
  */
 std::vector<ExtraFile> link_preview_media_files(const td_api::linkPreview &lp);
 

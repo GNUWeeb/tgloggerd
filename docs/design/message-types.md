@@ -554,7 +554,7 @@ A video note's round video is now the main file, like any other media.
 | `rich` | the media inside a rich message's page blocks, `position` their order of appearance, depth first through collages, slideshows, quotes, lists, collapsible blocks, covers and embedded posts: each photo (largest size), video, animation, audio file, document and voice note, an embedded page's poster, an embedded post's author photo, the photos of related articles; not a chat link's photo (the chat's own) nor the icons inside rich text |
 | `gift` | file_type `sticker`: at position 0 the gift's sticker (gift, refunded_upgraded_gift), an upgraded gift's model sticker (upgraded_gift and the two purchase offer types), the animation sticker of gifted_premium, gifted_stars, gifted_grams and giveaway_prize_stars, or a giveaway's prize sticker; at position 1 an upgraded gift's symbol sticker. Each keeps its position when the other is missing. Not a premium_gift_code's sticker |
 | `background` | a chat background's document at position 0: the wallpaper (JPEG) or the pattern (PNG or TGV), file_type `document`; a fill or a chat theme has none |
-| `preview_media` | a link preview's own video, animation or audio, beyond its image in `telegram_link_previews.photo_file_id` (msg-link-preview-media) |
+| `preview_media` | a link preview's own media, beyond its image in `telegram_link_previews.photo_file_id` (section 4.8), by the preview's `type`: position 0 is its one medium where it has one: the video, animation or audio of such a preview or the cached medium of an embedded player, a document preview's file or a background's document (file_type `document`), a sticker preview's sticker or a gift auction's gift sticker (`sticker`), a video note's video (`video_note`), a voice note's voice (`voice`), a story album's video icon (`video`); a video preview's cover is at position 1 (`photo`, largest size); an album's item i at position i (`photo`, largest size, or `video`; a missing item leaves its position empty); the first five stickers of a sticker set or icons of a gift collection at their index (`sticker`); an upgraded gift's model sticker at 0 and symbol sticker at 1 (`sticker`), each keeping its position when the other is missing |
 
 The last four roles come with migration 000045; nothing writes them
 until their items land (`rich` is written since msg-rich-store,
@@ -740,7 +740,7 @@ or false is left out, and an object left empty is stored as NULL:
 |---|---|
 | `article`, `photo`, `app`, `web_app` | `width`, `height` (the image's largest size), `has_stickers`, `minithumbnail` |
 | `embedded_video_player`, `embedded_animation_player`, `embedded_audio_player` | `embed_url`, `embed_width`, `embed_height` (the player's expected size), `duration`; `media`, the cached medium's own keys as for `video`, `animation` or `audio` (without `file_name`, `start_timestamp` and `cover`) when TDLib has it |
-| `video` | `width`, `height`, `duration`, `mime`, `has_stickers`, `streaming`, `minithumbnail`, `file_name`, `start_timestamp`, `cover` (true when the video has a cover; the cover itself is not stored) |
+| `video` | `width`, `height`, `duration`, `mime`, `has_stickers`, `streaming`, `minithumbnail`, `file_name`, `start_timestamp`, `cover` (true when the video has a cover, which is a `preview_media` file at position 1) |
 | `animation` | `width`, `height`, `duration`, `mime`, `minithumbnail`, `file_name` |
 | `audio` | `duration`, `mime`, `audio_title`, `performer`, `file_name` |
 | `document` | `mime`, `file_name` |
@@ -752,9 +752,25 @@ or false is left out, and an object left empty is stored as NULL:
 | `story` | `poster_chat_id`, `story_id` |
 | `external_video` | `media_url`, `mime`, `width`, `height`, `duration` |
 | `external_audio` | `media_url`, `mime`, `duration` |
+| `video_note` | `duration`, `length`, `minithumbnail`, `waveform`, `transcript` |
+| `voice_note` | `duration`, `mime`, `waveform`, `transcript` |
+| `album` | `caption`; `items`, one per album item in order (its index is its `preview_media` position): `kind` (`photo` or `video`) with a photo's keys as for `photo` or a video's as for `video` (with `file_name`), or null for an item TDLib leaves empty |
+| `background` | `background_type` (`wallpaper`, `pattern`, `fill` or `chat_theme`) and that type's keys as in a chat background's `content_extra` (section 4.2.3: `is_blurred`, `is_moving`, `fill`, `intensity`, `is_inverted`, `theme_name`); `mime`, `file_name` of its document |
+| `sticker_set` | `set_id` (string); `stickers`, the first five TDLib gives (it gives up to four), each `emoji`, `sticker_id`, `format`, `width`, `height` |
+| `gift_collection` | `icons`, the first five, keyed as a `sticker_set`'s `stickers` |
+| `gift_auction` | `gift` (a regular gift's keys as in a gift message's `content_extra`), `auction_end_date`, `auction_start_date`, `gifts_per_round` |
+| `upgraded_gift` | `gift` (an upgraded gift's keys as in an upgraded gift message's `content_extra`: ids, title, name, number, owner, model, symbol, backdrop, original details) |
+| `live_story` | `poster_chat_id`, `story_id` |
+| `story_album` | the photo icon's `width`, `height`, `has_stickers`, `minithumbnail`; `video`, the video icon's keys as for `video` |
+| `text_composition_style` | `custom_emoji_id` (string; the emoji itself is in `telegram_custom_emoji`, section 4.11) |
+| `theme` | `base_theme` (`classic`, `day`, `night`, `tinted` or `arctic`), `accent_color` (kept when 0), `background` (`name`, `dark`, `type` and that type's keys), `outgoing_message_fill`, `animate_outgoing_message_fill`, `outgoing_message_accent_color` (when the theme has one); not the theme's files |
 
 The other types (`channel_boost`, `supergroup_boost`, `invoice`,
-`group_call`, `unsupported`) have no `extra`. `audio_title` is not
+`group_call`, `direct_messages_chat`, `premium_gift_code`,
+`request_managed_bot`, `shareable_chat_folder`, `unsupported`) have no
+`extra`. A premium gift code's code is in its URL and stays there
+(the message's text has it anyway); nothing else of it is kept, as for
+the gift code service message. `audio_title` is not
 `title`, which is the card's own column. TDLib gives a `message`
 preview no target, so it is read from the URL: `t.me`, `telegram.me`
 and `telegram.dog` links (`/<username>/<id>`, `/c/<channel>/<id>`, with
@@ -762,12 +778,35 @@ or without a topic id between) and `tg://resolve?domain=&post=` and
 `tg://privatepost?channel=&post=`. A `t.me/c/` link's chat id is
 TDLib's, `-100` followed by the channel id.
 
-The `preview_media` file is the medium of a `video`, `animation` or
-`audio` preview, or the cached medium of an embedded player, at
-position 0; a document's or a sticker's own file is not stored. An edit
-that changes the preview overwrites `extra` and the medium's row, like
-the card's other fields; one that drops the medium keeps the old row,
-as it keeps the old image.
+Every TDLib 1.8.70 preview type has its own `type` name, the snake
+case of its class name; `unsupported` is left for
+`linkPreviewTypeUnsupported` and for a class a later TDLib adds. The
+names stored before keep their meaning, and rows stored as
+`unsupported` before the names below existed keep that type: only new
+and edited messages get `video_note`, `voice_note`, `album`,
+`background`, `direct_messages_chat`, `sticker_set`, `gift_collection`,
+`gift_auction`, `upgraded_gift`, `live_story`, `story_album`,
+`text_composition_style`, `theme`, `premium_gift_code`,
+`request_managed_bot` and `shareable_chat_folder`.
+
+The card's image (`photo_file_id`) is, for these: a direct messages
+chat's photo, a story album's photo icon (largest size), a background's
+document's thumbnail and a video note's thumbnail; the others have
+none, their pictures being `preview_media` files.
+
+The `preview_media` files are the preview's own media, by position
+(section 4.3): at position 0 the medium of a `video`, `animation`,
+`audio`, `document`, `sticker`, `video_note` or `voice_note` preview
+(the document's or the sticker's own file, beside the document's
+thumbnail as the card's image), the cached medium of an embedded
+player, a `background`'s document, a `story_album`'s video icon or a
+`gift_auction`'s sticker; at position 1 a `video` preview's cover
+(largest size); an `album`'s items and the first five stickers of a
+`sticker_set` or `gift_collection` at their index; an `upgraded_gift`'s
+model sticker at 0 and symbol sticker at 1. A theme's files are not
+kept. An edit that changes the preview overwrites `extra` and each
+medium's row, like the card's other fields; one that drops a medium
+keeps its old row, as it keeps the old image.
 
 ### 4.9 Repairing old rows
 
