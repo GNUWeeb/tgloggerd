@@ -18,7 +18,7 @@
 // boundaries (months, clock changes) the server's alone.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Card } from '../ui/primitives.tsx';
-import { SeriesChart, VARIANTS, isVariant, type Variant } from '../ui/serieschart.tsx';
+import { SeriesChart, SeriesTable, VARIANTS, isVariant, type Variant } from '../ui/serieschart.tsx';
 import { fmt, SITE_DEFAULTS } from '../format.ts';
 import { savePrefs } from '../api/prefs.ts';
 import { dashboardSeries, type Series } from '../api/dashboard.ts';
@@ -108,6 +108,7 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 	const [variant, setVariant] = useState<Variant>(isVariant(v.dashboard_variant) ? v.dashboard_variant : 'bars');
 	const [load, setLoad] = useState<Load>({ state: 'ok', data: first, error: null });
 	const [saveErr, setSaveErr] = useState(false);
+	const [table, setTable] = useState(false);
 	// The limits the server answered with, over the built-in ones.
 	const limits = useRef<Partial<Record<Period, number | null>>>({ [first.period]: first.limit });
 	const limitOf = (p: Period) => (p in limits.current ? limits.current[p]! : LIMIT[p]);
@@ -197,10 +198,13 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 		? `${title}, ${periodLabel(data.points[0]!.at, data.period, data.tz, h12)} to ${data.live ? 'now' : periodLabel(data.points.at(-1)!.at, data.period, data.tz, h12)}: ${fmt(total)} messages`
 		: title;
 	let body: ReactNode;
-	if (data) body = <SeriesChart points={data.points} period={data.period} variant={variant} tz={data.tz} h12={h12} label={summary} />;
+	if (data && table) body = <SeriesTable points={data.points} period={data.period} variant={variant} tz={data.tz} h12={h12} caption={summary} unit={PERIOD_LABEL[data.period]} />;
+	else if (data) body = <SeriesChart points={data.points} period={data.period} variant={variant} tz={data.tz} h12={h12} label={summary} />;
 	else body = <div className="a-sc-empty a-muted">{load.error ? '' : 'Loading the chart...'}</div>;
 	return (
-		<Card title={title} className="a-dash-wide">
+		<Card title={title} className="a-dash-wide" action={
+			<button type="button" className="a-btn a-btn-ghost a-sc-tabletoggle" aria-pressed={table} onClick={() => setTable((x) => !x)}>Show as table</button>
+		}>
 			<div className="a-sc-ctls">
 				<Select label="Period" value={period} options={PERIODS.map((p) => [p, PERIOD_LABEL[p]] as const)} onChange={(p) => change(p, range)} />
 				<TimeInput label="Start" value={range.start} pr={pr} tz={tz} onPick={(t) => change(period, range.live ? { live: true, start: t } : { live: false, start: t, end: range.end })} />

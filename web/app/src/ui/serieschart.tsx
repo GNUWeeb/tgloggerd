@@ -139,3 +139,21 @@ export function SeriesChart({ points, period, variant = 'bars', tz, h12 = false,
 		</div>
 	);
 }
+
+// The same numbers as a table, for screen readers and for reading off
+// exact values: each period's start and count, and the sum so far for
+// a running total.
+export function SeriesTable({ points, period, variant = 'bars', tz, h12 = false, caption, unit }: { points: Point[]; period: Period; variant?: Variant; tz: string; h12?: boolean; caption: string; unit: string }) {
+	const sums = running(points.map((p) => p.n));
+	return (
+		<div className="a-sc-table">
+			<table className="a-table">
+				<caption className="a-sr">{caption}</caption>
+				<thead><tr><th scope="col">{unit}</th><th scope="col" className="num">Messages</th>{variant === 'total' && <th scope="col" className="num">So far</th>}</tr></thead>
+				<tbody>{points.map((p, i) => (
+					<tr key={p.at}><td>{periodLabel(p.at, period, tz, h12)}</td><td className="num">{fmt(p.n)}</td>{variant === 'total' && <td className="num">{fmt(sums[i]!)}</td>}</tr>
+				))}</tbody>
+			</table>
+		</div>
+	);
+}

@@ -470,6 +470,11 @@
 .app .a-sc-tip b { font-size: 15px; }
 .app .a-sc-empty { height: 200px; display: grid; place-items: center; }
 .app .a-sc-busy { opacity: .6; transition: opacity .2s; }
+.app .a-sc-table { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; }
+.app .a-sc-table td { padding: 6px 12px; border-top: 1px solid var(--border); }
+.app .a-sc-table td.num, .app .a-sc-table th.num { text-align: right; }
+.app .a-sc-tabletoggle { font-size: 13px; }
+.app .a-sc-tabletoggle[aria-pressed=true] { color: var(--accent-text); }
 .app .a-sc-err { color: var(--danger); margin: 0 0 8px; font-size: 13px; }
 .app .a-axis { display: flex; justify-content: space-between; color: var(--fg-3); font-size: 11.5px; margin-top: 6px; }
 .app .a-statuslist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }

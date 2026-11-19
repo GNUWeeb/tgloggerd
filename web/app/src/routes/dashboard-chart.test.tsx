@@ -3,7 +3,7 @@
 // clamp to the period's limit, the account's remembered choice, the
 // first series from the page data, and the bars with their tooltip.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, json, renderPage, setup, type Call } from '../test/page.tsx';
 import { clampRange } from './dashboard-chart.tsx';
 import type { DashboardProps } from './dashboard.tsx';
@@ -221,6 +221,34 @@ describe('dashboard chart drawings', () => {
 		const img = await chart();
 		expect(img.querySelector('.a-sc-area')).not.toBeNull();
 		expect((control('Show as') as unknown as HTMLSelectElement).value).toBe('area');
+	});
+});
+
+describe('dashboard chart as a table', () => {
+	const answer = { 'PATCH /api/account/preferences': () => ({ prefs: {} }) };
+
+	it('gives the same numbers as a table, and goes back to the chart', async () => {
+		fakeApi('superadmin', answer);
+		renderPage('/', 'superadmin', viewer({}, firstOf([2, 0, 5])));
+		await chart();
+		const toggle = screen.getByRole('button', { name: 'Show as table' });
+		expect(toggle.getAttribute('aria-pressed')).toBe('false');
+		fireEvent.click(toggle);
+		expect(toggle.getAttribute('aria-pressed')).toBe('true');
+		expect(screen.queryByRole('img', { name: /^Messages per/ })).toBeNull();
+		const table = screen.getByRole('table', { name: /^Messages per hour, .* to now: 7 messages$/ });
+		const rows = within(table).getAllByRole('row').map((r) => [...r.querySelectorAll('th, td')].map((c) => c.textContent));
+		expect(rows[0]).toEqual(['Hour', 'Messages']);
+		expect(rows.slice(1).map((r) => r[1])).toEqual(['2', '0', '5']);
+		expect(rows[3]![0]).toMatch(/17 Nov,? 16:00/);
+		// A running total adds the sum so far.
+		fireEvent.change(control('Show as'), { target: { value: 'total' } });
+		const rows2 = within(screen.getByRole('table')).getAllByRole('row').map((r) => [...r.querySelectorAll('th, td')].map((c) => c.textContent));
+		expect(rows2[0]).toEqual(['Hour', 'Messages', 'So far']);
+		expect(rows2.slice(1).map((r) => r[2])).toEqual(['2', '2', '7']);
+		fireEvent.click(toggle);
+		expect(screen.queryByRole('table')).toBeNull();
+		expect(await chart()).toBeTruthy();
 	});
 });
 
