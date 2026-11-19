@@ -15,6 +15,17 @@ const chatUrl = () => `/groups/${groupId()}/chat`;
 const base = () => fixture<ChatProps>(chatUrl()).props;
 const pageCalls = (calls: ReturnType<typeof fakeApi>) => callsTo(calls, 'GET', /^\/api\/page\//);
 
+// A window opened before the newest messages loads the next page by
+// itself while it is too short to scroll, as it always is without a
+// layout. Wait until the load from the window at `url` has been
+// answered (each test answers that it reached the newest), so none is
+// still on its way once the test's fake fetch is gone.
+async function newerLoaded(calls: ReturnType<typeof fakeApi>, url: string) {
+	const last = String(fixture<ChatProps>(url).props.messages.at(-1)!.message_id);
+	await waitFor(() => expect(callsTo(calls, 'GET', /\/messages$/).some((c) => c.query.get('after') === last)).toBe(true));
+	await waitFor(() => expect(screen.queryByText('Loading newer messages...')).toBeNull());
+}
+
 // The chat with these messages only, each built on a plain text one.
 function chatWith(msgs: Partial<ChatMessage>[]) {
 	const p = base();
@@ -130,12 +141,14 @@ describe('chat parity', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Jump to the oldest messages' }));
 		await waitFor(() => expect(pageCalls(calls)).toHaveLength(1));
 		expect(pageCalls(calls)[0]!.query.get('after')).toBe('0');
+		await newerLoaded(calls, `${chatUrl()}?after=0`);
 		const input = document.querySelector('.c-datebtn input')!;
 		expect(input.getAttribute('type')).toBe('datetime-local');
 		fireEvent.change(input, { target: { value: '2026-11-10T12:30' } });
 		await waitFor(() => expect(pageCalls(calls)).toHaveLength(2));
 		expect(pageCalls(calls)[1]!.query.get('date')).toBe('2026-11-10T12:30');
 		expect(pageCalls(calls)[1]!.query.get('after')).toBeNull();
+		await newerLoaded(calls, `${chatUrl()}?date=2026-11-10T12%3A30`);
 	});
 
 	it('opens an old #msg-N link at that message', async () => {
@@ -143,6 +156,7 @@ describe('chat parity', () => {
 		renderPage(`${chatUrl()}#msg-555422`);
 		await waitFor(() => expect(pageCalls(calls)).toHaveLength(1));
 		expect(pageCalls(calls)[0]!.query.get('at')).toBe('555422');
+		await newerLoaded(calls, `${chatUrl()}?at=555422`);
 	});
 
 	it('counts the members the archive has seen, and leaves out none', () => {
