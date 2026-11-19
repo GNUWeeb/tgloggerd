@@ -25,6 +25,12 @@ EmojiBackend emojiBackendOf(TDLib &tdlib, DB &db)
 		return d->getCustomEmoji(ids);
 	};
 	b.save_emoji = [d](const models::CustomEmoji &e) { d->putCustomEmoji(e); };
+	b.load_effects = [d](const std::vector<int64_t> &ids) {
+		return d->getMessageEffects(ids);
+	};
+	b.save_effect = [d](const models::MessageEffect &e) {
+		d->putMessageEffect(e);
+	};
 	b.record_file = [d](const models::File &f) {
 		return d->upsertFileMeta(f).id;
 	};

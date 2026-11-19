@@ -3,8 +3,8 @@
  * Copyright (C) 2026 Alviro Iskandar Setiawan <alviro.iskandar@gnuweeb.org>
  */
 /*
- * emoji_api_test -- POST /v1/custom-emoji over a real InternalApi on
- * loopback, with stand-ins for the table, the
+ * emoji_api_test -- POST /v1/custom-emoji and POST /v1/message-effects
+ * over a real InternalApi on loopback, with stand-ins for the tables, the
  * file rows and TDLib that answer with hand-built td_api objects: no
  * TDLib client, no database.
  */
@@ -112,16 +112,29 @@ emojiSticker(int64_t custom_emoji_id, const std::string &emoji, int64_t set_id,
 		nullptr, remoteFile(7, remote, "U" + remote, 4096));
 }
 
+static td_api::object_ptr<td_api::sticker>
+plainSticker(td_api::object_ptr<td_api::StickerFormat> fmt, const std::string &remote,
+	     td_api::object_ptr<td_api::file> premium = nullptr)
+{
+	return td_api::make_object<td_api::sticker>(
+		1, 0, 512, 512, "x", std::move(fmt),
+		td_api::make_object<td_api::stickerFullTypeRegular>(std::move(premium)),
+		nullptr, remoteFile(8, remote, "U" + remote, 2048));
+}
+
 /* The stand-ins: the tables, the file rows and what TDLib answers. */
 struct Fake {
 	std::mutex				mtx;
 	std::map<int64_t, models::CustomEmoji>	emoji;
+	std::map<int64_t, models::MessageEffect> effects;
 	std::map<std::string, uint64_t>		files;	/* unique id -> row */
 	std::vector<models::File>		recorded;
 	std::vector<std::vector<int64_t>>	emoji_asks;
+	std::vector<int64_t>			effect_asks;
 	/* Answer to getCustomEmojiStickers: an error code, 0 for stickers. */
 	int32_t					emoji_error = 0;
 	std::string				emoji_error_msg;
+	int32_t					effect_error = 0;
 };
 
 static TDLib::TdObject answerEmoji(Fake &f, const td_api::getCustomEmojiStickers &q)
@@ -150,6 +163,26 @@ static TDLib::TdObject answerEmoji(Fake &f, const td_api::getCustomEmojiStickers
 	return td_api::make_object<td_api::stickers>(std::move(out));
 }
 
+static TDLib::TdObject answerEffect(int64_t id)
+{
+	if (id == 5001) {
+		return td_api::make_object<td_api::messageEffect>(
+			5001, plainSticker(td_api::make_object<td_api::stickerFormatWebp>(), "Eicon"),
+			"\xF0\x9F\x94\xA5", false,
+			td_api::make_object<td_api::messageEffectTypeEmojiReaction>(
+				plainSticker(td_api::make_object<td_api::stickerFormatTgs>(), "Esel"),
+				plainSticker(td_api::make_object<td_api::stickerFormatTgs>(), "Eeff")));
+	}
+	if (id == 5002) {
+		return td_api::make_object<td_api::messageEffect>(
+			5002, nullptr, "\xF0\x9F\x8E\x89", true,
+			td_api::make_object<td_api::messageEffectTypePremiumSticker>(
+				plainSticker(td_api::make_object<td_api::stickerFormatWebm>(),
+					     "Pstk", remoteFile(9, "Pani", "UPani", 999))));
+	}
+	return td_api::make_object<td_api::error>(404, "Not Found");
+}
+
 int main(void)
 {
 	Fake fake;
@@ -165,6 +198,18 @@ int main(void)
 	be.save_emoji = [&](const models::CustomEmoji &e) {
 		std::lock_guard<std::mutex> lk(fake.mtx);
 		fake.emoji[e.custom_emoji_id] = e;
+	};
+	be.load_effects = [&](const std::vector<int64_t> &ids) {
+		std::lock_guard<std::mutex> lk(fake.mtx);
+		std::vector<models::MessageEffect> out;
+		for (int64_t id : ids)
+			if (fake.effects.count(id))
+				out.push_back(fake.effects[id]);
+		return out;
+	};
+	be.save_effect = [&](const models::MessageEffect &e) {
+		std::lock_guard<std::mutex> lk(fake.mtx);
+		fake.effects[e.effect_id] = e;
 	};
 	be.record_file = [&](const models::File &f) {
 		std::lock_guard<std::mutex> lk(fake.mtx);
@@ -185,6 +230,14 @@ int main(void)
 				return td_api::make_object<td_api::error>(
 					fake.emoji_error, fake.emoji_error_msg);
 			return answerEmoji(fake, q);
+		}
+		if (fn->get_id() == td_api::getMessageEffect::ID) {
+			auto &q = static_cast<const td_api::getMessageEffect &>(*fn);
+			fake.effect_asks.push_back(q.effect_id_);
+			if (fake.effect_error)
+				return td_api::make_object<td_api::error>(
+					fake.effect_error, "Too Many Requests: retry after 30");
+			return answerEffect(q.effect_id_);
 		}
 		return td_api::make_object<td_api::error>(500, "unexpected request");
 	};
@@ -300,6 +353,64 @@ int main(void)
 	      "no ids: an empty answer");
 	CHECK(fake.emoji_asks.size() == 4, "and no TDLib call for any of them");
 
+	printf("POST /v1/message-effects\n");
+	r = post(port, "/v1/message-effects", bearer,
+		 R"({"ids": ["5001", 5002, "5003"]})");
+	CHECK(r.status == 200 && r.body.value("outcome", "") == "ok", "answers ok");
+	CHECK(fake.effect_asks == std::vector<int64_t>({ 5001, 5002, 5003 }),
+	      "one getMessageEffect per effect");
+	CHECK(r.body["effects"].size() == 2 &&
+	      r.body["missing"] == nlohmann::json::array({ "5003" }),
+	      "two effects, the unknown one missing");
+	if (r.body["effects"].size() == 2) {
+		const auto &a = r.body["effects"][0], &b = r.body["effects"][1];
+		CHECK(a["effect_id"] == "5001" && a["type"] == "emoji_reaction" &&
+		      a["is_premium"] == false && a["emoji"] == "\xF0\x9F\x94\xA5",
+		      "the reaction effect");
+		CHECK(a["static_icon_file_id"].is_number() &&
+		      a["select_animation_file_id"].is_number() &&
+		      a["effect_animation_file_id"].is_number() &&
+		      a["sticker_file_id"].is_null() && a["sticker_format"].is_null(),
+		      "its icon and two animations");
+		CHECK(b["type"] == "premium_sticker" && b["is_premium"] == true &&
+		      b["static_icon_file_id"].is_null() &&
+		      b["select_animation_file_id"].is_null() &&
+		      b["sticker_file_id"].is_number() &&
+		      b["effect_animation_file_id"].is_number() &&
+		      b["sticker_format"] == "webm",
+		      "the premium sticker effect and its animation");
+	}
+	bool tgs = false;
+	for (const auto &f : fake.recorded)
+		if (f.tg_unique_id == "UPani")
+			tgs = f.file_ext == std::optional<std::string>("tgs") &&
+			      f.file_type == "sticker";
+	CHECK(tgs, "the premium animation is recorded as a TGS sticker file");
+
+	printf("POST /v1/message-effects again\n");
+	fake.effect_error = 429;
+	r = post(port, "/v1/message-effects", bearer, R"({"ids": [5002, 5001, 5003]})");
+	CHECK(r.status == 200 && r.body.value("outcome", "") == "ok" &&
+	      r.body.value("asked", -1) == 0, "answered without TDLib");
+	CHECK(fake.effect_asks.size() == 3, "TDLib is asked for none");
+	CHECK(r.body["effects"].size() == 2 &&
+	      r.body["effects"][0]["effect_id"] == "5002",
+	      "in the order asked");
+
+	printf("POST /v1/message-effects while Telegram asks to wait\n");
+	r = post(port, "/v1/message-effects", bearer, R"({"ids": [6001, 6002]})");
+	CHECK(r.status == 200 && r.body.value("outcome", "") == "flood_wait" &&
+	      r.body.value("retry_after", 0) == 30, "flood_wait with retry_after");
+	CHECK(fake.effect_asks.size() == 4, "stops at the first failure");
+	CHECK(r.body["missing"].empty(), "nothing taken as missing");
+	fake.effect_error = 0;
+
+	std::string many_eff = "{\"ids\": [";
+	for (int i = 1; i <= 51; i++)
+		many_eff += (i > 1 ? "," : "") + std::to_string(i);
+	many_eff += "]}";
+	r = post(port, "/v1/message-effects", bearer, many_eff);
+	CHECK(r.status == 400, "400 for 51 effects");
 
 	api.stop();
 

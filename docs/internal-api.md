@@ -716,9 +716,49 @@ for its custom emoji afresh.
 Errors: 400 if the body is not `{"ids": [...]}` with nonzero 64-bit
 ids, or carries more than 200 distinct ones.
 
-Tests: `emoji_api_test` (in `CMakeLists.txt`) serves this route over
-a real listener on loopback, with stand-ins for the table and for
-TDLib answering with hand-built objects.
+Tests: `emoji_api_test` (in `CMakeLists.txt`) serves this route and
+`POST /v1/message-effects` over a real listener on loopback, with
+stand-ins for the tables and for TDLib answering with hand-built
+objects.
+
+### POST /v1/message-effects
+
+The same for message effects (`meta.effect_id`; design section 4.12),
+stored in `telegram_message_effects`:
+
+    {"ids": ["5104841245755180586"]}
+
+    200 {
+      "outcome": "ok",
+      "message": "",
+      "asked": 1,
+      "effects": [
+        {"effect_id": "5104841245755180586", "emoji": "🔥",
+         "is_premium": false, "type": "emoji_reaction",
+         "static_icon_file_id": 123457,
+         "select_animation_file_id": 123458,
+         "effect_animation_file_id": 123459,
+         "sticker_file_id": null, "sticker_format": null}
+      ],
+      "missing": []
+    }
+
+- `ids`: at most 50, as for `/v1/custom-emoji`. An effect without a
+  row is asked of Telegram with `getMessageEffect`, one call per
+  effect, at most 20 seconds for all of them; a failure ends the calls
+  for the rest of the request.
+- `type`: `emoji_reaction` (its `select_animation_file_id` and
+  `effect_animation_file_id`, both TGS), `premium_sticker`
+  (`sticker_file_id` in `sticker_format`, and its premium animation,
+  TGS, as `effect_animation_file_id`), or null for a type the daemon
+  does not know. `static_icon_file_id` is the static icon (WEBP), null
+  when the effect has none; `emoji` stands in for it. Every file is a
+  metadata-only `telegram_files` row of type `sticker`, fetched as
+  above, and found again by asking for the effect afresh.
+- `asked`, `missing` (an effect Telegram answers 404 for) and
+  `outcome` as for `/v1/custom-emoji`.
+
+Errors: 400 as for `/v1/custom-emoji`, with at most 50 distinct ids.
 
 ### POST /v1/users/{id}/lookup-name
 

@@ -18,8 +18,8 @@
 namespace tgloggerd {
 
 /*
- * What the custom emoji route needs: the table (DB::getCustomEmoji,
- * DB::putCustomEmoji), the metadata-only file rows
+ * What the custom emoji and message effect routes need: the tables
+ * (DB::getCustomEmoji and friends), the metadata-only file rows
  * (DB::upsertFileMeta, returning the row id) and TDLib
  * (TDLib::request with a timeout). Every member is called on handler
  * threads and must be thread-safe; the daemon passes the DB and the
@@ -29,6 +29,9 @@ struct EmojiBackend {
 	std::function<std::vector<models::CustomEmoji>(const std::vector<int64_t> &)>
 		load_emoji;
 	std::function<void(const models::CustomEmoji &)> save_emoji;
+	std::function<std::vector<models::MessageEffect>(const std::vector<int64_t> &)>
+		load_effects;
+	std::function<void(const models::MessageEffect &)> save_effect;
 	std::function<uint64_t(const models::File &)> record_file;
 	std::function<TDLib::TdObject(TDLib::TdFunction, std::chrono::milliseconds)>
 		request;
@@ -36,14 +39,15 @@ struct EmojiBackend {
 
 class DB;
 
-/* The backend of the daemon: @db's table and file rows, and @tdlib. Both
+/* The backend of the daemon: @db's tables and file rows, and @tdlib. Both
  * must outlive the API. */
 EmojiBackend emojiBackendOf(TDLib &tdlib, DB &db);
 
 /*
- * Register POST /v1/custom-emoji (docs/internal-api.md): the rows of
- * the ids asked for, filled from getCustomEmojiStickers for the ids not
- * stored yet.
+ * Register POST /v1/custom-emoji and POST /v1/message-effects
+ * (docs/internal-api.md): the rows of the ids asked for, filled from
+ * getCustomEmojiStickers and getMessageEffect for the ids not stored
+ * yet.
  */
 void registerEmojiApi(InternalApi &api, EmojiBackend backend);
 

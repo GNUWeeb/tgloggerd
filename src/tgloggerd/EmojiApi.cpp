@@ -9,6 +9,7 @@
 
 #include <td/telegram/td_api.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <limits>
@@ -30,8 +31,14 @@ using Clock = std::chrono::steady_clock;
 /* getCustomEmojiStickers takes at most this many ids. */
 constexpr size_t kMaxEmojiIds = 200;
 
+/* At most this many effects in one request: one getMessageEffect each. */
+constexpr size_t kMaxEffectIds = 50;
+
 /* Per TDLib request, as the chat endpoints. */
 constexpr std::chrono::milliseconds kRequestTimeout = 15s;
+
+/* All the getMessageEffect calls of one request together. */
+constexpr std::chrono::milliseconds kEffectsBudget = 20s;
 
 /* How long an id Telegram does not know is answered as missing without
  * asking again. */
@@ -156,6 +163,21 @@ nlohmann::json emojiJson(const models::CustomEmoji &e)
 	};
 }
 
+nlohmann::json effectJson(const models::MessageEffect &e)
+{
+	return {
+		{ "effect_id", std::to_string(e.effect_id) },
+		{ "emoji", e.emoji },
+		{ "is_premium", e.is_premium },
+		{ "type", textJson(e.effect_type) },
+		{ "static_icon_file_id", fileJson(e.static_icon_file_id) },
+		{ "select_animation_file_id", fileJson(e.select_animation_file_id) },
+		{ "effect_animation_file_id", fileJson(e.effect_animation_file_id) },
+		{ "sticker_file_id", fileJson(e.sticker_file_id) },
+		{ "sticker_format", textJson(e.sticker_format) },
+	};
+}
+
 nlohmann::json answer(const Outcome &o, size_t asked, const char *key,
 		      nlohmann::json rows, const std::vector<int64_t> &missing)
 {
@@ -243,18 +265,120 @@ nlohmann::json customEmoji(const EmojiBackend &be, MissCache &misses,
 	return answer(o, want.size(), "emoji", std::move(out), missing_ordered);
 }
 
+/* POST /v1/message-effects */
+nlohmann::json messageEffects(const EmojiBackend &be, MissCache &misses,
+			      const std::vector<int64_t> &ids)
+{
+	using Slot = EffectFile::Slot;
+	const auto now = Clock::now();
+	const auto deadline = now + kEffectsBudget;
+	std::unordered_map<int64_t, models::MessageEffect> rows;
+	for (auto &e : be.load_effects(ids))
+		rows[e.effect_id] = std::move(e);
+
+	std::vector<int64_t> want;
+	std::unordered_set<int64_t> missing;
+	for (int64_t id : ids) {
+		if (rows.count(id))
+			continue;
+		if (misses.fresh(id, now))
+			missing.insert(id);
+		else
+			want.push_back(id);
+	}
+
+	/* One call per effect, stopping at the first failure: a flood
+	 * wait or TDLib not ready would fail the rest as well. */
+	Outcome o;
+	size_t asked = 0;
+	for (int64_t id : want) {
+		auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+			deadline - Clock::now());
+		if (left <= 0ms) {
+			o.outcome = "timeout";
+			o.message = "Telegram did not answer in time";
+			break;
+		}
+		asked++;
+		TDLib::TdObject obj = be.request(
+			td_api::make_object<td_api::getMessageEffect>(id),
+			std::min(left, kRequestTimeout));
+		if (obj && obj->get_id() == td_api::error::ID) {
+			auto &err = static_cast<const td_api::error &>(*obj);
+			if (err.code_ == 404) {
+				/* Not an effect Telegram has. */
+				misses.add(id, now);
+				missing.insert(id);
+				continue;
+			}
+			o = outcomeOf(err);
+			break;
+		}
+		if (!obj || obj->get_id() != td_api::messageEffect::ID) {
+			o.outcome = "error";
+			o.message = "unexpected answer from TDLib";
+			break;
+		}
+		auto &eff = static_cast<const td_api::messageEffect &>(*obj);
+		models::MessageEffect e = message_effect_of(eff);
+		e.effect_id = id;
+		for (const auto &x : message_effect_files(eff)) {
+			auto mf = sticker_file_meta(x.file, x.ext);
+			if (!mf)
+				continue;
+			const uint64_t fid = be.record_file(*mf);
+			switch (x.slot) {
+			case Slot::StaticIcon:
+				e.static_icon_file_id = fid;
+				break;
+			case Slot::SelectAnimation:
+				e.select_animation_file_id = fid;
+				break;
+			case Slot::EffectAnimation:
+				e.effect_animation_file_id = fid;
+				break;
+			case Slot::Sticker:
+				e.sticker_file_id = fid;
+				break;
+			}
+		}
+		be.save_effect(e);
+		rows[id] = std::move(e);
+	}
+
+	nlohmann::json out = nlohmann::json::array();
+	std::vector<int64_t> missing_ordered;
+	for (int64_t id : ids) {
+		auto it = rows.find(id);
+		if (it != rows.end())
+			out.push_back(effectJson(it->second));
+		else if (missing.count(id))
+			missing_ordered.push_back(id);
+	}
+	return answer(o, asked, "effects", std::move(out), missing_ordered);
+}
+
 } /* namespace */
 
 void registerEmojiApi(InternalApi &api, EmojiBackend backend)
 {
 	auto be = std::make_shared<const EmojiBackend>(std::move(backend));
 	auto emoji_misses = std::make_shared<MissCache>();
+	auto effect_misses = std::make_shared<MissCache>();
 
 	api.route("POST", "/v1/custom-emoji",
 		  [be, emoji_misses](const InternalApi::Request &req) {
 		std::vector<int64_t> ids = parseIds(req.body, kMaxEmojiIds);
 		InternalApi::Response r;
 		r.body = customEmoji(*be, *emoji_misses, ids);
+		return r;
+	});
+
+	api.route("POST", "/v1/message-effects",
+		  [be, effect_misses](const InternalApi::Request &req) {
+		std::vector<int64_t> ids = parseIds(req.body, kMaxEffectIds);
+		InternalApi::Response r;
+		r.body = messageEffects(*be, *effect_misses, ids);
 		return r;
 	});
 }
