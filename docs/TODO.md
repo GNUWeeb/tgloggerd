@@ -110,7 +110,6 @@ Storing every kind of Telegram message faithfully:
 
 - [`msg-repair-census`](todo/msg-repair-census.md): Count what the repair pass left without a kind or detail, turn it off, and adjust these items.
 - [`msg-custom-emoji-store`](todo/msg-custom-emoji-store.md): Fill the custom emoji table on demand from a daemon endpoint, with each sticker's file.
-- [`msg-rich-render`](todo/msg-rich-render.md): Draw a rich message's page blocks and media in the chat and on its message page.
 - [`msg-custom-emoji-web`](todo/msg-custom-emoji-web.md): Draw custom emoji as their stickers in text, reactions, topic icons and effects.
 - [`msg-link-preview-media`](todo/msg-link-preview-media.md): Keep and show a link preview's own video or audio, embed size and Telegram target.
 - [`msg-chat-backgrounds`](todo/msg-chat-backgrounds.md): Keep and show a background change's wallpaper and fill, and an animated chat photo's video.
