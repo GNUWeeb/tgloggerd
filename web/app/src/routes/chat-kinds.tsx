@@ -10,7 +10,8 @@ import { Building2, Check, CircleDashed, CircleHelp, Contact, Dices, Eye, Gamepa
 import { Link } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { compact, dateTime, fmt } from '../format.ts';
-import { duration } from '../ui/media.tsx';
+import { TypeIcon, duration, type ContentType } from '../ui/media.tsx';
+import { contentLabel } from '../ui/labels.ts';
 import { PaidMedia } from './chat-paid.tsx';
 import type { Viewer } from '../page.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
@@ -92,13 +93,33 @@ const EXPIRED: Readonly<Record<string, string>> = {
 	messageExpiredVoiceNote: 'Expired voice message',
 };
 
+// A kind the archive cannot show, as one line.
+function Placeholder({ kind, tdlib }: { kind: keyof typeof PLACEHOLDER; tdlib?: string | null }) {
+	const [generic, I] = PLACEHOLDER[kind];
+	const label = kind === 'expired' && tdlib && Object.hasOwn(EXPIRED, tdlib) ? EXPIRED[tdlib]! : generic;
+	return <div className="c-unknown c-sub k-placeholder"><I size={14} />{label}</div>;
+}
+
+// A kind whose detail is missing (a poll whose poll was never stored,
+// an old location or contact logged before content_extra): what was
+// not recorded of it.
+const UNRECORDED: Readonly<Record<string, string>> = {
+	location: 'its place was', venue: 'its place was', contact: 'its details were', dice: 'its throw was', game: 'its details were',
+	poll: 'its options were', checklist: 'its tasks were', story: 'its poster was', invoice: 'its details were',
+	giveaway: 'its details were', call: 'its details were', paid_media: 'its items were',
+};
+const isPlaceholder = (ct: string): ct is keyof typeof PLACEHOLDER => Object.hasOwn(PLACEHOLDER, ct);
+
 // What stands in for a kind's card when there is none to draw: for an
-// unknown kind, which TDLib class it was, when known. Null when the
-// kind needs nothing.
-export const hasFallback = (ct: string): boolean => ct === 'unknown';
-export function KindFallback({ ct, tdlib }: { ct: string; tdlib?: string | null }) {
+// unknown kind, which TDLib class it was, when known; for a kind whose
+// detail is missing, one line with its icon. Null when the kind needs
+// nothing.
+export const hasFallback = (ct: string): boolean => ct === 'unknown' || isPlaceholder(ct) || Object.hasOwn(UNRECORDED, ct);
+export function KindFallback({ ct, tdlib }: { ct: ContentType; tdlib?: string | null }) {
 	if (ct === 'unknown') return <div className="c-unknown c-sub">{tdlib ? `A kind of message this view does not show yet (${tdlib})` : 'A kind of message this view does not show'}</div>;
-	return null;
+	if (isPlaceholder(ct)) return <Placeholder kind={ct} tdlib={tdlib} />;
+	if (!Object.hasOwn(UNRECORDED, ct)) return null;
+	return <div className="c-unknown c-sub k-placeholder"><TypeIcon type={ct} size={14} />{`${contentLabel(ct)} (${UNRECORDED[ct]!} not recorded)`}</div>;
 }
 
 // The kinds whose message text belongs inside the card (a checklist's
@@ -236,11 +257,8 @@ export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; t
 					<PaidMedia items={d.items} onClick={v.chat?.media === 'click'} />
 				</div>
 			);
-		default: {
-			const [generic, I] = PLACEHOLDER[d.kind];
-			const label = d.kind === 'expired' && tdlib && Object.hasOwn(EXPIRED, tdlib) ? EXPIRED[tdlib]! : generic;
-			return <div className="c-unknown c-sub k-placeholder"><I size={14} />{label}</div>;
-		}
+		default:
+			return <Placeholder kind={d.kind} tdlib={tdlib} />;
 	}
 }
 

@@ -120,6 +120,10 @@ function samples(): Sample[] {
 		// its place from the end, so the ones after them keep theirs (and
 		// their file ids).
 		{ content_type: 'expired', detail: () => ({ kind: 'expired' }), tdlib_type: 'messageExpiredVideoNote' },
+		// A poll whose poll was never stored, and a location logged before
+		// its place was: no detail.
+		{ content_type: 'poll' },
+		{ content_type: 'location' },
 		{ content_type: 'text', text: formatted, entities: (v) => entitiesIn(formatted, [
 			['https://example.org/notes', 'url'], ['the changelog', 'text_url', { url: 'https://example.org/changelog' }],
 			[`@${handleOf(ha)}`, 'mention', v.user(ha) ? { user_id: ha } : {}], [`@${handleOf(hx)}`, 'mention', v.user(hx) ? { user_id: hx } : {}], ['@nobody_here_x', 'mention'],
@@ -192,7 +196,7 @@ function table(): Map<string, Sample> {
 	let pollId: number | null = null;
 	list.forEach((s, i) => {
 		const m = all[start + i]!;
-		if (s.content_type === 'poll' && pollId === null) pollId = m.message_id;
+		if (s.content_type === 'poll' && s.detail && pollId === null) pollId = m.message_id;
 		if (s.service && s.content_type === 'service' && i === list.length - 1) {
 			const make = s.service;
 			s.service = (v) => ({ ...make(v), refs: { ...make(v).refs, message_id: pollId } });

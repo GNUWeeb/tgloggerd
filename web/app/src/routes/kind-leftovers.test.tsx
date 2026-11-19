@@ -92,3 +92,20 @@ describe('an unknown kind', () => {
 		expect(screen.queryByText('(no text)')).toBeNull();
 	});
 });
+
+describe('a kind whose detail is missing', () => {
+	it('says what was not recorded of it in the chat', () => {
+		const msgs = showChat();
+		const poll = sample(msgs, (m) => m.content_type === 'poll' && m.detail === null);
+		const line = bubble(poll).getByText('Poll (its options were not recorded)');
+		expect(line.querySelector('svg')).toBeTruthy();
+		const place = sample(msgs, (m) => m.content_type === 'location' && m.detail === null);
+		expect(bubble(place).getByText('Location (its place was not recorded)')).toBeTruthy();
+	});
+
+	it('says so on its own page instead of "(no text)"', () => {
+		showPage(sample(samples(), (m) => m.content_type === 'poll' && m.detail === null));
+		expect(within(document.querySelector('.a-msgkind') as HTMLElement).getByText('Poll (its options were not recorded)')).toBeTruthy();
+		expect(screen.queryByText('(no text)')).toBeNull();
+	});
+});
