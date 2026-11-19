@@ -15,13 +15,14 @@ import (
 	"tgloggerd/webapi/internal/scope"
 )
 
-// The group page's Files tab (webapi/openapi.yaml: GroupFilesProps):
-// the route group_files carries the group page's props (GroupProps), as
-// its other tabs do, and beside them the newest page of the group's
-// files; GET /api/groups/{id}/files answers the same list, for the
-// following pages and for other clients. For a signed-in viewer whose
-// scope sees the group: unlike its overview and chat, an exposed
-// group's tabs are not public.
+// The group page's Files and Polls tabs (webapi/openapi.yaml:
+// GroupFilesProps, GroupPollsProps): the routes group_files and
+// group_polls carry the group page's props (GroupProps), as its other
+// tabs do, and beside them the newest page of the group's files or
+// polls; GET /api/groups/{id}/files and /api/groups/{id}/polls answer
+// the same lists, for the following pages and for other clients. For a
+// signed-in viewer whose scope sees the group: unlike its overview and
+// chat, an exposed group's tabs are not public.
 
 // tabSenderJSON is who sent a tab's message (TabSender): a user, or a
 // chat posting in its own name, named only when the viewer sees it.
@@ -98,6 +99,24 @@ type groupFilesJSON struct {
 type groupFilesProps struct {
 	groupProps
 	groupFilesJSON
+}
+
+// groupPollRowJSON is GroupPollRow: a poll message and its poll, as the
+// chat shows it (PollDetail); nil when the poll is not stored.
+type groupPollRowJSON struct {
+	tabMessageJSON
+	Poll any `json:"poll"`
+}
+
+// groupPollsJSON is GroupPollsPage.
+type groupPollsJSON struct {
+	Rows       []groupPollRowJSON `json:"rows"`
+	NextBefore *int64             `json:"next_before"`
+}
+
+type groupPollsProps struct {
+	groupProps
+	groupPollsJSON
 }
 
 // tabQuery is a tab's query string: ?before= the message id the page
@@ -180,6 +199,35 @@ func (s *Server) groupFiles(ctx context.Context, sc scope.Scope, signedIn bool, 
 	return out, nil
 }
 
+// groupPolls is the polls tab's list of a group the scope sees, each
+// poll as the chat's detail of it, the polls read in one batch.
+func (s *Server) groupPolls(ctx context.Context, sc scope.Scope, signedIn bool, chat int64,
+	t tabQuery) (groupPollsJSON, error) {
+	p, err := logdb.GroupPolls(ctx, s.ro, sc, chat, t.before, logdb.TabPageSize)
+	if err != nil {
+		return groupPollsJSON{}, err
+	}
+	ms := make([]logdb.Message, 0, len(p.Items))
+	for _, it := range p.Items {
+		ms = append(ms, it.Message)
+	}
+	k, err := s.loadKinds(ctx, sc, chat, ms)
+	if err != nil {
+		return groupPollsJSON{}, err
+	}
+	v := s.viewFor(sc, signedIn)
+	n := names{p.Users, p.Groups}
+	out := groupPollsJSON{Rows: []groupPollRowJSON{}, NextBefore: nextBefore(p)}
+	for _, m := range ms {
+		row := groupPollRowJSON{tabMessageJSON: v.tabMessage(n, chat, m)}
+		if d := v.detail(k, m); d != nil {
+			row.Poll = d
+		}
+		out.Rows = append(out.Rows, row)
+	}
+	return out, nil
+}
+
 // groupHead is the group page's own props (GroupProps), as its other
 // tabs carry them, for a viewer that sees the group; errPageNotFound
 // otherwise. The tab's ?before= is a message id, not the history's
@@ -214,6 +262,18 @@ func loadGroupFiles(ctx context.Context, pr *pageRequest) (any, error) {
 		return nil, err
 	}
 	return groupFilesProps{groupProps: g, groupFilesJSON: f}, nil
+}
+
+func loadGroupPolls(ctx context.Context, pr *pageRequest) (any, error) {
+	g, err := groupHead(ctx, pr)
+	if err != nil {
+		return nil, err
+	}
+	p, err := pr.s.groupPolls(ctx, pr.scope, pr.sess != nil, g.Group.ID, pr.tabQueryOf(false))
+	if err != nil {
+		return nil, err
+	}
+	return groupPollsProps{groupProps: g, groupPollsJSON: p}, nil
 }
 
 // tabRequest reads a tab API request: the group, which the scope must
@@ -256,6 +316,21 @@ func (s *Server) getGroupFiles(w http.ResponseWriter, r *http.Request) {
 	out, err := s.groupFiles(r.Context(), ScopeFrom(r.Context()), true, id, t)
 	if err != nil {
 		s.internalError(w, "group files", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// getGroupPolls answers GET /api/groups/{id}/polls.
+func (s *Server) getGroupPolls(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	id, t, ok := s.tabRequest(w, r, false)
+	if !ok {
+		return
+	}
+	out, err := s.groupPolls(r.Context(), ScopeFrom(r.Context()), true, id, t)
+	if err != nil {
+		s.internalError(w, "group polls", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)

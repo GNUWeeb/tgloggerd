@@ -340,6 +340,7 @@ func (s *Server) routes() []route {
 		{"GET /api/groups/{id}/history", s.RequireSession(s.getGroupHistory)},
 		{"GET /api/groups/{id}/photos", s.RequireSession(s.getGroupPhotos)},
 		{"GET /api/groups/{id}/files", s.RequireSession(s.getGroupFiles)},
+		{"GET /api/groups/{id}/polls", s.RequireSession(s.getGroupPolls)},
 	}
 }
 

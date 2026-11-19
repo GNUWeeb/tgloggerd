@@ -15,10 +15,10 @@ import (
 	"tgloggerd/webapi/internal/scope"
 )
 
-// The group page's Files tab: a group's messages that carry a file,
-// newest first by Telegram message id, a page at a time. Each page is
-// one query on the group's messages, walked down the (chat_id,
-// message_id) index, and one batch for the senders it names.
+// The group page's Files and Polls tabs: a group's messages that carry
+// a file, or a poll, newest first by Telegram message id, a page at a
+// time. Each page is one query on the group's messages, walked down the
+// (chat_id, message_id) index, and one batch for the senders it names.
 // The caller has checked that the scope sees the group.
 
 // TabPageSize is how many messages a page of the tabs holds.
@@ -85,6 +85,16 @@ func GroupFiles(ctx context.Context, db *sql.DB, sc scope.Scope, chat int64, kin
 		"JOIN telegram_files f ON f.id = m.file_id " +
 		"WHERE m.chat_id = ? AND m.content_type IN (" + placeholders(len(kinds)) + ")"
 	return tabPage(ctx, db, sc, chat, q, args, before, limit, true)
+}
+
+// GroupPolls is a page of the group's poll messages, as GroupFiles.
+// The polls themselves are the caller's to load (PollsByID), from the
+// messages' content_extra.
+func GroupPolls(ctx context.Context, db *sql.DB, sc scope.Scope, chat int64,
+	before int64, limit int) (TabPage, error) {
+	q := tabSelect + " FROM telegram_group_messages m " +
+		"WHERE m.chat_id = ? AND m.content_type = 'poll'"
+	return tabPage(ctx, db, sc, chat, q, []any{chat}, before, limit, false)
 }
 
 // tabPage runs a tab's query q (its WHERE begun, with args) for the

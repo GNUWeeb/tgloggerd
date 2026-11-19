@@ -147,7 +147,7 @@ export interface paths {
          * A page's data
          * @description The data of the page at /<path>, the same object the server embeds in the page's HTML on a first load (web-ssr.md sections 5 and 7), for navigation in the browser. `path` is the page's path without its leading slash (empty for the dashboard at /); its slashes may be sent as they are or encoded as %2F. The page's query string (search, filters, sort, page) is passed on as the query string of this request.
          *
-         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_files /groups/{id}/files; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; federation /settings/federations/{id}; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; bots /platform-fwd/bots; join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
+         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_files /groups/{id}/files; group_polls /groups/{id}/polls; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; federation /settings/federations/{id}; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; bots /platform-fwd/bots; join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
          *
          *     /messages/{group|private}, the Drogon message lists that its message pages link to, answers {"reload": true}: its document redirects (302) to /group_messages or /private_messages, filtered by its ?chat_id= and with ?per= its ?limit=.
          *
@@ -157,7 +157,7 @@ export interface paths {
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public chats of exposed groups (group_chat).
          *
-         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_files, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope. The users, groups, group_messages and private_messages lists take every field of their search registry (ListState.fields) with the search's operators and connectors, besides their own filter keys, and sort by the registry's sortable fields too; a filter or search text they refuse, or a search that runs out of time, answers the whole list with ListState.error, as the Drogon lists did. The files list drops a filter it does not take, not echoed in conds. per defaults to the viewer's rows_per_page and goes up to 1000. archive_total is there only for a viewer who sees the whole archive of that list. A Drogon list URL (search, offset, limit, order, without f, page, per and dir) is read as the same list, and the answer's url is the translated one, to put in the address bar. The user and group pages and their history pages take before, the history cursor (history_next). group_files takes kind (FileKind) and before, as getGroupFiles does, except that a value that does not parse is ignored instead of answering 400. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
+         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_files, group_polls, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope. The users, groups, group_messages and private_messages lists take every field of their search registry (ListState.fields) with the search's operators and connectors, besides their own filter keys, and sort by the registry's sortable fields too; a filter or search text they refuse, or a search that runs out of time, answers the whole list with ListState.error, as the Drogon lists did. The files list drops a filter it does not take, not echoed in conds. per defaults to the viewer's rows_per_page and goes up to 1000. archive_total is there only for a viewer who sees the whole archive of that list. A Drogon list URL (search, offset, limit, order, without f, page, per and dir) is read as the same list, and the answer's url is the translated one, to put in the address bar. The user and group pages and their history pages take before, the history cursor (history_next). group_files takes kind (FileKind) and before, and group_polls before, as getGroupFiles and getGroupPolls do, except that a value that does not parse is ignored instead of answering 400. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
         put?: never;
@@ -1271,6 +1271,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/groups/{id}/polls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page of a group's polls
+         * @description The group's poll messages, newest first (by Telegram message id), 50 a page, each with its poll as the chat shows it (PollDetail). The group page's Polls tab (route group_polls) carries the first page in its props; this answers it and the following ones (before = next_before). Each page is one query on the group's messages, the senders and the polls in one batch each. Who may read it, as getGroupFiles.
+         */
+        get: operations["getGroupPolls"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1410,7 +1430,7 @@ export interface components {
             props?: Record<string, never>;
         };
         /** @description The page data; `route` says which props it carries. */
-        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageGroupFiles"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageFederation"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageBots"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PagePasswordChange"];
+        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageGroupFiles"] | components["schemas"]["PageGroupPolls"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageFederation"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageBots"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PagePasswordChange"];
         PageLinkPage: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
             route: "password_forgot" | "password_set" | "email_verify";
@@ -1455,6 +1475,11 @@ export interface components {
             /** @enum {unknown} */
             route: "group_files";
             props: components["schemas"]["GroupFilesProps"];
+        };
+        PageGroupPolls: components["schemas"]["PageBase"] & {
+            /** @enum {unknown} */
+            route: "group_polls";
+            props: components["schemas"]["GroupPollsProps"];
         };
         PageFiles: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
@@ -2672,7 +2697,7 @@ export interface components {
             /** @description The messages of that kind with a file; null when not counted. */
             count: number | null;
         };
-        /** @description The message a row of the group's Files tab comes from. */
+        /** @description The message a row of the group's Files or Polls tab comes from. */
         TabMessage: {
             /**
              * Format: int64
@@ -2724,6 +2749,20 @@ export interface components {
             /** @description As FileRow.minithumb; absent when there is none. */
             minithumb?: string;
         } & components["schemas"]["TabMessage"];
+        /** @description The group page's Polls tab (route group_polls): the group page's own props (GroupProps), as its other tabs carry them, and beside them the first page of its polls for the page's before, as getGroupPolls answers it. */
+        GroupPollsProps: components["schemas"]["GroupProps"] & components["schemas"]["GroupPollsPage"];
+        GroupPollsPage: {
+            rows: components["schemas"]["GroupPollRow"][];
+            /**
+             * Format: int64
+             * @description The before of the next page (the last row's message_id); null when this is the last one.
+             */
+            next_before: number | null;
+        };
+        GroupPollRow: components["schemas"]["TabMessage"] & {
+            /** @description The poll as the chat's message detail shows it: closed once past its close date, at most 20 options with options_total; null when the poll was never stored. */
+            poll: components["schemas"]["PollDetail"] | null;
+        };
         /** @description The files list (route files). Its filters (Cond field, ops): id, size and hits (=, !=, >, <); file_type (=, != one of FileRow's file_type values, unknown included); name, ext and tg_file_id (contains, =, empty); stored (is yes or no); sha256 (=, != a digest of 64 hex digits, either case); created_at, updated_at and accessed_at (>, < a day, YYYY-MM-DD). Its sorts: id, name, file_type, ext, size, hits, created_at (the default) and accessed_at. The search text matches the name, and the id when it is a number. */
         FilesProps: components["schemas"]["ListState"] & {
             rows: components["schemas"]["FileRow"][];
@@ -6066,6 +6105,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GroupFilesPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getGroupPolls: {
+        parameters: {
+            query?: {
+                /** @description The message id a page answered as next_before: the messages below it. Absent, the newest. Anything but a positive integer is 400 bad_request. */
+                before?: components["parameters"]["TabBefore"];
+            };
+            header?: never;
+            path: {
+                /** @description The group's Telegram chat id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page, and where the next begins. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupPollsPage"];
                 };
             };
             400: components["responses"]["BadRequest"];

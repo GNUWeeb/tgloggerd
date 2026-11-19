@@ -621,6 +621,7 @@ paths:
         group_admins /groups/{id}/admins;
         group_history /groups/{id}/history;
         group_files /groups/{id}/files;
+        group_polls /groups/{id}/polls;
         group_chat /groups/{id}/chat;
         files /files;
         group_messages /group_messages;
@@ -675,7 +676,7 @@ paths:
 
         So far the service loads the data of login, dashboard, user,
         user_history, user_chat, group, group_admins, group_history,
-        group_files, group_chat and message, of the list pages users, groups,
+        group_files, group_polls, group_chat and message, of the list pages users, groups,
         files, group_messages and private_messages, of the settings
         pages, of the administration pages accounts, federations,
         federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram,
@@ -702,9 +703,9 @@ paths:
         same list, and the answer's url is the translated one, to put
         in the address bar. The user and group pages and their history
         pages take before, the history cursor (history_next).
-        group_files takes kind (FileKind) and before, as getGroupFiles
-        does, except that a value that does not parse is ignored
-        instead of answering 400.
+        group_files takes kind (FileKind) and before, and group_polls
+        before, as getGroupFiles and getGroupPolls do, except that a
+        value that does not parse is ignored instead of answering 400.
         The
         page's document
         (its HTML, web-ssr.md section 5) is served at the page's own
@@ -3742,6 +3743,46 @@ paths:
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
+  /api/groups/{id}/polls:
+    get:
+      operationId: getGroupPolls
+      tags: [groups]
+      summary: A page of a group's polls
+      description: >-
+        The group's poll messages, newest first (by Telegram message
+        id), 50 a page, each with its poll as the chat shows it
+        (PollDetail). The group page's Polls tab (route group_polls)
+        carries the first page in its props; this answers it and the
+        following ones (before = next_before). Each page is one query
+        on the group's messages, the senders and the polls in one batch
+        each. Who may read it, as getGroupFiles.
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The group's Telegram chat id.
+          schema:
+            type: integer
+            format: int64
+        - $ref: '#/components/parameters/TabBefore'
+      responses:
+        '200':
+          description: The page, and where the next begins.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupPollsPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
 components:
 
   securitySchemes:
@@ -4228,6 +4269,7 @@ components:
         - $ref: '#/components/schemas/PageGroups'
         - $ref: '#/components/schemas/PageGroup'
         - $ref: '#/components/schemas/PageGroupFiles'
+        - $ref: '#/components/schemas/PageGroupPolls'
         - $ref: '#/components/schemas/PageFiles'
         - $ref: '#/components/schemas/PageMessages'
         - $ref: '#/components/schemas/PageMessage'
@@ -4341,6 +4383,16 @@ components:
               enum: [group_files]
             props:
               $ref: '#/components/schemas/GroupFilesProps'
+    PageGroupPolls:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          required: [route, props]
+          properties:
+            route:
+              enum: [group_polls]
+            props:
+              $ref: '#/components/schemas/GroupPollsProps'
     PageFiles:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -6841,7 +6893,7 @@ components:
           description: The messages of that kind with a file; null when not counted.
     TabMessage:
       type: object
-      description: The message a row of the group's Files tab comes from.
+      description: The message a row of the group's Files or Polls tab comes from.
       required: [message_id, message_row_id, date, sender, chat_link]
       properties:
         message_id:
@@ -6925,6 +6977,43 @@ components:
               type: string
               description: As FileRow.minithumb; absent when there is none.
         - $ref: '#/components/schemas/TabMessage'
+    GroupPollsProps:
+      description: >-
+        The group page's Polls tab (route group_polls): the group
+        page's own props (GroupProps), as its other tabs carry them,
+        and beside them the first page of its polls for the page's
+        before, as getGroupPolls answers it.
+      allOf:
+        - $ref: '#/components/schemas/GroupProps'
+        - $ref: '#/components/schemas/GroupPollsPage'
+    GroupPollsPage:
+      type: object
+      required: [rows, next_before]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupPollRow'
+        next_before:
+          type: [integer, 'null']
+          format: int64
+          description: >-
+            The before of the next page (the last row's message_id);
+            null when this is the last one.
+    GroupPollRow:
+      allOf:
+        - $ref: '#/components/schemas/TabMessage'
+        - type: object
+          required: [poll]
+          properties:
+            poll:
+              description: >-
+                The poll as the chat's message detail shows it: closed
+                once past its close date, at most 20 options with
+                options_total; null when the poll was never stored.
+              oneOf:
+                - $ref: '#/components/schemas/PollDetail'
+                - type: 'null'
     FilesProps:
       description: >-
         The files list (route files). Its filters (Cond field, ops):

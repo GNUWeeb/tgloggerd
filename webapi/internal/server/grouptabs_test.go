@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// The group page's Files tab, on the "group_tabs" fixture (Tabs Lab: 61
-// messages with files).
+// The group page's Files and Polls tabs, on the "group_tabs" fixture
+// (Tabs Lab: 61 messages with files, 55 polls).
 
 const (
 	tabsLab     = int64(-1001000000060)
@@ -38,7 +38,7 @@ func tabProps(t *testing.T, e *adminEnv, role, path string) map[string]any {
 	if st != 200 {
 		t.Fatalf("%s %s: %d %v", role, path, st, b)
 	}
-	if b["route"] != "group_files" {
+	if b["route"] != "group_files" && b["route"] != "group_polls" {
 		t.Fatalf("%s: route %v", path, b["route"])
 	}
 	return b["props"].(map[string]any)
@@ -258,7 +258,95 @@ func TestGroupFilesLinks(t *testing.T) {
 	}
 }
 
-// The tab, page and API, for every role: 200 for a viewer that sees
+// The polls tab: newest first, paged, each with the chat's poll detail
+// (the past-close-date rule, at most 20 options), its sender and links.
+func TestGroupPolls(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, tabsFixture)
+	grantMember(t, e, []int64{tabsLab})
+
+	p := tabProps(t, e, "admin", tabsPath("polls", ""))
+	if g := p["group"].(map[string]any); g["id"] != float64(tabsLab) {
+		t.Errorf("group %v", g)
+	}
+	rows := tabRows(p)
+	if len(rows) != 50 || rows[0]["message_id"] != tabsMsgID(150) || rows[49]["message_id"] != tabsMsgID(101) ||
+		p["next_before"] != tabsMsgID(101) {
+		t.Fatalf("%d rows, first %v, next %v", len(rows), rows[0]["message_id"], p["next_before"])
+	}
+	next := fmt.Sprint(int64(tabsMsgID(101)))
+	p2 := tabProps(t, e, "admin", tabsPath("polls", "before="+next))
+	rows2 := tabRows(p2)
+	if len(rows2) != 5 || p2["next_before"] != nil {
+		t.Fatalf("second page: %d rows, next %v", len(rows2), p2["next_before"])
+	}
+	at := map[int]map[string]any{}
+	for i, n := range []int{74, 73, 72, 71, 70} {
+		if rows2[i]["message_id"] != tabsMsgID(n) {
+			t.Fatalf("row %d: %v", i, rows2[i]["message_id"])
+		}
+		at[n] = rows2[i]
+	}
+	poll := func(n int) map[string]any {
+		t.Helper()
+		pl, _ := at[n]["poll"].(map[string]any)
+		if pl == nil {
+			t.Fatalf("poll %d: %v", n, at[n]["poll"])
+		}
+		return pl
+	}
+
+	open := poll(70)
+	if open["question"] != "Lunch?" || open["type"] != "regular" || open["anonymous"] != false ||
+		open["multiple"] != true || open["closed"] != false || open["total_voters"] != 7.0 ||
+		open["options_total"] != 2.0 || js(open["options"]) != `[{"correct":false,"percent":57,"text":"Rice","voters":4},{"correct":false,"percent":43,"text":"Noodles","voters":3}]` {
+		t.Errorf("open poll %s", js(open))
+	}
+	// Stored open, but past its close date: closed.
+	if pl := poll(71); pl["closed"] != true || pl["close_date"] != iso(1794931200-100) {
+		t.Errorf("past close date %s", js(pl))
+	}
+	quiz := poll(72)
+	opts := quiz["options"].([]any)
+	if quiz["type"] != "quiz" || quiz["closed"] != true || len(opts) != 20 || quiz["options_total"] != 25.0 ||
+		quiz["explanation"] != "The second one." {
+		t.Errorf("quiz %s", js(quiz))
+	}
+	for i, o := range opts {
+		if c := o.(map[string]any)["correct"]; c != (i == 1) {
+			t.Errorf("quiz option %d correct %v", i, c)
+		}
+	}
+	if at[73]["poll"] != nil {
+		t.Errorf("unstored poll %v", at[73]["poll"])
+	}
+	if got := js(at[74]["sender"]); got != `{"id":-1001000000005,"name":"Assembly Lounge","photo":null,"username":"asm_lounge"}` {
+		t.Errorf("admin, channel poll: %s", got)
+	}
+	if at[70]["chat_link"] != fmt.Sprintf("/groups/%d/chat?at=%d", tabsLab, int64(tabsMsgID(70))) ||
+		at[70]["message_row_id"] != 6070.0 || at[70]["date"] != iso(1794931200-86400+60*70) ||
+		js(at[70]["sender"]) != `{"id":9299000004,"name":"Andi Santoso","photo":null,"username":""}` {
+		t.Errorf("row 70 %v", at[70])
+	}
+
+	// The member sees the same polls, the channel unnamed.
+	m := e.want(200, "member", "GET", fmt.Sprintf("/api/groups/%d/polls?before=%s", tabsLab, next), nil)
+	mr := tabRows(m)
+	if len(mr) != 5 || js(mr[0]["sender"]) != `{"id":null,"name":"(hidden chat)","photo":null,"username":""}` ||
+		js(mr[2]["poll"]) != js(at[72]["poll"]) {
+		t.Errorf("member polls %s", js(m))
+	}
+	if st, b, _ := e.call("admin", "GET", fmt.Sprintf("/api/groups/%d/polls?before=abc", tabsLab), nil); st != 400 {
+		t.Errorf("bad before: %d %v", st, b)
+	}
+	// Another group's poll is its own.
+	g := tabRows(tabProps(t, e, "admin", fmt.Sprintf("/groups/%d/polls", gnuWeeb)))
+	if len(g) != 1 || g[0]["message_row_id"] != 6201.0 {
+		t.Errorf("GNU/Weeb polls %v", g)
+	}
+}
+
+// Both tabs, page and API, for every role: 200 for a viewer that sees
 // the group, 404 for one that does not (a member not granted it, an
 // admin it is hidden from), even for an exposed group, and a session
 // asked of a signed-out visitor.
@@ -267,7 +355,7 @@ func TestGroupTabsScope(t *testing.T) {
 	e := newAdminEnv(t, tabsFixture)
 	grantMember(t, e, []int64{tabsLab})
 	paths := func(g int64) []string {
-		return []string{fmt.Sprintf("/groups/%d/files", g)}
+		return []string{fmt.Sprintf("/groups/%d/files", g), fmt.Sprintf("/groups/%d/polls", g)}
 	}
 	check := func(role string, g int64, want int) {
 		t.Helper()
@@ -299,7 +387,7 @@ func TestGroupTabsScope(t *testing.T) {
 }
 
 // A page costs as many statements with many rows as with one: the
-// senders and the files' pictures come in batches.
+// senders, the files' pictures and the polls come in batches.
 func TestGroupTabsBatched(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t, tabsFixture)
@@ -324,7 +412,18 @@ func TestGroupTabsBatched(t *testing.T) {
 		// The video's row names no chat: one statement less.
 		t.Errorf("files with videos: %d statements for 50 rows, %d for one", videos, video)
 	}
-	if many > 12 {
-		t.Errorf("files: %d statements", many)
+	// Beyond the group page's own, a handful: the rows, the senders,
+	// the chats, the pictures, the polls and their options.
+	page := cost(fmt.Sprintf("/groups/%d", tabsLab))
+	if many > page+6 {
+		t.Errorf("files: %d statements, the group page %d", many, page)
+	}
+	next := fmt.Sprint(int64(tabsMsgID(101)))
+	polls, five := cost(tabsPath("polls", "")), cost(tabsPath("polls", "before="+next))
+	if polls == 0 || polls != five {
+		t.Errorf("polls: %d statements for 50 rows, %d for 5", polls, five)
+	}
+	if polls > page+6 {
+		t.Errorf("polls: %d statements, the group page %d", polls, page)
 	}
 }
