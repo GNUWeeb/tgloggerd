@@ -126,6 +126,12 @@ Storing every kind of Telegram message faithfully:
 - [`msg-edit-detail`](todo/msg-edit-detail.md): Show the detail of a message's earlier versions, such as a live location's earlier positions.
 - [`msg-contact-vcard`](todo/msg-contact-vcard.md): Show the numbers, addresses and organisation in a shared contact's vCard (optional).
 - [`msg-files-roles`](todo/msg-files-roles.md): Show and filter by the role a file plays in its message on /files (optional).
+- [`msg-rich-render`](todo/msg-rich-render.md): Draw a rich message's page blocks and media in the chat and on its message page.
+- [`msg-custom-emoji-web`](todo/msg-custom-emoji-web.md): Draw custom emoji as their stickers in text, reactions, topic icons and effects.
+- [`msg-link-preview-media`](todo/msg-link-preview-media.md): Keep and show a link preview's own video or audio, embed size and Telegram target.
+- [`msg-chat-backgrounds`](todo/msg-chat-backgrounds.md): Keep and show a background change's wallpaper and fill, and an animated chat photo's video.
+- [`msg-gifts`](todo/msg-gifts.md): Keep and show a gift's sticker, an upgraded gift's model, symbol and backdrop, and prize stickers.
+- [`msg-widgets`](todo/msg-widgets.md): Show a widget message's size and, once a sandbox is chosen, its HTML (optional).
 
 ## Web backend in Go
 
