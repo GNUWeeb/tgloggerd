@@ -275,9 +275,10 @@ const tile = (k: MediaKind) => k === 'photo' || k === 'video' || k === 'animatio
 
 // How a media object draws: by the content type, which keeps stickers
 // and voice notes their own look, corrected by Go's render where it
-// says more (a "document" that is really a picture or a video).
+// says more (a "document" that is really a picture or a video). A video
+// note is a video (drawn round) even without a render.
 export function kindOf(ct: string, m: Media): MediaKind | null {
-	const k = KINDS.includes(ct) ? (ct as MediaKind) : null;
+	const k = ct === 'video_note' ? 'video' : KINDS.includes(ct) ? (ct as MediaKind) : null;
 	if (k === 'sticker' || k === 'voice') return k;
 	switch (m.render) {
 		case 'image': return 'photo';
@@ -296,10 +297,12 @@ export function kindOf(ct: string, m: Media): MediaKind | null {
 // content type, media and album, so the message page uses it too.
 export function MessageMedia({ msg, onClick }: { msg: Pick<ChatMessage, 'content_type' | 'media' | 'album'>; onClick: boolean }) {
 	const ct = msg.content_type;
-	const base = msg.media ? kindOf(ct, msg.media) : null;
-	if (!msg.media || !base) return null;
-	const items = [msg.media, ...msg.album].map((m) => ({ m, kind: (m.kind ? kindOf(m.kind, m) : null) ?? base }));
-	if (items.length === 1) return <MediaOf m={msg.media} kind={base} single onClick={onClick} />;
+	// A video note is round, whether or not its media says so.
+	const media = msg.media && ct === 'video_note' && !msg.media.round ? { ...msg.media, round: true } : msg.media;
+	const base = media ? kindOf(ct, media) : null;
+	if (!media || !base) return null;
+	const items = [media, ...msg.album].map((m) => ({ m, kind: (m.kind ? kindOf(m.kind, m) : null) ?? base }));
+	if (items.length === 1) return <MediaOf m={media} kind={base} single onClick={onClick} />;
 	const grid = items.filter((x) => tile(x.kind));
 	const rest = items.filter((x) => !tile(x.kind));
 	return (

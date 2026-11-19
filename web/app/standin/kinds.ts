@@ -29,6 +29,8 @@ const nameOf = (id: number) => {
 const userRef = (id: number): Ref => ({ id, title: nameOf(id), kind: 'user', photo: null });
 const groupRef = (id: number): Ref => ({ id, title: groups.find((g) => g.id === id)?.title ?? `#${id}`, kind: 'group', photo: null });
 const refOf = (v: View, id: number) => (id > 0 ? (v.user(id) ? userRef(id) : null) : v.group(id) ? groupRef(id) : null);
+// A user's profile photo, as the stand-in serves it (fixtures.ts photoOf).
+const withPhoto = (r: Ref | null) => (r ? { ...r, photo: `/files/standin-${800000 + (Math.abs(r.id) % 100000)}` } : null);
 const refs = (v: View, ids: number[]) => ids.map((id) => refOf(v, id)).filter((r): r is Ref => r !== null);
 
 // The sample chats: kinds in a group, topics in a forum group.
@@ -66,6 +68,10 @@ const PAID_ITEMS = [
 	{ kind: 'preview', media: { stored: false, fetchable: false, url: null, thumb: null, minithumb: PAID_BLUR, w: 1280, h: 960 } },
 	{ kind: 'unsupported', media: null },
 ];
+
+// A game's cover is an animation (it plays); an invoice's a photo.
+const GAME_COVER = { stored: true, fetchable: false, url: '/files/standin-986001', thumb: '/files/standin-986101', poster: '/files/standin-986101', render: 'animation', ext: 'mp4', w: 640, h: 360, duration: 3, name: '', size: 310000 };
+const INVOICE_PHOTO = { stored: true, fetchable: false, url: '/files/standin-986002', thumb: '/files/standin-986002', render: 'image', ext: 'jpg', w: 800, h: 600, name: '', size: 64000 };
 
 type Entity = { offset: number; length: number; type: string; url?: string; user_id?: number | null; language?: string; custom_emoji_id?: string };
 type Edit = { at: string; text: string; content_type: string; entities: Entity[] };
@@ -139,6 +145,11 @@ function samples(): Sample[] {
 	// Posters and strangers with a username, for the @mentions.
 	const ha = posters().find((id) => handleOf(id))!;
 	const hx = strangers().find((id) => handleOf(id))!;
+	// A poster without one.
+	const plain = posters().find((id) => !handleOf(id)) ?? (() => { throw new Error('kinds: every poster has a username'); })();
+	// A story, with its poster's username for a viewer who may see them,
+	// as Go sends it.
+	const story = (v: View, poster: number, id: number) => ({ kind: 'story', poster: refOf(v, poster), story_id: id, username: v.user(poster) ? handleOf(poster) || null : null });
 	const formatted = `Release notes: https://example.org/notes and the changelog. Ping @${handleOf(ha)}, @${handleOf(hx)} or @nobody_here_x, `
 		+ `and ${nameOf(b!)} and ${nameOf(y!)}. #release $TGD /status@tgd_bot mail team@example.org or call +62 812 0000 0199. `
 		+ 'Bold with italic inside, underlined, struck, a hidden ending, inline code, a 🎉 custom emoji, at 1:05, card 4242 4242 4242 4242, a future kind, a sneaky link, and bold to the end';
@@ -146,6 +157,16 @@ function samples(): Sample[] {
 		+ 'A long quote that Telegram folds: line one of it,\nline two of it,\nline three of it,\nline four of it.';
 	const editedText = 'The meetup is on Friday at the usual place.';
 	return [
+		// Samples added later go first: each sample takes the message at
+		// its place from the end, so the ones after them keep theirs (and
+		// their file ids).
+		{ content_type: 'expired', detail: () => ({ kind: 'expired' }), tdlib_type: 'messageExpiredVideoNote' },
+		// A poll whose poll was never stored, and a location logged before
+		// its place was: no detail.
+		{ content_type: 'poll' },
+		{ content_type: 'location' },
+		// A story by a poster without a public username: no link.
+		{ content_type: 'story', detail: (v) => story(v, plain, 7) },
 		{ content_type: 'text', text: formatted, entities: (v) => entitiesIn(formatted, [
 			['https://example.org/notes', 'url'], ['the changelog', 'text_url', { url: 'https://example.org/changelog' }],
 			[`@${handleOf(ha)}`, 'mention', v.user(ha) ? { user_id: ha } : {}], [`@${handleOf(hx)}`, 'mention', v.user(hx) ? { user_id: hx } : {}], ['@nobody_here_x', 'mention'],
@@ -165,10 +186,10 @@ function samples(): Sample[] {
 		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.2088, lon: 106.8456, accuracy: null, live: null }), kinds: { reactions: [{ emoji: '📍', count: 2 }] } },
 		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.9175, lon: 107.6191, accuracy: 12, live: { period: 3600, heading: 90, proximity_radius: 0, updates: 17 } }) },
 		{ content_type: 'venue', detail: () => ({ kind: 'venue', lat: -6.1754, lon: 106.8272, title: 'Monas', address: 'Gambir, Central Jakarta', provider: 'foursquare', venue_id: '4b0588f0f964a520a6d822e3', venue_type: 'arts_entertainment/monument' }) },
-		{ content_type: 'contact', detail: (v) => ({ kind: 'contact', first_name: nameOf(a!).split(' ')[0] ?? 'Dewi', last_name: nameOf(a!).split(' ').slice(1).join(' '), phone: v.full ? '+62 812 0000 0101' : null, vcard: v.full ? 'BEGIN:VCARD\nVERSION:3.0\nTEL:+6281200000101\nEND:VCARD' : null, user: refOf(v, a!) }) },
+		{ content_type: 'contact', detail: (v) => ({ kind: 'contact', first_name: nameOf(a!).split(' ')[0] ?? 'Dewi', last_name: nameOf(a!).split(' ').slice(1).join(' '), phone: v.full ? '+62 812 0000 0101' : null, vcard: v.full ? 'BEGIN:VCARD\nVERSION:3.0\nTEL:+6281200000101\nEND:VCARD' : null, user: withPhoto(refOf(v, a!)) }) },
 		{ content_type: 'dice', detail: () => ({ kind: 'dice', emoji: '🎲', value: 4, stake: false }) },
 		{ content_type: 'dice', detail: () => ({ kind: 'dice', emoji: '', value: 6, stake: true }) },
-		{ content_type: 'game', text: 'Beat my score!', detail: () => ({ kind: 'game', title: 'Lumberjack', description: 'Chop the tree, dodge the branches.', short_name: 'lumberjack', photo: null }) },
+		{ content_type: 'game', text: 'Beat my score!', detail: () => ({ kind: 'game', title: 'Lumberjack', description: 'Chop the tree, dodge the branches.', short_name: 'lumberjack', photo: GAME_COVER }) },
 		{ content_type: 'poll', text: 'For the next meetup.', detail: poll('Which editor do you use?', 'regular', ['Vim', 'Neovim', 'Emacs', 'VS Code', 'Helix']), kinds: { pinned: true, views: 1534, forwards: 12, replies: 4, reactions: REACTIONS } },
 		{ content_type: 'poll', detail: poll('Who wrote the first Linux kernel?', 'quiz', ['Richard Stallman', 'Linus Torvalds', 'Andrew Tanenbaum'], {
 			closed: true, close_date: '2026-11-10T12:00:00Z',
@@ -185,9 +206,9 @@ function samples(): Sample[] {
 				{ id: 4, text: 'Announce it in #news', done: false, done_by: null, done_at: null, entities: entitiesIn('Announce it in #news', [['#news', 'hashtag']]) },
 			],
 		}) },
-		{ content_type: 'story', detail: (v) => ({ kind: 'story', poster: refOf(v, c!), story_id: 42 }) },
+		{ content_type: 'story', detail: (v) => story(v, ha, 42) },
 		{ content_type: 'paid_media', text: 'Behind the scenes', detail: () => ({ kind: 'paid_media', star_count: 50, items: PAID_ITEMS }) },
-		{ content_type: 'invoice', detail: () => ({ kind: 'invoice', title: 'Conference ticket', description: 'One seat at the 2026 meetup.', currency: 'IDR', total_amount: 15000000, is_test: true, photo: null }) },
+		{ content_type: 'invoice', detail: () => ({ kind: 'invoice', title: 'Conference ticket', description: 'One seat at the 2026 meetup.', currency: 'IDR', total_amount: 15000000, is_test: true, photo: INVOICE_PHOTO }) },
 		{ content_type: 'giveaway', detail: (v) => ({ kind: 'giveaway', prize: { premium_months: 3 }, winner_count: 5, winners_selection_date: '2026-12-01T12:00:00Z', only_new_members: false, prize_description: '', chats: refs(v, [KINDS_GROUP.id, groups[9]!.id]), chats_total: 2 }) },
 		{ content_type: 'call', detail: (v) => ({ kind: 'call', video: true, group: true, duration: 0, outcome: 'active', participants: refs(v, [a!, b!, x!]), participants_total: 3 }) },
 		{ content_type: 'rich', detail: () => ({ kind: 'rich' }) },
@@ -226,7 +247,7 @@ function table(): Map<string, Sample> {
 	let pollId: number | null = null;
 	list.forEach((s, i) => {
 		const m = all[start + i]!;
-		if (s.content_type === 'poll' && pollId === null) pollId = m.message_id;
+		if (s.content_type === 'poll' && s.detail && pollId === null) pollId = m.message_id;
 		if (s.service && s.content_type === 'service' && i === list.length - 1) {
 			const make = s.service;
 			s.service = (v) => ({ ...make(v), refs: { ...make(v).refs, message_id: pollId } });

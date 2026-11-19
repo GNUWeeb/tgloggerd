@@ -9,7 +9,7 @@ import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
 import { MessageMedia, kindOf } from './chat-media.tsx';
-import { Counts, KindDetail, Reactions, TEXT_INSIDE, topicColor } from './chat-kinds.tsx';
+import { Counts, KindDetail, KindFallback, Reactions, TEXT_INSIDE, hasFallback, topicColor } from './chat-kinds.tsx';
 import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
 import { RichText } from '../ui/richtext.tsx';
@@ -32,6 +32,8 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 	// The media as the chat draws it, by kind; only media no kind fits
 	// (an unknown type without a render) falls back to a plain file row.
 	const drawn = m.media && kindOf(m.content_type, m.media) !== null;
+	// A kind without a card to draw says what it is instead, as in the chat.
+	const fallback = !m.detail && hasFallback(m.content_type);
 	// A service message's action, and the message it is about (a pin).
 	const svcType = m.service?.type ?? m.service_type;
 	const svcAbout = m.service?.refs.message_id ?? null;
@@ -89,8 +91,9 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 									: <div className="a-filerow"><Thumb type={m.content_type} thumb={m.media.thumb} url={m.media.url} stored={m.media.stored} ext={m.media.ext} size={44} /><div><b>{m.media.name || contentLabel(m.content_type)}</b><div className="a-muted sm">{bytes(m.media.size)}{m.media.duration ? ' . ' + duration(m.media.duration) : ''}</div></div></div>}
 							</div>
 						)}
-						{m.detail && <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} /></div>}
-						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext">{partsOf(m.service, m.text) ? <ServiceText service={m.service} text={m.text} linkClass="a-link" /> : <RichText text={m.text} entities={ents} chat={chat} />}</div> : !m.media && !m.detail && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}</p>}
+						{m.detail ? <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} tdlib={m.tdlib_type} /></div>
+							: fallback && <div className="a-msgkind"><KindFallback ct={m.content_type} tdlib={m.tdlib_type} /></div>}
+						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext">{partsOf(m.service, m.text) ? <ServiceText service={m.service} text={m.text} linkClass="a-link" /> : <RichText text={m.text} entities={ents} chat={chat} />}</div> : !m.media && !m.detail && !fallback && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}</p>}
 						{m.link_preview && <LinkPreview lp={m.link_preview} />}
 						{svcAbout !== null && <p className="a-muted sm"><Link to={`${chatPath(m).split('?')[0]}?at=${svcAbout}`} className="a-link">The message this is about</Link></p>}
 						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies) && (

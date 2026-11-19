@@ -124,11 +124,12 @@ export function groupFiles(g: { id: number }, q: URLSearchParams, v: View, viewK
 	return { kinds, kind, ...p };
 }
 
-// The group's polls, with the chat's poll detail.
+// The group's polls, with the chat's poll detail; a poll whose poll
+// was never stored is not one of them.
 export function groupPolls(g: { id: number }, q: URLSearchParams, v: View): Record<string, unknown> | string {
 	const before = parseBefore(q);
 	if (before === false) return 'before';
-	const all = [...(chatStream(g) as Msg[])].reverse().filter((m) => sampleOf(m)?.content_type === 'poll').map((m) => ({
+	const all = [...(chatStream(g) as Msg[])].reverse().filter((m) => sampleOf(m)?.content_type === 'poll' && sampleOf(m)?.detail).map((m) => ({
 		message_id: m.message_id, message_row_id: m.id, date: iso(m.date), sender: senderFor(m, v),
 		chat_link: `/groups/${m.chat.id}/chat?at=${m.message_id}`, poll: kindsOf({ ...m, content_type: 'poll' }, v).base.detail,
 	}));

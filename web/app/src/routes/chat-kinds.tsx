@@ -10,8 +10,10 @@ import { Building2, Check, CircleDashed, CircleHelp, Contact, Dices, Eye, Gamepa
 import { Link } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { compact, dateTime, fmt } from '../format.ts';
-import { duration } from '../ui/media.tsx';
+import { TypeIcon, duration, type ContentType } from '../ui/media.tsx';
+import { contentLabel } from '../ui/labels.ts';
 import { PaidMedia } from './chat-paid.tsx';
+import { Animation, Picture, type Media } from './chat-media.tsx';
 import type { Viewer } from '../page.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
 import type { TextEntity } from '../api/entities.ts';
@@ -43,6 +45,16 @@ function Head({ icon: I, children }: { icon: LucideIcon; children: ReactNode }) 
 
 const osm = (lat: number, lon: number) => `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
 const coords = (lat: number, lon: number) => `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+// A venue's page at its provider, for the two Telegram uses.
+function providerPage(provider: string, id: string): [string, string] | null {
+	if (!id) return null;
+	if (provider === 'foursquare') return [`https://foursquare.com/v/${encodeURIComponent(id)}`, 'Foursquare'];
+	if (provider === 'gplaces') return [`https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(id)}`, 'Google Maps'];
+	return null;
+}
+// A venue's type as words: Foursquare's "arts_entertainment/default"
+// reads "arts entertainment".
+const venueType = (t: string) => t.replace(/\/default$/, '').replace(/_/g, ' ').replace(/\//g, ' / ');
 const FOREVER = 0x7fffffff;
 function period(s: number): string {
 	if (s >= FOREVER) return 'until stopped';
@@ -84,6 +96,49 @@ const PLACEHOLDER: Record<'rich' | 'widget' | 'expired' | 'unsupported', [string
 	expired: ['Self-destructing media that has expired', TimerOff],
 	unsupported: ['A message Telegram itself could not read', CircleHelp],
 };
+// An expired message's TDLib class says what it was.
+const EXPIRED: Readonly<Record<string, string>> = {
+	messageExpiredPhoto: 'Expired photo',
+	messageExpiredVideo: 'Expired video',
+	messageExpiredVideoNote: 'Expired video message',
+	messageExpiredVoiceNote: 'Expired voice message',
+};
+
+// A kind the archive cannot show, as one line.
+function Placeholder({ kind, tdlib }: { kind: keyof typeof PLACEHOLDER; tdlib?: string | null }) {
+	const [generic, I] = PLACEHOLDER[kind];
+	const label = kind === 'expired' && tdlib && Object.hasOwn(EXPIRED, tdlib) ? EXPIRED[tdlib]! : generic;
+	return <div className="c-unknown c-sub k-placeholder"><I size={14} />{label}</div>;
+}
+
+// A kind whose detail is missing (a poll whose poll was never stored,
+// an old location or contact logged before content_extra): what was
+// not recorded of it.
+const UNRECORDED: Readonly<Record<string, string>> = {
+	location: 'its place was', venue: 'its place was', contact: 'its details were', dice: 'its throw was', game: 'its details were',
+	poll: 'its options were', checklist: 'its tasks were', story: 'its poster was', invoice: 'its details were',
+	giveaway: 'its details were', call: 'its details were', paid_media: 'its items were',
+};
+const isPlaceholder = (ct: string): ct is keyof typeof PLACEHOLDER => Object.hasOwn(PLACEHOLDER, ct);
+
+// What stands in for a kind's card when there is none to draw: for an
+// unknown kind, which TDLib class it was, when known; for a kind whose
+// detail is missing, one line with its icon. Null when the kind needs
+// nothing.
+export const hasFallback = (ct: string): boolean => ct === 'unknown' || isPlaceholder(ct) || Object.hasOwn(UNRECORDED, ct);
+export function KindFallback({ ct, tdlib }: { ct: ContentType; tdlib?: string | null }) {
+	if (ct === 'unknown') return <div className="c-unknown c-sub">{tdlib ? `A kind of message this view does not show yet (${tdlib})` : 'A kind of message this view does not show'}</div>;
+	if (isPlaceholder(ct)) return <Placeholder kind={ct} tdlib={tdlib} />;
+	if (!Object.hasOwn(UNRECORDED, ct)) return null;
+	return <div className="c-unknown c-sub k-placeholder"><TypeIcon type={ct} size={14} />{`${contentLabel(ct)} (${UNRECORDED[ct]!} not recorded)`}</div>;
+}
+
+// A game's or an invoice's picture as the chat draws media: a photo
+// opens in the viewer, a game's animation plays.
+function Cover({ m, v }: { m: Media; v: Viewer }) {
+	const click = v.chat?.media === 'click';
+	return m.render === 'animation' || m.render === 'video' ? <Animation m={m} onClick={click} /> : <Picture m={m} single onClick={click} />;
+}
 
 // The kinds whose message text belongs inside the card (a checklist's
 // title, a game's text): the bubble leaves the text to the card.
@@ -91,8 +146,8 @@ export const TEXT_INSIDE: ReadonlySet<string> = new Set(['checklist']);
 
 // The texts inside a card (a poll's question and explanation, a
 // checklist's title and tasks) are drawn with their entities; a
-// hashtag in them searches `chat`.
-export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: string; entities?: TextEntity[]; chat?: RichChat; v: Viewer }) {
+// hashtag in them searches `chat`. tdlib is the message's TDLib class.
+export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; text: string; entities?: TextEntity[]; chat?: RichChat; v: Viewer; tdlib?: string | null }) {
 	switch (d.kind) {
 		case 'location':
 			return (
@@ -107,19 +162,23 @@ export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 					)}
 				</div>
 			);
-		case 'venue':
+		case 'venue': {
+			const page = providerPage(d.provider, d.venue_id);
 			return (
 				<div className="k-card k-place">
 					<Head icon={Building2}>{d.title || 'Venue'}</Head>
+					{d.venue_type && <div className="c-sub">{venueType(d.venue_type)}</div>}
 					{d.address && <div>{d.address}</div>}
 					<a href={osm(d.lat, d.lon)} target="_blank" rel="noopener noreferrer" className="k-coords mono">{coords(d.lat, d.lon)}</a>
+					{page && <a href={page[0]} target="_blank" rel="noopener noreferrer" className="a-link">On {page[1]}</a>}
 				</div>
 			);
+		}
 		case 'contact': {
 			const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || 'Contact';
 			return (
 				<div className="k-card k-contact">
-					<Avatar id={d.user?.id ?? name.length} name={name} size={40} />
+					<Avatar id={d.user?.id ?? name.length} name={name} photo={d.user?.photo} size={40} />
 					<div className="a-minw">
 						<Head icon={Contact}>{d.user ? <Link to={refHref(d.user)} className="a-rowlink">{name}</Link> : name}</Head>
 						{d.phone && <div className="mono">{d.phone}</div>}
@@ -138,8 +197,8 @@ export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 		case 'game':
 			return (
 				<div className="k-card">
-					{d.photo?.thumb && <img className="k-cover" src={d.photo.thumb} alt="" loading="lazy" />}
-					<Head icon={Gamepad2}>{d.title} <span className="c-sub">. game</span></Head>
+					{d.photo && <Cover m={d.photo} v={v} />}
+					<Head icon={Gamepad2}>{d.title} <span className="c-sub">. game{d.short_name && <> <span className="mono">{d.short_name}</span></>}</span></Head>
 					{d.description && <div className="c-sub">{d.description}</div>}
 				</div>
 			);
@@ -151,7 +210,7 @@ export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 					<div className="k-question"><RichText text={d.question} entities={d.question_entities} chat={chat} /></div>
 					<div className="c-sub">{label}{d.multiple ? ' . several answers' : ''}{d.closed ? ' . closed' : d.close_date ? ` . closes ${dateTime(d.close_date, v)}` : ''}</div>
 					<ul className="k-options">{d.options.map((o, i) => (
-						<li key={i} className={o.correct ? 'correct' : ''}>
+						<li key={i} className={o.correct ? 'correct' : ''} title={`${fmt(o.voters)} ${o.voters === 1 ? 'vote' : 'votes'}`}>
 							<span className="k-opt"><span>{o.text}{o.correct && <Check size={13} className="k-right" aria-label="correct answer" />}</span><span className="num">{o.percent}%</span></span>
 							<span className="k-bar"><span style={{ width: `${o.percent}%` }} /></span>
 						</li>
@@ -173,20 +232,26 @@ export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 						</li>
 					))}</ul>
 					{more > 0 && <div className="c-sub">and {fmt(more)} more task{more === 1 ? '' : 's'}</div>}
+					{(d.others_can_add || d.others_can_mark) && <div className="c-sub">{[d.others_can_add ? 'others can add tasks' : '', d.others_can_mark ? 'others can mark tasks done' : ''].filter(Boolean).join(' . ')}</div>}
 				</div>
 			);
 		}
-		case 'story':
+		case 'story': {
+			// A public poster's story has a link; else only its id is known.
+			const u = d.username;
 			return (
 				<div className="k-card">
 					<Head icon={CircleDashed}>{d.poster ? <>Story by <RefLink r={d.poster} /></> : 'A story'}</Head>
+					{u ? <a href={`https://t.me/${encodeURIComponent(u)}/s/${d.story_id}`} target="_blank" rel="noopener noreferrer" className="a-link">t.me/{u}/s/{d.story_id}</a>
+						: <div className="c-sub">story #{d.story_id}</div>}
 					<div className="c-sub">Stories are not archived.</div>
 				</div>
 			);
+		}
 		case 'invoice':
 			return (
 				<div className="k-card">
-					{d.photo?.thumb && <img className="k-cover" src={d.photo.thumb} alt="" loading="lazy" />}
+					{d.photo && <Cover m={d.photo} v={v} />}
 					<Head icon={Receipt}>{d.title}</Head>
 					{d.description && <div className="c-sub">{d.description}</div>}
 					<div className="k-amount">{money(d.total_amount, d.currency)}{d.is_test && <span className="c-sub"> . test invoice</span>}</div>
@@ -220,10 +285,8 @@ export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 					<PaidMedia items={d.items} onClick={v.chat?.media === 'click'} />
 				</div>
 			);
-		default: {
-			const [label, I] = PLACEHOLDER[d.kind];
-			return <div className="c-unknown c-sub k-placeholder"><I size={14} />{label}</div>;
-		}
+		default:
+			return <Placeholder kind={d.kind} tdlib={tdlib} />;
 	}
 }
 
