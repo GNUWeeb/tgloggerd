@@ -28,8 +28,11 @@ left these to this item.
   changes what it forwards.
   Done: gwdiscord, discordd and the migration (000050); what each part
   follows and is sent as is in message-types.md section 4.10.
-- Go and React: the new types in the direction's `type_options`, the
-  form and the list, as fwd-more-types set them up.
+- React: the new types in the form and the list, as fwd-more-types
+  set them up.
+  Done: Go (the four types in the D2T `types` set and `type_options`,
+  in the order text, photo, video, animation, document, sticker,
+  audio, voice, embed, poll, system).
 
 ## Depends on
 
