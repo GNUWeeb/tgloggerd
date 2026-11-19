@@ -145,6 +145,77 @@ func FileOrigins(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) 
 	return out, nil
 }
 
+// FileStill is what a video file (an animation, a video note, a video
+// sticker) can show before it plays, from the messages that carried
+// it: the stored cover and the stored Telegram thumbnail of one of
+// them (telegram_message_files), and the base64 of one's minithumbnail
+// (content_extra). An id is 0, and Minithumb "", when none has it.
+type FileStill struct {
+	Cover, Thumbnail uint64
+	Minithumb        string
+}
+
+// FileStills are the stills of the video files ids, by file id, from
+// the messages the scope sees, in one query per message table: the
+// same video sent again carries the same pictures, and a message
+// logged before the daemon stored thumbnails has none, so any visible
+// message that has one will do. A file with none is left out.
+func FileStills(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) (map[uint64]FileStill, error) {
+	out := map[uint64]FileStill{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	query := func(table, fk, filter string, fargs []any) error {
+		rs, err := db.QueryContext(ctx, "SELECT m.file_id, "+
+			"MIN(CASE WHEN mf.role = 'cover' THEN mf.file_id END) AS cover, "+
+			"MIN(CASE WHEN mf.role = 'thumbnail' THEN mf.file_id END) AS thumb, "+
+			"MAX(JSON_UNQUOTE(JSON_EXTRACT(m.content_extra, '$.minithumbnail.data'))) AS mini "+
+			"FROM "+table+" m LEFT JOIN (telegram_message_files mf "+
+			"JOIN telegram_files sf ON sf.id = mf.file_id AND sf.on_disk = 1) "+
+			"ON mf."+fk+" = m.id AND mf.role IN ('cover', 'thumbnail') AND mf.position = 0 "+
+			"WHERE m.file_id IN ("+placeholders(len(ids))+") AND "+filter+
+			" GROUP BY m.file_id", both(args, fargs)...)
+		if err != nil {
+			return err
+		}
+		rows, err := scanRows(rs)
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			id := r.Uint("file_id")
+			st := out[id]
+			if st.Cover == 0 {
+				st.Cover = r.Uint("cover")
+			}
+			if st.Thumbnail == 0 {
+				st.Thumbnail = r.Uint("thumb")
+			}
+			if st.Minithumb == "" {
+				st.Minithumb = r.Str("mini")
+			}
+			if st != (FileStill{}) {
+				out[id] = st
+			}
+		}
+		return nil
+	}
+	gf, ga := sc.GroupFilter("m.chat_id")
+	if err := query("telegram_group_messages", "group_message_id", gf, ga); err != nil {
+		return nil, err
+	}
+	if sc.SeesPrivate() {
+		if err := query("telegram_private_messages", "private_message_id", "1", nil); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 // ForwardOrigins names where forwarded messages came from, by message
 // row id, for the messages of one scope ("group" or "private") the
 // caller already read within the request scope. A chat the scope does

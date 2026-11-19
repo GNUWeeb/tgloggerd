@@ -1,7 +1,9 @@
 # video-thumbnails
 
 Show a thumbnail for every video before it is played, wherever the web
-shows one: a still frame instead of a generic film icon.
+shows one: a still frame instead of a generic film icon. The daemon
+and the Go service do their part (below); what is left is drawing it,
+the videos Telegram sends no picture for, and the rows logged before.
 
 ## Why
 
@@ -12,36 +14,41 @@ or see what they are without playing each.
 
 ## Scope
 
-- Every place a video appears before it plays: the files grid and the
-  file preview, the chat's media and albums, the message page, search
-  and list results that show media, and the users' and groups' photo
-  carousels (video avatars).
-- Kinds: videos, video notes, animations, video stickers (.webm), and
-  video avatars.
+Done: the daemon stores the still thumbnail TDLib offers with a video,
+an animation, a video note or a video sticker (JPEG, PNG or WebP;
+telegram_message_files role `thumbnail`, file_type `thumbnail`) for
+new and edited messages; the Go service gives it as ChatMedia's (and
+the message page's) `poster` and `thumb` after a stored cover, and as
+FileRow's `thumb` with the minithumb beside it (FileRow `minithumb`);
+web/docs/media.md, "Video stills". Left:
+
+- The React side: draw FileRow's `thumb` (else its `minithumb`, else
+  the type icon) for videos in the files grid and the file preview,
+  and the chat's `poster` (`minithumb` as the placeholder) for videos,
+  video notes, animations and .webm stickers, in the chat's media and
+  albums and on the message page.
+- Old rows: messages logged before the daemon stored thumbnails have
+  none. A one-off pass could ask TDLib for each such message again and
+  store its thumbnail through the fetch path, under the store's cap.
+- Frames: a still taken from the stored bytes (ffmpeg, in a container
+  of its own, never in the web service's request path) for videos
+  with neither a cover nor a Telegram thumbnail, if the project owner
+  decides to generate them; this version uses only what Telegram
+  sends.
+- Video avatars in the users' and groups' photo carousels, and search
+  and list results that show media: not looked at yet.
 - Not in scope: animated (.tgs) stickers, which the chat already plays
   with Lottie; a thumbnail for them is a separate question.
 
 ## Design notes
 
-- Sources, in order of preference:
-  1. what Telegram sends: a video's cover (telegram_message_files,
-     role cover; MediaDetail.poster already uses it when stored) and
-     the thumbnail TDLib offers with most videos, which the daemon can
-     download like any small file;
-  2. TDLib's minithumbnail (a tiny blurred JPEG, already stored and
-     sent as MediaDetail.minithumb) as a placeholder while nothing
-     better is stored;
-  3. a frame taken from the stored bytes (ffmpeg, in a container of
-     its own, never in the web service's request path), for files
-     with neither.
-- The API gives one field for it, a /files/ URL of a stored image (or
-  the minithumb data URL), on FileRow (today's thumb is null for
-  videos) and on the chat's media, so every page draws it the same
-  way; FileRow.thumb stays an image, never the video itself.
-- Thumbnails are small files of their own in the store, counted
-  against its cap and evicted like others.
-- Decide with the project owner whether frames are generated (3) or
-  only Telegram's own thumbnails are used.
+- Sources, in order of preference: a stored cover, the stored Telegram
+  thumbnail, the minithumb (a tiny blurred JPEG) as a placeholder, and,
+  only if decided, a generated frame. Thumbnails are small files of
+  their own in the store, counted against its cap and evicted like
+  others.
+- FileRow.thumb stays an image, never the video itself, and only of
+  stored bytes, so a list never fetches.
 
 ## Depends on
 
@@ -53,3 +60,7 @@ Nothing.
   a stored video, video note, animation and .webm sticker that has a
   Telegram thumbnail or cover, and the minithumb (or the type icon)
   for one that has none.
+- Old rows have their thumbnails, or the project owner has decided
+  they need none.
+- The project owner has decided on generated frames, and they are
+  built if wanted.

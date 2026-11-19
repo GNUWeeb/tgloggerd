@@ -185,6 +185,17 @@ target_compile_options(status_api_test PRIVATE -Wall -Wextra)
 target_link_libraries(status_api_test PRIVATE connector-jdbc
 	${SODIUM_LIBRARIES} nlohmann_json::nlohmann_json Threads::Threads)
 
+# message_extra_files() over hand-built TDLib messages; not part of the
+# default build:
+#   cmake --build build --target extra_files_test && build/extra_files_test
+add_executable(extra_files_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/extra_files_test.cpp
+	src/tgloggerd/MessageExtract.cpp)
+target_include_directories(extra_files_test PRIVATE src)
+target_compile_options(extra_files_test PRIVATE -Wall -Wextra)
+target_link_libraries(extra_files_test PRIVATE Td::TdStatic tdjson_private
+	nlohmann_json::nlohmann_json Threads::Threads)
+
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
 # Telegram). Added last: it links Td::TdStatic and connector-jdbc from the
 # subprojects above, and pulls in the self-contained gwdiscord library. Its

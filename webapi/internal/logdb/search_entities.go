@@ -418,7 +418,7 @@ var Files = &Entity{
 	fields: []Field{
 		col("id", "f.id", Int, "File ID", intOps, true),
 		enum(col("file_type", "f.file_type", Enum, "Type", enumOps, true),
-			"photo,video,document,audio,voice,sticker,animation,unknown"),
+			"photo,video,document,audio,voice,sticker,animation,video_note,thumbnail,unknown"),
 		col("name", "f.orig_file_name", Text, "Name", textOps, true),
 		col("ext", "COALESCE(f.file_ext,'')", Text, "Extension", textOps, true),
 		col("size", "f.file_size", Int, "Size", intOps, true),

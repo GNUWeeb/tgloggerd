@@ -6,7 +6,9 @@
 package server
 
 import (
+	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -353,7 +355,7 @@ var filesList = &listSpec{
 		"accessed_at": "accessed_at"},
 	filters: map[string]pageFilter{
 		"id":          numberFilter("id"),
-		"file_type":   enumFilter("file_type", "photo,video,document,audio,voice,sticker,animation,unknown"),
+		"file_type":   enumFilter("file_type", "photo,video,document,audio,voice,sticker,animation,video_note,thumbnail,unknown"),
 		"name":        textFilter("name"),
 		"ext":         textFilter("ext"),
 		"size":        numberFilter("size"),
@@ -931,6 +933,7 @@ type listFile struct {
 	Chat       *listChatName `json:"chat"`
 	Sender     *listIDName   `json:"sender"`
 	Message    *listMsgRef   `json:"message"`
+	Minithumb  string        `json:"minithumb,omitempty"` // a video's blurred preview, a data: URL
 }
 
 // filesProps are the files page's (FilesProps).
@@ -947,7 +950,7 @@ type filesProps struct {
 // are not one after all: a video sticker (webm) and an animated one
 // (tgs, Lottie), which an image cannot draw.
 var (
-	thumbTypes = map[string]bool{"photo": true, "sticker": true}
+	thumbTypes = map[string]bool{"photo": true, "sticker": true, "thumbnail": true}
 	notImage   = map[string]bool{"webm": true, "tgs": true}
 )
 
@@ -957,19 +960,43 @@ func hasThumb(stored bool, fileType, ext string) bool {
 	return stored && thumbTypes[fileType] && !notImage[strings.ToLower(ext)]
 }
 
+// isVideo is whether a file is a video whose thumbnail is a picture
+// of its own (FileStills): a video, an animation, a video note, a
+// video (.webm) sticker.
+func isVideo(fileType, ext string) bool {
+	switch fileType {
+	case "video", "animation", "video_note":
+		return true
+	case "sticker":
+		return strings.EqualFold(ext, "webm")
+	}
+	return false
+}
+
 // listFileRows are the rows as FileRow. Every file has a URL the
 // request may open, as each row of the Drogon files list links to
 // /files/<token>: a stored one's bytes, and an unstored one's whenever
 // the request may have them fetched from Telegram (Server.fileURL),
 // which opening the URL then does through the daemon. Only a stored
-// picture has a thumbnail, so that listing files fetches nothing.
+// picture has a thumbnail, so that listing files fetches nothing: a
+// stored photo or sticker is its own, and a video's is the stored
+// cover, else the stored Telegram thumbnail, of a message that carried
+// it.
 func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool,
 	rows []logdb.Row) ([]listFile, error) {
 	ids := make([]uint64, 0, len(rows))
+	var videos []uint64
 	for _, r := range rows {
 		ids = append(ids, r.Uint("id"))
+		if isVideo(r.Str("file_type"), r.Str("file_ext")) {
+			videos = append(videos, r.Uint("id"))
+		}
 	}
 	origins, err := logdb.FileOrigins(ctx, s.ro, sc, ids)
+	if err != nil {
+		return nil, err
+	}
+	stills, err := logdb.FileStills(ctx, s.ro, sc, videos)
 	if err != nil {
 		return nil, err
 	}
@@ -997,6 +1024,21 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool
 		f.URL, f.Fetchable = s.fileURL(sc, signedIn, f.ID, f.Size, f.Stored)
 		if hasThumb(f.Stored, f.FileType, f.Ext) {
 			f.Thumb = f.URL
+		}
+		if f.FileType == "thumbnail" {
+			// A video's still is a picture to the pages
+			// (FileRow.file_type has no thumbnail).
+			f.FileType = "photo"
+		}
+		if st, ok := stills[f.ID]; ok {
+			// Stored, so the size does not matter.
+			if id := cmp.Or(st.Cover, st.Thumbnail); id != 0 {
+				f.Thumb, _ = s.fileURL(sc, signedIn, id, 0, true)
+			}
+			// As the chat's media (mediaDetail): only valid base64.
+			if _, err := base64.StdEncoding.DecodeString(st.Minithumb); err == nil && st.Minithumb != "" {
+				f.Minithumb = "data:image/jpeg;base64," + st.Minithumb
+			}
 		}
 		if o, ok := origins[f.ID]; ok {
 			f.Chat = &listChatName{ID: o.ChatID, Title: o.ChatTitle, Kind: o.ChatKind}

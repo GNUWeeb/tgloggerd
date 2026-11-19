@@ -124,6 +124,38 @@ media objects carry `url` only when the file is stored or fetchable
 (null otherwise), and `thumb` with the same URL for pictures. Edit
 snapshots there carry no media.
 
+## Video stills
+
+A video, animation, video note or video (.webm) sticker shows a still
+picture before it plays, from what Telegram sends; no frame is taken
+from the video itself. The daemon stores two kinds of picture with the
+message, each a file of its own in the store, under its cap and
+eviction like any other (docs/design/message-types.md section 4.3):
+
+- the video's cover, when its sender set one (role `cover`);
+- the thumbnail TDLib offers with most videos, when it is a still
+  image (JPEG, PNG or WebP; role `thumbnail`, file_type `thumbnail`).
+  Messages logged before the daemon stored thumbnails have none.
+
+Besides those, a message logged since migration 000034 records TDLib's
+minithumbnail, a tiny blurred JPEG, in its `content_extra`.
+
+The chat API's media (ChatMedia, and the message page's media) carry
+the picture as `poster`, which is then also `thumb`: the cover when
+stored, else the thumbnail when stored, else the cover when it may be
+fetched. Without one, `thumb` is the minithumb's data: URL when there
+is one, and `minithumb` is always given when known, for a blurred
+placeholder.
+
+The files list's rows (FileRow) of those kinds carry `thumb` as the
+stored cover, else the stored thumbnail, of any message the viewer
+sees that carried the file (the same video sent again carries the same
+pictures), and `minithumb` likewise. `thumb` is never the video's own
+URL, and never an unstored picture's, so showing the list fetches
+nothing. Both are read for a whole page at once, in one query per
+message table. A thumbnail's own row is listed as a `photo`, its own
+`thumb`; the `file_type` filter still finds it as `thumbnail`.
+
 ## Files list
 
 Every row of the Drogon files list (`/files`) links to the file's
@@ -131,8 +163,9 @@ Every row of the Drogon files list (`/files`) links to the file's
 by the rule above. The Go service's files page data (FilesProps,
 FileRow in webapi/openapi.yaml) gives each row `url` when the file is
 stored or fetchable by the same rule and a `fetchable` flag as in the
-chat API; the list's thumbnails are of stored pictures only, so
-showing the list fetches nothing.
+chat API; the list's thumbnails are of stored pictures only (a
+picture's own bytes, a video's still: see "Video stills"), so showing
+the list fetches nothing.
 
 ## Caching
 

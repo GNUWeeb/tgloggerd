@@ -290,7 +290,7 @@ See decision
 The edit tables and `telegram_files` change instantly.
 
 `telegram_files.file_type` gains `video_note`, and `thumbnail` for
-covers and previews (section 4.3).
+the still thumbnails of videos (section 4.3).
 
 ### 4.2 Structured detail (`content_extra`)
 
@@ -492,7 +492,8 @@ A video note's round video is now the main file, like any other media.
 | `game` | a game's photo (position 0) and animation (position 1) |
 | `invoice` | an invoice's product photo |
 | `chat_photo` | the new photo of a chat photo change or a suggested profile photo (largest size) |
-| `poll`, `preview`, `thumbnail` | reserved: poll media (msg-polls); thumbnails and a video's other qualities are not stored, since they repeat the media |
+| `thumbnail` | the still thumbnail TDLib offers with a video, an animation, a video note or a video (.webm) sticker, when it is an image (JPEG, PNG or WebP; MPEG-4, GIF, TGS and WebM thumbnails are not stored), file_type `thumbnail`: the picture the web shows before the video plays |
+| `poll`, `preview` | reserved: poll media (msg-polls); other thumbnails (a document's, a photo's sizes) and a video's other qualities are not stored, since they repeat the media |
 
 Each file goes through the same path as a main file: linked when it is
 already known, recorded without its bytes where the storage cache rules

@@ -2062,6 +2062,27 @@ const td_api::file *paid_media_file(const td_api::PaidMedia *pm,
 	}
 }
 
+/*
+ * The file of a video's (an animation's, a video note's, a video
+ * sticker's) TDLib thumbnail when it is a still image, the picture the
+ * web shows before the video plays; nullptr otherwise. Thumbnails in
+ * MPEG-4, GIF, TGS or WebM are moving pictures themselves, which a page
+ * cannot draw as a still, so they are not stored.
+ */
+const td_api::file *still_thumbnail(const td_api::thumbnail *t)
+{
+	if (!t || !t->file_ || !t->format_)
+		return nullptr;
+	switch (t->format_->get_id()) {
+	case td_api::thumbnailFormatJpeg::ID:
+	case td_api::thumbnailFormatPng::ID:
+	case td_api::thumbnailFormatWebp::ID:
+		return t->file_.get();
+	default:
+		return nullptr;
+	}
+}
+
 } /* namespace */
 
 const char *message_content_class_name(std::int32_t id)
@@ -2224,9 +2245,11 @@ const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
  * The files of @content beyond the one message_content_file() returns, in
  * a stable order: a video's cover, a live photo's video, each paid media
  * item, a game's photo and animation, an invoice's photo and paid media,
- * the photo of a chat photo change or suggestion. Thumbnails and a
- * video's other qualities are not listed: the first only repeat the
- * media, the second are the same video again.
+ * the photo of a chat photo change or suggestion, and the still
+ * thumbnail of a video, an animation, a video note or a video sticker
+ * (the picture shown before it plays). Other thumbnails and a video's
+ * other qualities are not listed: the first only repeat the media, the
+ * second are the same video again.
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content)
 {
@@ -2249,6 +2272,34 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 	case td_api::messageVideo::ID: {
 		auto &c = static_cast<const td_api::messageVideo &>(content);
 		add(photo_best_size(c.cover_.get()), "photo", "", "cover", 0);
+		if (c.video_)
+			add(still_thumbnail(c.video_->thumbnail_.get()),
+			    "thumbnail", "", "thumbnail", 0);
+		break;
+	}
+	case td_api::messageAnimation::ID: {
+		auto &c = static_cast<const td_api::messageAnimation &>(content);
+		if (c.animation_)
+			add(still_thumbnail(c.animation_->thumbnail_.get()),
+			    "thumbnail", "", "thumbnail", 0);
+		break;
+	}
+	case td_api::messageVideoNote::ID: {
+		auto &c = static_cast<const td_api::messageVideoNote &>(content);
+		if (c.video_note_)
+			add(still_thumbnail(c.video_note_->thumbnail_.get()),
+			    "thumbnail", "", "thumbnail", 0);
+		break;
+	}
+	case td_api::messageSticker::ID: {
+		/* Only a video sticker: a .webp one is an image itself, and
+		 * a .tgs one is drawn by the page (Lottie). */
+		auto &c = static_cast<const td_api::messageSticker &>(content);
+		if (c.sticker_ && c.sticker_->format_ &&
+		    c.sticker_->format_->get_id() ==
+			    td_api::stickerFormatWebm::ID)
+			add(still_thumbnail(c.sticker_->thumbnail_.get()),
+			    "thumbnail", "", "thumbnail", 0);
 		break;
 	}
 	case td_api::messagePaidMedia::ID: {
