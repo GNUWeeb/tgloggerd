@@ -260,7 +260,7 @@ export function chatMessage(m, view: boolean | View = false) {
 		})),
 		edited_at: m.edited_at ? iso(m.edited_at) : null, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
 		link_preview: lp ? {
-			site: lp.site, title: lp.title, desc: lp.desc,
+			type: 'article', site: lp.site, title: lp.title, desc: lp.desc,
 			url: lp.site === 'GitHub' ? 'https://github.com/torvalds/linux/commit/0123456789ab' : 'https://docs.kernel.org/',
 			...(lp.site === 'GitHub' ? { media: chatMedia({ fileId: 990000 + (m.message_id % 1000), w: 1200, h: 600, size: 52000 }, 'photo', fetch) } : {}),
 		} : null,

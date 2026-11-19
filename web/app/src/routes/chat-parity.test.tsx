@@ -90,7 +90,7 @@ describe('chat parity', () => {
 	});
 
 	it('links a link preview to its page, with its picture', () => {
-		chatWith([{ link_preview: { site: 'GitHub', title: 'A commit', desc: 'd', url: 'https://github.com/x/y', media: { stored: true, url: '/files/t', thumb: '/files/t', render: 'image', w: 1200, h: 600 } } }]);
+		chatWith([{ link_preview: { type: 'article', site: 'GitHub', title: 'A commit', desc: 'd', url: 'https://github.com/x/y', media: { stored: true, url: '/files/t', thumb: '/files/t', render: 'image', w: 1200, h: 600 } } }]);
 		const a = row(0).querySelector('a.c-lp')!;
 		expect(a.getAttribute('href')).toBe('https://github.com/x/y');
 		expect(a.getAttribute('target')).toBe('_blank');
