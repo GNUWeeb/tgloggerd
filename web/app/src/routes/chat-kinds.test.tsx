@@ -120,9 +120,9 @@ describe('what a member sees of whom a message names', () => {
 		expect(call.detail.participants).toHaveLength(2);
 		expect(within(bubbleOf(call)).getByText('and 1 more')).toBeTruthy();
 		// The service text names only the members it may see.
-		const add = find(msgs, (m) => m.service?.type === 'chat_add_members' && m.text.startsWith('added'));
-		const addFull = find(full, (m) => m.id === add.id);
-		expect(addFull.text).toMatch(/^added .+, .+, .+ to the group$/);
+		const addFull = find(full, (m) => m.service?.type === 'chat_add_members' && m.service.refs.users.length === 3);
+		const add = find(msgs, (m) => m.id === addFull.id);
+		expect(addFull.text).toMatch(/^added .+, .+ and .+ to the group$/);
 		expect(add.text).toMatch(/^added .+ and 2 other members to the group$/);
 		expect(add.service!.refs.users).toHaveLength(1);
 	});

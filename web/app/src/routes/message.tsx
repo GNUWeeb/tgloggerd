@@ -13,6 +13,7 @@ import { Counts, KindDetail, Reactions, TEXT_INSIDE, topicColor } from './chat-k
 import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
 import { RichText } from '../ui/richtext.tsx';
+import { ServiceText, partsOf } from '../ui/serviceparts.tsx';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
@@ -89,7 +90,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 							</div>
 						)}
 						{m.detail && <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} /></div>}
-						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext"><RichText text={m.text} entities={ents} chat={chat} /></div> : !m.media && !m.detail && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}</p>}
+						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext">{partsOf(m.service, m.text) ? <ServiceText service={m.service} text={m.text} linkClass="a-link" /> : <RichText text={m.text} entities={ents} chat={chat} />}</div> : !m.media && !m.detail && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}</p>}
 						{m.link_preview && <LinkPreview lp={m.link_preview} />}
 						{svcAbout !== null && <p className="a-muted sm"><Link to={`${chatPath(m).split('?')[0]}?at=${svcAbout}`} className="a-link">The message this is about</Link></p>}
 						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies) && (

@@ -18,7 +18,8 @@ import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
 import { bytes, fmt } from '../format.ts';
 import { TYPE_LABEL } from './groups.tsx';
 import { contentLabel, serviceLabel } from '../ui/labels.ts';
-import { capitalise, isSentence } from '../ui/serviceline.ts';
+import { isSentence } from '../ui/serviceline.ts';
+import { ServiceText } from '../ui/serviceparts.tsx';
 import { loggerName } from '../ui/logger.ts';
 import type { PageData, Viewer } from '../page.ts';
 import type { ChatMedia, ChatMessage, GroupSummary } from '../types.ts';
@@ -167,12 +168,14 @@ function Feed({ msgs: all, v, isGroup, flash, onReply, tag, chat }: { msgs: Chat
 			// page ("You" when signed in); a text that is a whole sentence has no actor.
 			const svcType = m.service?.type ?? m.service_type;
 			const sentence = isSentence(svcType, m.text);
-			const svcText = sentence ? capitalise(m.text || serviceText(svcType)) : m.text || serviceText(svcType);
 			const svcAbout = m.service?.refs.message_id ?? null;
+			// The names the text gives link to their pages; the rest of it
+			// to the message the action is about.
+			const about = (s: string) => (svcAbout ? <a href={`?at=${svcAbout}`} onClick={(e) => { e.preventDefault(); onReply(svcAbout); }}>{s}</a> : s);
 			const actor = sentence ? null : m.sender_chat ? <Link to={`/groups/${m.sender_chat.id}`}>{m.sender_chat.title}</Link> : m.sender ? (m.sender.id !== 0 ? <Link to={`/users/${m.sender.id}`}>{m.sender.name}</Link> : <span>{m.sender.name}</span>) : <span>{loggerName(v)}</span>;
 			out.push(
 				<div key={m.id} id={`m${m.message_id}`} className={`c-service ${m.deleted_at ? 'deleted' : ''}`}>
-					<span>{actor} {svcAbout ? <a href={`?at=${svcAbout}`} onClick={(e) => { e.preventDefault(); onReply(svcAbout); }}>{svcText}</a> : svcText} <Link to={`/messages/${m.scope}/${m.id}`} className="c-svctime" title={m.date}>{hm(m.date, v)}</Link>{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}</span>
+					<span>{actor} <ServiceText service={m.service} text={m.text || serviceText(svcType)} capital={sentence} plain={about} /> <Link to={`/messages/${m.scope}/${m.id}`} className="c-svctime" title={m.date}>{hm(m.date, v)}</Link>{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}</span>
 				</div>,
 			);
 			return;
