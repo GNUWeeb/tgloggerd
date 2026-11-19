@@ -9,7 +9,7 @@
 // render draws it; the browser fetches only when the choice changes.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Card } from '../ui/primitives.tsx';
-import { SeriesChart } from '../ui/serieschart.tsx';
+import { SeriesChart, VARIANTS, isVariant, type Variant } from '../ui/serieschart.tsx';
 import { fmt, SITE_DEFAULTS } from '../format.ts';
 import { savePrefs } from '../api/prefs.ts';
 import { dashboardSeries, type Series } from '../api/dashboard.ts';
@@ -94,6 +94,7 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 	if (skew.current === null) skew.current = Date.parse(v.now) - Date.now();
 	const now = () => Math.floor((Date.now() + skew.current!) / 1000);
 	const [{ period, range }, setView] = useState(() => initial(v, now()));
+	const [variant, setVariant] = useState<Variant>(isVariant(v.dashboard_variant) ? v.dashboard_variant : 'bars');
 	const [load, setLoad] = useState<Load>({ state: 'ok', data: first, error: null });
 	const [saveErr, setSaveErr] = useState(false);
 	// The limits the server answered with, over the built-in ones.
@@ -121,6 +122,16 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 		return () => ac.abort();
 	}, [period, range.live, range.start, range.live ? 0 : range.end]);
 
+	const save = (patch: Prefs) => {
+		setSaveErr(false);
+		savePrefs(patch).catch(() => setSaveErr(true));
+	};
+	// The drawing changes nothing fetched.
+	const draw = (x: Variant) => {
+		if (x === variant) return;
+		setVariant(x);
+		save({ dashboard_variant: x });
+	};
 	const change = (p: Period, r: Range) => {
 		// One reading of the clock, so the saved length is the one clamped.
 		const t = now();
@@ -129,8 +140,7 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 		const patch: Prefs = next.live
 			? { dashboard_period: p, dashboard_last: t - next.start, dashboard_start: null, dashboard_end: null }
 			: { dashboard_period: p, dashboard_start: next.start, dashboard_end: next.end, dashboard_last: null };
-		setSaveErr(false);
-		savePrefs(patch).catch(() => setSaveErr(true));
+		save(patch);
 	};
 
 	const pr = PRECISION[period];
@@ -138,12 +148,12 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 	const end = range.live ? now() : range.end;
 	const data = load.data;
 	const total = data ? data.points.reduce((s, p) => s + p.n, 0) : 0;
-	const title = `Messages per ${PERIOD_NOUN[period]}`;
+	const title = `Messages per ${PERIOD_NOUN[period]}${variant === 'total' ? ', running total' : ''}`;
 	const summary = data && data.points.length
 		? `${title}, ${periodLabel(data.points[0]!.at, data.period, data.tz, h12)} to ${data.live ? 'now' : periodLabel(data.points.at(-1)!.at, data.period, data.tz, h12)}: ${fmt(total)} messages`
 		: title;
 	let body: ReactNode;
-	if (data) body = <SeriesChart points={data.points} period={data.period} tz={data.tz} h12={h12} label={summary} />;
+	if (data) body = <SeriesChart points={data.points} period={data.period} variant={variant} tz={data.tz} h12={h12} label={summary} />;
 	else body = <div className="a-sc-empty a-muted">{load.error ? '' : 'Loading the chart...'}</div>;
 	return (
 		<Card title={title} className="a-dash-wide">
@@ -158,6 +168,7 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 						: { live: false, start: range.start, end: unitEnd(fromInput(toInput(now(), pr, tz), pr, tz)!, pr, tz) })} />
 					Now
 				</label>
+				<Select label="Show as" value={variant} options={VARIANTS} onChange={draw} />
 				{saveErr && <span className="a-muted sm" role="status">Not saved; shown on this page only.</span>}
 			</div>
 			{load.error && <p className="a-sc-err" role="alert">{load.error}</p>}

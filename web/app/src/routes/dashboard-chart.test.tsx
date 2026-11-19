@@ -171,6 +171,59 @@ describe('dashboard chart', () => {
 	});
 });
 
+describe('dashboard chart drawings', () => {
+	const first = firstOf([2, 0, 5, 1]);
+	const answer = { 'PATCH /api/account/preferences': () => ({ prefs: {} }) };
+	// The y of each vertex of the line, top down.
+	const ys = (d: string) => [...d.matchAll(/[ML][\d.]+,([\d.]+)/g)].map((m) => Number(m[1]));
+
+	it('draws bars by default, then a line, an area and a running total', async () => {
+		const calls = fakeApi('superadmin', answer);
+		renderPage('/', 'superadmin', viewer({}, first));
+		const img = await chart();
+		expect((control('Show as') as unknown as HTMLSelectElement).value).toBe('bars');
+		expect(img.querySelectorAll('.a-sc-bar')).toHaveLength(3);
+		expect(img.querySelector('.a-sc-line')).toBeNull();
+
+		fireEvent.change(control('Show as'), { target: { value: 'line' } });
+		expect(img.querySelectorAll('.a-sc-bar')).toHaveLength(0);
+		const line = img.querySelector('.a-sc-line')!.getAttribute('d')!;
+		const ly = ys(line);
+		expect(ly).toHaveLength(4);
+		// 5 is the highest point, 0 on the baseline.
+		expect(Math.min(...ly)).toBe(ly[2]);
+		expect(Math.max(...ly)).toBe(ly[1]);
+		expect(img.querySelector('.a-sc-area')).toBeNull();
+
+		fireEvent.change(control('Show as'), { target: { value: 'area' } });
+		expect(img.querySelector('.a-sc-line')!.getAttribute('d')).toBe(line);
+		expect(img.querySelector('.a-sc-area')!.getAttribute('d')).toMatch(/Z$/);
+
+		fireEvent.change(control('Show as'), { target: { value: 'total' } });
+		expect(screen.getByRole('heading', { name: 'Messages per hour, running total' })).toBeTruthy();
+		const ty = ys(img.querySelector('.a-sc-line')!.getAttribute('d')!);
+		// 2, 2, 7, 8: never falling, flat where nothing came.
+		expect(ty[1]).toBe(ty[0]);
+		expect(ty[2]).toBeLessThan(ty[1]!);
+		expect(ty[3]).toBeLessThan(ty[2]!);
+		fireEvent.keyDown(img, { key: 'End' });
+		expect(screen.getByRole('status').textContent).toContain('8 messages so far');
+		expect(screen.getByRole('status').textContent).toContain('+1 in this period');
+		// Drawing again fetches nothing; each choice is saved.
+		expect(series(calls)).toHaveLength(0);
+		await waitFor(() => expect(patches(calls)).toHaveLength(3));
+		expect(patches(calls)).toEqual([{ dashboard_variant: 'line' }, { dashboard_variant: 'area' }, { dashboard_variant: 'total' }]);
+	});
+
+	it('draws as the account chose', async () => {
+		fakeApi('superadmin', answer);
+		renderPage('/', 'superadmin', viewer({ dashboard_variant: 'area' }, first));
+		const img = await chart();
+		expect(img.querySelector('.a-sc-area')).not.toBeNull();
+		expect((control('Show as') as unknown as HTMLSelectElement).value).toBe('area');
+	});
+});
+
 describe('clampRange', () => {
 	it('keeps a range within the limit by moving its start', () => {
 		expect(clampRange({ live: false, start: 0, end: 100000 }, 'minute', 86400, NOW)).toEqual({ live: false, start: 100000 - 86400, end: 100000 });

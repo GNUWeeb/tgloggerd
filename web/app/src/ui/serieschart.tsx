@@ -1,5 +1,7 @@
 // The dashboard's chart of one series, messages per period, drawn by hand
-// in SVG: bars with 2px gaps and 4px rounded tops on the baseline. One
+// in SVG: bars with 2px gaps and 4px rounded tops on the baseline, a 2px
+// line, the line filled at low opacity (area), or a line of the sum so
+// far (running total). One
 // y axis, a recessive grid, labels in the text colours and the marks in
 // the accent, so light and dark both work. The pointer anywhere over the
 // plot (or the arrow keys, once focused) picks the nearest period: a
@@ -9,6 +11,12 @@ import { fmt } from '../format.ts';
 import { axisLabel, periodLabel, type Period } from '../periods.ts';
 
 export interface Point { at: number; n: number }
+export const VARIANTS = [['bars', 'Bars'], ['line', 'Line'], ['area', 'Area'], ['total', 'Running total']] as const;
+export type Variant = typeof VARIANTS[number][0];
+export const isVariant = (v: unknown): v is Variant => VARIANTS.some(([k]) => k === v);
+
+// Each point's sum so far.
+export const running = (ns: number[]) => { let s = 0; return ns.map((n) => (s += n)); };
 
 const H = 200;
 const M = { top: 12, right: 8, bottom: 26 };
@@ -37,6 +45,7 @@ function barPath(x: number, w: number, y: number, base: number): string {
 export interface SeriesChartProps {
 	points: Point[];
 	period: Period;
+	variant?: Variant;
 	tz: string;
 	h12?: boolean;
 	noun?: string;
@@ -44,7 +53,7 @@ export interface SeriesChartProps {
 	label: string;
 }
 
-export function SeriesChart({ points, period, tz, h12 = false, noun = 'messages', label }: SeriesChartProps) {
+export function SeriesChart({ points, period, variant = 'bars', tz, h12 = false, noun = 'messages', label }: SeriesChartProps) {
 	const box = useRef<HTMLDivElement>(null);
 	const [width, setWidth] = useState(720);
 	const [at, setAt] = useState<number | null>(null);
@@ -59,7 +68,7 @@ export function SeriesChart({ points, period, tz, h12 = false, noun = 'messages'
 		return () => ro.disconnect();
 	}, []);
 	const n = points.length;
-	const values = points.map((p) => p.n);
+	const values = variant === 'total' ? running(points.map((p) => p.n)) : points.map((p) => p.n);
 	const { top, step } = niceScale(Math.max(0, ...values));
 	const ticks: number[] = [];
 	for (let v = 0; v <= top + step / 2; v += step) ticks.push(v);
@@ -75,6 +84,7 @@ export function SeriesChart({ points, period, tz, h12 = false, noun = 'messages'
 	// About six labels, counted back from the last period so it has one.
 	const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(plotW / 90))));
 	const xticks = points.map((_, i) => i).filter((i) => (n - 1 - i) % every === 0);
+	const line = points.map((_, i) => `${i ? 'L' : 'M'}${xc(i).toFixed(2)},${y(values[i]!).toFixed(2)}`).join('');
 	const pick = (e: PointerEvent<SVGRectElement>) => {
 		const r = e.currentTarget.getBoundingClientRect();
 		const scale = r.width > 0 ? plotW / r.width : 1;
@@ -106,16 +116,23 @@ export function SeriesChart({ points, period, tz, h12 = false, noun = 'messages'
 					</g>
 					<line className="a-sc-base" x1={left} x2={width - M.right} y1={base} y2={base} />
 					<g className="a-sc-marks">
-						{points.map((p, i) => (p.n > 0 ? <path key={i} className={`a-sc-bar ${i === shown ? 'on' : ''}`} d={barPath(xc(i) - barW / 2, barW, y(p.n), base)} /> : null))}
+						{variant === 'bars'
+							? points.map((p, i) => (p.n > 0 ? <path key={i} className={`a-sc-bar ${i === shown ? 'on' : ''}`} d={barPath(xc(i) - barW / 2, barW, y(p.n), base)} /> : null))
+							: <>
+								{variant === 'area' && n > 0 && <path className="a-sc-area" d={`${line}L${xc(n - 1).toFixed(2)},${base}L${xc(0).toFixed(2)},${base}Z`} />}
+								{n > 1 ? <path className="a-sc-line" d={line} /> : n === 1 && <circle className="a-sc-dot" cx={xc(0)} cy={y(values[0]!)} r={3} />}
+							</>}
 					</g>
 					{shown !== null && <line className="a-sc-cross" x1={tipX} x2={tipX} y1={M.top} y2={base} />}
+					{shown !== null && variant !== 'bars' && <circle className="a-sc-dot" cx={tipX} cy={y(values[shown]!)} r={4} />}
 					{/* The whole plot is the hit area, so a thin bar need not be hit. */}
 					<rect className="a-sc-hit" x={left} y={0} width={plotW} height={base} onPointerMove={pick} onPointerDown={pick} onPointerLeave={() => setAt(null)} />
 				</svg>
 			</div>
 			{shown !== null && (
 				<div className="a-sc-tip" role="status" style={{ left: tipX, top: Math.max(0, y(values[shown]!) - 8), transform: `translate(${tipX < width * 0.15 ? '0' : tipX > width * 0.85 ? '-100%' : '-50%'}, -100%)` }}>
-					<b className="num">{fmt(values[shown]!)}</b> <span className="a-muted">{noun}</span>
+					<b className="num">{fmt(values[shown]!)}</b> <span className="a-muted">{noun}{variant === 'total' ? ' so far' : ''}</span>
+					{variant === 'total' && <div className="sm">+{fmt(points[shown]!.n)} in this period</div>}
 					<div className="a-muted sm">{periodLabel(points[shown]!.at, period, tz, h12)}</div>
 				</div>
 			)}

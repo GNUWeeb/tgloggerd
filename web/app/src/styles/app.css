@@ -461,6 +461,9 @@
 .app .a-sc-ylab text, .app .a-sc-xlab text { fill: var(--fg-3); font-size: 11px; }
 .app .a-sc-bar { fill: currentColor; opacity: .75; }
 .app .a-sc-bar.on { opacity: 1; }
+.app .a-sc-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.app .a-sc-area { fill: currentColor; opacity: .15; }
+.app .a-sc-dot { fill: currentColor; stroke: var(--panel); stroke-width: 2; pointer-events: none; }
 .app .a-sc-cross { stroke: var(--fg-3); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
 .app .a-sc-hit { fill: transparent; cursor: crosshair; }
 .app .a-sc-tip { position: absolute; z-index: 3; pointer-events: none; white-space: nowrap; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; box-shadow: 0 6px 20px rgb(0 0 0 / .12); font-size: 13px; }

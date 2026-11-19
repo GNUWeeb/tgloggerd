@@ -245,7 +245,7 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		const was = { ...prefs };
 		try {
 			let p = pageData('/', 'superadmin') as { viewer: Record<string, unknown>; props: { series: { period: string; live: boolean; points: unknown[] } } };
-			expect(p.viewer).toMatchObject({ dashboard_period: 'hour', dashboard_last: 172800 });
+			expect(p.viewer).toMatchObject({ dashboard_period: 'hour', dashboard_variant: 'bars', dashboard_last: 172800 });
 			expect(p.viewer.dashboard_start).toBeUndefined();
 			expect(p.props.series).toMatchObject({ period: 'hour', live: true });
 			expect(p.props.series.points).toHaveLength(49);

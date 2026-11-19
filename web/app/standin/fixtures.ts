@@ -866,16 +866,17 @@ export function badRange(stored: Record<string, unknown>, body: Record<string, u
 }
 
 // The chart's preferences in effect, as the viewer carries them: the
-// period always, then a fixed range, or the length of one
+// period and drawing always, then a fixed range, or the length of one
 // ending now (48 hours unless chosen, at most the period's limit).
 export function chartView(pr: Record<string, unknown>) {
 	const period = isPeriod(pr.dashboard_period) ? pr.dashboard_period : 'hour';
 	const limit = LIMIT[period];
+	const variant = ['bars', 'line', 'area', 'total'].includes(pr.dashboard_variant as string) ? pr.dashboard_variant as 'bars' | 'line' | 'area' | 'total' : 'bars';
 	const fixed = typeof pr.dashboard_start === 'number' && typeof pr.dashboard_end === 'number';
 	const last = typeof pr.dashboard_last === 'number' ? pr.dashboard_last : 48 * 3600;
 	return fixed
-		? { dashboard_period: period, dashboard_start: pr.dashboard_start as number, dashboard_end: pr.dashboard_end as number }
-		: { dashboard_period: period, dashboard_last: limit === null ? last : Math.min(last, limit) };
+		? { dashboard_period: period, dashboard_variant: variant, dashboard_start: pr.dashboard_start as number, dashboard_end: pr.dashboard_end as number }
+		: { dashboard_period: period, dashboard_variant: variant, dashboard_last: limit === null ? last : Math.min(last, limit) };
 }
 
 // The chart's first series, for the viewer's preferences in effect.
