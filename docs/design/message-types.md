@@ -102,7 +102,7 @@ service messages keep `content_type = 'service'` and get the
 | TDLib class | Stored | What is lost today | Planned kind |
 |---|---|---|---|
 | messageText | partly | link preview options (disabled, forced url, size, position); entities of the preview description | text |
-| messageRichMessage | fully | stored since msg-rich-store as its blocks' plain text, a curated summary beside TDLib's JSON (section 4.2) and its media (role `rich`, section 4.3); still lost: the layout of a message whose JSON is over 256 KiB, and the part TDLib leaves out of a message it reports as not full (`is_full` false, `getFullRichMessage` is not called) | rich |
+| messageRichMessage | fully | stored since msg-rich-store as its blocks' plain text, a curated summary beside TDLib's JSON (section 4.2) and its media (role `rich`, section 4.3); still lost: the layout of a message whose JSON is over 256 KiB; a message TDLib delivers without all of its blocks (`is_full` false) is stored as it came and again in full once `getFullRichMessage` answers | rich |
 | messageAnimatedEmoji | not | the emoji itself: this is a text message of one emoji that TDLib reports specially | text |
 | messagePhoto | partly | spoiler, caption above media, secret flag, size, live-photo video (`video`) | photo |
 | messageVideo | partly | cover, start timestamp, other qualities, size, duration, MIME, spoiler, caption above | video |
@@ -350,6 +350,17 @@ as their alternative text and formulas as their source; it has no
 entities. The text, the curated keys and the media files (section 4.3)
 come from the live object, so a message over the JSON cap, which keeps
 only the class under `tdlib`, still has them.
+
+TDLib can deliver a rich message without all of its blocks
+(`richMessage.is_full` false). It is stored as it came, then the daemon
+asks `getFullRichMessage` for the rest, re-reads the message, puts the
+full blocks in place of the partial ones and stores it again through
+the normal path, so its text, curated keys and block files are those of
+the whole message. A message not edited since keeps its edit date, so
+the stored row takes the content and no edit version is written. At
+most two such calls a second, each message once per run, and one that
+fails is not asked for again within an hour. A Discord forward of such
+a message carries what arrived first.
 
 `content_extra` is part of the edit snapshot: an edit that changes a
 curated key (a live location moving, say) is a version. The `tdlib`

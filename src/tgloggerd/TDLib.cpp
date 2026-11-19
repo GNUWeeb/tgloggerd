@@ -956,6 +956,18 @@ struct TDLib::Impl {
 	int						community_in_tick_ = 0;
 
 	/*
+	 * Rich messages TDLib delivered without all of their blocks
+	 * (richMessage.is_full false), to be asked for in full: loop thread
+	 * only. (chat_id, TDLib message id); queued at most once per run,
+	 * not again within kRichFullRetrySecs after a failure.
+	 */
+	std::deque<std::pair<int64_t, int64_t>>		rich_full_pending_;
+	std::set<std::pair<int64_t, int64_t>>		rich_full_seen_;
+	std::map<std::pair<int64_t, int64_t>, time_t>	rich_full_failed_;
+	time_t						rich_full_tick_ = 0;
+	int						rich_full_in_tick_ = 0;
+
+	/*
 	 * Media relink queue (see relinkMessageMedia), under refetch_mtx_.
 	 * relink_tick_/relink_sent_ are loop-thread-only pacing state.
 	 */
@@ -1020,6 +1032,8 @@ struct TDLib::Impl {
 	void note_community_named(int64_t community_id);
 	void enqueue_community_full_info(int64_t community_id);
 	void drain_community_full_info(void);
+	void maybe_fetch_full_rich(const td_api::message &message);
+	void drain_rich_full(void);
 	void emit_community_full_info(int64_t community_id,
 				      const td_api::communityFullInfo &fi);
 	void note_interaction(int64_t chat_id, int64_t td_message_id,
@@ -1898,6 +1912,7 @@ void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,
 		maybe_store_link_preview(message.chat_id_, message.id_,
 					 *message.content_, false);
 
+	maybe_fetch_full_rich(message);
 	resolve_reply_message(message, false, depth);
 }
 
@@ -1925,6 +1940,7 @@ void TDLib::Impl::handle_message_for_group_chat(td_api::message &message,
 		maybe_store_link_preview(message.chat_id_, message.id_,
 					 *message.content_, true);
 
+	maybe_fetch_full_rich(message);
 	resolve_reply_message(message, true, depth);
 }
 
@@ -2655,6 +2671,11 @@ void TDLib::Impl::enqueue_community_full_info(int64_t community_id)
 constexpr int kCommunityFullInfoPerSecond = 2;
 constexpr time_t kCommunityRetrySecs = 3600;
 
+/* At most this many getFullRichMessage calls per second, and a failed one
+ * is not asked again for this long. */
+constexpr int kRichFullPerSecond = 2;
+constexpr time_t kRichFullRetrySecs = 3600;
+
 void TDLib::Impl::drain_community_full_info(void)
 {
 	time_t now = std::time(nullptr);
@@ -2701,6 +2722,98 @@ void TDLib::Impl::drain_community_full_info(void)
 				community_full_failed_[id] = std::time(nullptr);
 				/* A line naming it after the hour asks again. */
 				community_checked_.erase(id);
+			});
+	}
+}
+
+/*
+ * A rich message can come without all of its blocks: richMessage.is_full
+ * is false, and only getFullRichMessage returns the rest. Such a message
+ * is stored as it came and queued here to be stored again in full.
+ */
+void TDLib::Impl::maybe_fetch_full_rich(const td_api::message &message)
+{
+	if (!message.content_ || !rich_message_is_partial(*message.content_) ||
+	    !is_server_msg_id(message.id_))
+		return;
+	const auto key = std::make_pair(message.chat_id_, message.id_);
+	auto f = rich_full_failed_.find(key);
+	if (f != rich_full_failed_.end() &&
+	    std::time(nullptr) - f->second < kRichFullRetrySecs)
+		return;
+	if (rich_full_seen_.insert(key).second)
+		rich_full_pending_.push_back(key);
+}
+
+/*
+ * Ask for each queued rich message in full, then re-read the message and
+ * store it again through the normal path with the full blocks in place of
+ * the partial ones: its text, summary and block files come out as for a
+ * message delivered whole. A message not edited since keeps its edit
+ * date, so the stored row takes the content and no edit version is
+ * written. At most kRichFullPerSecond messages a second.
+ */
+void TDLib::Impl::drain_rich_full(void)
+{
+	time_t now = std::time(nullptr);
+	if (now != rich_full_tick_) {
+		rich_full_tick_ = now;
+		rich_full_in_tick_ = 0;
+	}
+	while (rich_full_in_tick_ < kRichFullPerSecond &&
+	       !rich_full_pending_.empty()) {
+		const auto key = rich_full_pending_.front();
+		rich_full_pending_.pop_front();
+		rich_full_in_tick_++;
+
+		auto fail = [this, key](const char *step, const Object &obj) {
+			std::string why = "unexpected answer";
+			if (obj && obj->get_id() == td_api::error::ID) {
+				auto &e = static_cast<const td_api::error &>(*obj);
+				why = std::to_string(e.code_) + " " + e.message_;
+			}
+			pr_info(l_, "rich message %lld/%lld: no full version (%s:"
+				" %s); not asked again for an hour",
+				(long long)key.first,
+				(long long)to_server_msg_id(key.second), step,
+				why.c_str());
+			rich_full_failed_[key] = std::time(nullptr);
+			rich_full_seen_.erase(key);
+		};
+
+		send_query(td_api::make_object<td_api::getFullRichMessage>(
+				   key.first, key.second),
+			[this, key, fail](Object obj) {
+				if (!obj || obj->get_id() != td_api::richMessage::ID) {
+					fail("getFullRichMessage", obj);
+					return;
+				}
+				auto full = std::make_shared<
+					td_api::object_ptr<td_api::richMessage>>(
+					td::move_tl_object_as<td_api::richMessage>(obj));
+				send_query(td_api::make_object<td_api::getMessage>(
+						   key.first, key.second),
+					[this, key, fail, full](Object m) {
+						if (!m || m->get_id() != td_api::message::ID) {
+							fail("getMessage", m);
+							return;
+						}
+						auto msg = td::move_tl_object_as<
+							td_api::message>(m);
+						if (!msg->content_ ||
+						    msg->content_->get_id() !=
+							    td_api::messageRichMessage::ID)
+							return; /* no longer rich */
+						auto &c = static_cast<
+							td_api::messageRichMessage &>(
+							*msg->content_);
+						(*full)->is_full_ = true;
+						c.message_ = std::move(*full);
+						if (is_private_chat(msg->chat_id_))
+							handle_message_for_private_chat(*msg, 0);
+						else
+							handle_message_for_group_chat(*msg, 0);
+					});
 			});
 	}
 }
@@ -2959,6 +3072,7 @@ void TDLib::Impl::drain_refetch(void)
 {
 	drain_relink();
 	drain_community_full_info();
+	drain_rich_full();
 
 	std::unordered_set<int64_t> users, groups;
 	{

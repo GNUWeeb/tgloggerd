@@ -58,11 +58,11 @@ caption(const std::string &s)
 }
 
 static td_api::object_ptr<td_api::messageRichMessage>
-rich(Blocks blocks, bool is_rtl = false)
+rich(Blocks blocks, bool is_rtl = false, bool is_full = true)
 {
 	auto c = td_api::make_object<td_api::messageRichMessage>();
 	c->message_ = td_api::make_object<td_api::richMessage>(
-		std::move(blocks), is_rtl, true);
+		std::move(blocks), is_rtl, is_full);
 	return c;
 }
 
@@ -199,6 +199,21 @@ static td_api::object_ptr<td_api::messageRichMessage> sample(void)
 
 int main(void)
 {
+	printf("test: which rich messages are asked for in full\n");
+	{
+		auto whole = rich(Blocks());
+		CHECK(!rich_message_is_partial(*whole),
+		      "a full rich message is not asked for again");
+		auto part = rich(Blocks(), false, false);
+		CHECK(rich_message_is_partial(*part),
+		      "one delivered without all its blocks is");
+		auto empty = td_api::make_object<td_api::messageRichMessage>();
+		CHECK(!rich_message_is_partial(*empty),
+		      "nor is one TDLib gave no blocks object at all");
+		auto text = td_api::make_object<td_api::messageText>();
+		CHECK(!rich_message_is_partial(*text), "nor any other content");
+	}
+
 	printf("test: the text of a rich message\n");
 	{
 		auto c = sample();
