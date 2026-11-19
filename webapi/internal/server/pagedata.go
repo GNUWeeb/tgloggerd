@@ -16,6 +16,7 @@ import (
 	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/settings"
+	"tgloggerd/webapi/internal/webdb"
 )
 
 // The loaders of the dashboard, user, group, chat and message pages
@@ -398,6 +399,10 @@ type groupProps struct {
 	HistoryNext *string          `json:"history_next"`
 	TopPosters  []posterJSON     `json:"top_posters"`
 	Activity    []int64          `json:"activity"`
+	// Whether a superadmin hid the channel's member list, and whether
+	// the viewer may change that (PATCH /api/groups/{id}).
+	HideMemberList    bool `json:"hide_member_list"`
+	CanHideMemberList bool `json:"can_hide_member_list"`
 }
 
 // groupPublicProps is GroupPublicProps: an exposed group's details for a
@@ -474,7 +479,10 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 			MsgCount: g.MsgCount, AdminCount: g.AdminCount, CreatedAt: iso(g.CreatedAt),
 			UpdatedAt: iso(g.UpdatedAt)},
 		Admins: []groupAdminJSON{}, History: []historyJSON{}, TopPosters: []posterJSON{},
-		Activity: p.Activity,
+		Activity: p.Activity, CanHideMemberList: mayHideMemberList(pr.scope, p.Group.Group),
+	}
+	if out.HideMemberList, err = webdb.MemberListHidden(ctx, pr.s.app, pr.pathID()); err != nil {
+		return nil, err
 	}
 	// The people named here appear in the group, so its viewer sees
 	// them, but only in full when it sees users in full.

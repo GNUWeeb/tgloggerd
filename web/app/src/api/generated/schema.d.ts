@@ -1231,6 +1231,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a group's web settings
+         * @description Superadmins only: hide_member_list hides a channel's member list (GET /api/groups/{id}/members and the group_members page) from everyone but the superadmins, who get available false with reason hidden in its place, the member count still shown; false shows it again (web_hidden_member_lists). Only channels: a group's members see each other in Telegram, so a supergroup or basic group is 400 bad_request. A group the viewer does not see is 404; an admin who sees it gets 403 forbidden. Audited as member_list_hide or member_list_show, with the group, when the setting changes. The answer is the setting as it now is.
+         */
+        patch: operations["updateGroup"];
+        trace?: never;
+    };
     "/api/groups/{id}/photos": {
         parameters: {
             query?: never;
@@ -2617,6 +2637,10 @@ export interface components {
             };
         };
         GroupProps: {
+            /** @description A superadmin hid the channel's member list: only superadmins get it (GET /api/groups/{id}/members). */
+            hide_member_list: boolean;
+            /** @description Whether the viewer may change hide_member_list (PATCH /api/groups/{id}): a superadmin, on a channel. */
+            can_hide_member_list: boolean;
             group: components["schemas"]["GroupFull"];
             admins: components["schemas"]["GroupAdmin"][];
             /** @description The newest page of the timeline (GroupHistoryPage). */
@@ -5908,6 +5932,54 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    updateGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group's Telegram chat id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    hide_member_list: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The setting as it now is. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int64 */
+                        id: number;
+                        hide_member_list: boolean;
+                        /** @constant */
+                        can_hide_member_list: true;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            /** @description The CSRF token is wrong (error csrf), the viewer is not a superadmin (error forbidden), or a gate is up (see Gates). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             404: components["responses"]["NotFound"];
             503: components["responses"]["SessionUnavailable"];
         };

@@ -549,7 +549,16 @@ than 10 minutes asks the daemon to refresh it (POST
 /v1/chats/{id}/refresh) in the background: never in the page's path,
 at most one call in flight per group, and a group asked about is left
 alone for a minute after. The daemon stores the new count, which the
-next page load shows; a failed refresh keeps the stored count. /messages/{group|private}?chat_id=
+next page load shows; a failed refresh keeps the stored count.
+
+A superadmin can hide a channel's member list (PATCH /api/groups/{id}
+{"hide_member_list": true}; web migration 000013,
+web_hidden_member_lists): the list is then for superadmins only, and
+everyone else who sees the channel gets its count and reason hidden.
+Channels only, since a group's members see each other in Telegram;
+audited as member_list_hide and member_list_show. GroupProps carries
+hide_member_list and can_hide_member_list (a superadmin, on a
+channel). /messages/{group|private}?chat_id=
 redirects to the message list filtered by that chat.
 
 Signed-out visitors may read the chats of exposed groups

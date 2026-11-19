@@ -336,6 +336,7 @@ func (s *Server) routes() []route {
 		{"GET /api/users/{id}/photos", s.RequireSession(s.getUserPhotos)},
 		{"GET /api/groups/{id}/history", s.RequireSession(s.getGroupHistory)},
 		{"GET /api/groups/{id}/photos", s.RequireSession(s.getGroupPhotos)},
+		{"PATCH /api/groups/{id}", s.RequireSession(s.updateGroup)},
 	}
 }
 

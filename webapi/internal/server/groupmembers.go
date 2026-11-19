@@ -7,10 +7,14 @@ package server
 
 import (
 	"context"
+	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/webdb"
 )
 
 // Group members: Telegram's member count of a group, which the daemon
@@ -85,4 +89,80 @@ func (s *Server) refreshMemberCount(g logdb.Group) {
 		delete(m.inflight, g.ID)
 		m.mu.Unlock()
 	}()
+}
+
+// mayHideMemberList is whether the viewer may hide group g's member
+// list or show it again: superadmins, on channels only (a group's
+// members see each other in Telegram anyway).
+func mayHideMemberList(sc scope.Scope, g logdb.Group) bool {
+	return sc.Role() == scope.Superadmin && g.Type == "channel"
+}
+
+// groupWriteJSON is PATCH /api/groups/{id}'s answer.
+type groupWriteJSON struct {
+	ID                int64 `json:"id"`
+	HideMemberList    bool  `json:"hide_member_list"`
+	CanHideMemberList bool  `json:"can_hide_member_list"`
+}
+
+// updateGroup answers PATCH /api/groups/{id} {"hide_member_list":
+// bool}: a superadmin hides a channel's member list from everyone but
+// the superadmins, or shows it again. A group the viewer does not see
+// is 404; one it sees but may not change, 403; a group that is not a
+// channel, 400.
+func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	if !s.checkCSRF(w, r) {
+		return
+	}
+	sc := ScopeFrom(r.Context())
+	v, _ := sc.Viewer()
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id >= 0 {
+		notFound(w)
+		return
+	}
+	ctx := r.Context()
+	gs, err := logdb.VisibleGroups(ctx, s.ro, sc, []int64{id})
+	if err != nil {
+		s.internalError(w, "group", err)
+		return
+	}
+	if len(gs) == 0 {
+		notFound(w)
+		return
+	}
+	g := gs[0]
+	if sc.Role() != scope.Superadmin {
+		s.refuse(w, r, v, http.StatusForbidden, "forbidden", "group.superadmins_only")
+		return
+	}
+	var in struct {
+		HideMemberList *bool `json:"hide_member_list"`
+	}
+	if !decodeBody(w, r, &in) {
+		return
+	}
+	if in.HideMemberList == nil {
+		s.refuse(w, r, v, http.StatusBadRequest, "bad_request", "group.write_fields")
+		return
+	}
+	if !mayHideMemberList(sc, g) {
+		s.refuse(w, r, v, http.StatusBadRequest, "bad_request", "group.channels_only")
+		return
+	}
+	changed, err := webdb.SetMemberListHidden(ctx, s.app, id, *in.HideMemberList, v.ID)
+	if err != nil {
+		s.internalError(w, "hide member list", err)
+		return
+	}
+	if changed {
+		action := "member_list_show"
+		if *in.HideMemberList {
+			action = "member_list_hide"
+		}
+		s.auditAdmin(r, v.ID, action, "group "+strconv.FormatInt(id, 10))
+	}
+	writeJSON(w, http.StatusOK, groupWriteJSON{ID: id, HideMemberList: *in.HideMemberList,
+		CanHideMemberList: true})
 }

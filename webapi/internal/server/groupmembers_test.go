@@ -227,3 +227,83 @@ func TestMemberCountWithoutDaemon(t *testing.T) {
 		t.Errorf("asked the daemon: %v", c)
 	}
 }
+
+// groupFlags are a group page's member list flags as role sees them.
+func groupFlags(t *testing.T, e *adminEnv, role string, id int64) (hidden, can bool) {
+	t.Helper()
+	st, b := e.page(role, fmt.Sprintf("/groups/%d", id))
+	if st != 200 {
+		t.Fatalf("%s /groups/%d: %d %v", role, id, st, b)
+	}
+	p := b["props"].(map[string]any)
+	h, ok1 := p["hide_member_list"].(bool)
+	c, ok2 := p["can_hide_member_list"].(bool)
+	if !ok1 || !ok2 {
+		t.Fatalf("%s /groups/%d: flags %v %v", role, id, p["hide_member_list"], p["can_hide_member_list"])
+	}
+	return h, c
+}
+
+// A superadmin hides a channel's member list and shows it again, each
+// change audited; an admin may not (403), a member does not see the
+// channel (404), and a group that is not a channel cannot be hidden.
+func TestHideMemberList(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	path := fmt.Sprintf("/api/groups/%d", gmChannel)
+
+	if h, c := groupFlags(t, e, "superadmin", gmChannel); h || !c {
+		t.Errorf("superadmin, channel: hidden %v can %v", h, c)
+	}
+	if h, c := groupFlags(t, e, "admin", gmChannel); h || c {
+		t.Errorf("admin, channel: hidden %v can %v", h, c)
+	}
+	if _, c := groupFlags(t, e, "superadmin", gmFresh); c {
+		t.Error("superadmin may hide a supergroup's list")
+	}
+
+	if st, _, _ := e.call("superadmin", "PATCH", path, map[string]any{"hide_member_list": true}, false); st != 403 {
+		t.Errorf("without CSRF: %d", st)
+	}
+	b := e.want(200, "superadmin", "PATCH", path, map[string]any{"hide_member_list": true})
+	if js(b) != fmt.Sprintf(`{"can_hide_member_list":true,"hide_member_list":true,"id":%d}`, gmChannel) {
+		t.Errorf("hide: %v", b)
+	}
+	// Again: no change, no audit.
+	e.want(200, "superadmin", "PATCH", path, map[string]any{"hide_member_list": true})
+	if h, _ := groupFlags(t, e, "admin", gmChannel); !h {
+		t.Error("admin does not see the list as hidden")
+	}
+	if h, _ := groupFlags(t, e, "superadmin", gmChannel); !h {
+		t.Error("superadmin does not see the list as hidden")
+	}
+	if n := e.appOne("SELECT hidden_by FROM web_hidden_member_lists WHERE group_id = ?", gmChannel); n != "1" {
+		t.Errorf("hidden_by %q", n)
+	}
+
+	if b := e.want(403, "admin", "PATCH", path, map[string]any{"hide_member_list": false}); b["error"] != "forbidden" {
+		t.Errorf("admin: %v", b)
+	}
+	e.want(404, "member", "PATCH", path, map[string]any{"hide_member_list": false})
+	e.want(404, "superadmin", "PATCH", "/api/groups/-1009999999999", map[string]any{"hide_member_list": true})
+	e.want(404, "superadmin", "PATCH", "/api/groups/42", map[string]any{"hide_member_list": true})
+	e.want(400, "superadmin", "PATCH", fmt.Sprintf("/api/groups/%d", gmFresh),
+		map[string]any{"hide_member_list": true})
+	e.want(400, "superadmin", "PATCH", path, map[string]any{})
+	e.want(400, "superadmin", "PATCH", path, map[string]any{"hide_member_list": "yes"})
+	if st, _, _ := e.call("", "PATCH", path, map[string]any{"hide_member_list": false}); st != 401 {
+		t.Errorf("signed out: %d", st)
+	}
+
+	e.want(200, "superadmin", "PATCH", path, map[string]any{"hide_member_list": false})
+	if h, _ := groupFlags(t, e, "admin", gmChannel); h {
+		t.Error("still hidden")
+	}
+	want := []string{
+		fmt.Sprintf("1 member_list_hide group %d", gmChannel),
+		fmt.Sprintf("1 member_list_show group %d", gmChannel),
+	}
+	if got := e.audits(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("audits\n%s", strings.Join(got, "\n"))
+	}
+}

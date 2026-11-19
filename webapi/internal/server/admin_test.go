@@ -298,7 +298,7 @@ func noSecrets(t *testing.T, what string, v any, secrets ...string) {
 // Every text the administration files look up has an English text.
 func TestAdminTextsExist(t *testing.T) {
 	t.Parallel()
-	re := regexp.MustCompile(`"((?:federation|fwd|join|daemon|lookup|mcp)\.[a-z_]+)"`)
+	re := regexp.MustCompile(`"((?:federation|fwd|group|join|daemon|lookup|mcp)\.[a-z_]+)"`)
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
