@@ -5,7 +5,8 @@
 /*
  * rich_message_test -- how a messageRichMessage is stored, over
  * hand-built TDLib objects: no TDLib client. It checks the plain text of
- * the page blocks and the curated content_extra beside TDLib's JSON.
+ * the page blocks, the curated content_extra beside TDLib's JSON, and the
+ * media of the blocks as message files (role "rich").
  */
 #include <tgloggerd/MessageExtract.hpp>
 
@@ -63,6 +64,99 @@ rich(Blocks blocks, bool is_rtl = false)
 	c->message_ = td_api::make_object<td_api::richMessage>(
 		std::move(blocks), is_rtl, true);
 	return c;
+}
+
+static td_api::object_ptr<td_api::file> file(int32_t id)
+{
+	auto f = td_api::make_object<td_api::file>();
+	f->id_ = id;
+	f->remote_ = td_api::make_object<td_api::remoteFile>();
+	f->remote_->id_ = "remote-" + std::to_string(id);
+	f->remote_->unique_id_ = "unique-" + std::to_string(id);
+	f->local_ = td_api::make_object<td_api::localFile>();
+	return f;
+}
+
+/* A photo of two sizes, @small_id the smaller, @big_id the larger. */
+static td_api::object_ptr<td_api::photo> photo(int32_t small_id, int32_t big_id)
+{
+	auto p = td_api::make_object<td_api::photo>();
+	p->sizes_.push_back(td_api::make_object<td_api::photoSize>(
+		"m", file(small_id), 320, 240, td_api::array<td_api::int32>()));
+	p->sizes_.push_back(td_api::make_object<td_api::photoSize>(
+		"y", file(big_id), 1280, 960, td_api::array<td_api::int32>()));
+	return p;
+}
+
+static Block photo_block(int32_t small_id, int32_t big_id)
+{
+	return td_api::make_object<td_api::pageBlockPhoto>(
+		photo(small_id, big_id), nullptr, "", false);
+}
+
+static Block video_block(int32_t id)
+{
+	auto v = td_api::make_object<td_api::video>();
+	v->file_name_ = "clip.mp4";
+	v->video_ = file(id);
+	return td_api::make_object<td_api::pageBlockVideo>(
+		std::move(v), nullptr, false, false, false);
+}
+
+/* A page with media at the top level and nested: photo, collage (video,
+ * photo), list item (document), voice note, divider, animation, audio. */
+static td_api::object_ptr<td_api::messageRichMessage> media_sample(void)
+{
+	Blocks b;
+	b.push_back(photo_block(1, 2));
+
+	Blocks collage;
+	collage.push_back(video_block(3));
+	collage.push_back(photo_block(4, 5));
+	b.push_back(td_api::make_object<td_api::pageBlockCollage>(
+		std::move(collage), caption("two")));
+
+	auto doc = td_api::make_object<td_api::document>();
+	doc->file_name_ = "notes.pdf";
+	doc->document_ = file(6);
+	Blocks ib;
+	ib.push_back(td_api::make_object<td_api::pageBlockDocument>(
+		std::move(doc), nullptr));
+	td_api::array<td_api::object_ptr<td_api::pageBlockListItem>> items;
+	items.push_back(td_api::make_object<td_api::pageBlockListItem>(
+		"1.", std::move(ib), false, false, 1, "1"));
+	b.push_back(td_api::make_object<td_api::pageBlockList>(std::move(items)));
+
+	auto voice = td_api::make_object<td_api::voiceNote>();
+	voice->voice_ = file(7);
+	b.push_back(td_api::make_object<td_api::pageBlockVoiceNote>(
+		std::move(voice), nullptr));
+	b.push_back(td_api::make_object<td_api::pageBlockDivider>());
+
+	auto anim = td_api::make_object<td_api::animation>();
+	anim->file_name_ = "loop.gif.mp4";
+	anim->animation_ = file(8);
+	b.push_back(td_api::make_object<td_api::pageBlockAnimation>(
+		std::move(anim), nullptr, true, false));
+
+	auto audio = td_api::make_object<td_api::audio>();
+	audio->file_name_ = "song.mp3";
+	audio->audio_ = file(9);
+	b.push_back(td_api::make_object<td_api::pageBlockAudio>(
+		std::move(audio), nullptr));
+
+	/* No file: a photo block whose photo is missing. */
+	b.push_back(td_api::make_object<td_api::pageBlockPhoto>(
+		nullptr, nullptr, "", false));
+	return rich(std::move(b));
+}
+
+/* Whether @x is file @id of @category at @position, role "rich". */
+static bool is_rich(const ExtraFile &x, int32_t id, const char *category,
+		    int position)
+{
+	return x.file && x.file->id_ == id && !strcmp(x.role, "rich") &&
+	       !strcmp(x.category, category) && x.position == position;
 }
 
 /* A page with one block of each text-bearing kind that matters. */
@@ -172,6 +266,51 @@ int main(void)
 		      "and only the class of TDLib's JSON");
 		CHECK(out.text.has_value() && out.text->rfind("word ", 0) == 0,
 		      "and its text");
+	}
+
+	printf("test: the media of a rich message\n");
+	{
+		auto c = media_sample();
+		auto x = message_extra_files(*c);
+		CHECK(x.size() == 7, "one file per media item");
+		CHECK(x.size() == 7 && is_rich(x[0], 2, "photo", 0) &&
+			      is_rich(x[1], 3, "video", 1) &&
+			      is_rich(x[2], 5, "photo", 2) &&
+			      is_rich(x[3], 6, "document", 3) &&
+			      is_rich(x[4], 7, "voice", 4) &&
+			      is_rich(x[5], 8, "animation", 5) &&
+			      is_rich(x[6], 9, "audio", 6),
+		      "in order of appearance, nested ones in place, a photo"
+		      " by its largest size");
+		CHECK(x.size() == 7 && x[1].file_name == "clip.mp4" &&
+			      x[3].file_name == "notes.pdf",
+		      "with their file names");
+
+		const ExtraFile *f = rich_file_with_unique_id(x, "unique-6");
+		CHECK(f && f->file->id_ == 6, "found again by unique id");
+		CHECK(!rich_file_with_unique_id(x, "unique-1"),
+		      "a smaller photo size is not one of them");
+		CHECK(!rich_file_with_unique_id(x, ""),
+		      "an empty unique id finds nothing");
+	}
+	{
+		auto c = sample();
+		CHECK(message_extra_files(*c).empty(),
+		      "a photo block without a photo has no file");
+	}
+	{
+		Blocks b;
+		b.push_back(td_api::make_object<td_api::pageBlockCover>(
+			photo_block(10, 11)));
+		Blocks inner;
+		inner.push_back(video_block(12));
+		b.push_back(td_api::make_object<td_api::pageBlockDetails>(
+			plain("More"), std::move(inner), false));
+		auto c = rich(std::move(b));
+		auto x = message_extra_files(*c);
+		CHECK(x.size() == 2 && is_rich(x[0], 11, "photo", 0) &&
+			      is_rich(x[1], 12, "video", 1),
+		      "a cover's photo and a collapsible block's video");
 	}
 
 	if (g_failures) {

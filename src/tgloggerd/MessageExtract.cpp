@@ -907,6 +907,125 @@ void page_blocks_text(
 		page_block_text(b.get(), lines);
 }
 
+/* telegram_message_files.position is a SMALLINT. */
+constexpr size_t kMaxRichFiles = 32767;
+
+void page_blocks_files(
+	const std::vector<td_api::object_ptr<td_api::PageBlock>> &blocks,
+	std::vector<ExtraFile> &out);
+
+/*
+ * The media of one page block, appended to @out in order of appearance
+ * as role "rich", position its index in @out: a photo (largest size), a
+ * video, an animation, an audio file, a document or a voice note, an
+ * embedded page's poster, an embedded post's author photo and the
+ * photos of related articles; the blocks inside a cover, a collage, a
+ * slideshow, a quote, a list, a collapsible block or an embedded post.
+ * A chat link's photo (the chat's own) and the icons inside rich text
+ * are not listed.
+ */
+void page_block_files(const td_api::PageBlock *b, std::vector<ExtraFile> &out)
+{
+	auto add = [&out](const td_api::file *f, const char *category,
+			  std::string name) {
+		if (f && out.size() < kMaxRichFiles)
+			out.push_back(ExtraFile{ f, category, std::move(name),
+						 "rich", (int)out.size() });
+	};
+	if (!b)
+		return;
+	switch (b->get_id()) {
+	case td_api::pageBlockPhoto::ID:
+		add(photo_best_size(static_cast<const td_api::pageBlockPhoto &>(
+					    *b).photo_.get()), "photo", "");
+		break;
+	case td_api::pageBlockVideo::ID: {
+		auto &v = static_cast<const td_api::pageBlockVideo &>(*b);
+		if (v.video_)
+			add(v.video_->video_.get(), "video", v.video_->file_name_);
+		break;
+	}
+	case td_api::pageBlockAnimation::ID: {
+		auto &a = static_cast<const td_api::pageBlockAnimation &>(*b);
+		if (a.animation_)
+			add(a.animation_->animation_.get(), "animation",
+			    a.animation_->file_name_);
+		break;
+	}
+	case td_api::pageBlockAudio::ID: {
+		auto &a = static_cast<const td_api::pageBlockAudio &>(*b);
+		if (a.audio_)
+			add(a.audio_->audio_.get(), "audio", a.audio_->file_name_);
+		break;
+	}
+	case td_api::pageBlockDocument::ID: {
+		auto &d = static_cast<const td_api::pageBlockDocument &>(*b);
+		if (d.document_)
+			add(d.document_->document_.get(), "document",
+			    d.document_->file_name_);
+		break;
+	}
+	case td_api::pageBlockVoiceNote::ID: {
+		auto &v = static_cast<const td_api::pageBlockVoiceNote &>(*b);
+		if (v.voice_note_)
+			add(v.voice_note_->voice_.get(), "voice", "");
+		break;
+	}
+	case td_api::pageBlockEmbedded::ID:
+		add(photo_best_size(static_cast<const td_api::pageBlockEmbedded &>(
+					    *b).poster_photo_.get()), "photo", "");
+		break;
+	case td_api::pageBlockEmbeddedPost::ID: {
+		auto &p = static_cast<const td_api::pageBlockEmbeddedPost &>(*b);
+		add(photo_best_size(p.author_photo_.get()), "photo", "");
+		page_blocks_files(p.blocks_, out);
+		break;
+	}
+	case td_api::pageBlockRelatedArticles::ID:
+		for (const auto &a : static_cast<const td_api::pageBlockRelatedArticles &>(
+					     *b).articles_)
+			if (a)
+				add(photo_best_size(a->photo_.get()), "photo", "");
+		break;
+	case td_api::pageBlockCover::ID:
+		page_block_files(static_cast<const td_api::pageBlockCover &>(*b)
+					 .cover_.get(), out);
+		break;
+	case td_api::pageBlockCollage::ID:
+		page_blocks_files(static_cast<const td_api::pageBlockCollage &>(
+					  *b).blocks_, out);
+		break;
+	case td_api::pageBlockSlideshow::ID:
+		page_blocks_files(static_cast<const td_api::pageBlockSlideshow &>(
+					  *b).blocks_, out);
+		break;
+	case td_api::pageBlockBlockQuote::ID:
+		page_blocks_files(static_cast<const td_api::pageBlockBlockQuote &>(
+					  *b).blocks_, out);
+		break;
+	case td_api::pageBlockDetails::ID:
+		page_blocks_files(static_cast<const td_api::pageBlockDetails &>(
+					  *b).blocks_, out);
+		break;
+	case td_api::pageBlockList::ID:
+		for (const auto &it : static_cast<const td_api::pageBlockList &>(
+					      *b).items_)
+			if (it)
+				page_blocks_files(it->blocks_, out);
+		break;
+	default:
+		break;
+	}
+}
+
+void page_blocks_files(
+	const std::vector<td_api::object_ptr<td_api::PageBlock>> &blocks,
+	std::vector<ExtraFile> &out)
+{
+	for (const auto &b : blocks)
+		page_block_files(b.get(), out);
+}
+
 /*
  * A rich message's content_extra: the curated {"blocks": <top-level block
  * count>, "is_rtl": <bool>} beside TDLib's JSON, which stays the render
@@ -2503,6 +2622,25 @@ std::string rich_message_text(const td_api::richMessage &m)
 	return out;
 }
 
+std::vector<ExtraFile> rich_message_files(const td_api::richMessage &m)
+{
+	std::vector<ExtraFile> out;
+	page_blocks_files(m.blocks_, out);
+	return out;
+}
+
+const ExtraFile *rich_file_with_unique_id(const std::vector<ExtraFile> &files,
+					  const std::string &unique_id)
+{
+	if (unique_id.empty())
+		return nullptr;
+	for (const auto &x : files)
+		if (x.file && x.file->remote_ &&
+		    x.file->remote_->unique_id_ == unique_id)
+			return &x;
+	return nullptr;
+}
+
 /* The message's text/caption formattedText (carrying its entities), or nullptr
  * for content that has none. Mirrors extract_message_content's text sources. */
 const td_api::formattedText *
@@ -2553,9 +2691,10 @@ const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
  * The files of @content beyond the one message_content_file() returns, in
  * a stable order: a video's cover, a live photo's video, each paid media
  * item, a game's photo and animation, an invoice's photo and paid media,
- * the photo of a chat photo change or suggestion, and the still
+ * the photo of a chat photo change or suggestion, the still
  * thumbnail of a video, an animation, a video note or a video sticker
- * (the picture shown before it plays). Other thumbnails and a video's
+ * (the picture shown before it plays), and the media in a rich
+ * message's page blocks (rich_message_files). Other thumbnails and a video's
  * other qualities are not listed: the first only repeat the media, the
  * second are the same video again.
  */
@@ -2683,6 +2822,12 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 				    content).photo_.get()),
 		    "photo", "", "chat_photo", 0);
 		break;
+	case td_api::messageRichMessage::ID: {
+		auto &c = static_cast<const td_api::messageRichMessage &>(content);
+		if (c.message_)
+			out = rich_message_files(*c.message_);
+		break;
+	}
 	default:
 		break;
 	}

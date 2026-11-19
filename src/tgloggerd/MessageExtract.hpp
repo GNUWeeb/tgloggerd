@@ -192,9 +192,25 @@ struct ExtraFile {
  * cover, a live photo's video, each paid media item, a game's photo and
  * animation, an invoice's photo and paid media, the photo of a chat photo
  * change or suggestion, the still thumbnail of a video, an animation, a
- * video note or a video sticker.
+ * video note or a video sticker, the media in a rich message's blocks.
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
+
+/*
+ * The media in a rich message's page blocks, role "rich", position their
+ * order of appearance (depth first): each photo (largest size), video,
+ * animation, audio file, document and voice note, an embedded page's
+ * poster, an embedded post's author photo and the photos of related
+ * articles, including those inside collages, slideshows, quotes, lists,
+ * collapsible blocks, covers and embedded posts.
+ */
+std::vector<ExtraFile> rich_message_files(const td_api::richMessage &m);
+
+/* The one of @files whose Telegram unique id is @unique_id, or nullptr.
+ * An edit can move a rich message's media, so a file is found again by
+ * its unique id rather than its position. */
+const ExtraFile *rich_file_with_unique_id(const std::vector<ExtraFile> &files,
+					  const std::string &unique_id);
 
 /*
  * A TDLib poll as telegram_polls and telegram_poll_options keep it: what
