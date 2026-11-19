@@ -35,6 +35,9 @@ export type Range = { live: true; start: number } | { live: false; start: number
 
 export const DEFAULT_LAST = 48 * 3600;
 
+// The longest wait a browser's setTimeout keeps, 2^31 - 1 ms (24.8 days).
+const MAX_WAIT = 2 ** 31 - 1;
+
 // The range kept within what the period allows: a start at or after the
 // end, or one further back than the limit, moves to fit.
 export function clampRange(r: Range, p: Period, limit: number | null, now: number): Range {
@@ -154,11 +157,18 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 	});
 
 	// The clock passing the live series' end: a new period starts, and the
-	// start moves forward once the range is over the limit.
+	// start moves forward once the range is over the limit. A browser fires
+	// a longer timeout than MAX_WAIT at once, and a month, quarter or year
+	// can end further away than that, so a long wait goes in steps.
 	const liveEnd = load.data?.live ? load.data.end : null;
+	const [step, setStep] = useState(0);
 	useEffect(() => {
 		if (liveEnd === null || load.state !== 'ok') return;
 		const wait = Math.max(1000, (liveEnd - (Date.now() + skew.current!) / 1000) * 1000 + 250);
+		if (wait > MAX_WAIT) {
+			const id = setTimeout(() => setStep((x) => x + 1), MAX_WAIT);
+			return () => clearTimeout(id);
+		}
 		const id = setTimeout(() => {
 			// The time it fired, not the time React gets to the update.
 			const t = now();
@@ -166,7 +176,7 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 			setTick((t) => t + 1);
 		}, wait);
 		return () => clearTimeout(id);
-	}, [liveEnd, load.state]);
+	}, [liveEnd, load.state, step]);
 
 	const save = (patch: Prefs) => {
 		setSaveErr(false);

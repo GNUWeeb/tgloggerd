@@ -362,6 +362,23 @@ describe('dashboard chart, live', () => {
 		expect(series(calls).map((c) => c.query.get('start'))).toEqual([NOW + 60 - 86400, NOW + 120 - 86400].map(String));
 	});
 
+	// A browser fires a timeout over 2^31 - 1 ms (24.8 days) at once.
+	it('waits for a period that ends weeks away, then fetches once', async () => {
+		const start = Date.parse('2026-01-01T00:00:00Z') / 1000, end = Date.parse('2027-01-01T00:00:00Z') / 1000;
+		const year = { period: 'year', start, end, live: true, tz: 'UTC', limit: LIMIT.year, points: [{ at: start, n: 600000 }] };
+		const calls = fakeApi('superadmin', { ...server, 'GET /api/dashboard/series': () => year });
+		renderPage('/', 'superadmin', viewer({ dashboard_period: 'year', dashboard_last: NOW - start }, year));
+		await open();
+		await flush(60 * 1000);
+		expect(series(calls)).toHaveLength(0);
+		expect(screen.queryByText('Loading...')).toBeNull();
+		await flush((end - NOW - 61) * 1000);
+		expect(series(calls)).toHaveLength(0);
+		await flush(2000);
+		await flush();
+		expect(series(calls)).toHaveLength(1);
+	});
+
 	it('is not live with a fixed end', async () => {
 		const calls = fakeApi('superadmin', server);
 		renderPage('/', 'superadmin', page({ dashboard_start: NOW - 7200, dashboard_end: NOW - 3600, dashboard_last: undefined }, { period: 'hour', start: String(NOW - 7200), end: String(NOW - 3600) }));
