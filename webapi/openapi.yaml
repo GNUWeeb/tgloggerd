@@ -621,6 +621,8 @@ paths:
         group_admins /groups/{id}/admins;
         group_history /groups/{id}/history;
         group_members /groups/{id}/members;
+        group_files /groups/{id}/files;
+        group_polls /groups/{id}/polls;
         group_chat /groups/{id}/chat;
         files /files;
         group_messages /group_messages;
@@ -669,21 +671,21 @@ paths:
         the viewer may not see answers 404 with the not_found route,
         exactly like something that does not exist; so does a path that
         is no page at all. A signed-out visitor gets 401 for every path
-        but login, the three link pages and the public chats of exposed
-        groups (group_chat).
+        but login, the three link pages and the public pages of exposed
+        groups (group, group_chat, group_files and group_polls).
 
 
         So far the service loads the data of login, dashboard, user,
         user_history, user_chat, group, group_admins, group_history,
-        group_members, group_chat and message, of the list pages users, groups,
+        group_members, group_files, group_polls, group_chat and message, of the list pages users, groups,
         files, group_messages and private_messages, of the settings
         pages, of the administration pages accounts, federations,
         federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram,
         join_chat, mcp, mcp_groups and mcp_tokens (each only for a
         viewer whose menu has it, not_found otherwise), of the three
         link pages (whose props are empty), and not_found. A signed-out
-        visitor asking for the group_chat of a group that is not
-        exposed is asked to sign in (401 here, the redirect for the
+        visitor asking for the group_chat, group_files or group_polls
+        of a group that is not exposed is asked to sign in (401 here, the redirect for the
         document), whether or not the group exists. A list page reads
         its list state from its query string (q, f the filters as a
         JSON array of Cond, sort, dir, page, per) through the advanced
@@ -701,7 +703,11 @@ paths:
         limit, order, without f, page, per and dir) is read as the
         same list, and the answer's url is the translated one, to put
         in the address bar. The user and group pages and their history
-        pages take before, the history cursor (history_next). The
+        pages take before, the history cursor (history_next).
+        group_files takes kind (FileKind) and before, and group_polls
+        before, as getGroupFiles and getGroupPolls do, except that a
+        value that does not parse is ignored instead of answering 400.
+        The
         page's document
         (its HTML, web-ssr.md section 5) is served at the page's own
         path for each route whose data the service loads, and there a
@@ -3833,6 +3839,101 @@ paths:
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
+  /api/groups/{id}/files:
+    get:
+      operationId: getGroupFiles
+      tags: [groups]
+      summary: A page of a group's files
+      description: >-
+        The files the group's messages carry, by the message that
+        carried each, newest message first (by Telegram message id), 50
+        a page: the messages of one of the FileKind kinds whose main
+        file is their content, or with kind of that kind only. The
+        group page's Files tab (route group_files) carries the first
+        page of the same list in its props; this answers it and the
+        following ones (before = next_before). Each page is one query
+        on the group's messages, the senders and the videos' pictures
+        in one batch each. For a viewer whose scope sees the group.
+        Public for an exposed group (telegram_public_groups), as its
+        chat is: a viewer whose scope does not see it (signed out, a
+        member not granted it, an admin it is hidden from) gets the same
+        list as the public chat shows the group, with its senders named
+        and its file links given by the same anonymous rules (a chat
+        the viewer does not see is "(hidden chat)"), and the videos'
+        pictures from the group's own messages. Any other group is 401
+        for a signed-out visitor and 404 for the others, whether or not
+        it exists.
+      security:
+        - {}
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The group's Telegram chat id.
+          schema:
+            type: integer
+            format: int64
+        - $ref: '#/components/parameters/FileKind'
+        - $ref: '#/components/parameters/TabBefore'
+      responses:
+        '200':
+          description: The page, and where the next begins.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupFilesPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/groups/{id}/polls:
+    get:
+      operationId: getGroupPolls
+      tags: [groups]
+      summary: A page of a group's polls
+      description: >-
+        The group's poll messages, newest first (by Telegram message
+        id), 50 a page, each with its poll as the chat shows it
+        (PollDetail). The group page's Polls tab (route group_polls)
+        carries the first page in its props; this answers it and the
+        following ones (before = next_before). Each page is one query
+        on the group's messages, the senders and the polls in one batch
+        each. Who may read it, public for an exposed group, as
+        getGroupFiles.
+      security:
+        - {}
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The group's Telegram chat id.
+          schema:
+            type: integer
+            format: int64
+        - $ref: '#/components/parameters/TabBefore'
+      responses:
+        '200':
+          description: The page, and where the next begins.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupPollsPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
 components:
 
   securitySchemes:
@@ -3934,6 +4035,28 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/MessageScope'
+    TabBefore:
+      name: before
+      in: query
+      required: false
+      description: >-
+        The message id a page answered as next_before: the messages
+        below it. Absent, the newest. Anything but a positive integer
+        is 400 bad_request.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    FileKind:
+      name: kind
+      in: query
+      required: false
+      description: >-
+        The files of one kind only; all (the default) is every kind.
+        Any other value is 400 bad_request.
+      schema:
+        type: string
+        enum: [all, photo, video, animation, audio, voice, document, sticker, video_note]
     HistoryBefore:
       name: before
       in: query
@@ -4297,6 +4420,8 @@ components:
         - $ref: '#/components/schemas/PageGroups'
         - $ref: '#/components/schemas/PageGroup'
         - $ref: '#/components/schemas/PageGroupMembers'
+        - $ref: '#/components/schemas/PageGroupFiles'
+        - $ref: '#/components/schemas/PageGroupPolls'
         - $ref: '#/components/schemas/PageFiles'
         - $ref: '#/components/schemas/PageMessages'
         - $ref: '#/components/schemas/PageMessage'
@@ -4410,6 +4535,30 @@ components:
               enum: [group_members]
             props:
               $ref: '#/components/schemas/GroupMembersProps'
+    PageGroupFiles:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          required: [route, props]
+          properties:
+            route:
+              enum: [group_files]
+            props:
+              oneOf:
+                - $ref: '#/components/schemas/GroupFilesProps'
+                - $ref: '#/components/schemas/GroupFilesPublicProps'
+    PageGroupPolls:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          required: [route, props]
+          properties:
+            route:
+              enum: [group_polls]
+            props:
+              oneOf:
+                - $ref: '#/components/schemas/GroupPollsProps'
+                - $ref: '#/components/schemas/GroupPollsPublicProps'
     PageFiles:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -6960,6 +7109,192 @@ components:
       allOf:
         - $ref: '#/components/schemas/GroupProps'
         - $ref: '#/components/schemas/GroupMembersPage'
+    GroupFilesProps:
+      description: >-
+        The group page's Files tab (route group_files): the group
+        page's own props (GroupProps), as its other tabs carry them,
+        and beside them the first page of its files for the page's kind
+        and before, as getGroupFiles answers it.
+      allOf:
+        - $ref: '#/components/schemas/GroupProps'
+        - $ref: '#/components/schemas/GroupFilesPage'
+    GroupFilesPublicProps:
+      description: >-
+        The Files tab of an exposed group for a viewer whose scope does
+        not see the group (getGroupFiles): the public group page's
+        props (GroupPublicProps, public true), with no admins, history
+        or posters, and the first page of its files beside them.
+      allOf:
+        - $ref: '#/components/schemas/GroupPublicProps'
+        - $ref: '#/components/schemas/GroupFilesPage'
+    GroupFilesPage:
+      type: object
+      required: [kinds, kind, rows, next_before]
+      properties:
+        kinds:
+          type: array
+          description: >-
+            The kinds the group's messages carry, in the order of the
+            enum, for the sub tabs; a kind it has none of is left out.
+            When counting them takes too long (a large group), every
+            kind is listed with a null count, as which are present is
+            not known then. Counts are kept about two minutes.
+          items:
+            $ref: '#/components/schemas/FileKindCount'
+        kind:
+          type: string
+          enum: [all, photo, video, animation, audio, voice, document, sticker, video_note]
+          description: The kind listed.
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupFileRow'
+        next_before:
+          type: [integer, 'null']
+          format: int64
+          description: >-
+            The before of the next page (the last row's message_id);
+            null when this is the last one.
+    FileKindCount:
+      type: object
+      required: [kind, count]
+      properties:
+        kind:
+          type: string
+          enum: [photo, video, animation, audio, voice, document, sticker, video_note]
+        count:
+          type: [integer, 'null']
+          description: The messages of that kind with a file; null when not counted.
+    TabMessage:
+      type: object
+      description: The message a row of the group's Files or Polls tab comes from.
+      required: [message_id, message_row_id, date, sender, chat_link]
+      properties:
+        message_id:
+          type: integer
+          format: int64
+          description: The message's Telegram id, as the chat's ?at= takes it.
+        message_row_id:
+          type: integer
+          format: int64
+          description: The message's row, for /messages/group/{message_row_id}.
+        date:
+          type: string
+        sender:
+          oneOf:
+            - $ref: '#/components/schemas/TabSender'
+            - type: 'null'
+          description: >-
+            The message's sender. Null is allowed but not sent for a
+            group's messages: one that names no sender has the name
+            "(unknown)" and a null id.
+        chat_link:
+          type: string
+          description: The message in the group's chat, /groups/{id}/chat?at=<message_id>.
+    TabSender:
+      type: object
+      description: >-
+        Who sent the message, as the chat names it: a user, or a chat
+        posting in its own name (a channel, the group itself for an
+        anonymous admin) with the chat's id, title, username and photo.
+        A chat the viewer does not see is not named: id null, name
+        "(hidden chat)"; a sender known only by its signature (its
+        name) has a null id too.
+      required: [id, name, username, photo]
+      properties:
+        id:
+          type: [integer, 'null']
+          format: int64
+        name:
+          type: string
+        username:
+          type: string
+        photo:
+          type: [string, 'null']
+    GroupFileRow:
+      description: >-
+        A file of the group's Files tab: the file as FileRow has it
+        (without FileRow's chat, sender and message, of the first
+        message that carried it anywhere), and the message of the group
+        that carried it.
+      allOf:
+        - type: object
+          required: [id, file_type, name, ext, size, stored, fetchable, url, thumb]
+          properties:
+            id:
+              type: integer
+              format: int64
+              description: The file's id (telegram_files).
+            file_type:
+              type: string
+              enum: [photo, video, document, audio, voice, sticker, animation, video_note, unknown]
+              description: As FileRow.file_type.
+            name:
+              type: string
+            ext:
+              type: string
+            size:
+              type: integer
+              format: int64
+            stored:
+              type: boolean
+            fetchable:
+              type: boolean
+              description: As FileRow.fetchable.
+            url:
+              type: [string, 'null']
+              description: As FileRow.url.
+            thumb:
+              type: [string, 'null']
+              description: As FileRow.thumb.
+            minithumb:
+              type: string
+              description: As FileRow.minithumb; absent when there is none.
+        - $ref: '#/components/schemas/TabMessage'
+    GroupPollsProps:
+      description: >-
+        The group page's Polls tab (route group_polls): the group
+        page's own props (GroupProps), as its other tabs carry them,
+        and beside them the first page of its polls for the page's
+        before, as getGroupPolls answers it.
+      allOf:
+        - $ref: '#/components/schemas/GroupProps'
+        - $ref: '#/components/schemas/GroupPollsPage'
+    GroupPollsPublicProps:
+      description: >-
+        The Polls tab of an exposed group for a viewer whose scope does
+        not see the group, as GroupFilesPublicProps.
+      allOf:
+        - $ref: '#/components/schemas/GroupPublicProps'
+        - $ref: '#/components/schemas/GroupPollsPage'
+    GroupPollsPage:
+      type: object
+      required: [rows, next_before]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupPollRow'
+        next_before:
+          type: [integer, 'null']
+          format: int64
+          description: >-
+            The before of the next page (the last row's message_id);
+            null when this is the last one.
+    GroupPollRow:
+      allOf:
+        - $ref: '#/components/schemas/TabMessage'
+        - type: object
+          required: [poll]
+          properties:
+            poll:
+              description: >-
+                The poll as the chat's message detail shows it: closed
+                once past its close date, at most 20 options with
+                options_total; null when the poll was never stored.
+              oneOf:
+                - $ref: '#/components/schemas/PollDetail'
+                - type: 'null'
     FilesProps:
       description: >-
         The files list (route files). Its filters (Cond field, ops):

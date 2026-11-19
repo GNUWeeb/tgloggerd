@@ -30,6 +30,9 @@ one in the description.
   (cached from the daemon, refreshed in the background), the member list
   of the group page's Members tab and who gets it, and the superadmin's
   switch hiding a channel's list.
+- [group-tabs.md](group-tabs.md) — the group page's Files and Polls tabs:
+  who sees them, what they list and in which order, paging by message id,
+  the kinds and their counts, and how a page avoids a query per row.
 - [join-chat.md](join-chat.md) — the admin `/join-chat` page: preview and
   join a group or channel by invite link or username through the daemon's
   internal API, the outcomes it reports, and the `chat_join` audit rows.

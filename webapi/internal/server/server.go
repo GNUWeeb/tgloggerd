@@ -354,6 +354,9 @@ func (s *Server) routes() []route {
 		{"GET /api/groups/{id}/photos", s.RequireSession(s.getGroupPhotos)},
 		{"PATCH /api/groups/{id}", s.RequireSession(s.updateGroup)},
 		{"GET /api/groups/{id}/members", s.getGroupMembers},
+		// Public for an exposed group, as its chat is (tabRequest).
+		{"GET /api/groups/{id}/files", s.getGroupFiles},
+		{"GET /api/groups/{id}/polls", s.getGroupPolls},
 	}
 }
 
