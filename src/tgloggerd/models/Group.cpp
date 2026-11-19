@@ -98,22 +98,15 @@ void DB::trackGroupPhotoChange(mysql::Transaction &tx,
 	if (rows.empty())
 		return;
 
+	/* As for users (DB::trackProfilePhotoChange): every photo that is
+	 * or was the group's has a history row. */
 	auto &val = rows[0][0];
-	if (!val.has_value()) {
-		/* First group photo — record it. */
-		tx.insert("INSERT INTO telegram_group_hist_photo"
-			  " (group_id, file_id) VALUES (?, ?)",
-			  { group_id, (int64_t)file_id });
-		return;
+	if (val.has_value()) {
+		uint64_t old_id = std::stoull(*val);
+		if (old_id != file_id)
+			ensurePhotoHistory(tx, true, group_id, old_id, 0);
 	}
-
-	uint64_t old_id = std::stoull(*val);
-	if (old_id == file_id)
-		return;
-
-	tx.insert("INSERT INTO telegram_group_hist_photo"
-		  " (group_id, file_id) VALUES (?, ?)",
-		  { group_id, (int64_t)old_id });
+	ensurePhotoHistory(tx, true, group_id, file_id, 0);
 }
 
 void DB::syncGroupUsernames(mysql::Transaction &tx, const models::Group &g)

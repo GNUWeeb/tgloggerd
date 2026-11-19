@@ -412,22 +412,22 @@ void DB::trackProfilePhotoChange(mysql::Transaction &tx,
 	if (rows.empty())
 		return;
 
+	/*
+	 * Every photo that is or was the profile photo has a history row,
+	 * dated when it was first seen as such. The history used to record
+	 * the photo being replaced instead, so the current photo had no row
+	 * until it was replaced in turn; a photo set while that was so is
+	 * recorded now, when it is replaced, rather than lost.
+	 */
 	auto &val = rows[0][0];
-	if (!val.has_value()) {
-		/* First profile photo — record it. */
-		tx.insert("INSERT INTO telegram_user_hist_profile_photo"
-			  " (user_id, file_id) VALUES (?, ?)",
-			  { user_id, (int64_t)file_id });
-		return;
+	if (val.has_value()) {
+		uint64_t old_id = std::stoull(*val);
+		if (old_id != file_id)
+			ensurePhotoHistory(tx, false, user_id, old_id, 0);
 	}
-
-	uint64_t old_id = std::stoull(*val);
-	if (old_id == file_id)
-		return;
-
-	tx.insert("INSERT INTO telegram_user_hist_profile_photo"
-		  " (user_id, file_id) VALUES (?, ?)",
-		  { user_id, (int64_t)old_id });
+	/* Also when unchanged: a current photo recorded under the old rule
+	 * gets its row the next time it is seen. */
+	ensurePhotoHistory(tx, false, user_id, file_id, 0);
 }
 
 void DB::upsertUserFullInfo(const models::UserFullInfo &fi)
@@ -471,6 +471,37 @@ void DB::upsertUserFullInfo(const models::UserFullInfo &fi)
 
 		upsertUserExtraFromFullInfo(tx, fi);
 	});
+}
+
+bool DB::ensurePhotoHistory(mysql::Transaction &tx, bool is_group,
+			    int64_t owner_id, uint64_t file_id, int64_t date)
+{
+	const char *tbl = is_group ? "telegram_group_hist_photo"
+				   : "telegram_user_hist_profile_photo";
+	const char *col = is_group ? "group_id" : "user_id";
+	if (!tx.query(std::string("SELECT 1 FROM ") + tbl + " WHERE " + col +
+		      " = ? AND file_id = ? LIMIT 1",
+		      { owner_id, (int64_t)file_id }).empty())
+		return false;
+	if (date > 0)
+		tx.insert(std::string("INSERT INTO ") + tbl + " (" + col +
+			  ", file_id, created_at) VALUES (?, ?, FROM_UNIXTIME(?))",
+			  { owner_id, (int64_t)file_id, date });
+	else
+		tx.insert(std::string("INSERT INTO ") + tbl + " (" + col +
+			  ", file_id) VALUES (?, ?)",
+			  { owner_id, (int64_t)file_id });
+	return true;
+}
+
+bool DB::ensurePhotoHistory(int64_t owner_id, bool is_group,
+			    uint64_t file_id, int64_t date)
+{
+	bool added = false;
+	db_.transaction([&](mysql::Transaction &tx) {
+		added = ensurePhotoHistory(tx, is_group, owner_id, file_id, date);
+	});
+	return added;
 }
 
 } /* namespace tgloggerd */
