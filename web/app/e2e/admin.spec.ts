@@ -80,3 +80,19 @@ test('an exposed group\'s note is edited in place', async ({ page }) => {
 	await expect(row).toContainText('Reviewed by the e2e run');
 	await expect(row.locator('td[title]')).toHaveText(added!);
 });
+
+test('a join that waits for approval holds its filing until it is cancelled', async ({ page, as }) => {
+	await as('admin');
+	await page.goto('/join-chat');
+	const pending = page.locator('section.a-card:has(h2:text-is("Pending filings")) li');
+	const held = await pending.count();
+	await page.getByRole('textbox', { name: /Invite link or username/ }).fill('https://t.me/+request_e2e');
+	await page.getByRole('button', { name: 'Preview' }).click();
+	await page.locator('label.a-checkchip').first().click();
+	await page.getByRole('button', { name: 'Join', exact: true }).click();
+	await expect(page.getByRole('list', { name: 'To be filed in' })).toContainText('GNU/Weeb network');
+	await expect(pending).toHaveCount(held + 1);
+	page.once('dialog', (d) => void d.accept());
+	await page.getByRole('button', { name: 'Cancel filing Approval Club into GNU/Weeb network' }).click();
+	await expect(pending).toHaveCount(held);
+});
