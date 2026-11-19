@@ -1,7 +1,7 @@
 // Integrations > MCP: the exposure allowlist and the access tokens
 // (web/docs/mcp.md). Exposing a group also publishes its chat on the web.
 import { useState } from 'react';
-import { ArrowRight, Check, Copy, Globe, KeyRound, Plus, ShieldAlert, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Check, Copy, Globe, KeyRound, Pencil, Plus, ShieldAlert, Trash2, TriangleAlert } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
 import { Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
@@ -46,6 +46,12 @@ function McpIndex({ page }: { page: PageData<McpIndexProps> }) {
 	);
 }
 
+// An empty note clears it. A 404 means someone withdrew the group
+// meanwhile.
+const saveNote = (id: number, note: string) => ok(api.PATCH('/api/mcp/groups/{group_id}', { params: { path: { group_id: id } }, body: { note } })).catch((x: unknown) => {
+	throw x instanceof ApiError && x.status === 404 ? new ApiError(404, x.code, 'This group is no longer exposed. Reload the page to see the current list.') : x;
+});
+
 function McpGroups({ page }: { page: PageData<McpGroupsProps> }) {
 	const { navigate } = useNav();
 	const v = page.viewer;
@@ -53,15 +59,18 @@ function McpGroups({ page }: { page: PageData<McpGroupsProps> }) {
 	const [pick, setPick] = useState<PickItem | null>(null);
 	const [note, setNote] = useState('');
 	const [err, setErr] = useState('');
+	// The row whose note is being edited, and the draft.
+	const [editing, setEditing] = useState<McpGroupsProps['groups'][number] | null>(null);
+	const [draft, setDraft] = useState('');
 	const exposed = new Set(page.props.groups.map((g) => g.group.id));
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
-	const act = async (fn: () => Promise<unknown>) => { setErr(''); try { await fn(); setAdding(false); refresh(); } catch (x) { setErr(errText(x)); } };
+	const act = async (fn: () => Promise<unknown>) => { setErr(''); try { await fn(); setAdding(false); setEditing(null); refresh(); } catch (x) { setErr(errText(x)); } };
 	return (
 		<Shell crumbs={[['MCP', '/mcp-admin'], ['Exposed groups', null]]}>
 			<PageHead title="Exposed groups" sub="Only these groups can be read through MCP. Everything else in the archive stays private."
 				actions={<Btn primary icon={Plus} onClick={() => setAdding(true)}>Expose a group</Btn>} />
 			<div className="a-banner warn"><ShieldAlert size={15} /><span><b>Exposing a group also publishes its chat on the web.</b> Anyone can read its history and files at /groups/&lt;id&gt;/chat without signing in.</span></div>
-			{err && !adding && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+			{err && !adding && !editing && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			<div className="a-card a-tablecard">
 				<div className="a-tablescroll">
 					<table className="a-table">
@@ -73,7 +82,7 @@ function McpGroups({ page }: { page: PageData<McpGroupsProps> }) {
 								<td>{e.public_now ? <Pill tone="ok">public</Pill> : <Pill tone="danger"><TriangleAlert size={11} />no longer public</Pill>}</td>
 								<td className="a-muted a-clip">{e.note}</td>
 								<td title={e.added}>{ago(e.added, v)}</td>
-								<td className="a-rowactions"><Btn ghost danger icon={Trash2} onClick={() => { if (confirm(`Stop exposing ${e.group.title}?`)) void act(() => ok(api.DELETE('/api/mcp/groups/{group_id}', { params: { path: { group_id: e.group.id } } }))); }}>Remove</Btn></td>
+								<td className="a-rowactions"><Btn ghost icon={Pencil} onClick={() => { setErr(''); setDraft(e.note); setEditing(e); }}>Edit note</Btn><Btn ghost danger icon={Trash2} onClick={() => { if (confirm(`Stop exposing ${e.group.title}?`)) void act(() => ok(api.DELETE('/api/mcp/groups/{group_id}', { params: { path: { group_id: e.group.id } } }))); }}>Remove</Btn></td>
 							</tr>
 						))}</tbody>
 					</table>
@@ -88,6 +97,13 @@ function McpGroups({ page }: { page: PageData<McpGroupsProps> }) {
 					<Field label="Group" hint="Busiest groups first. Groups already exposed are not listed."><ChatPicker value={pick} onChange={setPick} search={{ kind: 'group' }} exclude={exposed} placeholder="Search groups and channels" /></Field>
 					<Field label="Note" hint="Why it is exposed, for whoever reviews this later."><input value={note} onChange={(e) => setNote(e.target.value)} maxLength={255} /></Field>
 					<div className="a-banner warn"><ShieldAlert size={15} /><span>Its whole history becomes readable on the web without signing in.</span></div>
+				</Modal>
+			)}
+			{editing && (
+				<Modal title={`Note for ${editing.group.title}`} onClose={() => setEditing(null)}
+					footer={<><span className="a-grow" /><Btn ghost onClick={() => setEditing(null)}>Cancel</Btn><Btn primary onClick={() => void act(() => saveNote(editing.group.id, draft))}>Save</Btn></>}>
+					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+					<Field label="Note" hint="Why it is exposed, for whoever reviews this later. Leave it empty to clear it."><input value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={255} {...NO_FILL} /></Field>
 				</Modal>
 			)}
 		</Shell>

@@ -9,12 +9,15 @@ import type { FederationsProps } from './federations.tsx';
 import type { D2TProps, T2DProps } from './forwarding.tsx';
 import type { McpGroupsProps } from './mcp.tsx';
 import type { PickItem } from '../types.ts';
+import { adminApi } from '../../standin/fixtures.ts';
 
 beforeEach(setup);
 const pick = (id: number, title: string, kind: 'group' | 'user' = 'group'): PickItem => ({ id, title, kind });
 const dialog = () => screen.getByRole('dialog');
 // The open chat picker's list of chats.
 const popup = () => waitFor(() => dialog().querySelector('.a-picker-pop') as HTMLElement);
+// The table row of an exposed group (its title also shows elsewhere).
+const rowOf = (title: string) => screen.getAllByText(title).map((x) => x.closest('tbody tr')).find(Boolean) as HTMLElement;
 const fill = (root: HTMLElement, sel: string, value: string) => fireEvent.change(root.querySelector(sel)!, { target: { value } });
 
 describe('accounts', () => {
@@ -641,6 +644,52 @@ describe('MCP', () => {
 		fireEvent.click(within(dialog()).getByRole('button', { name: 'Expose' }));
 		await waitFor(() => expect(callsTo(calls, 'POST', '/api/mcp/groups')).toHaveLength(1));
 		expect(callsTo(calls, 'POST', '/api/mcp/groups')[0]!.body).toMatchObject({ group_id: -100555 });
+	});
+
+	it('edits a group\'s note in place, keeping when it was added', async () => {
+		const row = fixture<McpGroupsProps>('/mcp-admin/groups').props.groups[0]!;
+		const calls = fakeApi('superadmin', { 'PATCH /api/mcp/groups/:id': (c) => { const [st, out] = adminApi('PATCH', c.path.slice('/api/'.length), c.body, 'superadmin'); return st === 204 ? undefined : json(st, out); } });
+		renderPage('/mcp-admin/groups');
+		const tr = () => rowOf(row.group.title);
+		const added = tr().querySelector(`td[title="${row.added}"]`)!.textContent;
+		fireEvent.click(within(tr()).getByRole('button', { name: /Edit note/ }));
+		const input = within(dialog()).getByLabelText(/Note/) as HTMLInputElement;
+		expect(input.value).toBe(row.note);
+		expect(input.maxLength).toBe(255);
+		fireEvent.change(input, { target: { value: 'Reviewed in November' } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(callsTo(calls, 'PATCH', `/api/mcp/groups/${row.group.id}`)[0]!.body).toEqual({ note: 'Reviewed in November' });
+		await waitFor(() => expect(within(tr()).getByText('Reviewed in November')).toBeTruthy());
+		expect(tr().querySelector(`td[title="${row.added}"]`)!.textContent).toBe(added);
+	});
+
+	it('leaves the note alone on Cancel, and sends an empty note to clear it', async () => {
+		const row = fixture<McpGroupsProps>('/mcp-admin/groups').props.groups[1]!;
+		const calls = fakeApi('superadmin', { 'PATCH /api/mcp/groups/:id': () => undefined });
+		renderPage('/mcp-admin/groups');
+		const tr = () => rowOf(row.group.title);
+		fireEvent.click(within(tr()).getByRole('button', { name: /Edit note/ }));
+		fireEvent.change(within(dialog()).getByLabelText(/Note/), { target: { value: 'Not this' } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(within(tr()).getByText(row.note)).toBeTruthy();
+		expect(callsTo(calls, 'PATCH', `/api/mcp/groups/${row.group.id}`)).toHaveLength(0);
+		fireEvent.click(within(tr()).getByRole('button', { name: /Edit note/ }));
+		expect((within(dialog()).getByLabelText(/Note/) as HTMLInputElement).value).toBe(row.note);
+		fireEvent.change(within(dialog()).getByLabelText(/Note/), { target: { value: '' } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/mcp/groups/${row.group.id}`)).toHaveLength(1));
+		expect(callsTo(calls, 'PATCH', `/api/mcp/groups/${row.group.id}`)[0]!.body).toEqual({ note: '' });
+	});
+
+	it('says so when the group is no longer exposed', async () => {
+		const row = fixture<McpGroupsProps>('/mcp-admin/groups').props.groups[0]!;
+		fakeApi('superadmin', { 'PATCH /api/mcp/groups/:id': () => json(404, { error: 'not_found' }) });
+		renderPage('/mcp-admin/groups');
+		fireEvent.click(within(rowOf(row.group.title)).getByRole('button', { name: /Edit note/ }));
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		expect((await within(dialog()).findByRole('alert')).textContent).toMatch(/no longer exposed/);
 	});
 
 	it('shows a new token once', async () => {
