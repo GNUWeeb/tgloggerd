@@ -87,6 +87,36 @@ func TestServiceDetail(t *testing.T) {
 				json.Unmarshal([]byte(want), &b) == nil && reflect.DeepEqual(a, b)
 		}
 	}
+	// bg compares a background's detail without its image, which
+	// has render image (stored, with its URL), render file (the
+	// pattern's TGV, not stored) or is null (render "").
+	bg := func(want, render string) func(string) bool {
+		return func(d string) bool {
+			var a map[string]any
+			if json.Unmarshal([]byte(d), &a) != nil {
+				return false
+			}
+			img, _ := a["image"].(map[string]any)
+			delete(a, "image")
+			switch {
+			case render == "":
+				if img != nil {
+					return false
+				}
+			case img == nil || img["render"] != render:
+				return false
+			case render == "image" && (img["stored"] != true || img["url"] == nil ||
+				img["thumb"] != img["url"]):
+				return false
+			case render == "file" && (img["stored"] != false || img["ext"] != "tgv"):
+				return false
+			}
+			var b any
+			return json.Unmarshal([]byte(want), &b) == nil && reflect.DeepEqual(any(a), b)
+		}
+	}
+	const none = `"type":null,"dark":false,"image":null,"fill":null,"intensity":null,` +
+		`"is_inverted":false,"is_moving":false,"is_blurred":false,"theme_name":null`
 	common := map[int]func(string) bool{
 		4201: photo(640),
 		4202: is(`{"kind":"video_chat","duration":3725,"start_date":null}`),
@@ -100,7 +130,21 @@ func TestServiceDetail(t *testing.T) {
 		4214: is(""),
 		4215: is(""),
 		4216: is(`{"kind":"title","title":"Service Lab","basic_group":null}`),
-		4218: is(`{"kind":"background","only_for_self":true}`),
+		4218: is(`{"kind":"background","only_for_self":true,` + none + `}`),
+		4221: bg(`{"kind":"background","only_for_self":false,"type":"wallpaper","dark":false,`+
+			`"fill":null,"intensity":null,"is_inverted":false,"is_moving":false,"is_blurred":true,`+
+			`"theme_name":null}`, "image"),
+		4222: bg(`{"kind":"background","only_for_self":false,"type":"pattern","dark":true,`+
+			`"fill":{"type":"gradient","colors":[16744448,255],"rotation_angle":45},"intensity":50,`+
+			`"is_inverted":true,"is_moving":true,"is_blurred":false,"theme_name":null}`, "file"),
+		4223: bg(`{"kind":"background","only_for_self":false,"type":"fill","dark":false,`+
+			`"fill":{"type":"freeform_gradient","colors":[14544639,8388863,16777215,0],`+
+			`"rotation_angle":0},"intensity":null,"is_inverted":false,"is_moving":false,`+
+			`"is_blurred":false,"theme_name":null}`, ""),
+		4224: bg(`{"kind":"background","only_for_self":true,"type":"chat_theme","dark":false,`+
+			`"fill":null,"intensity":null,"is_inverted":false,"is_moving":false,"is_blurred":false,`+
+			`"theme_name":"\ud83c\udf3f"}`, ""),
+		4225: photo(640),
 		// Without its detail, the photo has no size.
 		4219: photo(0),
 		4220: photo(320),
@@ -127,7 +171,7 @@ func TestServiceDetail(t *testing.T) {
 	}
 	for role, own := range cases {
 		got := serviceDetails(t, e, role)
-		if len(got) != 18 {
+		if len(got) != 23 {
 			t.Errorf("%s: %d service messages", role, len(got))
 		}
 		for row, ok := range common {
@@ -156,7 +200,29 @@ func TestServiceDetail(t *testing.T) {
 	if u, _ := j.Photo["url"].(string); !strings.HasPrefix(u, "/files/") {
 		t.Errorf("photo %v", j.Photo)
 	}
+	// A still photo has no animation; an animated one's video plays
+	// as an animation the photo's size, the still photo its poster.
+	var anim struct {
+		Animation map[string]any `json:"animation"`
+	}
+	if _ = json.Unmarshal([]byte(serviceDetails(t, e, "member")[4201]), &anim); anim.Animation != nil {
+		t.Errorf("still photo's animation %v", anim.Animation)
+	}
+	_ = json.Unmarshal([]byte(serviceDetails(t, e, "member")[4225]), &anim)
+	if a := anim.Animation; a == nil || a["render"] != "animation" || a["stored"] != true ||
+		a["w"] != float64(640) || a["poster"] != j.Photo["url"] || a["url"] == nil ||
+		a["url"] == a["poster"] {
+		t.Errorf("animated photo's animation %v (photo %v)", anim.Animation, j.Photo)
+	}
 	// The message page sends the same detail.
+	for row, key := range map[int]string{4221: "image", 4225: "animation"} {
+		b := e.want(200, "member", "GET", fmt.Sprintf("/api/page/messages/group/%d", row), nil)
+		msg := b["props"].(map[string]any)["message"].(map[string]any)
+		d, _ := msg["service"].(map[string]any)["detail"].(map[string]any)
+		if f, _ := d[key].(map[string]any); f == nil || f["stored"] != true {
+			t.Errorf("message page %d: detail %v", row, d)
+		}
+	}
 	for role, want := range map[string]any{
 		"superadmin": map[string]any{"kind": "pin", "snippet": "Story by C/C++ Study Group"},
 		"member":     map[string]any{"kind": "pin", "snippet": "Story"},

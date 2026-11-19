@@ -25,6 +25,8 @@ say "changed the chat background". A `chat_change_photo` (or
 - Go (webapi): `ServiceInfo.detail` gains the background (its image as
   ChatMedia and its fill) and the photo's animation; OpenAPI and
   web/docs follow.
+  Done: ServiceBackgroundDetail and ServicePhotoDetail.animation in
+  webapi/openapi.yaml, described in web/docs/message-kinds.md.
 - React (frontend): a small swatch of the background (the image over
   its fill) on the service line and the message page; the animated
   photo plays in the photo viewer.
@@ -42,5 +44,4 @@ Nothing.
 - A new background change shows its wallpaper, or its fill's colours,
   on its service line.
 - A new animated group photo plays in the viewer from its service line.
-- Daemon unit tests of the curated keys; Go and React tests of the
-  detail.
+- React tests of the detail (the daemon's and the Go ones are in).

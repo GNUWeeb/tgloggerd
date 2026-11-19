@@ -6,8 +6,8 @@
 -- Ids, beside the sample's and the other fixtures':
 --   groups     -1001000000042 (Service Lab, a forum supergroup, not
 --              exposed), -4242001 (its basic group before the upgrade)
---   files      875001 - 875002
---   messages   group rows 4201 - 4220 (Service Lab, n = 1 - 20)
+--   files      875001 - 875005
+--   messages   group rows 4201 - 4225 (Service Lab, n = 1 - 25)
 -- Service Lab's message n has message id 720000 + n (a server id, as
 -- the daemon stores them) and date 1794931200 - 3600 + 60 * n; Dewi
 -- sends them all. C/C++ Study Group (-1001000000004), which an admin
@@ -27,16 +27,29 @@
 --  18  chat_set_background for the setter alone
 --  19  chat_change_photo logged without its detail, with its photo
 --  20  suggest_profile_photo, its photo not stored
+--  21  chat_set_background: a blurred wallpaper, its JPEG stored
+--  22  chat_set_background: a pattern over a gradient, for a dark
+--      theme, its TGV not stored
+--  23  chat_set_background: a freeform gradient fill
+--  24  chat_set_background: a chat theme
+--  25  chat_change_photo of an animated photo, its video stored
 
 INSERT INTO telegram_files (id, tg_file_id, tg_unique_id, file_type, file_size, on_disk,
 	sha256, file_ext, orig_file_name, created_at, accessed_at) VALUES
 	(875001, 'svc-875001', 'svc-u-875001', 'photo', 30000, 1,
 	 UNHEX(SHA2('svc 875001', 256)), 'jpg', '', '2026-11-17 10:00:00', '2026-11-17 10:00:00'),
 	(875002, 'svc-875002', 'svc-u-875002', 'photo', 31000, 0,
-	 NULL, 'jpg', '', '2026-11-17 10:00:00', '2026-11-17 10:00:00');
+	 NULL, 'jpg', '', '2026-11-17 10:00:00', '2026-11-17 10:00:00'),
+	(875003, 'svc-875003', 'svc-u-875003', 'document', 90000, 1,
+	 UNHEX(SHA2('svc 875003', 256)), 'jpg', 'wallpaper.jpg', '2026-11-17 10:00:00',
+	 '2026-11-17 10:00:00'),
+	(875004, 'svc-875004', 'svc-u-875004', 'document', 12000, 0,
+	 NULL, 'tgv', 'pattern.tgv', '2026-11-17 10:00:00', '2026-11-17 10:00:00'),
+	(875005, 'svc-875005', 'svc-u-875005', 'animation', 250000, 1,
+	 UNHEX(SHA2('svc 875005', 256)), 'mp4', '', '2026-11-17 10:00:00', '2026-11-17 10:00:00');
 
 INSERT INTO telegram_groups (id, type, title, description, msg_count, created_at, updated_at)
-	VALUES (-1001000000042, 'supergroup', 'Service Lab', 'Service lines.', 20,
+	VALUES (-1001000000042, 'supergroup', 'Service Lab', 'Service lines.', 25,
 	 '2025-06-06 06:06:00', '2026-11-17 15:00:00'),
 	(-4242001, 'basic_group', 'Service Lab (basic)', '', 0,
 	 '2025-01-01 00:00:00', '2025-06-06 06:06:00');
@@ -62,12 +75,21 @@ INSERT INTO telegram_group_messages (id, chat_id, message_id, sender_user_id, da
 	(4217, -1001000000042, 720017, 9299000001, 1794928620, 'service', 'upgraded the group', 'messageChatUpgradeFrom', '{"title":"Service Lab (basic)","basic_group_id":4242001}', 'chat_upgrade_from'),
 	(4218, -1001000000042, 720018, 9299000001, 1794928680, 'service', 'set a new background', 'messageChatSetBackground', '{"only_for_self":true}', 'chat_set_background'),
 	(4219, -1001000000042, 720019, 9299000001, 1794928740, 'service', 'changed the group photo', NULL, NULL, 'chat_change_photo'),
-	(4220, -1001000000042, 720020, 9299000001, 1794928800, 'service', 'suggested a profile photo', 'messageSuggestProfilePhoto', '{"photo":{"photo_id":"32","width":320,"height":320}}', 'suggest_profile_photo');
+	(4220, -1001000000042, 720020, 9299000001, 1794928800, 'service', 'suggested a profile photo', 'messageSuggestProfilePhoto', '{"photo":{"photo_id":"32","width":320,"height":320}}', 'suggest_profile_photo'),
+	(4221, -1001000000042, 720021, 9299000001, 1794928860, 'service', 'set a new background', 'messageChatSetBackground', '{"background":{"id":"501","name":"wp-501","type":"wallpaper","is_blurred":true}}', 'chat_set_background'),
+	(4222, -1001000000042, 720022, 9299000001, 1794928920, 'service', 'set a new background', 'messageChatSetBackground', '{"old_background_message_id":720021,"background":{"id":"502","name":"pt-502","dark":true,"type":"pattern","dark_theme_dimming":20,"fill":{"type":"gradient","colors":[16744448,255],"rotation_angle":45},"intensity":50,"is_inverted":true,"is_moving":true}}', 'chat_set_background'),
+	(4223, -1001000000042, 720023, 9299000001, 1794928980, 'service', 'set a new background', 'messageChatSetBackground', '{"background":{"id":"503","type":"fill","fill":{"type":"freeform_gradient","colors":[14544639,8388863,16777215,0]}}}', 'chat_set_background'),
+	(4224, -1001000000042, 720024, 9299000001, 1794929040, 'service', 'set a new background', 'messageChatSetBackground', '{"only_for_self":true,"background":{"id":"504","type":"chat_theme","theme_name":"\\ud83c\\udf3f"}}', 'chat_set_background'),
+	(4225, -1001000000042, 720025, 9299000001, 1794929100, 'service', 'changed the group photo', 'messageChatChangePhoto', '{"photo":{"photo_id":"33","width":640,"height":640,"animated":true}}', 'chat_change_photo');
 
 INSERT INTO telegram_message_files (group_message_id, role, position, file_id) VALUES
 	(4201, 'chat_photo', 0, 875001),
 	(4219, 'chat_photo', 0, 875001),
-	(4220, 'chat_photo', 0, 875002);
+	(4220, 'chat_photo', 0, 875002),
+	(4221, 'background', 0, 875003),
+	(4222, 'background', 0, 875004),
+	(4225, 'chat_photo', 0, 875001),
+	(4225, 'chat_photo', 1, 875005);
 
 -- Service Lab is a forum: the topic created by message 11 was renamed
 -- since, and its closing is in it too.

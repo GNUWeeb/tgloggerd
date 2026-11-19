@@ -2288,7 +2288,7 @@ export interface components {
         };
         /** @description A service action's detail beyond its line (docs/design/message-types.md section 4.2.3), from content_extra, the message's files and the rows it is about. A chat it names goes through the request scope as refs do. */
         ServiceDetail: components["schemas"]["ServicePhotoDetail"] | components["schemas"]["ServiceVideoChatDetail"] | components["schemas"]["ServicePinDetail"] | components["schemas"]["ServicePollOptionDetail"] | components["schemas"]["ServiceTopicDetail"] | components["schemas"]["ServiceCommunityDetail"] | components["schemas"]["ServiceTitleDetail"] | components["schemas"]["ServiceBackgroundDetail"];
-        /** @description chat_change_photo: the new group photo; suggest_profile_photo: the photo suggested. The message's file of role chat_photo; no detail when it is not recorded. */
+        /** @description chat_change_photo: the new group photo; suggest_profile_photo: the photo suggested. The message's file of role chat_photo at position 0; no detail when it is not recorded. */
         ServicePhotoDetail: {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -2296,6 +2296,8 @@ export interface components {
              */
             kind: "photo";
             photo: components["schemas"]["ChatMedia"];
+            /** @description An animated photo's video (an MPEG-4 without sound, render animation), the chat_photo file at position 1, with the still photo as its poster when that is stored; null for a still photo and for rows logged before the video was kept. */
+            animation: components["schemas"]["ChatMedia"] | null;
         };
         /** @description video_chat_ended: duration, how long the video chat ran, in seconds; video_chat_scheduled: start_date, when it is to start. The other is null. */
         ServiceVideoChatDetail: {
@@ -2367,7 +2369,7 @@ export interface components {
             title: string;
             basic_group: components["schemas"]["ChatRef"] | null;
         };
-        /** @description chat_set_background: whether the background was set for the one who set it alone ("for themselves"). */
+        /** @description chat_set_background: whether the background was set for the one who set it alone ("for themselves"), and the background itself (docs/design/message-types.md section 4.2.3). Rows logged before the background was kept have only only_for_self: type, image, fill and theme_name are null and the flags false. */
         ServiceBackgroundDetail: {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -2375,6 +2377,34 @@ export interface components {
              */
             kind: "background";
             only_for_self: boolean;
+            /**
+             * @description wallpaper: an image (image), maybe blurred; pattern: a pattern image (image) drawn over fill at intensity percent, or with the fill showing through it when is_inverted; fill: fill alone; chat_theme: an emoji chat theme, theme_name, whose colours are not stored. null when not stored.
+             * @enum {string|null}
+             */
+            type: "wallpaper" | "pattern" | "fill" | "chat_theme" | null;
+            /** @description The background is meant for a dark theme. */
+            dark: boolean;
+            /** @description The wallpaper (a JPEG, render image) or the pattern (a PNG, render image, or Telegram's gzipped SVG pattern format, application/x-tgwallpattern, render file), the message's file of role background; null for a fill, a chat theme and when not recorded. */
+            image: components["schemas"]["ChatMedia"] | null;
+            /** @description A fill's or a pattern's fill; null for the others. */
+            fill: components["schemas"]["BackgroundFill"] | null;
+            /** @description A pattern's intensity, 0-100: the pattern's opacity over its fill; null for the other types. */
+            intensity: number | null;
+            /** @description A pattern is inverted: the fill shows through the pattern's shapes instead of under them (false for the others). */
+            is_inverted: boolean;
+            /** @description A wallpaper or pattern moves with the device's tilt (false for the others). */
+            is_moving: boolean;
+            /** @description A wallpaper is blurred (false for the others). */
+            is_blurred: boolean;
+            /** @description A chat theme's name (an emoji); null for the others. */
+            theme_name: string | null;
+        };
+        /** @description A background's fill. colors are RGB colours as integers (0xRRGGBB): one for solid, the top then the bottom colour for gradient, three or four for freeform_gradient (Telegram's blend of colours at fixed points). rotation_angle is a gradient's clockwise rotation in degrees (0-359, a multiple of 45), 0 for the others. */
+        BackgroundFill: {
+            /** @enum {string} */
+            type: "solid" | "gradient" | "freeform_gradient";
+            colors: number[];
+            rotation_angle: number;
         };
         /** @description A piece of a service message's text: plain text when user and chat are both absent, else the name of refs.users[user] (link to /users/{id}) or refs.chats[chat] (link to /groups/{id}). */
         ServicePart: {

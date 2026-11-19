@@ -17,9 +17,10 @@ import (
 // ServiceDetail; docs/design/message-types.md section 4.2.3): the new
 // group photo, a video chat's length or start, the pinned message's
 // snippet, a poll option's text, the forum topic, the community, the
-// title a group was created with, and whether a background was set
-// for its setter alone. It is read from content_extra, and for the
-// photo, the pin and the topic from the rows they live in, in one
+// title a group was created with, and the background set, with whether
+// it was set for its setter alone. It is read from content_extra, and
+// for the photo (and an animated one's video), the background's image,
+// the pin and the topic from the rows they live in, in one
 // batch per page (loadServiceDetail). A chat it names goes through the
 // request scope as the refs do: one the viewer may not see, or the
 // archive has no row for, is left out.
@@ -47,6 +48,23 @@ type serviceDetailExtra struct {
 	// edit set it, or removed it.
 	IconEmoji  looseID `json:"icon_custom_emoji_id"`
 	IconEdited bool    `json:"icon_edited"`
+	// Background is the background a chat_set_background set; nil
+	// on rows logged before it was kept.
+	Background *backgroundExtra `json:"background"`
+}
+
+// backgroundExtra is a background as content_extra keeps it
+// (docs/design/message-types.md section 4.2.3): the flags are absent
+// when false and intensity when 0.
+type backgroundExtra struct {
+	Type       string          `json:"type"`
+	Dark       bool            `json:"dark"`
+	Fill       *backgroundFill `json:"fill"`
+	Intensity  int64           `json:"intensity"`
+	IsInverted bool            `json:"is_inverted"`
+	IsMoving   bool            `json:"is_moving"`
+	IsBlurred  bool            `json:"is_blurred"`
+	ThemeName  string          `json:"theme_name"`
 }
 
 // community is the community's chat id; 0 when the id is not one. A
@@ -136,8 +154,9 @@ type serviceTopicJSON struct {
 // The variants of ServiceDetail, tagged by kind.
 type (
 	servicePhotoJSON struct {
-		Kind  string         `json:"kind"`
-		Photo *chatMediaJSON `json:"photo"`
+		Kind      string         `json:"kind"`
+		Photo     *chatMediaJSON `json:"photo"`
+		Animation *chatMediaJSON `json:"animation"`
 	}
 	serviceVideoChatJSON struct {
 		Kind      string  `json:"kind"`
@@ -166,10 +185,26 @@ type (
 		BasicGroup *chatRefJSON `json:"basic_group"`
 	}
 	serviceBackgroundJSON struct {
-		Kind        string `json:"kind"`
-		OnlyForSelf bool   `json:"only_for_self"`
+		Kind        string          `json:"kind"`
+		OnlyForSelf bool            `json:"only_for_self"`
+		Type        *string         `json:"type"`
+		Dark        bool            `json:"dark"`
+		Image       *chatMediaJSON  `json:"image"`
+		Fill        *backgroundFill `json:"fill"`
+		Intensity   *int64          `json:"intensity"`
+		IsInverted  bool            `json:"is_inverted"`
+		IsMoving    bool            `json:"is_moving"`
+		IsBlurred   bool            `json:"is_blurred"`
+		ThemeName   *string         `json:"theme_name"`
 	}
 )
+
+// backgroundFill is BackgroundFill, as content_extra keeps it too.
+type backgroundFill struct {
+	Type          string  `json:"type"`
+	Colors        []int64 `json:"colors"`
+	RotationAngle int64   `json:"rotation_angle"`
+}
 
 // storedRef is the group id as the viewer may see it, only when the
 // archive has its row: a link to a group it never logged would lead
@@ -192,7 +227,8 @@ func (v view) serviceDetail(k kinds, m logdb.Message) any {
 	switch t := m.ServiceType; {
 	case isPhotoType(t):
 		if f, ok := messageFile(m, "chat_photo", 0); ok {
-			return servicePhotoJSON{Kind: "photo", Photo: v.media("photo", f, x.Photo)}
+			return servicePhotoJSON{Kind: "photo", Photo: v.media("photo", f, x.Photo),
+				Animation: v.photoAnimation(m, f, x)}
 		}
 	case t == "video_chat_ended":
 		d := x.Duration
@@ -227,9 +263,83 @@ func (v view) serviceDetail(k kinds, m logdb.Message) any {
 			return j
 		}
 	case t == "chat_set_background":
-		return serviceBackgroundJSON{Kind: "background", OnlyForSelf: x.OnlyForSelf}
+		return v.serviceBackground(m, x)
 	}
 	return nil
+}
+
+// photoAnimation is an animated photo's video, the chat_photo file at
+// position 1, as an animation the size of the photo, its poster the
+// still photo when that is stored; nil for a still photo.
+func (v view) photoAnimation(m logdb.Message, still logdb.FileRef, x *serviceDetailExtra) *chatMediaJSON {
+	f, ok := messageFile(m, "chat_photo", 1)
+	if !ok {
+		return nil
+	}
+	md := v.media("animation", f, x.Photo)
+	if md != nil && storedFile(still) {
+		u := v.photo(still)
+		md.Poster, md.Thumb = u, u
+	}
+	return md
+}
+
+// backgroundTypes and fillTypes are the values of
+// ServiceBackgroundDetail.type and BackgroundFill.type; one the daemon
+// may store later, which this service does not know yet, is left out.
+var (
+	backgroundTypes = map[string]bool{"wallpaper": true, "pattern": true, "fill": true,
+		"chat_theme": true}
+	fillTypes = map[string]bool{"solid": true, "gradient": true, "freeform_gradient": true}
+)
+
+// backgroundImageExts are the background files a browser draws as they
+// are: a wallpaper's JPEG and a pattern's PNG. A pattern in Telegram's
+// own format (gzipped SVG) goes out as a file.
+var backgroundImageExts = map[string]bool{"jpg": true, "jpeg": true, "png": true}
+
+// serviceBackground is a chat_set_background's detail: the background
+// as content_extra keeps it, with its image, the message's file of
+// role background.
+func (v view) serviceBackground(m logdb.Message, x *serviceDetailExtra) serviceBackgroundJSON {
+	j := serviceBackgroundJSON{Kind: "background", OnlyForSelf: x.OnlyForSelf}
+	if f, ok := messageFile(m, "background", 0); ok {
+		ctype := "document"
+		if backgroundImageExts[strings.ToLower(f.Ext)] {
+			ctype = "photo"
+		}
+		j.Image = v.media(ctype, f, nil)
+	}
+	b := x.Background
+	if b == nil {
+		return j
+	}
+	if backgroundTypes[b.Type] {
+		t := b.Type
+		j.Type = &t
+	}
+	j.Dark = b.Dark
+	if fl := b.Fill; fl != nil && fillTypes[fl.Type] && (b.Type == "fill" || b.Type == "pattern") {
+		colors := make([]int64, 0, len(fl.Colors))
+		for _, c := range fl.Colors {
+			colors = append(colors, c&0xffffff)
+		}
+		j.Fill = &backgroundFill{Type: fl.Type, Colors: colors, RotationAngle: fl.RotationAngle}
+	}
+	switch b.Type {
+	case "pattern":
+		n := b.Intensity
+		j.Intensity = &n
+		j.IsInverted, j.IsMoving = b.IsInverted, b.IsMoving
+	case "wallpaper":
+		j.IsMoving, j.IsBlurred = b.IsMoving, b.IsBlurred
+	case "chat_theme":
+		if b.ThemeName != "" {
+			n := b.ThemeName
+			j.ThemeName = &n
+		}
+	}
+	return j
 }
 
 // serviceTopicIcon is the custom emoji of the icon of the topic a

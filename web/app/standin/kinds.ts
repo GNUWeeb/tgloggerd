@@ -352,11 +352,33 @@ function publicPolls(): Map<number, Sample> {
 // stored detail: a new photo (stored, and one not stored), a pin with
 // the pinned message's snippet and one logged before pins kept it, a
 // video chat's length and start, a poll option, a topic, a community
-// (one a member may not see), the group's old title, a background.
+// (one a member may not see), the group's old title, a background
+// logged before it was kept; then, on older text rows, an animated
+// photo and the backgrounds below.
 // Looked up only once the forum's chat is asked about, as above.
 let forumKeys: Map<number, Sample> | null = null;
 const NEW_PHOTO = { stored: true, fetchable: false, url: '/files/standin-986010', thumb: '/files/standin-986010', render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 48000 };
+// An animated group photo: its still and its video, the still as poster.
+const ANIM_STILL = { stored: true, fetchable: false, url: '/files/standin-986011', thumb: '/files/standin-986011', render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 46000 };
+const ANIM_VIDEO = { stored: true, fetchable: false, url: '/files/standin-986012', poster: '/files/standin-986011', render: 'animation', ext: 'mp4', mime: 'video/mp4', w: 640, h: 640, duration: 3, name: '', size: 310000 };
 const LOST_PHOTO = { stored: false, fetchable: false, url: null, thumb: null, render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 51000 };
+// A background logged before the background itself was kept.
+const OLD_BG = { kind: 'background', only_for_self: false, type: null, dark: false, image: null, fill: null, intensity: null, is_inverted: false, is_moving: false, is_blurred: false, theme_name: null };
+// Backgrounds as Go sends them: a blurred wallpaper (JPEG), a PNG
+// pattern over a gradient at 40% and one inverted over a freeform
+// gradient, a pattern in Telegram's own format (not drawn), a solid and
+// a gradient fill, and an emoji chat theme.
+const bg = (o: object) => ({ ...OLD_BG, ...o });
+const BG_IMAGE = (id: number, o: object = {}) => ({ stored: true, fetchable: false, url: `/files/standin-${id}`, thumb: `/files/standin-${id}`, render: 'image', ext: 'jpg', mime: 'image/jpeg', w: 1440, h: 2560, name: '', size: 210000, ...o });
+const BACKGROUNDS = [
+	bg({ type: 'wallpaper', image: BG_IMAGE(986020), is_blurred: true }),
+	bg({ type: 'pattern', image: BG_IMAGE(986021, { ext: 'png', mime: 'image/png', size: 64000 }), fill: { type: 'gradient', colors: [0xdbddbb, 0x6ba587], rotation_angle: 45 }, intensity: 40, is_moving: true }),
+	bg({ type: 'pattern', image: BG_IMAGE(986022, { ext: 'png', mime: 'image/png', size: 64000 }), fill: { type: 'freeform_gradient', colors: [0xdbddbb, 0x6ba587, 0xd5d88d, 0x88b884], rotation_angle: 0 }, intensity: 55, is_inverted: true, dark: true }),
+	bg({ type: 'pattern', image: BG_IMAGE(986023, { render: 'file', thumb: null, ext: 'tgv', mime: 'application/x-tgwallpattern', size: 21000 }), fill: { type: 'freeform_gradient', colors: [0xfec496, 0xdd6cb9, 0x962fbf], rotation_angle: 0 }, intensity: 50 }),
+	bg({ type: 'fill', fill: { type: 'solid', colors: [0x2b5278], rotation_angle: 0 }, dark: true }),
+	bg({ type: 'fill', fill: { type: 'gradient', colors: [0xffd67e, 0xe17076], rotation_angle: 90 } }),
+	bg({ type: 'chat_theme', theme_name: '\u{1F384}' }),
+];
 function forumServices(): Map<number, Sample> {
 	if (forumKeys) return forumKeys;
 	forumKeys = new Map();
@@ -365,8 +387,8 @@ function forumServices(): Map<number, Sample> {
 	const svc = (type: string, text: string, detail: (v: View) => unknown, message_id: number | null = null): Sample =>
 		({ content_type: 'service', service: (v) => ({ type, text, refs: { users: [], chats: [], message_id }, detail: detail(v) }) });
 	const list: Sample[] = [
-		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: NEW_PHOTO })),
-		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: LOST_PHOTO })),
+		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: NEW_PHOTO, animation: null })),
+		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: LOST_PHOTO, animation: null })),
 		svc('pin_message', 'pinned a message', () => (pinned ? { kind: 'pin', snippet: pinned.text.slice(0, 80) } : null), pinned?.message_id ?? null),
 		svc('pin_message', 'pinned a message', () => null),
 		svc('video_chat_ended', 'ended the video chat', () => ({ kind: 'video_chat', duration: 3725, start_date: null })),
@@ -375,10 +397,19 @@ function forumServices(): Map<number, Sample> {
 		svc('forum_topic_created', `created topic "${TOPICS[1]!.name}"`, () => ({ kind: 'topic', topic: { id: TOPICS[1]!.id, name: TOPICS[1]!.name, icon_color: TOPICS[1]!.icon_color, icon_custom_emoji_id: TOPICS[1]!.icon_custom_emoji_id, icon_custom_emoji: TOPICS[1]!.icon_custom_emoji } })),
 		svc('chat_added_to_community', 'added the group to a community', (v) => { const c = refOf(v, PUBLIC_POLLS_GROUP.id); return c ? { kind: 'community', community: c } : null; }),
 		svc('chat_upgrade_from', 'the supergroup was created from a group', (v) => ({ kind: 'title', title: 'Linux Study Group', basic_group: refOf(v, KINDS_GROUP.id) })),
-		svc('chat_set_background', 'changed the chat background', () => ({ kind: 'background', only_for_self: true })),
+		svc('chat_set_background', 'changed the chat background', () => ({ ...OLD_BG, only_for_self: true })),
 	];
 	const rows = all.filter((m) => m.content_type === 'service').slice(-list.length);
 	rows.forEach((m, i) => forumKeys!.set(m.message_id, list[i]!));
+	// The forum has no more service rows: the other samples take the
+	// newest plain text rows before them (not the pinned one).
+	const extra: Sample[] = [
+		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: ANIM_STILL, animation: ANIM_VIDEO })),
+		...BACKGROUNDS.map((b) => svc('chat_set_background', 'changed the chat background', () => b)),
+	];
+	const first = rows[0]?.message_id ?? Infinity;
+	const plain = all.filter((m) => m.content_type === 'text' && m !== pinned && m.message_id < first).slice(-extra.length);
+	plain.forEach((m, i) => forumKeys!.set(m.message_id, extra[i]!));
 	return forumKeys;
 }
 

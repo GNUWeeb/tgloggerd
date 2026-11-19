@@ -5,7 +5,8 @@
 // actor alone (docs/todo/msg-service-detail.md). The chat's service
 // line and the message page both draw it.
 import { useState, type ReactNode } from 'react';
-import { CloudOff, Download } from 'lucide-react';
+import { CloudOff, Download, Play } from 'lucide-react';
+import { BackgroundDetail } from './background.tsx';
 import { Link } from '../nav.tsx';
 import { Lightbox, plainClick } from '../routes/chat-media.tsx';
 import { TopicIcon } from '../routes/chat-kinds.tsx';
@@ -29,22 +30,29 @@ export function lasted(s: number): string {
 
 // The new photo, small and round as Telegram shows a group's photo; a
 // plain click opens the viewer. Media loaded on click wait to be asked.
-function NewPhoto({ m, size, onClick }: { m: ChatMedia; size: number; onClick: boolean }) {
+// An animated photo's video plays in the viewer, the still as its
+// poster; the line still shows the still.
+function NewPhoto({ m, anim, size, onClick }: { m: ChatMedia; anim: ChatMedia | null; size: number; onClick: boolean }) {
 	const [shown, setShown] = useState(!onClick);
 	const [open, setOpen] = useState(false);
 	const box = { width: size, height: size };
-	if (!m.url) {
+	const video = anim?.url ? anim : null;
+	if (!m.url && !video) {
 		const pic = m.minithumb ?? m.thumb;
 		return <span className={`c-svcphoto c-missing ${pic ? 'c-blurred' : ''}`} style={{ ...box, ...(pic ? { backgroundImage: `url("${pic}")` } : {}) }} title="Photo not stored" role="img" aria-label="Photo not stored"><CloudOff size={Math.round(size / 3)} /></span>;
 	}
 	if (!shown) return <button type="button" className="c-svcphoto c-missing" style={box} onClick={() => setShown(true)} aria-label="Show the photo"><Download size={Math.round(size / 3)} /></button>;
+	const still = m.url ? (m.thumb ?? m.url) : null;
 	return (
 		<>
-			<a className="c-svcphoto" style={box} href={m.url} target="_blank" rel="noopener" aria-label="The new photo"
+			<a className={`c-svcphoto ${video ? 'c-svcanim' : ''}`} style={box} href={(video ?? m).url!} target="_blank" rel="noopener" aria-label={video ? 'The new animated photo' : 'The new photo'}
 				onClick={(e) => { if (plainClick(e)) { e.preventDefault(); setOpen(true); } }}>
-				<img src={m.thumb ?? m.url} alt="" width={size} height={size} loading="lazy" />
+				{still && <img src={still} alt="" width={size} height={size} loading="lazy" />}
+				{video && <Play className="c-svcplay" size={Math.max(10, Math.round(size / 3))} fill="currentColor" aria-hidden="true" />}
 			</a>
-			{open && <Lightbox m={m} kind="picture" onClose={() => setOpen(false)} />}
+			{open && (video
+				? <Lightbox m={{ ...video, poster: video.poster ?? m.url ?? undefined }} kind="video" onClose={() => setOpen(false)} />
+				: <Lightbox m={m} kind="picture" onClose={() => setOpen(false)} />)}
 		</>
 	);
 }
@@ -79,7 +87,7 @@ export function ServiceDetailView({ service, text, v, topicHref, self = false, p
 	const onClick = v.chat?.media === 'click';
 	switch (d.kind) {
 		case 'photo':
-			return <> <NewPhoto m={d.photo} size={photoSize} onClick={onClick} /></>;
+			return <> <NewPhoto m={d.photo} anim={d.animation} size={photoSize} onClick={onClick} /></>;
 		case 'video_chat':
 			if (d.duration !== null && d.duration > 0) return <span className="c-svcdetail"> after {lasted(d.duration)}</span>;
 			if (d.start_date) return <span className="c-svcdetail"> for <time dateTime={d.start_date}>{dateTime(d.start_date, v)}</time></span>;
@@ -97,6 +105,8 @@ export function ServiceDetailView({ service, text, v, topicHref, self = false, p
 			return name ? <> <q className="c-svcquote">{d.basic_group ? <Link to={`/groups/${d.basic_group.id}`} className="c-svcref">{name}</Link> : name}</q></> : null;
 		}
 		case 'background':
-			return d.only_for_self ? <span className="c-svcdetail"> for {self ? 'yourself' : 'themselves'}</span> : null;
+			// Its swatch (src/ui/background.tsx): 48px high on a line,
+			// the photo's size on the message page.
+			return <><BackgroundDetail d={d} size={Math.max(48, photoSize)} onClick={onClick} />{d.only_for_self && <span className="c-svcdetail"> for {self ? 'yourself' : 'themselves'}</span>}</>;
 	}
 }

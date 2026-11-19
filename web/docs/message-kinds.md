@@ -246,14 +246,14 @@ names the viewer may not see:
 
 | Action | detail |
 |---|---|
-| chat_change_photo, suggest_profile_photo | `{kind: "photo", photo}`: the new (or suggested) photo as ChatMedia, the message's file of role chat_photo |
+| chat_change_photo, suggest_profile_photo | `{kind: "photo", photo, animation}`: the new (or suggested) photo as ChatMedia, the message's file of role chat_photo at position 0; an animated photo's video at position 1 as ChatMedia (render animation, the still photo its poster when stored), else null |
 | video_chat_ended, video_chat_scheduled | `{kind: "video_chat", duration, start_date}`: seconds, or when it is to start; the other is null |
 | pin_message | `{kind: "pin", snippet}`: the pinned message quoted as a reply quotes it |
 | poll_option_added, poll_option_deleted | `{kind: "poll_option", text}`: the option's text |
 | forum_topic_* | `{kind: "topic", topic: {id, name, icon_color}}` |
 | chat_added_to_community, chat_removed_from_community, chat_join_from_community | `{kind: "community", community}`: a ChatRef |
 | chat_create, chat_upgrade_from | `{kind: "title", title, basic_group}`: basic_group a ChatRef or null |
-| chat_set_background | `{kind: "background", only_for_self}` |
+| chat_set_background | `{kind: "background", only_for_self, type, dark, image, fill, intensity, is_inverted, is_moving, is_blurred, theme_name}`: the background (below) |
 
     {"type": "pin_message", "refs": {...},
      "detail": {"kind": "pin", "snippet": "Release notes for 1.0 are out"}}
@@ -267,6 +267,30 @@ are the action's, else the topic's as last seen. The community and the
 basic group are given only when the archive has the group and the
 viewer may see it. A community's id is not a chat's, so a community
 line has no detail until the logger records communities as groups.
+
+A background's `type` is `wallpaper`, `pattern`, `fill` or
+`chat_theme` (null on rows logged before the background was kept,
+which have only `only_for_self`). `image` is the message's file of
+role background as ChatMedia: a wallpaper's JPEG or a pattern's PNG
+(render image), or a pattern in Telegram's gzipped SVG format (`tgv`,
+render file, which a browser cannot draw as it is); null for a fill
+and a chat theme. `fill` is a fill's, or the fill a pattern is drawn
+over: `{type, colors, rotation_angle}`, `type` `solid`, `gradient` or
+`freeform_gradient`, `colors` RGB integers (`0xRRGGBB`: one, the top
+then the bottom colour, or three or four), `rotation_angle` a
+gradient's clockwise rotation in degrees (0 otherwise). A pattern has
+its `intensity` (0-100, the pattern's opacity over the fill),
+`is_inverted` and `is_moving`; a wallpaper `is_blurred` and
+`is_moving`; a chat theme its `theme_name` (an emoji; its colours are
+not stored). The rest is null or false. `dark` says the background is
+meant for a dark theme.
+
+    {"kind": "background", "only_for_self": false, "type": "pattern",
+     "dark": false, "image": {"render": "file", "ext": "tgv", ...},
+     "fill": {"type": "gradient", "colors": [16744448, 255],
+              "rotation_angle": 45},
+     "intensity": 50, "is_inverted": false, "is_moving": true,
+     "is_blurred": false, "theme_name": null}
 
 ## Text formatting
 
