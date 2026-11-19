@@ -11,6 +11,7 @@ import { Link } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { compact, dateTime, fmt } from '../format.ts';
 import { duration } from '../ui/media.tsx';
+import { PaidMedia } from './chat-paid.tsx';
 import type { Viewer } from '../page.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
 import type { HasEntities, PollEntities, TextEntity } from '../api/entities.ts';
@@ -217,11 +218,7 @@ export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 			return (
 				<div className="k-card">
 					<Head icon={Star}>{fmt(d.star_count)} Stars <span className="c-sub">. paid media</span></Head>
-					<div className="k-paid">{d.items.map((it, i) => (
-						<span key={i} className="k-paiditem" title={it.kind === 'preview' ? 'Not paid for: only a blurred preview is known' : it.kind}>
-							{it.media?.thumb ? <img src={it.media.thumb} alt="" loading="lazy" /> : it.kind === 'preview' ? <Lock size={16} /> : it.kind === 'video' ? <Video size={16} /> : <Star size={16} />}
-						</span>
-					))}</div>
+					<PaidMedia items={d.items} onClick={v.chat?.media === 'click'} />
 				</div>
 			);
 		default: {

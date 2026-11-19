@@ -2,7 +2,7 @@
 // A message's own page for the kinds: the same card as in the chat, the
 // interaction it was last seen with, and its service action.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
 import { FORUM_GROUP, KINDS_GROUP, sampleOf } from '../../standin/kinds.ts';
 import { chatStream } from '../../../mockup/src/data/messages.js';
@@ -56,5 +56,19 @@ describe('the message page of a kind', () => {
 		const m = open(raw.id);
 		expect(m.topic_id).not.toBeNull();
 		expect(screen.getByRole('link', { name: `topic ${m.topic_id}` }).getAttribute('href')).toBe(`/groups/${FORUM_GROUP.id}/chat?topic=${m.topic_id}`);
+	});
+
+	it('opens a paid media message\'s photo and video, keeps an unpaid item locked and names an unsupported one', () => {
+		const m = open(sampleId((s) => s.content_type === 'paid_media'));
+		expect(m.detail?.kind).toBe('paid_media');
+		const card = within(document.querySelector('.a-msgkind') as HTMLElement);
+		fireEvent.click(card.getByRole('link', { name: 'Photo' }));
+		expect(screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('img')!.getAttribute('src')).toBe('/files/standin-985001');
+		fireEvent.keyDown(window, { key: 'Escape' });
+		fireEvent.click(card.getByRole('link', { name: 'Video' }));
+		expect(screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('video')!.getAttribute('src')).toBe('/files/standin-985002');
+		fireEvent.keyDown(window, { key: 'Escape' });
+		expect(within(card.getByTitle('Not paid for: only a blurred preview is known')).getByText('Not paid for')).toBeTruthy();
+		expect(card.getByText('Unsupported item')).toBeTruthy();
 	});
 });

@@ -3,7 +3,7 @@
 // (standin/kinds.ts): what the bubble shows of it, and what a member
 // does not see of the people it names.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
 import { KINDS_GROUP } from '../../standin/kinds.ts';
 import { money } from './chat-kinds.tsx';
@@ -80,6 +80,26 @@ describe('message kinds in the chat', () => {
 		const a = bubbleOf(pin).querySelector('a[href^="?at="]')!;
 		expect(a.getAttribute('href')).toBe(`?at=${pin.service!.refs.message_id}`);
 		expect(a.textContent).toBe('pinned a message');
+	});
+
+	it('opens a paid photo in the viewer, plays a paid video, keeps an unpaid item locked and names an unsupported one', () => {
+		const msgs = show();
+		const paid = bubbleOf(detail(msgs, 'paid_media'));
+		const b = within(paid);
+		expect(b.getByText('Behind the scenes')).toBeTruthy();
+		fireEvent.click(b.getByRole('link', { name: 'Photo' }));
+		expect(screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('img')!.getAttribute('src')).toBe('/files/standin-985001');
+		fireEvent.keyDown(window, { key: 'Escape' });
+		fireEvent.click(b.getByRole('link', { name: 'Video' }));
+		const video = screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('video')!;
+		expect(video.getAttribute('src')).toBe('/files/standin-985002');
+		expect(video.hasAttribute('controls')).toBe(true);
+		fireEvent.keyDown(window, { key: 'Escape' });
+		const locked = b.getByTitle('Not paid for: only a blurred preview is known');
+		expect(within(locked).getByText('Not paid for')).toBeTruthy();
+		expect(locked.className).toContain('c-blurred');
+		expect(locked.closest('a')).toBeNull();
+		expect(within(b.getByTitle('Unsupported item: TDLib could not read it')).getByText('Unsupported item')).toBeTruthy();
 	});
 });
 
