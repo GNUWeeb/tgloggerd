@@ -600,7 +600,7 @@ export function load(url: string, persona: Persona): Loaded {
 			return { route: 'bots', status: 200, props: { bots: botsFor(persona).map((b) => botRow(b, persona)), show_owner: s.role !== 'member' } };
 		}
 		if (path === '/platform-fwd/discord-telegram') {
-			return { route: 'fwd_discord_telegram', status: 200, props: { federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: { ...pick(r.chat), photo: photoOf(r.chat.id) }, channel_id: r.channel, channel_name: r.channel_name, discord_bot: botRefOf(r.discord_bot_id), telegram_bot: botRefOf(r.telegram_bot_id), types: r.types, enabled: r.enabled, sent: r.sent })) } };
+			return { route: 'fwd_discord_telegram', status: 200, props: { federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: { ...pick(r.chat), photo: photoOf(r.chat.id) }, channel_id: r.channel, channel_name: r.channel_name, discord_bot: botRefOf(r.discord_bot_id, persona), telegram_bot: botRefOf(r.telegram_bot_id, persona), types: r.types, enabled: r.enabled, sent: r.sent })) } };
 		}
 		return notFound;
 	}
@@ -1026,7 +1026,7 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 	if ((m = p.match(/^bots(?:\/(\d+))?(?:\/(transfer))?$/))) {
 		if (!allowed(s, 'platform_fwd')) return [404, { error: 'not_found' }];
 		const mine = botsFor(persona);
-		if (!m[1] && method === 'GET') return [200, { bots: mine.filter((b) => !body.kind || b.kind === body.kind).map(botRef) }];
+		if (!m[1] && method === 'GET') return [200, { bots: mine.filter((b) => !body.kind || b.kind === body.kind).map((b) => botRef(b, persona)) }];
 		if (!m[1] && method === 'POST') {
 			const name = String(body.name ?? '').trim();
 			if (!name || name.length > 64) return [400, { error: 'bad_request', message: 'Give the bot a name of 1 to 64 characters.' }];
@@ -1393,10 +1393,13 @@ export function landingOf(persona: Persona): string {
 	return persona === 'public' ? '/' : settingsState(persona).prefs.landing || '/';
 }
 
+// The sample relay bot is a sample bot user, so its profile opens.
+const RELAY_USER = users.find((u) => u.type === 'bot');
+
 // Bots: every account's own
 // Telegram and Discord bots. Tokens stay here and are never answered.
 const BOTS = [
-	{ id: 1, kind: 'telegram', name: 'Logger relay', token: '7000000001:' + 'a'.repeat(35), owner: 1, status: 'connected', status_at: '2026-11-17 15:58:00', status_detail: null, enabled: true, user_id: '7000000001', username: 'tgd_relay_bot' },
+	{ id: 1, kind: 'telegram', name: 'Logger relay', token: `${RELAY_USER.id}:` + 'a'.repeat(35), owner: 1, status: 'connected', status_at: '2026-11-17 15:58:00', status_detail: null, enabled: true, user_id: String(RELAY_USER.id), username: 'tgd_relay_bot' },
 	{ id: 2, kind: 'discord', name: 'Discord reader', token: 'MTIzNDU2Nzg5MDEyMzQ1Njc4.GaBcDe.' + 'x'.repeat(38), owner: 1, status: 'connected', status_at: '2026-11-17 15:59:00', status_detail: null, enabled: true, user_id: '123456789012345678', username: 'tgd-reader' },
 	{ id: 3, kind: 'discord', name: 'GNU/Weeb mirror', token: 'MjM0NTY3ODkwMTIzNDU2Nzg5.HbCdEf.' + 'y'.repeat(38), owner: 3, status: 'intent_missing', status_at: '2026-11-17 14:00:00', status_detail: 'Disallowed intent(s): MESSAGE_CONTENT', enabled: true, user_id: '234567890123456789', username: 'gw-mirror' },
 	{ id: 4, kind: 'telegram', name: 'Research bot', token: '7000000004:' + 'b'.repeat(35), owner: 5, status: 'token_refused', status_at: '2026-11-17 12:00:00', status_detail: 'Unauthorized', enabled: false, user_id: '7000000004', username: null },
@@ -1410,21 +1413,25 @@ function botsFor(persona: Persona) {
 	return s.role === 'member' ? BOTS.filter((b) => b.owner === PERSONAS[persona]) : BOTS;
 }
 
-const botRefOf = (id) => {
+const botRefOf = (id, persona: Persona) => {
 	const b = BOTS.find((x) => x.id === id);
-	return b ? botRef(b) : null;
+	return b ? botRef(b, persona) : null;
 };
 
-function botRef(b) {
+function botRef(b, persona: Persona) {
 	// A Telegram bot's profile photo from the archive; Discord bots have none.
-	return { id: b.id, kind: b.kind, name: b.name, identity: b.user_id ? { user_id: b.user_id, username: b.username } : null, status: b.status, enabled: b.enabled, photo: b.kind === 'telegram' && b.user_id ? photoOf(b.user_id) : null };
+	// Its profile: its user page, when the archive has the bot as a user and
+	// the viewer may open it (the research bot's id is no sample user).
+	const u = b.kind === 'telegram' && b.user_id ? getUser(b.user_id) : null;
+	const profile = u && scopeOf(persona).user(u) ? Number(u.id) : null;
+	return { id: b.id, kind: b.kind, name: b.name, identity: b.user_id ? { user_id: b.user_id, username: b.username } : null, status: b.status, enabled: b.enabled, photo: b.kind === 'telegram' && b.user_id ? photoOf(b.user_id) : null, profile };
 }
 
 function botRow(b, persona: Persona) {
 	const o = accounts.find((a) => a.id === b.owner);
 	const s = scopeOf(persona);
 	return {
-		...botRef(b),
+		...botRef(b, persona),
 		owner: o ? { id: o.id, name: o.name, active: o.active } : { id: 0, name: 'Shared', active: true },
 		transfer_candidates: s.role === 'member' ? [] : accounts.filter((a) => a.active && a.id !== b.owner && (a.role !== 'member' || a.abilities.includes('forward'))).map((a) => ({ id: a.id, name: a.name, role: a.role })),
 		status_at: b.status_at ? iso(b.status_at) : null,
