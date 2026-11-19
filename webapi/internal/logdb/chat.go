@@ -118,8 +118,11 @@ type Forward struct {
 
 // Edit is a version of a message before an edit.
 type Edit struct {
-	At          int64 // when the version began (unix)
-	Text        string
+	At   int64 // when the version began (unix)
+	Text string
+	// Entities are the version's text entities as stored (a JSON
+	// array, UTF-16 offsets), nil for plain text.
+	Entities    []byte
 	ContentType string
 	File        FileRef // ID 0 = none
 	// Extra is the version's content_extra (docs/design/message-types.md
@@ -156,7 +159,11 @@ type Message struct {
 	// older ones.
 	Extra []byte
 	Text  string
-	File  FileRef // ID 0 = none
+	// Entities are the text's entities as the daemon stores them
+	// (format_entities_json: a JSON array, UTF-16 offsets), nil for
+	// plain text.
+	Entities []byte
+	File     FileRef // ID 0 = none
 	// Cover is a video's cover photo (telegram_message_files, role
 	// cover, since migration 000036); ID 0 = none.
 	Cover FileRef
@@ -235,7 +242,7 @@ func (t chatTables) messageSelect() string {
 	return "SELECT m.id, m.chat_id, m.message_id, " + t.senderUser + ", " + t.senderChat +
 		", " + t.outgoing + ", " + t.signature + ", " + t.channelPost + ", m.date, m.edit_date, " +
 		"m.content_type, COALESCE(m.service_type, ''), COALESCE(m.tdlib_type, ''), " +
-		"m.content_extra, COALESCE(m.text, ''), COALESCE(m.file_id, 0), " + fileColumnsOf("f") + ", " +
+		"m.content_extra, COALESCE(m.text, ''), m.entities, COALESCE(m.file_id, 0), " + fileColumnsOf("f") + ", " +
 		"UNIX_TIMESTAMP(m.deleted_at), m.media_album_id, " + t.topic + ", m.is_pinned, " +
 		"m.view_count, m.forward_count, m.reply_count, m.reactions, m.reply_to_chat_id, " +
 		"m.reply_to_msg_id, fw.origin_type, fw.origin_sender_name, " +
@@ -272,7 +279,7 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 		)
 		dest := []any{&m.RowID, &m.ChatID, &m.MessageID, &sUser, &sChat, &m.Outgoing, &sig,
 			&m.IsChannelPost, &m.Date, &m.EditDate, &m.ContentType, &m.ServiceType,
-			&m.TdlibType, &m.Extra, &m.Text, &fileID}
+			&m.TdlibType, &m.Extra, &m.Text, &m.Entities, &fileID}
 		dest = append(dest, f.dest()...)
 		dest = append(dest, &deleted, &album, &topic, &m.Pinned, &views, &fwds, &replies,
 			&m.Reactions, &rChat, &rMsg, &oType, &oName, &oUser, &oChat,
@@ -545,7 +552,7 @@ func completeMessages(ctx context.Context, db *sql.DB, group bool, ms []Message)
 	}
 	if len(edited) > 0 {
 		rows, err := db.QueryContext(ctx, "SELECT e."+t.fk+", e.edit_date, "+
-			"COALESCE(e.text, ''), e.content_type, COALESCE(e.file_id, 0), "+fileColumnsOf("f")+
+			"COALESCE(e.text, ''), e.entities, e.content_type, COALESCE(e.file_id, 0), "+fileColumnsOf("f")+
 			", e.content_extra FROM "+t.edits+" e LEFT JOIN telegram_files f ON f.id = e.file_id "+
 			"WHERE e."+t.fk+" IN ("+idList(edited)+") ORDER BY e.id")
 		if err != nil {
@@ -558,7 +565,7 @@ func completeMessages(ctx context.Context, db *sql.DB, group bool, ms []Message)
 				fileID uint64
 				f      nullFile
 			)
-			dest := append([]any{&mid, &e.At, &e.Text, &e.ContentType, &fileID}, f.dest()...)
+			dest := append([]any{&mid, &e.At, &e.Text, &e.Entities, &e.ContentType, &fileID}, f.dest()...)
 			if err := rows.Scan(append(dest, &e.Extra)...); err != nil {
 				rows.Close()
 				return err

@@ -763,6 +763,7 @@ type messageFullJSON struct {
 	Edited      bool              `json:"edited"`
 	DeletedAt   *string           `json:"deleted_at"`
 	Text        string            `json:"text"`
+	Entities    []textEntityJSON  `json:"entities"`
 	ReplyTo     *messageReplyJSON `json:"reply_to"`
 	Edits       []editJSON        `json:"edits"`
 	EditedAt    *string           `json:"edited_at"`
@@ -808,13 +809,15 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	v := pr.view()
 	n := names{d.Users, d.Groups}
 	m := d.Message
-	// A service message's text is its description for this viewer.
+	// A service message's text is its description for this viewer,
+	// without entities.
+	entities := v.messageEntities(k, m, m.Text, m.Entities)
 	m.Text = v.text(k, m)
 	j := messageFullJSON{
 		ID: m.RowID, Scope: scopeName(group), MessageID: m.MessageID, Date: iso(m.Date),
 		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Snippet: snippet(m),
 		Forwarded: v.forwardName(n, m), Edited: m.EditDate > 0, DeletedAt: isoPtr(m.DeletedAt),
-		Text: m.Text, Edits: v.edits(m), messageExtraJSON: v.messageExtra(n, m),
+		Text: m.Text, Entities: entities, Edits: v.edits(k, m), messageExtraJSON: v.messageExtra(n, m),
 		messageKindsJSON: v.messageKinds(k, m),
 	}
 	if m.EditDate > 0 {

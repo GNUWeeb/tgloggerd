@@ -551,7 +551,10 @@ named; a contact's phone goes only to viewers that see users in full;
 long lists stop at 20 with a total. Each message also carries its forum
 topic, pinned state and latest views, forwards, replies and reactions,
 and a forum's chat page lists its topics, with ?topic= on the page and
-the chat window. web/docs/message-kinds.md describes it.
+the chat window. Texts carry their Telegram formatting (entities, on
+messages, edits, polls and checklist tasks; internal/server/
+textentities.go), with the users mentioned resolved through the scope
+in one batch per page. web/docs/message-kinds.md describes it.
 
 The chat page's query also takes Drogon's links: ?after=, ?after_ts=
 and ?limit=, and ?date= as a day or a day and time in the viewer's

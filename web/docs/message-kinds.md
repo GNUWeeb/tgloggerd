@@ -7,8 +7,8 @@ sections 4.1 to 4.7): what the chat window
 message page (`/api/page/messages/{scope}/{id}`) send beyond the text
 and the media, and what each viewer may see of it. The shapes are in
 webapi/openapi.yaml: ContentType, MessageKinds, MessageDetail,
-ServiceInfo, ChatTopic; the code is webapi/internal/server/kinds.go
-and service.go.
+ServiceInfo, ChatTopic, TextEntity; the code is
+webapi/internal/server/kinds.go, service.go and textentities.go.
 
 ## Content types
 
@@ -103,6 +103,50 @@ migration 000034, the stored description is sent as it is. A member
 granted one group thus never reads the name of someone who appears
 only in another group, and an admin never reads the title of a group
 hidden from it.
+
+## Text formatting
+
+`entities` is Telegram's formatting of a text, as the daemon stores it
+(format_entities_json in src/tgloggerd/MessageExtract.cpp): on every
+ChatMessage and MessageFull (the text or caption; an album's is its
+caption's), on each edit's earlier version, on a poll's question
+(`question_entities`) and explanation (`explanation_entities`), and on
+each checklist task. The shape is TextEntity in webapi/openapi.yaml:
+`{offset, length, type}`, with `url` for a text_url, `language` for a
+pre_code block, `custom_emoji_id` (a string, as the id does not fit a
+double) for a custom emoji, and `user_id` for mentions. A plain text
+has `[]`.
+
+- `offset` and `length` count UTF-16 code units, as Telegram does
+  (what a JavaScript string indexes), not bytes or code points.
+- `type` is the TDLib entity type in snake_case: url, text_url,
+  mention, mention_name, hashtag, cashtag, bot_command, email,
+  phone_number, bank_card_number, bold, italic, underline,
+  strikethrough, spoiler, code, pre, pre_code, block_quote,
+  expandable_block_quote, custom_emoji, media_timestamp. A type newer
+  than the daemon's code is stored as `unknown`; any type is passed
+  through as stored, and a client shows the text of one it does not
+  know as plain text.
+- A text_url's `url` is sent as stored: a client checks its scheme
+  before it links it.
+- A media_timestamp carries no value: the daemon does not store it, so
+  a client reads the time from the entity's text.
+
+Mentions name people, so they follow the scope as the detail's refs
+do (one batch per page of messages, never a query per message):
+
+- a `mention_name` (a mention of someone without a username) has
+  `user_id` only when the viewer may see that user
+  (`logdb.VisibleUserIDs`), else `user_id: null`, its text still shown;
+- a `mention` (`@username`) gets `user_id` when a user holds that
+  username as an active one now (telegram_user_usernames, compared
+  without case) and the viewer may see that user; otherwise it has no
+  `user_id`, as for released, disabled and unknown usernames.
+
+A service message gets `[]`: its text is the logger's description,
+rebuilt for the viewer (above). A stored value that is not an array of
+entities with an offset, a length and a type gives `[]` as a whole,
+logged once at debug level.
 
 ## Topics, pins and interaction
 

@@ -78,10 +78,13 @@ type kindExtra struct {
 	PollID string `json:"poll_id"`
 	// checklist
 	Tasks []struct {
-		ID             int64     `json:"id"`
-		Text           string    `json:"text"`
-		CompletedBy    *partyRef `json:"completed_by"`
-		CompletionDate int64     `json:"completion_date"`
+		ID   int64  `json:"id"`
+		Text string `json:"text"`
+		// Entities are kept raw: a malformed value must not
+		// lose the whole detail.
+		Entities       json.RawMessage `json:"entities"`
+		CompletedBy    *partyRef       `json:"completed_by"`
+		CompletionDate int64           `json:"completion_date"`
 	} `json:"tasks"`
 	OthersCanAdd  bool `json:"others_can_add_tasks"`
 	OthersCanMark bool `json:"others_can_mark_tasks_as_done"`
@@ -195,6 +198,9 @@ type kinds struct {
 	polls   map[int64]*logdb.Poll
 	users   map[int64]logdb.User  // the visible ones
 	groups  map[int64]logdb.Group // the visible ones, and the chat itself
+	// mentions are the people the text entities name
+	// (textentities.go).
+	mentions textMentions
 }
 
 // pollClosed is whether a poll is closed: stored as closed, or past its
@@ -206,7 +212,8 @@ func pollClosed(closed bool, closeDate, now int64) bool {
 
 // loadKinds parses the content_extra of the messages that have a
 // detail and loads, in one batch for all of them, the polls they show
-// and the users and groups they name, as sc may see them.
+// and the users and groups they name, and the people their text
+// entities mention, as sc may see them.
 func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms []logdb.Message) (kinds, error) {
 	k := kinds{chat: chat, extra: map[uint64]*kindExtra{}, service: map[uint64]*serviceExtra{}}
 	var users, chats, polls []int64
@@ -242,7 +249,32 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 	if k.polls, err = logdb.PollsByID(ctx, s.ro, polls); err != nil {
 		return k, err
 	}
-	k.users, k.groups, err = logdb.Refs(ctx, s.ro, sc, chat, users, chats)
+	if k.users, k.groups, err = logdb.Refs(ctx, s.ro, sc, chat, users, chats); err != nil {
+		return k, err
+	}
+	mc := mentionCollector{s: s}
+	for _, m := range ms {
+		if m.ContentType == "service" {
+			continue
+		}
+		mc.add(m.Text, m.Entities, "message")
+		for _, e := range m.Edits {
+			mc.add(e.Text, e.Entities, "edit")
+		}
+		if x := k.extra[m.RowID]; x != nil && m.ContentType == "checklist" {
+			for i, t := range x.Tasks {
+				if i == listCap {
+					break
+				}
+				mc.add(t.Text, t.Entities, "checklist task")
+			}
+		}
+	}
+	for _, p := range k.polls {
+		mc.add(p.Question, p.QuestionEntities, "poll question")
+		mc.add(p.Explanation, p.ExplanationEntities, "poll explanation")
+	}
+	k.mentions, err = mc.load(ctx, sc)
 	return k, err
 }
 
@@ -350,25 +382,29 @@ type pollOptionJSON struct {
 }
 
 type pollJSON struct {
-	Kind         string           `json:"kind"`
-	Question     string           `json:"question"`
-	Type         string           `json:"type"`
-	Anonymous    bool             `json:"anonymous"`
-	Multiple     bool             `json:"multiple"`
-	Closed       bool             `json:"closed"`
-	TotalVoters  int64            `json:"total_voters"`
-	CloseDate    *string          `json:"close_date"`
-	Explanation  *string          `json:"explanation"`
-	Options      []pollOptionJSON `json:"options"`
-	OptionsTotal int              `json:"options_total"`
+	Kind             string           `json:"kind"`
+	Question         string           `json:"question"`
+	QuestionEntities []textEntityJSON `json:"question_entities"`
+	Type             string           `json:"type"`
+	Anonymous        bool             `json:"anonymous"`
+	Multiple         bool             `json:"multiple"`
+	Closed           bool             `json:"closed"`
+	TotalVoters      int64            `json:"total_voters"`
+	CloseDate        *string          `json:"close_date"`
+	Explanation      *string          `json:"explanation"`
+	// ExplanationEntities are [] without an explanation.
+	ExplanationEntities []textEntityJSON `json:"explanation_entities"`
+	Options             []pollOptionJSON `json:"options"`
+	OptionsTotal        int              `json:"options_total"`
 }
 
 type taskJSON struct {
-	ID     int64        `json:"id"`
-	Text   string       `json:"text"`
-	Done   bool         `json:"done"`
-	DoneBy *chatRefJSON `json:"done_by"`
-	DoneAt *string      `json:"done_at"`
+	ID       int64            `json:"id"`
+	Text     string           `json:"text"`
+	Entities []textEntityJSON `json:"entities"`
+	Done     bool             `json:"done"`
+	DoneBy   *chatRefJSON     `json:"done_by"`
+	DoneAt   *string          `json:"done_at"`
 }
 
 type checklistJSON struct {
@@ -552,7 +588,9 @@ func (v view) detail(k kinds, m logdb.Message) any {
 		j := pollJSON{Kind: ctype, Question: p.Question, Type: p.Type, Anonymous: p.Anonymous,
 			Multiple: p.Multiple, Closed: pollClosed(p.Closed, p.CloseDate, v.s.clock().Unix()),
 			TotalVoters: p.TotalVoters, CloseDate: isoPtr(p.CloseDate), Options: []pollOptionJSON{},
-			OptionsTotal: len(p.Options)}
+			OptionsTotal:        len(p.Options),
+			QuestionEntities:    v.entities(k, p.Question, p.QuestionEntities, "poll question"),
+			ExplanationEntities: v.entities(k, p.Explanation, p.ExplanationEntities, "poll explanation")}
 		if p.Explanation != "" {
 			e := p.Explanation
 			j.Explanation = &e
@@ -576,8 +614,9 @@ func (v view) detail(k kinds, m logdb.Message) any {
 			if len(j.Tasks) == listCap {
 				break
 			}
-			tj := taskJSON{ID: t.ID, Text: t.Text, Done: t.CompletedBy != nil || t.CompletionDate != 0,
-				DoneAt: isoPtr(t.CompletionDate)}
+			tj := taskJSON{ID: t.ID, Text: t.Text,
+				Entities: v.entities(k, t.Text, t.Entities, "checklist task"),
+				Done:     t.CompletedBy != nil || t.CompletionDate != 0, DoneAt: isoPtr(t.CompletionDate)}
 			if t.CompletedBy != nil {
 				tj.DoneBy = v.refPtr(k, t.CompletedBy.id())
 			}

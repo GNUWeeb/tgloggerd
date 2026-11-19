@@ -39,8 +39,9 @@ one in the description.
 - [message-kinds.md](message-kinds.md) — how the Go service's chat shows
   each kind of message (locations, polls, calls, service messages, ...):
   the detail per kind, the people and chats named and what each viewer may
-  see of them, service texts rebuilt for the viewer, forum topics, pins and
-  reactions.
+  see of them, service texts rebuilt for the viewer, text formatting
+  (entities) with mentions resolved within the scope, forum topics, pins
+  and reactions.
 - [mcp.md](mcp.md) — the `/mcp` Model Context Protocol endpoint: how exposure
   is gated to an admin-curated allowlist, bearer-token auth, the AND/OR/NOT
   filter grammar, the Telegram tools, and the two query-plan traps that make

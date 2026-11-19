@@ -6,26 +6,23 @@ rest, in the chat, the message page, edits, polls and checklists.
 
 ## Why
 
-The daemon stores each message's text entities (the entities column,
-per edit, and for polls and checklist tasks), but the API does not
-send them, so every message shows as plain text and links cannot be
-clicked.
+The API now sends each text's entities (TextEntity in
+webapi/openapi.yaml, web/docs/message-kinds.md "Text formatting"), but
+the React application still shows every message as plain text and
+links cannot be clicked.
 
 ## Scope
 
-- Go: a TextEntity schema {offset, length, type, url?, user_id?,
-  language?, custom_emoji_id? (a string)}, offsets in UTF-16 code
-  units as stored; `entities` ([] for plain text) on ChatMessage,
-  MessageFull and each edit; PollDetail question_entities and
-  explanation_entities; checklist tasks' entities. A mention_name's
-  user_id only when the viewer may see that user (else null); a
-  mention by @username resolved to the user's id when the archive has
-  that username and the viewer may see the user. Service messages
-  whose text is rebuilt for the viewer get [].
-- React: a safe renderer (no innerHTML): links with rel=noopener,
-  mentions to user pages when known, hashtags to a search in that
-  chat, click-to-reveal spoilers, monospace code and pre blocks,
-  quotes; in the chat, the message page, edits and polls.
+- React: a safe renderer (no innerHTML) of the `entities` of
+  ChatMessage, MessageFull and each edit, PollDetail's
+  `question_entities` and `explanation_entities`, and each checklist
+  task's `entities`; offsets are UTF-16 code units (JavaScript string
+  indices). Links with rel=noopener, a text_url's scheme checked before
+  it is linked; mentions to user pages when `user_id` is set, plain
+  text otherwise; hashtags to a search in that chat; click-to-reveal
+  spoilers; monospace code and pre blocks; quotes; unknown types as
+  plain text. In the chat, the message page, edits and polls.
+- The app's tests and stand-in gain the new required fields.
 
 ## Depends on
 
