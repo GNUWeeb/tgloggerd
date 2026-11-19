@@ -6,7 +6,7 @@
 // may not are null or left out, and the *_total fields still count
 // them, so the page says how many more there were but never who.
 import type { ReactNode } from 'react';
-import { Building2, Check, CircleDashed, CircleHelp, Contact, Dices, Eye, Gamepad2, Gift, ListChecks, Lock, MapPin, MessageSquare, Navigation, Phone, PhoneMissed, PhoneOff, Pin, Receipt, Repeat2, Sparkles, Square, SquareCheck, Star, TimerOff, Trophy, Video, AppWindow, type LucideIcon } from 'lucide-react';
+import { Building2, Check, CircleDashed, CircleHelp, Contact, Dices, Eye, Gamepad2, Gift, ListChecks, Lock, MapPin, MessageSquare, Navigation, Phone, PhoneMissed, PhoneOff, Pin, Receipt, Repeat2, Sparkles, Square, SquareCheck, Star, TimerOff, Trophy, Video, type LucideIcon } from 'lucide-react';
 import { Link } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { compact, dateTime, fmt } from '../format.ts';
@@ -14,6 +14,7 @@ import { TypeIcon, duration, type ContentType } from '../ui/media.tsx';
 import { contentLabel } from '../ui/labels.ts';
 import { PaidMedia } from './chat-paid.tsx';
 import { VcardExtra } from './chat-vcard.tsx';
+import { Widget } from './chat-widget.tsx';
 import { Animation, Picture, Sticker, type Media } from './chat-media.tsx';
 import type { Viewer } from '../page.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
@@ -93,8 +94,7 @@ function callTitle(d: S['CallDetail']): string {
 }
 const CALL_ICON: Record<S['CallDetail']['outcome'], LucideIcon> = { missed: PhoneMissed, declined: PhoneOff, disconnected: PhoneOff, hung_up: Phone, upgraded: Phone, ended: Phone, active: Phone };
 
-const PLACEHOLDER: Record<'widget' | 'expired' | 'unsupported', [string, LucideIcon]> = {
-	widget: ['A widget, which this archive does not show', AppWindow],
+const PLACEHOLDER: Record<'expired' | 'unsupported', [string, LucideIcon]> = {
 	expired: ['Self-destructing media that has expired', TimerOff],
 	unsupported: ['A message Telegram itself could not read', CircleHelp],
 };
@@ -119,7 +119,7 @@ function Placeholder({ kind, tdlib }: { kind: keyof typeof PLACEHOLDER; tdlib?: 
 const UNRECORDED: Readonly<Record<string, string>> = {
 	location: 'its place was', venue: 'its place was', contact: 'its details were', dice: 'its throw was', game: 'its details were',
 	poll: 'its options were', checklist: 'its tasks were', story: 'its poster was', invoice: 'its details were',
-	giveaway: 'its details were', call: 'its details were', paid_media: 'its items were',
+	giveaway: 'its details were', call: 'its details were', paid_media: 'its items were', widget: 'its page was',
 };
 const isPlaceholder = (ct: string): ct is keyof typeof PLACEHOLDER => Object.hasOwn(PLACEHOLDER, ct);
 
@@ -153,8 +153,9 @@ export const textInside = (d: Detail | null | undefined) => !!d && (TEXT_INSIDE.
 // The texts inside a card (a poll's question and explanation, a
 // checklist's title and tasks) are drawn with their entities; a
 // hashtag in them searches `chat`. tdlib is the message's TDLib class.
-// full: the message page, which draws a rich message's page in full.
-export function KindDetail({ d, text, entities, chat, v, tdlib, full = false }: { d: Detail; text: string; entities?: TextEntity[]; chat?: RichChat; v: Viewer; tdlib?: string | null; full?: boolean }) {
+// full: the message page, which draws a rich message's page in full
+// and a widget's source; page: the message page's link, from the chat.
+export function KindDetail({ d, text, entities, chat, v, tdlib, full = false, page }: { d: Detail; text: string; entities?: TextEntity[]; chat?: RichChat; v: Viewer; tdlib?: string | null; full?: boolean; page?: string }) {
 	switch (d.kind) {
 		case 'location':
 			return (
@@ -297,6 +298,8 @@ export function KindDetail({ d, text, entities, chat, v, tdlib, full = false }: 
 		case 'rich':
 			if (d.blocks) return <RichBlocks d={{ ...d, blocks: d.blocks }} chat={chat} v={v} collapse={!full} />;
 			return text ? null : <div className="c-unknown c-sub k-placeholder">A rich message whose page was not kept</div>;
+		case 'widget':
+			return <Widget d={d} page={page} full={full} />;
 		default:
 			return <Placeholder kind={d.kind} tdlib={tdlib} />;
 	}

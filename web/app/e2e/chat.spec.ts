@@ -213,7 +213,7 @@ test('a chat shows each message kind, rendered by the server and in the browser'
 	// Assembly Lounge holds the stand-in's sample of each kind.
 	const res = await page.request.get('/groups/-1001775585202/chat');
 	const html = await res.text();
-	for (const s of ['Which editor do you use?', 'Release checklist', 'Video chat . live now', 'A widget, which this archive does not show']) expect(html).toContain(s);
+	for (const s of ['Which editor do you use?', 'Release checklist', 'Video chat . live now', 'This archive does not run widgets.']) expect(html).toContain(s);
 	await page.goto('/groups/-1001775585202/chat');
 	await expect(page.getByText('Which editor do you use?')).toBeVisible();
 	await expect(page.locator('.c-videowrap.round')).toHaveCount(1);
@@ -296,6 +296,21 @@ test('the message page draws text entities', async ({ page }) => {
 	await expect(text.getByRole('link', { name: 'https://example.org/notes' })).toHaveAttribute('rel', 'noopener noreferrer nofollow');
 	await expect(text.locator('code.rt-code')).toHaveText('inline code');
 	await expect(text.getByRole('link', { name: '@nobody_here_x' })).toHaveAttribute('href', 'https://t.me/nobody_here_x');
+});
+
+test('the message page shows a widget\'s HTML as text behind Show source, never running it', async ({ page }) => {
+	type M = { id: number; detail: { kind: string; widget_id?: string | null } | null };
+	const w = await (await page.request.get('/api/chats/group/-1001775585202/messages?limit=100')).json();
+	const m = (w.messages as M[]).find((x) => x.detail?.kind === 'widget' && !!x.detail.widget_id)!;
+	await page.goto(`/messages/group/${m.id}`);
+	const src = page.locator('details.k-widgetsrc');
+	await expect(src.locator('pre')).toBeHidden();
+	await src.getByText('Show source').click();
+	await expect(src.locator('pre code')).toContainText('<script>document.title');
+	// Neither the script nor the img's onerror ran, and no element of the
+	// widget's HTML is in the page.
+	expect(await page.title()).not.toBe('widget ran');
+	expect(await page.locator('.a-msgkind script, .a-msgkind img, .a-msgkind iframe').count()).toBe(0);
 });
 
 test('a reply\'s quote far outside the window opens the chat at the replied message, as ?at= does', async ({ page }) => {

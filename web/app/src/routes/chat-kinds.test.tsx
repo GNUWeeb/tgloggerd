@@ -66,7 +66,7 @@ describe('message kinds in the chat', () => {
 		expect(within(bubbleOf(find(msgs, (m) => m.detail?.kind === 'location' && !!m.detail.live))).getByText(/17 earlier ones kept/)).toBeTruthy();
 		const venue = bubbleOf(detail(msgs, 'venue'));
 		expect(venue.querySelector('a[href^="https://www.openstreetmap.org/"]')!.getAttribute('rel')).toContain('noopener');
-		for (const text of ['A widget, which this archive does not show', 'Self-destructing media that has expired', 'A message Telegram itself could not read']) expect(screen.getByText(text)).toBeTruthy();
+		for (const text of ['Self-destructing media that has expired', 'A message Telegram itself could not read']) expect(screen.getByText(text)).toBeTruthy();
 		expect(screen.getByText(/messageFancyNewThing/)).toBeTruthy();
 		expect(within(bubbleOf(detail(msgs, 'invoice'))).getByText(/IDR\s?150,000\.00/)).toBeTruthy();
 		expect(bubbleOf(find(msgs, (m) => m.content_type === 'video_note')).querySelector('.c-videowrap.round')).toBeTruthy();
