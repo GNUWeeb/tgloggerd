@@ -411,6 +411,9 @@
 .app .a-msgflags .a-del { color: var(--danger); }
 .app .a-msgflagsrow { display: flex; gap: 2px; flex-wrap: wrap; margin: -8px 0 16px; }
 .app .a-msgcard-head { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+/* A message without text says what it is; a div, as a service detail
+   (a gift card) may hold blocks a <p> cannot. */
+.app .a-msgnotext { margin: 1em 0; }
 .app .a-replybox { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 6px; margin-bottom: 10px; color: var(--accent-text); }
 .app .a-replybox > span { display: flex; flex-direction: column; min-width: 0; color: var(--fg); }
 .app .a-fwdline { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }

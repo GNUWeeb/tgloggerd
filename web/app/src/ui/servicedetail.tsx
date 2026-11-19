@@ -9,6 +9,7 @@ import { CloudOff, Download } from 'lucide-react';
 import { Link } from '../nav.tsx';
 import { Lightbox, plainClick } from '../routes/chat-media.tsx';
 import { TopicIcon } from '../routes/chat-kinds.tsx';
+import { GiftCard, ThemeDetail } from './servicegift.tsx';
 import { dateTime } from '../format.ts';
 import type { Viewer } from '../page.ts';
 import type { ChatMedia } from '../types.ts';
@@ -98,5 +99,9 @@ export function ServiceDetailView({ service, text, v, topicHref, self = false, p
 		}
 		case 'background':
 			return d.only_for_self ? <span className="c-svcdetail"> for {self ? 'yourself' : 'themselves'}</span> : null;
+		case 'gift':
+			return <GiftCard d={d} v={v} />;
+		case 'theme':
+			return <ThemeDetail d={d} />;
 	}
 }

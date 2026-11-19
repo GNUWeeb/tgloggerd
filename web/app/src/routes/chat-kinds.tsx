@@ -27,7 +27,7 @@ type Ref = S['ChatRef'];
 type Kinds = S['MessageKinds'];
 
 const refHref = (r: Ref) => (r.kind === 'user' ? `/users/${r.id}` : `/groups/${r.id}`);
-function RefLink({ r }: { r: Ref }) {
+export function RefLink({ r }: { r: Ref }) {
 	return <Link to={refHref(r)} className="k-ref"><Avatar id={r.id} name={r.title} photo={r.photo} size={18} square={r.kind === 'group'} />{r.title}</Link>;
 }
 // A list of people or chats: the ones shown, then how many more.
