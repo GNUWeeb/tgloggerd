@@ -43,10 +43,6 @@ deletions made while the daemon was away are lost the same way.
   restart catch-up over recently active chats. A migration for the
   "found on recheck" deletion flag if it needs a column (next free
   000051). docs/internal-api.md.
-- Go (webapi): ask for a recheck in the background when a chat window
-  or an older page is served, never waiting for it; per-chat and
-  per-stretch limits for signed-in viewers, one shared bucket for all
-  others; the deletion flag in the API where deletions show.
 - React (frontend): the updates arrive through the live events already
   drawn; show a recheck-found deletion as such.
 
