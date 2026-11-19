@@ -13,6 +13,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+
+	"tgloggerd/webapi/internal/webdb"
 )
 
 // MCP bearer tokens, as the Drogon web mints and checks them
@@ -73,7 +75,8 @@ func FromAuthorizationHeader(h string) string {
 	return strings.TrimRight(strings.TrimLeft(h[len(scheme):], " \t"), " \t\r\n")
 }
 
-// TokenOwner is the account a token belongs to.
+// TokenOwner is the account a token's requests are attributed to: its
+// minter (web_mcp_tokens.web_user_id), whoever owns the token now.
 type TokenOwner struct {
 	TokenID   uint64
 	WebUserID uint64
@@ -81,21 +84,35 @@ type TokenOwner struct {
 	Role      string
 }
 
-// ErrNoToken is an unknown digest, a revoked token, or a token of a
-// disabled account.
+// ErrNoToken is an unknown digest, a revoked token, or a token whose
+// owner may not hold one.
 var ErrNoToken = errors.New("mcp: invalid or revoked token")
 
 // ResolveToken finds the token with this digest in the web's schema.
-// A revoked token and a disabled account are each enough to refuse.
+// It is authorised by its current owner (web_resource_relations), not
+// by its minter, which may differ since tokens are transferred: a
+// revoked token, a disabled owner and a member owner without
+// mcp_tokens are each enough to refuse, the rule minting checks the
+// owner by (the server's mayHoldMCPToken). A token without an owner record counts as the
+// superadmins', as the token pages treat it, so it works while an
+// active superadmin exists. A refused token looks like an unknown one.
 func ResolveToken(ctx context.Context, app *sql.DB, digest [32]byte) (TokenOwner, error) {
 	var o TokenOwner
 	err := app.QueryRowContext(ctx,
-		"SELECT t.id, t.web_user_id, u.username, u.role "+
+		"SELECT t.id, t.web_user_id, m.username, m.role "+
 			"FROM web_mcp_tokens t "+
-			"JOIN web_users u ON u.id = t.web_user_id "+
-			"WHERE t.token_sha256 = ? AND t.revoked_at IS NULL "+
-			"  AND u.is_active = 1 LIMIT 1",
-		digest[:]).Scan(&o.TokenID, &o.WebUserID, &o.Username, &o.Role)
+			"JOIN web_users m ON m.id = t.web_user_id "+
+			"LEFT JOIN web_resource_relations r ON r.resource_type = ? "+
+			"  AND r.resource_id = t.id AND r.relation = ? "+
+			"LEFT JOIN web_users u ON u.id = r.user_id "+
+			"WHERE t.token_sha256 = ? AND t.revoked_at IS NULL AND ("+
+			"  (r.user_id IS NULL AND EXISTS (SELECT 1 FROM web_users s "+
+			"    WHERE s.role = 'superadmin' AND s.is_active = 1)) OR "+
+			"  (u.is_active = 1 AND (u.role <> 'member' OR EXISTS (SELECT 1 "+
+			"    FROM web_member_abilities ab WHERE ab.web_user_id = u.id "+
+			"    AND ab.ability = ?)))) LIMIT 1",
+		string(webdb.ResMCPToken), string(webdb.Owner), digest[:], webdb.AbilityMCPTokens).
+		Scan(&o.TokenID, &o.WebUserID, &o.Username, &o.Role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return o, ErrNoToken
 	}
