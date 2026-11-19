@@ -756,6 +756,8 @@ export function load(url: string, persona: Persona): Loaded {
 			return { route: 'mcp', status: 200, props: { exposed_groups: ex.length, exposed_messages: ex.reduce((a, e) => a + e.group.msg_count, 0), active_tokens: live.length, last_used: live[0]?.last_used ? iso(live[0].last_used) : null, endpoint: 'https://tgd.example.org/mcp' } };
 		}
 		if (path === '/mcp-admin/groups') {
+			// The allowlist takes the mcp ability, which members never hold.
+			if (s.role === 'member') return notFound;
 			return { route: 'mcp_groups', status: 200, props: { groups: ex.map((e) => ({ group: { ...groupSummary(e.group), msg_count: e.group.msg_count }, public_now: e.public_now, note: e.note, added: iso(e.added) })) } };
 		}
 		if (path === '/mcp-admin/tokens') {
@@ -1029,6 +1031,9 @@ function profileExtras(usr, s) {
 // record, answered as shared and counted as the superadmins') and minted
 // by one, the account its requests are attributed to. The second was
 // minted by an admin for a member it manages.
+// The sample member holds mcp_tokens: it minted none, but an admin
+// minted one for it.
+accounts.find((a) => a.id === PERSONAS.member)!.abilities.push('mcp_tokens');
 const MCP_OWNERS: Record<number, [owner: number, mintedBy: number]> = { 1: [1, 1], 2: [5, 3], 3: [0, 2], 4: [3, 3] };
 const mcpToks = mcpTokens.map((t) => ({ ...t, owner: MCP_OWNERS[t.id]?.[0] ?? 0, minted_by: MCP_OWNERS[t.id]?.[1] ?? 1 }));
 const mcpPerson = (id: number) => {
@@ -1166,7 +1171,7 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 				const badG = badGrants(body.grants, s);
 				if (badG) return badG;
 			}
-			if (body.abilities && (!Array.isArray(body.abilities) || body.abilities.some((k) => k !== 'forward' && k !== 'fetch_files'))) return [400, { error: 'bad_request', message: 'An ability is forward or fetch_files.', field: 'abilities' }];
+			if (body.abilities && (!Array.isArray(body.abilities) || body.abilities.some((k) => !['forward', 'fetch_files', 'mcp_tokens'].includes(k)))) return [400, { error: 'bad_request', message: 'An ability is forward, fetch_files or mcp_tokens.', field: 'abilities' }];
 			if (body.name) a.name = body.name;
 			if (body.role) a.role = body.role;
 			if (body.email !== undefined) { a.email = body.email; a.verified = false; }
@@ -1338,7 +1343,7 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		// Go routes only these methods here; ServeMux answers any other
 		// with 405, before it looks at the session.
 		if (!(m[1] ? ['DELETE', 'PATCH'] : ['POST']).includes(method)) return [405, { error: 'method_not_allowed' }];
-		if (!allowed(s, 'mcp')) return [404, { error: 'not_found' }];
+		if (!allowed(s, 'mcp') || s.role === 'member') return [404, { error: 'not_found' }];
 		if (!m[1]) {
 			const g = groups.find((x) => x.id === body.group_id);
 			if (!g) return [400, { error: 'bad_request', message: 'Choose a group.' }];

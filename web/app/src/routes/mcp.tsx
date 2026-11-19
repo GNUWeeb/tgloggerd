@@ -42,15 +42,19 @@ function OwnerCell({ t }: { t: Token }) {
 
 function McpIndex({ page }: { page: PageData<McpIndexProps> }) {
 	const p = page.props;
+	// A member reaches only its own tokens: the allowlist is an admin's,
+	// so its card is shown without a link.
+	const allowlist = page.viewer.account?.role !== 'member';
+	const groups = <>
+		<div className="a-dircard-top"><Globe size={18} /><h2>Exposed groups</h2>{allowlist && <ArrowRight size={16} className="a-muted" />}</div>
+		<p className="a-muted">The allowlist. Nothing is readable through MCP until a group is added here. Private groups and direct messages are never exposed.</p>
+		<div className="a-dircard-foot"><span><b className="num">{p.exposed_groups}</b> groups</span><span className="a-muted">{compact(p.exposed_messages)} messages readable</span></div>
+	</>;
 	return (
 		<Shell crumbs={[['MCP', null]]}>
 			<PageHead title="MCP" sub="The Model Context Protocol endpoint lets a language model read this archive. Two things gate it: which groups are exposed, and who holds a token." />
 			<div className="a-dircards">
-				<Link to="/mcp-admin/groups" className="a-card a-dircard">
-					<div className="a-dircard-top"><Globe size={18} /><h2>Exposed groups</h2><ArrowRight size={16} className="a-muted" /></div>
-					<p className="a-muted">The allowlist. Nothing is readable through MCP until a group is added here. Private groups and direct messages are never exposed.</p>
-					<div className="a-dircard-foot"><span><b className="num">{p.exposed_groups}</b> groups</span><span className="a-muted">{compact(p.exposed_messages)} messages readable</span></div>
-				</Link>
+				{allowlist ? <Link to="/mcp-admin/groups" className="a-card a-dircard">{groups}</Link> : <div className="a-card a-dircard">{groups}</div>}
 				<Link to="/mcp-admin/tokens" className="a-card a-dircard">
 					<div className="a-dircard-top"><KeyRound size={18} /><h2>Access tokens</h2><ArrowRight size={16} className="a-muted" /></div>
 					<p className="a-muted">Bearer tokens for MCP clients. Shown once when minted and stored only as a hash.</p>

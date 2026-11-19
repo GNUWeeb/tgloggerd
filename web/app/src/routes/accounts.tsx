@@ -30,12 +30,15 @@ const ROLES: [Role, string, string][] = [
 const ABILITIES: [S['Ability'], string, string][] = [
 	['forward', 'Set up forwarding', 'Own Telegram and Discord forwarding for its granted groups.'],
 	['fetch_files', 'Fetch files from Telegram', 'Download media the archive did not store.'],
+	['mcp_tokens', 'MCP tokens', 'Mint and manage its own MCP tokens, which read the exposed groups.'],
 ];
 
 function RolePill({ role }: { role: Role }) {
 	const I = ROLE_ICON[role];
 	return <Pill tone={role === 'superadmin' ? 'accent' : role === 'admin' ? 'info' : ''}><I size={11} />{role}</Pill>;
 }
+
+const ABILITY_SHORT: Record<S['Ability'], string> = { forward: 'forwarding', fetch_files: 'fetch files', mcp_tokens: 'MCP tokens' };
 
 function accessSummary(a: AccountRow): string {
 	if (a.role === 'superadmin') return 'Everything';
@@ -48,7 +51,7 @@ function accessSummary(a: AccountRow): string {
 		return parts.length ? parts.join(', ') : 'No restrictions';
 	}
 	const n = a.grants.reduce((x, g) => x + g.groups.length, 0);
-	return [`${n} group${n === 1 ? '' : 's'}`, ...a.abilities.map((k) => (k === 'forward' ? 'forwarding' : 'fetch files'))].join(', ');
+	return [`${n} group${n === 1 ? '' : 's'}`, ...a.abilities.map((k) => ABILITY_SHORT[k])].join(', ');
 }
 
 function EmailLine({ a }: { a: AccountRow }) {
