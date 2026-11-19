@@ -95,6 +95,19 @@
 .app .c-reply b { color: var(--rc, var(--c-accent)); font-weight: 600; }
 .app .c-reply span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
 .app .c-text { white-space: pre-wrap; line-height: 1.4; }
+/* Text entities (src/ui/richtext.tsx), in the chat and on the message page. */
+.app .rt-link, .app .rt-mention, .app .rt-tag { color: var(--c-link); }
+.app a.rt-link:hover, .app a.rt-mention:hover, .app a.rt-tag:hover { text-decoration: underline; }
+.app .rt-cmd { color: var(--c-link); font-family: var(--mono); font-size: .92em; }
+.app .rt-code { font-family: var(--mono); font-size: .9em; background: var(--c-quote); border-radius: 4px; padding: 0 3px; }
+.app .rt-pre { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; background: var(--c-quote); border-left: 3px solid var(--c-accent); border-radius: 5px; padding: 5px 8px; margin: 3px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.app .rt-pre code { font: inherit; }
+.app .rt-quote { border-left: 3px solid var(--c-accent); background: var(--c-quote); border-radius: 5px; padding: 3px 8px; margin: 3px 0; }
+.app .rt-expandable:not(.open) .rt-quotebody { max-height: 4.2em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }
+.app .rt-more { display: block; border: 0; background: none; padding: 0; margin-top: 2px; color: var(--c-link); font: inherit; font-size: 12.5px; cursor: pointer; }
+.app .rt-spoiler:not(.shown) { background: var(--fg-3); border-radius: 3px; cursor: pointer; }
+.app .rt-spoiler:not(.shown), .app .rt-spoiler:not(.shown) * { color: transparent !important; }
+.app .rt-spoiler:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }
 .app .c-media { display: grid; place-items: center; width: 100%; border: 0; border-radius: 10px; cursor: zoom-in; padding: 0; }
 .app .c-media.single { width: 320px; max-width: 100%; }
 .app .c-bubble:not(.mediaonly) .c-media { margin: 2px 0 6px; }

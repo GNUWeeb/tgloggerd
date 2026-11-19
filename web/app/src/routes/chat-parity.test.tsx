@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
+import { NO_ENTITIES } from '../test/kinds.ts';
 import type { ChatProps } from './chat.tsx';
 import type { GroupsProps } from './groups.tsx';
 import type { ChatMessage } from '../types.ts';
@@ -119,8 +120,8 @@ describe('chat parity', () => {
 			content_type: 'photo', text: 'now a photo', edited_at: '2026-11-10T11:00:00Z',
 			media: { stored: true, url: '/files/now', thumb: '/files/now', render: 'image' },
 			edits: [
-				{ at: '2026-11-10T10:00:00Z', text: 'was a document', content_type: 'document', media: { stored: true, url: '/files/doc', thumb: null, name: 'notes.pdf' } },
-				{ at: '2026-11-10T10:30:00Z', text: 'an older photo', content_type: 'photo', media: { stored: true, url: '/files/old', thumb: '/files/old' } },
+				{ at: '2026-11-10T10:00:00Z', text: 'was a document', content_type: 'document', media: { stored: true, url: '/files/doc', thumb: null, name: 'notes.pdf' }, ...NO_ENTITIES },
+				{ at: '2026-11-10T10:30:00Z', text: 'an older photo', content_type: 'photo', media: { stored: true, url: '/files/old', thumb: '/files/old' }, ...NO_ENTITIES },
 			],
 		}]);
 		fireEvent.click(within(row(0)).getByRole('button', { name: /edited/ }));

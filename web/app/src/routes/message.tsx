@@ -9,6 +9,8 @@ import { chatPath } from './messages.tsx';
 import { MessageMedia, kindOf } from './chat-media.tsx';
 import { Counts, KindDetail, Reactions, TEXT_INSIDE } from './chat-kinds.tsx';
 import type { PageData } from '../page.ts';
+import { entitiesOf } from '../api/entities.ts';
+import { RichText } from '../ui/richtext.tsx';
 import type { MessageFull } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
@@ -21,6 +23,9 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 	const m = page.props.message;
 	const v = page.viewer;
 	const chatHref = m.chat.kind === 'group' ? `/groups/${m.chat.id}` : `/users/${m.chat.id}`;
+	// Hashtags search the message's chat.
+	const chat = { scope: m.scope, id: m.chat.id };
+	const ents = entitiesOf(m);
 	const list = m.scope === 'group' ? ['Group messages', '/group_messages'] as const : ['Private messages', '/private_messages'] as const;
 	// The media as the chat draws it, by kind; only media no kind fits
 	// (an unknown type without a render) falls back to a plain file row.
@@ -80,8 +85,8 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 									: <div className="a-filerow"><Thumb type={m.content_type} thumb={m.media.thumb} url={m.media.url} stored={m.media.stored} ext={m.media.ext} size={44} /><div><b>{m.media.name || m.content_type}</b><div className="a-muted sm">{bytes(m.media.size)}{m.media.duration ? ' . ' + duration(m.media.duration) : ''}</div></div></div>}
 							</div>
 						)}
-						{m.detail && <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} v={v} /></div>}
-						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <pre className="a-msgtext">{m.text}</pre> : !m.media && !m.detail && <p className="a-muted">{svcType ? svcType.replace(/_/g, ' ') : '(no text)'}</p>}
+						{m.detail && <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} /></div>}
+						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext"><RichText text={m.text} entities={ents} chat={chat} /></div> : !m.media && !m.detail && <p className="a-muted">{svcType ? svcType.replace(/_/g, ' ') : '(no text)'}</p>}
 						{svcAbout !== null && <p className="a-muted sm"><Link to={`${chatPath(m).split('?')[0]}?at=${svcAbout}`} className="a-link">The message this is about</Link></p>}
 						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies) && (
 							<div className="a-msginteract">
@@ -110,10 +115,10 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 										{e.media && (e.media.thumb
 											? <a href={e.media.url ?? undefined} target="_blank" rel="noopener" className="a-editmedia" aria-label="Earlier file"><img src={e.media.thumb} alt="" width={72} height={72} loading="lazy" /></a>
 											: <div className="a-muted sm">{e.media.url ? <a href={e.media.url} className="a-link">{e.media.name || 'earlier file'}</a> : `${e.media.name || 'earlier file'} (not stored)`}</div>)}
-										{e.text || (!e.media && <span className="a-muted">(no text)</span>)}
+										{e.text ? <RichText text={e.text} entities={entitiesOf(e)} chat={chat} /> : !e.media && <span className="a-muted">(no text)</span>}
 									</>,
 								})),
-								...(m.edited_at ? [{ icon: Pencil, at: m.edited_at, title: 'Current version', body: m.text, tone: 'accent' as const }] : []),
+								...(m.edited_at ? [{ icon: Pencil, at: m.edited_at, title: 'Current version', body: <RichText text={m.text} entities={ents} chat={chat} />, tone: 'accent' as const }] : []),
 							]} />
 						</Card>
 					)}
