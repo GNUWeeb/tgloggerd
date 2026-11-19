@@ -9,9 +9,11 @@ import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
 import { MessageMedia, kindOf } from './chat-media.tsx';
+import { FetchButton, needsFetch, useFetched } from '../ui/fetchfile.tsx';
 import { Counts, EffectMark, KindDetail, KindFallback, Reactions, TopicIcon, hasFallback, richPage, textInside } from './chat-kinds.tsx';
 import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
+import type { ChatMedia } from '../types.ts';
 import { RichText } from '../ui/richtext.tsx';
 import { ServiceText, partsOf } from '../ui/serviceparts.tsx';
 import { EditDetail, useEditList } from '../ui/editdetail.tsx';
@@ -20,6 +22,27 @@ import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
 export type MessageProps = S['MessageProps'];
+
+// Media no kind fits: a plain file row, with "Fetch from Telegram"
+// when it is big and not stored.
+function PlainFile({ f: given, type }: { f: NonNullable<MessageProps['message']['media']>; type: MessageProps['message']['content_type'] }) {
+	const f = useFetched(given);
+	return (
+		<div className="a-filerow"><Thumb type={type} thumb={f.thumb} url={f.url} stored={f.stored} ext={f.ext} size={44} />
+			<div><b>{f.name || contentLabel(type)}</b><div className="a-muted sm">{bytes(f.size)}{f.duration ? ' . ' + duration(f.duration) : ''}</div>
+				{needsFetch(f) && <FetchButton path={f.fetch!} small />}</div>
+		</div>
+	);
+}
+
+// An earlier version's file in the edit history: its picture, else a
+// link to it; a big one not stored has "Fetch from Telegram" beside it.
+function EarlierFile({ f: given }: { f: ChatMedia }) {
+	const f = useFetched(given);
+	const fetch = needsFetch(f) ? <FetchButton path={f.fetch!} small /> : null;
+	if (f.thumb) return <><a href={f.url ?? undefined} target="_blank" rel="noopener" className="a-editmedia" aria-label="Earlier file"><img src={f.thumb} alt="" width={72} height={72} loading="lazy" /></a>{fetch}</>;
+	return <div className="a-muted sm">{f.url ? <a href={f.url} className="a-link">{f.name || 'earlier file'}</a> : `${f.name || 'earlier file'} (${fetch ? 'on Telegram' : 'not stored'})`}{fetch}</div>;
+}
 
 const ORIGIN = { user: 'a user', hidden_user: 'a user who hides their account', chat: 'a group', channel: 'a channel' } as const;
 
@@ -96,7 +119,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						{m.media && (
 							<div className="a-msgmedia">
 								{drawn ? <MessageMedia msg={{ content_type: m.content_type, media: m.media, album: m.album ?? [] }} onClick={v.chat?.media === 'click'} />
-									: <div className="a-filerow"><Thumb type={m.content_type} thumb={m.media.thumb} url={m.media.url} stored={m.media.stored} ext={m.media.ext} size={44} /><div><b>{m.media.name || contentLabel(m.content_type)}</b><div className="a-muted sm">{bytes(m.media.size)}{m.media.duration ? ' . ' + duration(m.media.duration) : ''}</div></div></div>}
+									: <PlainFile f={m.media} type={m.content_type} />}
 							</div>
 						)}
 						{m.detail ? <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} tdlib={m.tdlib_type} full /></div>
@@ -130,9 +153,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 								...editList.shown.map((e) => ({
 									icon: Pencil, at: e.at, title: e.content_type && e.content_type !== m.content_type ? `Earlier version (${contentLabel(e.content_type)})` : 'Earlier version',
 									body: <>
-										{e.media && (e.media.thumb
-											? <a href={e.media.url ?? undefined} target="_blank" rel="noopener" className="a-editmedia" aria-label="Earlier file"><img src={e.media.thumb} alt="" width={72} height={72} loading="lazy" /></a>
-											: <div className="a-muted sm">{e.media.url ? <a href={e.media.url} className="a-link">{e.media.name || 'earlier file'}</a> : `${e.media.name || 'earlier file'} (not stored)`}</div>)}
+										{e.media && <EarlierFile f={e.media} />}
 										{e.text && !richPage(e.detail) ? <RichText text={e.text} entities={e.entities} chat={chat} /> : !e.media && !e.detail && <span className="a-muted">(no text)</span>}
 										{e.detail && <EditDetail d={e.detail} text={e.text} entities={e.entities} chat={chat} v={v} />}
 									</>,

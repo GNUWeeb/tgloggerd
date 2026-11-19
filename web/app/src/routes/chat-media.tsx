@@ -1,14 +1,17 @@
 // A chat message's media: photos, videos, animations, stickers, voice
 // notes, audio and documents, each stored, fetchable from Telegram, or
 // kept as metadata only (web/docs/media.md, "Chat pages"). A media
-// object has a url exactly when its bytes are stored or fetchable.
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+// object has a url when its bytes are stored or fetchable; a big
+// fetchable one has none until "Fetch from Telegram" (its fetch path)
+// is clicked, and then the URL the fetch answered with.
+import { createContext, useContext, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { CloudDownload, CloudOff, Download, ExternalLink, Pause, Play, Trash2, X } from 'lucide-react';
 import { duration } from '../ui/media.tsx';
 import { useScrollLock } from '../ui/scrollLock.ts';
 import { playTgs } from '../ui/lottie.ts';
 import { bytes } from '../format.ts';
+import { FetchButton, needsFetch, useFetched } from '../ui/fetchfile.tsx';
 import type { ChatMedia, ChatMessage } from '../types.ts';
 
 export type MediaKind = 'photo' | 'video' | 'animation' | 'sticker' | 'voice' | 'audio' | 'document';
@@ -64,16 +67,29 @@ export function Lightbox({ m, kind, onClose }: { m: Pick<Media, 'url' | 'name' |
 	return createPortal(box, document.querySelector('.app') ?? document.body);
 }
 
-function Missing({ m, ratio, label = 'Not stored', children }: { m: Media; ratio?: string; label?: string; children?: ReactNode }) {
+// What MediaOf hands the media it draws: the "Fetch from Telegram"
+// button of a big unstored file (null otherwise), drawn where the media
+// says it is missing, and whether this item was just fetched by a click
+// here, so a video starts playing and a picture shows at once.
+const FetchSlot = createContext<{ button: ReactNode; fresh: boolean }>({ button: null, fresh: false });
+
+// What an unstored file says of itself: not stored at all, or (a big
+// one with a fetch path) still on Telegram, for the button to fetch.
+const notStored = (m: Media) => (m.fetch ? 'On Telegram' : 'Not stored');
+const notStoredTitle = (m: Media) => (m.fetch ? 'Not stored in the archive; Fetch from Telegram gets it' : 'Not stored, only metadata kept');
+
+function Missing({ m, ratio, label, children }: { m: Media; ratio?: string; label?: string; children?: ReactNode }) {
+	const { button } = useContext(FetchSlot);
 	// A blurred preview (TDLib's minithumb) shows even without the bytes;
 	// it is inline, so it is preferred to a video's poster.
 	const pic = m.minithumb ?? m.thumb;
 	const bg = pic ? { backgroundImage: `url("${pic}")` } : {};
 	return (
-		<div className={`c-media c-missing ${pic ? 'c-blurred' : ''}`} style={{ ...(ratio ? { aspectRatio: ratio } : {}), ...bg }} title="Not stored, only metadata kept">
-			<CloudOff size={22} /><span>{label}</span>
+		<div className={`c-media c-missing ${pic ? 'c-blurred' : ''}`} style={{ ...(ratio ? { aspectRatio: ratio } : {}), ...bg }} title={notStoredTitle(m)}>
+			<CloudOff size={22} /><span>{label ?? notStored(m)}</span>
 			{m.size ? <span className="c-sub">{bytes(m.size)}</span> : null}
 			{children}
+			{button}
 		</div>
 	);
 }
@@ -84,7 +100,9 @@ function DeletedMark({ m }: { m: Media }) {
 
 // A photo: the picture at its real shape; a click opens the viewer.
 export function Picture({ m, single, onClick = false }: { m: Media; single?: boolean; onClick?: boolean }) {
-	const [shown, setShown] = useState(!onClick);
+	const [asked, setShown] = useState(!onClick);
+	const { fresh } = useContext(FetchSlot);
+	const shown = asked || fresh;
 	const [open, setOpen] = useState(false);
 	const ratio = ratioOf(m);
 	// Most older photos come without their size. A lone photo of unknown
@@ -118,6 +136,10 @@ const Mini = ({ src }: { src?: string }) => (src ? <img className="c-mini" src={
 // no poster either: only the inline blurred preview shows.
 export function VideoBox({ m, single, animation = false, onClick = false }: { m: Media; single?: boolean; animation?: boolean; onClick?: boolean }) {
 	const [open, setOpen] = useState(false);
+	// Fetched by a click just now: it plays (a partial file streams as
+	// it arrives).
+	const { fresh } = useContext(FetchSlot);
+	useEffect(() => { if (fresh) setOpen(true); }, [fresh]);
 	// A video note is round, as Telegram shows it.
 	const ratio = m.round ? '1 / 1' : ratioOf(m, '16 / 9');
 	const cls = `c-media c-videowrap ${single ? 'single' : ''} ${m.round ? 'round' : ''} ${m.deleted_at ? 'deleted' : ''}`;
@@ -183,15 +205,23 @@ function LottieSticker({ m }: { m: Media }) {
 	);
 }
 
-// A sticker: an image, a looping video, or a Lottie animation.
+// A sticker: an image, a looping video, or a Lottie animation; one with
+// a fetch path but no url offers "Fetch from Telegram" (a gift's or a
+// giveaway's sticker too).
 export function Sticker({ m }: { m: Media }) {
+	return <MediaOf m={m} kind="sticker" onClick={false} />;
+}
+
+function StickerAs({ m }: { m: Media }) {
 	const [open, setOpen] = useState(false);
+	const { button } = useContext(FetchSlot);
 	const f = stickerFormat(m);
 	const poster = f === 'webm' ? stillOf(m).poster : undefined;
 	if (m.url && f === 'tgs') return <LottieSticker m={m} />;
 	// An unstored video sticker still shows its still picture.
-	if (!m.url && poster) return <img className="c-sticker" src={poster} alt={`sticker ${m.emoji ?? ''}`.trim()} title="Not stored" loading="lazy" />;
-	if (!m.url || f === 'tgs') return <div className="c-sticker c-sticker-emoji" role="img" aria-label={`sticker ${m.emoji ?? ''}`.trim()} title={m.url ? undefined : 'Not stored'}>{m.emoji || <CloudOff size={40} />}</div>;
+	if (!m.url && poster) return <><img className="c-sticker" src={poster} alt={`sticker ${m.emoji ?? ''}`.trim()} title={notStored(m)} loading="lazy" />{button}</>;
+	if (!m.url) return <><div className="c-sticker c-sticker-emoji" role="img" aria-label={`sticker ${m.emoji ?? ''}`.trim()} title={notStored(m)}>{m.emoji || <CloudOff size={40} />}</div>{button}</>;
+	if (f === 'tgs') return <div className="c-sticker c-sticker-emoji" role="img" aria-label={`sticker ${m.emoji ?? ''}`.trim()}>{m.emoji || <CloudOff size={40} />}</div>;
 	if (f === 'webm') return <video className="c-sticker" src={m.url} poster={poster} autoPlay loop muted playsInline aria-label={`sticker ${m.emoji ?? ''}`.trim()} />;
 	return (
 		<>
@@ -207,6 +237,7 @@ export function Sticker({ m }: { m: Media }) {
 // plays. Nothing is fetched before the first play.
 export function Voice({ m }: { m: Media }) {
 	const audio = useRef<HTMLAudioElement>(null);
+	const { button } = useContext(FetchSlot);
 	const [playing, setPlaying] = useState(false);
 	const [at, setAt] = useState(0);
 	const total = m.duration ?? 0;
@@ -225,7 +256,8 @@ export function Voice({ m }: { m: Media }) {
 			</button>
 			<div>
 				<div className="c-wave" aria-hidden="true">{wave.map((w, i) => <span key={i} className={(i + 0.5) / wave.length <= done ? 'on' : ''} style={{ height: 4 + (w / 31) * 18 }} />)}</div>
-				<span className="c-sub">{playing || at > 0 ? `${duration(Math.floor(at))} / ` : ''}{duration(total)}{!m.stored && (m.url ? ' . from Telegram' : ' . not stored')}</span>
+				<span className="c-sub">{playing || at > 0 ? `${duration(Math.floor(at))} / ` : ''}{duration(total)}{!m.stored && (m.url ? ' . from Telegram' : m.fetch ? ' . on Telegram' : ' . not stored')}</span>
+				{button}
 			</div>
 			{m.url && (
 				<audio ref={audio} src={m.url} preload="none"
@@ -243,7 +275,8 @@ export function DocFile({ m, audio = false }: { m: Media; audio?: boolean }) {
 	// Music shows as its performer and title when the file says them.
 	const tag = audio && (m.title || m.performer) ? [m.performer, m.title].filter(Boolean).join(' - ') : '';
 	const label = tag || m.name;
-	const sub = <span className="c-sub">{bytes(m.size ?? 0)}{audio && m.duration ? ` . ${duration(m.duration)}` : ''}{!m.stored && (m.url ? ' . load from Telegram' : ' . not stored')}</span>;
+	const { button } = useContext(FetchSlot);
+	const sub = <span className="c-sub">{bytes(m.size ?? 0)}{audio && m.duration ? ` . ${duration(m.duration)}` : ''}{!m.stored && (m.url ? ' . load from Telegram' : m.fetch ? ' . on Telegram' : ' . not stored')}</span>;
 	return (
 		<div className={`c-docwrap ${m.deleted_at ? 'deleted' : ''}`}>
 			{m.url
@@ -251,23 +284,32 @@ export function DocFile({ m, audio = false }: { m: Media; audio?: boolean }) {
 					<span className="c-docicon">{m.stored ? <Download size={18} /> : <CloudDownload size={18} />}</span>
 					<span className="c-docmeta"><b>{label}</b>{tag && m.name ? <span className="c-sub">{m.name}</span> : null}{sub}</span>
 				</a>
-				: <div className="c-doc" title="Not stored, only metadata kept">
+				: <div className="c-doc" title={notStoredTitle(m)}>
 					<span className="c-docicon off"><CloudOff size={18} /></span>
 					<span className="c-docmeta"><b>{label}</b>{tag && m.name ? <span className="c-sub">{m.name}</span> : null}{sub}</span>
 				</div>}
+			{button}
 			{audio && m.url && <audio className="c-audio" src={m.url} controls preload="none" aria-label={label ? `Play ${label}` : 'Play'} />}
 			<DeletedMark m={m} />
 		</div>
 	);
 }
 
-// One media object as its kind.
-export function MediaOf({ m, kind, single, onClick }: { m: Media; kind: MediaKind; single?: boolean; onClick: boolean }) {
+// One media object as its kind, with "Fetch from Telegram" where it
+// has a fetch path but no url.
+export function MediaOf({ m: given, kind, single, onClick }: { m: Media; kind: MediaKind; single?: boolean; onClick: boolean }) {
+	const m = useFetched(given);
+	const [fresh, setFresh] = useState(false);
+	const button = needsFetch(m) ? <FetchButton path={m.fetch!} small onDone={() => setFresh(true)} /> : null;
+	return <FetchSlot.Provider value={{ button, fresh }}><MediaAs m={m} kind={kind} single={single} onClick={onClick} /></FetchSlot.Provider>;
+}
+
+function MediaAs({ m, kind, single, onClick }: { m: Media; kind: MediaKind; single?: boolean; onClick: boolean }) {
 	switch (kind) {
 		case 'photo': return <Picture m={m} single={single} onClick={onClick} />;
 		case 'video': return <VideoBox m={m} single={single} onClick={onClick} />;
 		case 'animation': return single ? <Animation m={m} onClick={onClick} /> : <VideoBox m={m} animation onClick={onClick} />;
-		case 'sticker': return <Sticker m={m} />;
+		case 'sticker': return <StickerAs m={m} />;
 		case 'voice': return <Voice m={m} />;
 		case 'audio': return <DocFile m={m} audio />;
 		default: return <DocFile m={m} />;

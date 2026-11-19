@@ -118,11 +118,56 @@ without a session, gets it only for small files). The pages render:
   metadata kept".
 
 The Go service's chat API (`GET /api/chats/{scope}/{id}/messages`, and
-the React chat pages' data; webapi/openapi.yaml, ChatMedia) applies the
-same rule to message media, album items and link-preview images. Its
-media objects carry `url` only when the file is stored or fetchable
-(null otherwise), and `thumb` with the same URL for pictures. Edit
-snapshots there carry no media.
+the React chat pages' data; webapi/openapi.yaml, ChatMedia) and the
+message page (MessageFull.media) apply the same rule to every media
+object they nest: message media, album items, edit snapshots,
+link-preview images, rich blocks, a message's detail (a game's or
+invoice's photo, paid media, a giveaway's sticker) and a service
+message's (a chat photo or its animation, a background, a gift's
+sticker and symbol). Each carries `url` only when the file is stored,
+or fetchable and small (null otherwise; see "Fetch from Telegram"
+below for big files), `fetch` when it is fetchable, and `thumb` with
+the same URL for pictures.
+
+## Fetch from Telegram (Go service)
+
+Fetching costs Telegram traffic and disk, so on the Go service a page
+view fetches only small files by itself, and a big one only when
+someone asks for it:
+
+- A page view (the chat API, the files list, a group's Files tab) gives
+  an unstored file `url` only when it is under `TG_MAX_STORE_FILE_SIZE`
+  (any file when that is 0, a file of unknown size too) and the viewer
+  may fetch it: opening it fetches and stores it, as above. This is the
+  rule anonymous links have always had, now for signed-in views too.
+- A bigger unstored file the viewer may fetch keeps `fetchable` true
+  but has `url` null. Its `fetch` is the path of the action,
+  `POST /api/files/<token>/fetch` (fetchFile in webapi/openapi.yaml,
+  with the session's CSRF token), which every fetchable file has. The
+  token is the file's own, so the action reaches only files a page view
+  showed the account.
+- The action asks the daemon to fetch the file from its first byte and
+  answers `{"state", "url", "size"}`: `stored` for a file now (or
+  already) in the store, `partial` for a big file being downloaded into
+  TDLib's cache. Either way `url` is the `/files/<token>` URL to view or
+  download it from then on; a big file streams through it as above,
+  for signed-in requests only. A file already stored is answered
+  without asking the daemon.
+- Who may: superadmins and admins, and members given `fetch_files`; a
+  member without it gets 403 `fetch_not_allowed` and the daemon is not
+  asked. Without a session it is 401, and with `WEB_TGLOGGERD_API`
+  empty 502 `daemon`. The daemon's 404, 410, 503 (with `Retry-After`)
+  and 504 become `not_found`, `gone`, `unavailable` and `timeout` with
+  the same statuses; anything else is 502 `daemon`.
+- Every request that reaches the daemon writes a `file_fetch` audit
+  row, `file <id>: ok` or the error code.
+- `/files/<token>` itself keeps its rule: without a session small files
+  only, with one (and `fetch_files`) any size, so the URL the action
+  answers with works, and so does a link handed out earlier.
+
+The decision is made in one place, `Server.mayFetch()` in
+`webapi/internal/server/media.go` with `media.Policy`, which tells a
+link (`/files/<token>`), a page view and the action apart.
 
 ## Video stills
 
@@ -161,9 +206,9 @@ message table. A thumbnail's own row is listed as a `photo`, its own
 Every row of the Drogon files list (`/files`) links to the file's
 `/files/<token>`, stored or not, so opening an unstored one fetches it
 by the rule above. The Go service's files page data (FilesProps,
-FileRow in webapi/openapi.yaml) gives each row `url` when the file is
-stored or fetchable by the same rule and a `fetchable` flag as in the
-chat API; the list's thumbnails are of stored pictures only (a
+FileRow in webapi/openapi.yaml) gives each row `url`, `fetchable` and
+`fetch` as the chat API does (a big unstored file is fetched through
+the action, "Fetch from Telegram"); the list's thumbnails are of stored pictures only (a
 picture's own bytes, a video's still: see "Video stills"), so showing
 the list fetches nothing. A row names the first message the viewer
 sees that carried the file (`chat`, `message`), and its `duration` is
@@ -219,8 +264,13 @@ headers. Where it does more, it is the standard file serving of Go's
 - A signed-in account fetches only with the `fetch_files` ability
   (web-accounts.md section 5): superadmins and admins hold it, a
   member only when given it. A member without it gets no link to an
-  unstored file (`fetchable` false, `url` null), and a link it holds
-  answers 404 "File not stored" without asking the daemon.
+  unstored file (`fetchable` false, `url` and `fetch` null), and a
+  link it holds answers 404 "File not stored" without asking the
+  daemon.
+- Signed-in page views link big unstored files only through the "Fetch
+  from Telegram" action (above); the Drogon chat pages link them
+  directly, behind a "Load from Telegram" box that fetches when
+  clicked.
 - Error answers are a bare HTML page with the same heading and text,
   not the Drogon layout.
 

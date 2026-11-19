@@ -170,7 +170,8 @@ func ParseFetchRange(header string, knownSize uint64) FetchRange {
 // Policy decides who may make the daemon fetch a file the store does
 // not hold (docs/design/storage-cache.md section 11). It is the one
 // place that decides it: /files/<token> asks it before calling the
-// daemon, and the chat data marks media fetchable from the same answer.
+// daemon, the JSON answers mark media fetchable and link them from the
+// same answer, and so does the "Fetch from Telegram" action.
 type Policy struct {
 	// Enabled: the daemon API is configured (WEB_TGLOGGERD_API).
 	Enabled bool
@@ -178,6 +179,20 @@ type Policy struct {
 	// are fetched whole into the store. 0 = no cap.
 	StoreCap uint64
 }
+
+// Via is how a fetch would be asked for.
+type Via int
+
+const (
+	// ViaLink: a request for /files/<token>, from a link given
+	// earlier.
+	ViaLink Via = iota
+	// ViaPage: a link a page view gives, which a browser may open by
+	// itself (an image coming into view, a player preloading).
+	ViaPage
+	// ViaAction: the explicit "Fetch from Telegram" action.
+	ViaAction
+)
 
 // Decision is the Policy's answer.
 type Decision int
@@ -192,6 +207,10 @@ const (
 	// Denied: the request's account may not have files fetched (a
 	// member without fetch_files); the caller decides, not the Policy.
 	Denied
+	// OnRequest: a big file in a page view of a signed-in request: it
+	// may be fetched, but only through the explicit action, so that no
+	// page view fetches one by itself.
+	OnRequest
 )
 
 // IsSmall reports whether a file of this size is stored whole by a
@@ -201,16 +220,24 @@ func (p Policy) IsSmall(size uint64) bool {
 }
 
 // MayFetch decides for a file of this size (telegram_files.file_size,
-// 0 when unknown). Streaming a big file from TDLib's cache is for
-// signed-in requests only, so a leaked token costs one small file at
-// most. An unknown size counts as small here; the caller refuses a
-// "partial" answer to an anonymous request anyway.
-func (p Policy) MayFetch(size uint64, signedIn bool) Decision {
+// 0 when unknown), asked for via v. Streaming a big file from TDLib's
+// cache is for signed-in requests only, so a leaked token costs one
+// small file at most, and a page view links a big file not by itself
+// (OnRequest): fetching one costs Telegram traffic and disk, so it
+// takes the explicit action. An unknown size counts as small here; the
+// caller refuses a "partial" answer to an anonymous request anyway.
+func (p Policy) MayFetch(size uint64, signedIn bool, v Via) Decision {
 	if !p.Enabled {
 		return Off
 	}
-	if !signedIn && !p.IsSmall(size) {
+	if p.IsSmall(size) {
+		return Allowed
+	}
+	if !signedIn {
 		return NeedsSession
+	}
+	if v == ViaPage {
+		return OnRequest
 	}
 	return Allowed
 }

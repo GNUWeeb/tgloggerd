@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { LayoutGrid, List } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, setQuery, useNav, useQueryParams } from '../nav.tsx';
-import { Btn, PageHead, Pill } from '../ui/primitives.tsx';
+import { Btn, PageHead } from '../ui/primitives.tsx';
 import { DataTable, emptyText, FilterBar, useListNav, type Col } from '../ui/list.tsx';
 import { Thumb, TypeIcon } from '../ui/media.tsx';
-import { FileCard, FileNameCell, NO_MESSAGE, Preview } from '../ui/filegrid.tsx';
+import { FileCard, FileNameCell, NO_MESSAGE, Preview, StoredCell } from '../ui/filegrid.tsx';
 import { ROLE_LABELS, ROLE_VALUES, RoleTag, roleLabel, roleOf } from '../ui/fileroles.tsx';
 import { ago, bytes, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
@@ -153,7 +153,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 		{ key: 'ext', label: 'Ext', sort: true, cls: 'a-hide-md', render: (f) => <span className="mono">{f.ext}</span> },
 		{ key: 'size', label: 'Size', sort: true, align: 'right', render: (f) => <span className="num">{bytes(f.size)}</span> },
 		{ key: 'hits', label: 'Hits', sort: true, align: 'right', cls: 'a-hide-md', render: (f) => <span className="num">{fmt(f.hits)}</span> },
-		{ key: 'stored', label: 'Stored', render: (f) => (f.stored ? <Pill tone="ok">stored</Pill> : f.url ? <Pill tone="info">fetchable</Pill> : <Pill tone="danger">missing</Pill>) },
+		{ key: 'stored', label: 'Stored', render: (f) => <StoredCell f={f} /> },
 		{ key: 'sender', label: 'Sender', cls: 'a-hide-md', render: (f) => (f.sender ? <Link to={`/users/${f.sender.id}`} className="a-rowlink">{f.sender.name}</Link> : null) },
 		{ key: 'created_at', label: 'First seen', sort: true, render: (f) => <span title={f.created_at}>{ago(f.created_at, v)}</span> },
 		{ key: 'accessed_at', label: 'Last access', sort: true, cls: 'a-hide-md', render: (f) => (f.accessed_at ? <span title={f.accessed_at}>{ago(f.accessed_at, v)}</span> : null) },

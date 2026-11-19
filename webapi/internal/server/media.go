@@ -138,39 +138,65 @@ func abilitiesOf(as []string) []scope.Ability {
 }
 
 // mayFetch decides whether a request may have the daemon fetch a file
-// the store does not hold, by the file's size (0 when unknown) and
-// whether the request has a valid session (media.Policy). It is the one
-// place that decides it, as media::mayFetch() is in the Drogon web:
-// /files/<token> asks it before calling the daemon, and every JSON
-// answer that links a file (fileURL) asks it whether to give the link,
-// so narrowing who may fetch is done here and holds for all of them. A
-// signed-in account may only with the fetch_files ability
-// (scope.Can(FetchFiles)): every superadmin and admin, and a member
-// given it (web-member-access); a member without it gets no link to an
-// unstored file and no fetch through a link it holds.
-func (s *Server) mayFetch(sc scope.Scope, size uint64, signedIn bool) media.Decision {
+// the store does not hold, by the file's size (0 when unknown), whether
+// the request has a valid session and how the fetch is asked for
+// (media.Policy). It is the one place that decides it, as
+// media::mayFetch() is in the Drogon web: /files/<token> asks it
+// before calling the daemon (ViaLink), every JSON answer that links a
+// file (fileLink) asks it whether to give the link (ViaPage), and the
+// "Fetch from Telegram" action asks it too (ViaAction), so narrowing
+// who may fetch is done here and holds for all of them. A page view
+// links a big unstored file not by itself (media.OnRequest): it takes
+// the action. A signed-in account may fetch only with the fetch_files
+// ability (scope.Can(FetchFiles)): every superadmin and admin, and a
+// member given it (web-member-access); a member without it gets no
+// link to an unstored file, no fetch through a link it holds and 403
+// from the action.
+func (s *Server) mayFetch(sc scope.Scope, size uint64, signedIn bool, via media.Via) media.Decision {
 	p := media.Policy{Enabled: s.daemon.Enabled(), StoreCap: s.media.StoreFileCap}
-	d := p.MayFetch(size, signedIn)
-	if _, account := sc.Viewer(); d == media.Allowed && account && !sc.Can(scope.FetchFiles) {
+	d := p.MayFetch(size, signedIn, via)
+	if _, account := sc.Viewer(); (d == media.Allowed || d == media.OnRequest) &&
+		account && !sc.Can(scope.FetchFiles) {
 		return media.Denied
 	}
 	return d
 }
 
-// fileURL is a file's /files/<token> URL for a request: given when the
-// bytes are stored, or when they are not and the request may have them
-// fetched (mayFetch), so opening the URL fetches them through the
-// daemon; nil otherwise. fetchable reports the second case.
-func (s *Server) fileURL(sc scope.Scope, signedIn bool, id, size uint64, stored bool) (url *string, fetchable bool) {
+// fileLink is how a JSON answer links a file (ChatMedia's, FileRow's
+// url, fetchable and fetch).
+type fileLink struct {
+	// URL is the file's /files/<token> URL: given when the bytes are
+	// stored, or when they are not and a page view may have them
+	// fetched (a small file), so opening the URL fetches them through
+	// the daemon; nil otherwise.
+	URL *string
+	// Fetchable: not stored, and the request may have the file
+	// fetched, by a page view or only through the action.
+	Fetchable bool
+	// Fetch is the "Fetch from Telegram" action's path
+	// (/api/files/<token>/fetch) when Fetchable, else nil.
+	Fetch *string
+}
+
+// fileLink links a file for a request (mayFetch, ViaPage).
+func (s *Server) fileLink(sc scope.Scope, signedIn bool, id, size uint64, stored bool) fileLink {
 	if id == 0 {
-		return nil, false
+		return fileLink{}
 	}
-	fetchable = !stored && s.mayFetch(sc, size, signedIn) == media.Allowed
-	if !stored && !fetchable {
-		return nil, false
+	tok := s.tokens.Encrypt(id)
+	u := "/files/" + tok
+	if stored {
+		return fileLink{URL: &u}
 	}
-	u := "/files/" + s.tokens.Encrypt(id)
-	return &u, fetchable
+	switch s.mayFetch(sc, size, signedIn, media.ViaPage) {
+	case media.Allowed:
+		f := "/api/files/" + tok + "/fetch"
+		return fileLink{URL: &u, Fetchable: true, Fetch: &f}
+	case media.OnRequest:
+		f := "/api/files/" + tok + "/fetch"
+		return fileLink{Fetchable: true, Fetch: &f}
+	}
+	return fileLink{}
 }
 
 // fileHeaders go on every file answer.
@@ -334,7 +360,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request) {
 
 	// Not in the store: ask the daemon to fetch it from Telegram, if
 	// this request may.
-	switch s.mayFetch(sc, meta.Size, sess != nil) {
+	switch s.mayFetch(sc, meta.Size, sess != nil, media.ViaLink) {
 	case media.Off:
 		statusPage(w, http.StatusNotFound, "File not stored",
 			"This file's bytes are not in storage, and fetching files "+

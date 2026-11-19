@@ -8,6 +8,7 @@ import { files } from '../../mockup/src/data/files.js';
 import { groupMessages, privateMessages, senderOf, queryMessages, getMessage, chatStream, chatOf } from '../../mockup/src/data/messages.js';
 import { accounts, federations, mySessions, SECURITY_NOTICES, allFeds, fedGroups, fedAdmins, fedMembers, activeSuperadmins, auditFor, fedById } from '../../mockup/src/data/accounts.js';
 import { buildScope, allowed } from '../../mockup/src/data/scope.js';
+import { STORE_CAP, fileLinks } from './filelinks.ts';
 import { TOTALS } from '../../mockup/src/data/totals.js';
 import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/data/admin.js';
 import { createHash, randomBytes } from 'node:crypto';
@@ -183,14 +184,14 @@ export function chatMedia(md, type, fetch = false, extra = {}) {
 	const format = type === 'sticker' ? STICKER_FORMATS[md.fileId % 3] : undefined;
 	// A Lottie sticker's URL says so, for the stand-in's /files to answer
 	// with an animation instead of a picture.
-	const url = stored || fetchable ? `/files/standin-${md.fileId}${format === 'tgs' ? '.tgs' : ''}` : null;
+	const { url, fetch: fetchPath } = fileLinks(md.fileId, format === 'tgs', md.size, stored, fetchable);
 	const render = RENDER[type] ?? (format === 'tgs' ? 'lottie' : format === 'webm' ? 'animation' : 'image');
 	const picture = render === 'image';
 	// A video, animation, video note or .webm sticker: thumb is its still,
 	// else its blurred preview.
 	const still = render === 'video' || render === 'animation' ? videoStill(md.fileId) : null;
 	return {
-		stored, fetchable, thumb: picture ? url : still ? still.poster ?? still.minithumb : null, url, render, ext: format ?? md.ext ?? EXT_OF[type],
+		stored, fetchable, fetch: fetchPath, thumb: picture ? url : still ? still.poster ?? still.minithumb : null, url, render, ext: format ?? md.ext ?? EXT_OF[type],
 		...(still?.poster ? { poster: still.poster } : {}), ...(still?.minithumb ? { minithumb: still.minithumb } : {}),
 		w: md.w, h: md.h, duration: md.duration, name: md.name, size: md.size, emoji: md.emoji,
 		// Telegram's voice waveform is 5-bit: 0 to 31 per bar.
@@ -466,12 +467,12 @@ const pictureType = (t: string) => t === 'photo' || t === 'thumbnail' || t === '
 const videoType = (f) => f.file_type === 'video' || f.file_type === 'animation' || f.file_type === 'video_note' || (f.file_type === 'sticker' && f.ext === 'webm');
 function fileRow(f, fetch: boolean) {
 	const fetchable = !f.stored && fetch;
-	const url = f.stored || fetchable ? `/files/standin-${f.id}${f.ext === 'tgs' ? '.tgs' : ''}` : null;
+	const { url, fetch: fetchPath } = fileLinks(f.id, f.ext === 'tgs', f.size, f.stored, fetchable);
 	const drawable = f.ext !== 'webm' && f.ext !== 'tgs';
 	const still = videoType(f) ? videoStill(f.id) : null;
 	const base = {
 		// A thumbnail is filtered as such but answered as a photo, as in Go.
-		id: f.id, file_type: f.file_type === 'thumbnail' ? 'photo' : f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored, fetchable,
+		id: f.id, file_type: f.file_type === 'thumbnail' ? 'photo' : f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored, fetchable, fetch: fetchPath,
 		created_at: iso(f.created_at), accessed_at: iso(f.accessed_at), duration: f.duration, tg_file_id: f.tg_file_id, sha256: f.sha256,
 		url, thumb: still ? still.poster : f.stored && pictureType(f.file_type) && drawable ? url : null,
 		...(still?.minithumb ? { minithumb: still.minithumb } : {}),
@@ -906,6 +907,20 @@ function contactFields(u) {
 		is_contact: !!u.is_contact, is_mutual_contact: u.id === CONTACTS[0]?.id,
 		own_name_known: !ownUnknown.has(u.id), own_name_checked_at: ownChecked.get(u.id) ?? null,
 	};
+}
+
+// "Fetch from Telegram" (fetchFile) of a file token, for an account
+// that may fetch: a stored file at once; else, by the rules of Go, a
+// small file is stored whole and a big one streams as it downloads
+// (partial). One file in five is no longer on Telegram.
+export function fetchFileApi(token: string): [number, unknown] {
+	const m = token.match(/^standin-(\d+)(\.tgs)?$/);
+	const f = m ? allFiles().find((x) => x.id === Number(m[1])) : null;
+	if (!f) return [404, { error: 'not_found', message: 'No such file.' }];
+	const url = `/files/${token}`;
+	if (f.stored) return [200, { state: 'stored', url, size: f.size }];
+	if (f.id % 5 === 0) return [410, { error: 'gone', message: 'The file is no longer available on Telegram.' }];
+	return [200, { state: f.size > STORE_CAP ? 'partial' : 'stored', url, size: f.size }];
 }
 
 // [status, body, Retry-After seconds]

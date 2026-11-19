@@ -79,7 +79,8 @@ function Art({ d }: { d: Gift }) {
 	const style: CSSProperties | undefined = center && edge ? { background: `radial-gradient(circle at 50% 45%, ${center}, ${edge})` } : undefined;
 	return (
 		<span className={`c-giftart${style ? ' c-giftbackdrop' : ''}`} style={style}>
-			{d.symbol_sticker && <span className="c-giftsymbol" aria-hidden="true"><Sticker m={d.symbol_sticker} /></span>}
+			{/* The symbol is a backdrop: no fetch button of its own. */}
+			{d.symbol_sticker && <span className="c-giftsymbol" aria-hidden="true"><Sticker m={{ ...d.symbol_sticker, fetch: null }} /></span>}
 			{d.sticker ? <Sticker m={d.sticker} /> : <span className="c-giftnosticker" role="img" aria-label="Gift"><Gift size={48} /></span>}
 			{u && <Title u={u} color={rgb(b?.text_color)} />}
 		</span>

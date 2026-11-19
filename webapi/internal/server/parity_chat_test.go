@@ -592,7 +592,7 @@ func TestChatAnswersDescribed(t *testing.T) {
 			if md, ok := m["media"].(map[string]any); ok {
 				props := specProps(t, root, "MediaDetail")
 				for k := range md {
-					if !props[k] && !slices.Contains([]string{"file_id", "name", "size", "stored",
+					if !props[k] && !slices.Contains([]string{"file_id", "name", "size", "stored", "fetchable", "fetch",
 						"thumb", "url"}, k) {
 						undescribed = append(undescribed, where+".media."+k)
 					}

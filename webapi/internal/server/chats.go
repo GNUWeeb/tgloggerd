@@ -60,21 +60,19 @@ func isoPtr(t int64) *string {
 	return &s
 }
 
-// file is a file's /files/<token> URL, when its bytes are stored or
-// may be fetched from Telegram by this request (Server.fileURL), and
-// both flags.
-func (v view) file(f logdb.FileRef) (url *string, stored, fetchable bool) {
+// file is how a file is linked for this request (Server.fileLink),
+// and whether its bytes are stored.
+func (v view) file(f logdb.FileRef) (l fileLink, stored bool) {
 	if f.ID == 0 || !f.Exists {
-		return nil, false, false
+		return fileLink{}, false
 	}
-	url, fetchable = v.s.fileURL(v.sc, v.session, f.ID, f.Size, f.OnDisk)
-	return url, f.OnDisk, fetchable
+	return v.s.fileLink(v.sc, v.session, f.ID, f.Size, f.OnDisk), f.OnDisk
 }
 
 // photo is a picture's URL, or nil.
 func (v view) photo(f logdb.FileRef) *string {
-	u, _, _ := v.file(f)
-	return u
+	l, _ := v.file(f)
+	return l.URL
 }
 
 type userSummaryJSON struct {
@@ -156,6 +154,7 @@ func (v view) group(g logdb.Group) groupSummaryJSON {
 type chatMediaJSON struct {
 	Stored    bool    `json:"stored"`
 	Fetchable bool    `json:"fetchable"`
+	Fetch     *string `json:"fetch"`
 	Thumb     *string `json:"thumb"`
 	URL       *string `json:"url"`
 	Name      string  `json:"name,omitempty"`
@@ -204,8 +203,10 @@ func (v view) media(ctype string, f logdb.FileRef, extra []byte) *chatMediaJSON 
 	if f.ID == 0 {
 		return nil
 	}
-	url, stored, fetchable := v.file(f)
-	m := &chatMediaJSON{Stored: stored, Fetchable: fetchable, URL: url, Name: f.Name, Size: f.Size,
+	l, stored := v.file(f)
+	url := l.URL
+	m := &chatMediaJSON{Stored: stored, Fetchable: l.Fetchable, Fetch: l.Fetch, URL: url,
+		Name: f.Name, Size: f.Size,
 		mediaDetailJSON: mediaDetail(ctype, f, extra)}
 	switch {
 	case m.Render == "image":

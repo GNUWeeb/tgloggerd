@@ -13,40 +13,26 @@ to do it, not something every page view triggers.
 
 ## Scope
 
-- A "Fetch from Telegram" action for unstored files (`on_disk = 0`),
-  in the web API used by the file preview, allowed for superadmins
-  and admins and for members holding `fetch_files`:
-  it asks the daemon to fetch and store the file, then the file can be
-  viewed and downloaded like a stored one (`view_files`).
-- Fetches triggered by plain page views or anonymous `/files/<token>`
-  requests are limited accordingly (small files only, or none, as
-  agreed when implementing).
-- `web/docs/media.md` updated.
+The Go service's half is done (web/docs/media.md, "Fetch from
+Telegram"): page views link small unstored files only, a big one has
+`url` null and `fetch`, the path of `POST /api/files/{token}/fetch`
+(fetchFile in webapi/openapi.yaml). What is left is the React
+application's half:
 
-## Design notes
-
-- Builds on the fetch path of web-fetch-unstored-media and the roles
-  (`scope.FetchFiles`, docs/design/web-accounts.md); agree the exact
-  rule for page views and tokens with the project owner before
-  building.
-- The Go service already requires `fetch_files` of a signed-in
-  account for any fetch (members get it as an ability; superadmins and
-  admins hold it): a member without it gets no link to an unstored
-  file, and a link it holds answers 404 "File not stored". What is
-  left is the explicit action, the rule for page views of those who
-  may fetch, and anonymous token requests (still: small files only).
-- The fetch decision is one function, `media::mayFetch()` in
-  `web/src/media/Fetch.cpp`: `/files/<token>` asks it before calling
-  the daemon, and the chat pages set `fetchable` from it
-  (`media::markFetchable()`), so gating it there gates both. Today it
-  allows any signed-in request and, without a session, files under
-  `TG_MAX_STORE_FILE_SIZE` (web/docs/media.md).
-- The Go service's one place is `Server.mayFetch()` in
-  `webapi/internal/server/media.go`, which already takes the request
-  scope: `/files/<token>` asks it, and `Server.fileURL()` asks it for
-  every link the JSON answers give an unstored file (ChatMedia's and
-  FileRow's `url` and `fetchable`), so narrowing it there narrows the
-  chat pages and the files list too.
+- Show a "Fetch from Telegram" action for media and file rows whose
+  `url` is null and `fetch` is set (chat media, the files list and
+  preview, a group's Files tab), instead of "not stored". Clicking it
+  POSTs `fetch` with the CSRF token and, on 200, uses the answer's
+  `url` to show, play or download the file; 403
+  `fetch_not_allowed`, 410 `gone`, 503 `unavailable` (with
+  `Retry-After`) and 504 `timeout` get their messages.
+- The places that now read `url` as "stored or fetchable" (a file
+  with `fetchable` true and `url` null is fetchable through the
+  action): web/app/src/routes/chat-media.tsx (the header comment, and
+  the photo, video, animation, sticker, audio and document
+  renderers), web/app/src/ui/filegrid.tsx (the preview's action,
+  missing note and "Stored" detail), web/app/src/routes/files.tsx and
+  web/app/src/routes/group-files.tsx (the "Stored" pill and detail).
 
 ## Depends on
 
@@ -54,6 +40,7 @@ Nothing.
 
 ## Done when
 
-- A member with `fetch_files` fetches an unstored file from its
-  preview and then views it; a member without it gets 403; the
-  agreed rule for page views and tokens holds.
+- A member with `fetch_files` fetches a big unstored file from its
+  preview and then views it; a member without it sees no action (and
+  the API answers it 403); a small unstored file still loads by
+  itself.

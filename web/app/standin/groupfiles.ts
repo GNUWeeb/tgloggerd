@@ -15,6 +15,7 @@
 import { groups } from '../../mockup/src/data/groups.js';
 import { chatStream, senderOf } from '../../mockup/src/data/messages.js';
 import { KINDS_GROUP, kindsOf, sampleOf, type View } from './kinds.ts';
+import { fileLinks } from './filelinks.ts';
 
 export const GROUP_FILES_PAGE = 50;
 export const FILE_KINDS = ['photo', 'video', 'animation', 'audio', 'voice', 'document', 'sticker', 'video_note'] as const;
@@ -49,12 +50,13 @@ function fileOf(m: Msg, md: { fileId: number; ext?: string; name?: string; size?
 	const stored = md.stored !== false;
 	const fetchable = !stored && v.fetch;
 	const ext = kind === 'sticker' ? STICKER_FORMATS[md.fileId % 3]! : md.ext ?? EXT_OF[kind] ?? 'bin';
-	const url = stored || fetchable ? `/files/standin-${md.fileId}${ext === 'tgs' ? '.tgs' : ''}` : null;
+	const size = md.size || 30000 + (md.fileId % 997) * 311;
+	const { url, fetch } = fileLinks(md.fileId, ext === 'tgs', size, stored, fetchable);
 	// Only a stored picture an <img> can draw has a thumb here.
 	const picture = kind === 'photo' || (kind === 'sticker' && ext === 'webp');
 	return {
 		id: md.fileId, file_type: kind === 'video_note' ? 'video_note' : kind, name: md.name || `${kind}_${md.fileId}.${ext}`, ext,
-		size: md.size || 30000 + (md.fileId % 997) * 311, stored, fetchable, url, thumb: stored && picture ? url : null,
+		size, stored, fetchable, fetch, url, thumb: stored && picture ? url : null,
 		...(md.duration ? { duration: md.duration } : {}),
 		message_id: m.message_id, message_row_id: m.id, date: iso(m.date), sender: senderFor(m, v),
 		chat_link: `/groups/${m.chat.id}/chat?at=${m.message_id}`,

@@ -6,6 +6,7 @@
 import { useState, type CSSProperties } from 'react';
 import { Download } from 'lucide-react';
 import { Lightbox, plainClick } from '../routes/chat-media.tsx';
+import { FetchButton, needsFetch, useFetched } from './fetchfile.tsx';
 import type { S } from '../api/schema.ts';
 
 type Background = S['ServiceBackgroundDetail'];
@@ -63,10 +64,14 @@ function describe(d: Background): string {
 // shape, as a background is). An image that can be shown opens in the
 // viewer on a plain click; media loaded on click wait to be asked.
 export function BackgroundSwatch({ d, size, onClick }: { d: Background; size: number; onClick: boolean }) {
-	const [shown, setShown] = useState(!onClick);
+	const [asked, setShown] = useState(!onClick);
 	const [open, setOpen] = useState(false);
+	// A big image not stored has the fetch button beside the swatch; once
+	// fetched by it, it shows.
+	const img = useFetched(d.image);
+	const [fresh, setFresh] = useState(false);
+	const shown = asked || fresh;
 	if (!d.type || d.type === 'chat_theme') return null;
-	const img = d.image;
 	// A PNG or JPEG draws as an image; Telegram's own pattern format (a
 	// gzipped SVG, render file) cannot be drawn here.
 	const drawable = !!img && img.render === 'image';
@@ -85,13 +90,14 @@ export function BackgroundSwatch({ d, size, onClick }: { d: Background; size: nu
 	const opacity = pattern ? Math.min(100, Math.max(0, d.intensity ?? 50)) / 100 : 1;
 	const inverted = pattern && d.is_inverted;
 	const lost = !!img && !img.url;
+	const fetchable = drawable && needsFetch(img);
 	const cls = ['c-bgswatch', d.is_blurred ? 'c-bgblur' : '', pattern && img && !drawable ? 'c-bghint' : '', !fill && !pic ? 'c-bgnone' : ''].filter(Boolean).join(' ');
-	const label = `${describe(d)}${pattern && img && !drawable ? ' (the pattern is not drawn)' : lost ? ' (not stored)' : ''}`;
+	const label = `${describe(d)}${pattern && img && !drawable ? ' (the pattern is not drawn)' : fetchable ? ' (on Telegram)' : lost ? ' (not stored)' : ''}`;
 	const fade = opacity < 1 ? { opacity } : undefined;
 	const layer = pic && (inverted
 		? <span className="c-bgpat" style={fade}><img src={pic} alt="" loading="lazy" /></span>
 		: <img src={pic} alt="" loading="lazy" style={fade} />);
-	if (!url) return <span className={cls} style={box} role="img" aria-label={label} title={label}>{layer}</span>;
+	if (!url) return <><span className={cls} style={box} role="img" aria-label={label} title={label}>{layer}</span>{fetchable && <FetchButton path={img.fetch!} compact onDone={() => setFresh(true)} />}</>;
 	if (!shown) return <button type="button" className={`${cls} c-bgask`} style={box} onClick={() => setShown(true)} aria-label="Show the background" title={label}><Download size={Math.round(size / 3)} /></button>;
 	return (
 		<>

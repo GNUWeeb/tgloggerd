@@ -1033,6 +1033,7 @@ type listFile struct {
 	Hits       int64         `json:"hits"`
 	Stored     bool          `json:"stored"`
 	Fetchable  bool          `json:"fetchable"`
+	Fetch      *string       `json:"fetch"`
 	CreatedAt  string        `json:"created_at"`
 	AccessedAt string        `json:"accessed_at"`
 	TgFileID   string        `json:"tg_file_id"`
@@ -1097,11 +1098,12 @@ func isVideo(fileType, ext string) bool {
 	return false
 }
 
-// listFileRows are the rows as FileRow. Every file has a URL the
-// request may open, as each row of the Drogon files list links to
+// listFileRows are the rows as FileRow. A file has a URL the request
+// may open, as each row of the Drogon files list links to
 // /files/<token>: a stored one's bytes, and an unstored one's whenever
-// the request may have them fetched from Telegram (Server.fileURL),
-// which opening the URL then does through the daemon. Only a stored
+// a page view may have them fetched from Telegram (Server.fileLink, a
+// small file), which opening the URL then does through the daemon; a
+// big one the request may fetch has the action instead. Only a stored
 // picture has a thumbnail, so that listing files fetches nothing: a
 // stored photo or sticker is its own, and a video's is the stored
 // cover, else the stored Telegram thumbnail, of a message that carried
@@ -1184,7 +1186,8 @@ func (s *Server) fileRow(sc scope.Scope, signedIn bool, r logdb.Row,
 		h = strings.ToLower(h)
 		f.SHA256 = &h
 	}
-	f.URL, f.Fetchable = s.fileURL(sc, signedIn, f.ID, f.Size, f.Stored)
+	l := s.fileLink(sc, signedIn, f.ID, f.Size, f.Stored)
+	f.URL, f.Fetchable, f.Fetch = l.URL, l.Fetchable, l.Fetch
 	if hasThumb(f.Stored, f.FileType, f.Ext) {
 		f.Thumb = f.URL
 	}
@@ -1196,7 +1199,7 @@ func (s *Server) fileRow(sc scope.Scope, signedIn bool, r logdb.Row,
 	if st, ok := stills[f.ID]; ok {
 		// Stored, so the size does not matter.
 		if id := cmp.Or(st.Cover, st.Thumbnail); id != 0 {
-			f.Thumb, _ = s.fileURL(sc, signedIn, id, 0, true)
+			f.Thumb = s.fileLink(sc, signedIn, id, 0, true).URL
 		}
 		// As the chat's media (mediaDetail): only valid base64.
 		if _, err := base64.StdEncoding.DecodeString(st.Minithumb); err == nil && st.Minithumb != "" {
