@@ -129,3 +129,13 @@ describe('a game and an invoice', () => {
 		expect(screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('img')!.getAttribute('src')).toBe(inv.detail.photo!.url);
 	});
 });
+
+describe('a contact', () => {
+	it('shows the user\'s photo as its avatar and links the user', () => {
+		const c = sample(showChat(), (m) => m.detail?.kind === 'contact');
+		if (c.detail?.kind !== 'contact' || !c.detail.user?.photo) throw new Error('no contact sample with a photo');
+		const card = document.getElementById(`m${c.message_id}`)!.querySelector('.k-contact')!;
+		expect(card.querySelector('img')!.getAttribute('src')).toBe(c.detail.user.photo);
+		expect(card.querySelector('a')!.getAttribute('href')).toBe(`/users/${c.detail.user.id}`);
+	});
+});

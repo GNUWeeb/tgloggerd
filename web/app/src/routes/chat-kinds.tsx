@@ -164,7 +164,7 @@ export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; t
 			const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || 'Contact';
 			return (
 				<div className="k-card k-contact">
-					<Avatar id={d.user?.id ?? name.length} name={name} size={40} />
+					<Avatar id={d.user?.id ?? name.length} name={name} photo={d.user?.photo} size={40} />
 					<div className="a-minw">
 						<Head icon={Contact}>{d.user ? <Link to={refHref(d.user)} className="a-rowlink">{name}</Link> : name}</Head>
 						{d.phone && <div className="mono">{d.phone}</div>}
