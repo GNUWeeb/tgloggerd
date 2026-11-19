@@ -194,3 +194,39 @@ describe('member list prefetch', () => {
 		expect(calls.filter((c) => c.path.includes('/members'))).toHaveLength(0);
 	});
 });
+
+describe('hiding a channel\'s member list', () => {
+	const button = () => screen.queryByRole('button', { name: 'Hide member list' });
+
+	it.each([[M.HIDDEN, true], [M.NOT_ALLOWED, false]] as const)('lets a superadmin switch it on a channel (%s, hidden %s)', async (id, hidden) => {
+		const calls = fakeApi('superadmin', { 'PATCH /api/groups/:id': () => ({ id }) });
+		renderPage(`/groups/${id}/members`);
+		expect(button()!.getAttribute('aria-pressed')).toBe(String(hidden));
+		fireEvent.click(button()!);
+		await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/groups/${id}`)).toHaveLength(1));
+		const patch = callsTo(calls, 'PATCH', `/api/groups/${id}`)[0]!;
+		expect(patch.body).toEqual({ hide_member_list: !hidden });
+		expect(patch.headers.get('x-csrf-token')).toBe('test-csrf');
+		// The page then shows the state the service has.
+		await waitFor(() => expect(callsTo(calls, 'GET', `/api/page/groups/${id}/members`)).toHaveLength(1));
+	});
+
+	it('says what went wrong', async () => {
+		fakeApi('superadmin', { 'PATCH /api/groups/:id': () => json(403, { error: 'forbidden', message: 'Only a superadmin may hide a member list.' }) });
+		renderPage(`/groups/${M.HIDDEN}/members`);
+		fireEvent.click(button()!);
+		expect((await screen.findByRole('alert')).textContent).toBe('Only a superadmin may hide a member list.');
+	});
+
+	it('is not there on a supergroup, or for an admin', () => {
+		fakeApi('superadmin');
+		const r = renderPage(`/groups/${M.LONG}/members`);
+		expect(rows().length).toBeGreaterThan(0);
+		expect(button()).toBeNull();
+		r.unmount();
+		fakeApi('admin');
+		renderPage(`/groups/${M.NOT_ALLOWED}/members`, 'admin');
+		expect(document.querySelector('.a-membersoff')).toBeTruthy();
+		expect(button()).toBeNull();
+	});
+});

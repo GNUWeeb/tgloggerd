@@ -1,11 +1,11 @@
 // The group page's Members tab: Telegram's member list, a page at a
 // time, or why it is not available.
 import { useEffect, useState } from 'react';
-import { Crown, EyeOff, LoaderCircle, ShieldCheck, TriangleAlert, Ban, Users as UsersIcon } from 'lucide-react';
-import { Link } from '../nav.tsx';
+import { Crown, Eye, EyeOff, LoaderCircle, ShieldCheck, TriangleAlert, Ban, Users as UsersIcon } from 'lucide-react';
+import { Link, useNav } from '../nav.tsx';
 import { ApiError } from '../api/client.ts';
-import { MEMBERS_PAGE, fetchMembers, reasonText, type GroupMember, type MembersPage } from '../api/members.ts';
-import { Avatar, Empty, Pill } from '../ui/primitives.tsx';
+import { MEMBERS_PAGE, fetchMembers, reasonText, setHideMemberList, type GroupMember, type MembersPage } from '../api/members.ts';
+import { Avatar, Btn, Empty, Pill } from '../ui/primitives.tsx';
 import { UserCell } from '../ui/bits.tsx';
 import { track } from '../ui/busy.ts';
 import { ago, fmt } from '../format.ts';
@@ -24,7 +24,29 @@ function StatusChip({ s }: { s: GroupMember['status'] }) {
 	return null;
 }
 
-export function Members({ groupId, count, p, hidden, v }: { groupId: number; count: number | null; p: MembersProps; hidden: boolean; v: PageData['viewer'] }) {
+// A superadmin's switch for a channel's list: hidden, only superadmins
+// see it. The page data is fetched again after, for the new state.
+export function HideMemberList({ groupId, hidden }: { groupId: number; hidden: boolean }) {
+	const { refresh } = useNav();
+	const [busy, setBusy] = useState(false);
+	const [err, setErr] = useState('');
+	const toggle = async () => {
+		setBusy(true); setErr('');
+		try {
+			await setHideMemberList(groupId, !hidden);
+			await refresh();
+		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); } finally { setBusy(false); }
+	};
+	return (
+		<div className="a-membershide">
+			<Btn ghost icon={hidden ? EyeOff : Eye} disabled={busy} aria-pressed={hidden} onClick={() => void toggle()}>Hide member list</Btn>
+			<span className="a-muted sm">{hidden ? 'Hidden: only superadmins see this channel\'s members.' : 'Admins see this channel\'s members.'}</span>
+			{err && <span className="a-banner warn" role="alert"><TriangleAlert size={14} /><span>{err}</span></span>}
+		</div>
+	);
+}
+
+export function Members({ groupId, count, p, v }: { groupId: number; count: number | null; p: MembersProps; v: PageData['viewer'] }) {
 	const offset = p.offset ?? 0;
 	const limit = p.limit ?? MEMBERS_PAGE;
 	const [list, setList] = useState(p.members);
@@ -60,7 +82,6 @@ export function Members({ groupId, count, p, hidden, v }: { groupId: number; cou
 	const rows = list.map((m) => ({ ...m, user: named(m) }));
 	return (
 		<>
-			{hidden && <div className="a-banner"><EyeOff size={15} /><span>A superadmin hid this list: only superadmins see it.</span></div>}
 			{offset > 0 && <p className="a-muted sm">From member {fmt(offset + 1)}. <Link to={`/groups/${groupId}/members`} className="a-link">Back to the first</Link></p>}
 			{rows.length ? (
 				<div className="a-card a-tablecard">

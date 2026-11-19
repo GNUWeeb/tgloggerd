@@ -216,6 +216,7 @@
 .app .a-stats.a-stats-5 { grid-template-columns: repeat(5, 1fr); }
 .app .a-membersoff { display: flex; gap: 12px; align-items: flex-start; }
 .app .a-membersoff p { margin: 4px 0 0; }
+.app .a-membershide { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 12px; }
 .app .a-stat { display: flex; flex-direction: column; gap: 2px; position: relative; overflow: hidden; }
 .app .a-stat b { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
 .app .a-stat-spark .a-spark { position: absolute; left: 0; right: 0; bottom: 0; color: var(--accent); }

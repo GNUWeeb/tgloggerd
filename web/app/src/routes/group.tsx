@@ -16,7 +16,7 @@ import type { GroupAdmin, GroupFull, GroupHistoryEntry, UserSummary } from '../t
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 import { seesMembers, type MemberCount, type MemberListFlags } from '../api/members.ts';
-import { Members, type MembersProps } from './group-members.tsx';
+import { HideMemberList, Members, type MembersProps } from './group-members.tsx';
 
 // The member count and the list's switch are local until the API
 // description has them (api/members.ts).
@@ -246,7 +246,8 @@ function Group({ page }: { page: PageData<GroupProps | GroupMembersProps> }) {
 				</div>
 			)}
 			{tab === 'admins' && <Admins admins={admins} v={v} />}
-			{tab === 'members' && mp && <Members groupId={g.id} count={g.member_count ?? null} p={mp} hidden={!!mp.hide_member_list && mp.available} v={v} />}
+			{tab === 'members' && mp?.can_hide_member_list && <HideMemberList groupId={g.id} hidden={!!mp.hide_member_list} />}
+			{tab === 'members' && mp && <Members groupId={g.id} count={g.member_count ?? null} p={mp} v={v} />}
 			{tab === 'history' && (
 				<div className="a-history">
 					<div className="a-seg" role="tablist">
