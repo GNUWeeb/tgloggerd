@@ -2885,6 +2885,8 @@ export interface components {
             thumb: string | null;
             /** @description As FileRow.minithumb; absent when there is none. */
             minithumb?: string;
+            /** @description A video's, audio file's, voice note's or video note's length in seconds, from its message's stored detail (content_extra); absent when the message has none. */
+            duration?: number;
         } & components["schemas"]["TabMessage"];
         /** @description The group page's Polls tab (route group_polls): the group page's own props (GroupProps), as its other tabs carry them, and beside them the first page of its polls for the page's before, as getGroupPolls answers it. */
         GroupPollsProps: components["schemas"]["GroupProps"] & components["schemas"]["GroupPollsPage"];

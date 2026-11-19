@@ -7404,6 +7404,12 @@ components:
             minithumb:
               type: string
               description: As FileRow.minithumb; absent when there is none.
+            duration:
+              type: integer
+              description: >-
+                A video's, audio file's, voice note's or video note's
+                length in seconds, from its message's stored detail
+                (content_extra); absent when the message has none.
         - $ref: '#/components/schemas/TabMessage'
     GroupPollsProps:
       description: >-

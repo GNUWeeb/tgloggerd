@@ -63,7 +63,10 @@ the page ignores one and starts from the newest.
 A file's row carries the file as the files list shows it (`id`, `url`,
 `thumb`, `minithumb`, `stored`, `fetchable`, by the same rules; without
 the files list's chat and message of the first message that carried the
-file anywhere). Every row of both tabs carries its own message:
+file anywhere), and `duration`, a video's, audio file's, voice note's
+or video note's length in seconds, from its message's `content_extra`
+(absent when the message stored none). Every row of both tabs carries
+its own message:
 `message_id` for the chat's `?at=`, `message_row_id` for
 `/messages/group/{row}`, `chat_link` (`/groups/{id}/chat?at=<message_id>`),
 `date` and `sender`. The sender is

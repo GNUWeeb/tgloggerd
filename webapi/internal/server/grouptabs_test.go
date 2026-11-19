@@ -112,6 +112,16 @@ func TestGroupFilesKinds(t *testing.T) {
 			}
 		}
 	}
+	// The media's length, where the message stored one.
+	dur := map[float64]any{}
+	for _, r := range tabRows(tabProps(t, e, "admin", tabsPath("files", ""))) {
+		if d, ok := r["duration"]; ok {
+			dur[r["id"].(float64)] = d
+		}
+	}
+	if js(dur) != `{"840053":42,"840055":185,"840056":7,"840059":12}` {
+		t.Errorf("durations %s", js(dur))
+	}
 	if p := tabProps(t, e, "admin", tabsPath("files", "kind=document")); tabRows(p)[1]["name"] != "notes.pdf" {
 		t.Errorf("document name %v", tabRows(p)[1]["name"])
 	}

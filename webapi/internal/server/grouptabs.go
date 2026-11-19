@@ -83,6 +83,10 @@ type groupFileRowJSON struct {
 	URL       *string `json:"url"`
 	Thumb     *string `json:"thumb"`
 	Minithumb string  `json:"minithumb,omitempty"`
+	// Duration is a video's, audio's, voice note's or video note's
+	// length in seconds, from its message's content_extra; absent
+	// when not stored.
+	Duration int `json:"duration,omitempty"`
 	tabMessageJSON
 }
 
@@ -215,7 +219,8 @@ func (s *Server) groupFiles(ctx context.Context, sc scope.Scope, signedIn, publi
 		f := s.fileRow(sc, signedIn, it.File, stills)
 		out.Rows = append(out.Rows, groupFileRowJSON{ID: f.ID, FileType: f.FileType, Name: f.Name,
 			Ext: f.Ext, Size: f.Size, Stored: f.Stored, Fetchable: f.Fetchable, URL: f.URL,
-			Thumb: f.Thumb, Minithumb: f.Minithumb, tabMessageJSON: v.tabMessage(n, chat, it.Message)})
+			Thumb: f.Thumb, Minithumb: f.Minithumb, Duration: parseExtra(it.Extra).Duration,
+			tabMessageJSON: v.tabMessage(n, chat, it.Message)})
 	}
 	return out, nil
 }

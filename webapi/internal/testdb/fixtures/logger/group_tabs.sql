@@ -13,7 +13,8 @@
 -- and date 1794931200 - 86400 + 60 * n; Dewi sends the odd n and Andi
 -- the even n, but where a chat posts. By n:
 --   1 - 52   photos (file 840000 + n, stored for odd n)
---   53 video   54 animation   55 audio   56 voice
+--   53 video   54 animation   55 audio   56 voice (53, 55, 56 and 59
+--      with a duration in content_extra: 42, 185, 7 and 12 s)
 --   57 document (notes.pdf)   58 sticker   59 video note
 --   60 document posted as Tabs Lab itself (an anonymous admin)
 --   61 photo posted as Assembly Lounge, which a member granted only
@@ -62,6 +63,12 @@ FROM seq;
 
 UPDATE telegram_group_messages SET sender_user_id = NULL, sender_chat_id = -1001000000060,
 	author_signature = 'Admin' WHERE id = 6060;
+UPDATE telegram_group_messages SET content_extra = CASE id
+	WHEN 6053 THEN '{"width":640,"height":360,"duration":42}'
+	WHEN 6055 THEN '{"duration":185,"title":"Talk","performer":"Dewi"}'
+	WHEN 6056 THEN '{"duration":7}'
+	WHEN 6059 THEN '{"length":240,"duration":12}' END
+	WHERE id IN (6053, 6055, 6056, 6059);
 UPDATE telegram_group_messages SET sender_user_id = NULL, sender_chat_id = -1001000000005,
 	is_channel_post = 0 WHERE id = 6061;
 
