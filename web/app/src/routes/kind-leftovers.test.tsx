@@ -7,6 +7,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MessageMedia, kindOf, type Media } from './chat-media.tsx';
 import { PLAIN_KINDS } from '../test/kinds.ts';
+import { TypeIcon } from '../ui/media.tsx';
 import type { ChatMessage } from '../types.ts';
 
 afterEach(cleanup);
@@ -25,5 +26,14 @@ describe('a video note', () => {
 		const note = screen.getByRole('link', { name: 'Video' });
 		expect(note.className).toContain('round');
 		expect(note.getAttribute('style')).toContain('aspect-ratio: 1 / 1');
+	});
+});
+
+describe('the icons', () => {
+	it('give an unknown kind its own icon, not the document\'s', () => {
+		const cls = (el: ReactElement) => { const r = show(el); const c = r.container.querySelector('svg')!.getAttribute('class'); r.unmount(); return c; };
+		const unknown = cls(<TypeIcon type="unknown" />);
+		expect(unknown).not.toBe(cls(<TypeIcon type="document" />));
+		expect(unknown).not.toBe(cls(<TypeIcon type="unsupported" />));
 	});
 });
