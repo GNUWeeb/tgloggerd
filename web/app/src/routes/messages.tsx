@@ -4,7 +4,7 @@ import { Link } from '../nav.tsx';
 import { Avatar, PageHead } from '../ui/primitives.tsx';
 import { DataTable, emptyText, FilterBar, useListNav, type Col } from '../ui/list.tsx';
 import { TypeIcon, CONTENT_TYPES } from '../ui/media.tsx';
-import { CONTENT_LABELS } from '../ui/labels.ts';
+import { CONTENT_LABELS, typeLabel } from '../ui/labels.ts';
 import { ago, dateTime, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { Cond, FieldDef, ListProps, MessageRow } from '../types.ts';
@@ -59,6 +59,10 @@ export function MsgFlags({ m }: { m: MessageRow }) {
 	);
 }
 
+// A row's kind: a service row by its action. Go does not send a row's
+// service_type yet; drop the cast once MessageRow in the schema has it.
+const rowType = (m: MessageRow) => typeLabel(m.content_type, (m as MessageRow & { service_type?: string }).service_type);
+
 export const chatPath = (m: MessageRow) => `${m.scope === 'group' ? '/groups' : '/users'}/${m.chat.id}/chat?at=${m.message_id}`;
 const chatLink = (c: MessageRow['chat']) => (c.kind === 'group' ? `/groups/${c.id}` : `/users/${c.id}`);
 
@@ -77,7 +81,7 @@ function Messages({ page }: { page: PageData<MessagesProps> }) {
 		{ key: 'sender', label: scope === 'group' ? 'Sender' : 'From', render: (m) => (m.sender
 			? m.sender.id === 0 ? <span className="a-chatcell a-muted"><span className="a-ellipsis">{m.sender.name}</span></span> : <Link to={`/users/${m.sender.id}`} className="a-chatcell"><Avatar id={m.sender.id} name={m.sender.name} photo={m.sender.photo} size={20} /><span className="a-ellipsis">{m.sender.name}</span></Link>
 			: <span className="a-out">you</span>) },
-		{ key: 'content_type', label: 'Type', render: (m) => <span className="a-typecell"><TypeIcon type={m.content_type} />{m.content_type}</span> },
+		{ key: 'content_type', label: 'Type', render: (m) => <span className="a-typecell"><TypeIcon type={m.content_type} />{rowType(m)}</span> },
 		{ key: 'text', label: 'Text', cls: 'a-textcell', render: (m) => <Link to={`/messages/${scope}/${m.id}`} className={`a-snippet ${m.deleted_at ? 'is-deleted' : ''} ${m.content_type === 'service' ? 'is-service' : ''}`}>{snippet(m)}</Link> },
 		{ key: 'flags', label: '', render: (m) => <MsgFlags m={m} /> },
 		{ key: 'open', label: '', render: (m) => <Link to={chatPath(m)} className="a-icon-btn sm" title="Show in chat" aria-label="Show in chat"><ArrowUpRight size={14} /></Link> },
@@ -94,7 +98,7 @@ function Messages({ page }: { page: PageData<MessagesProps> }) {
 				mobile={(m) => ({
 					lead: scope === 'private' ? <Avatar id={m.chat.id} name={m.chat.title} photo={m.chat.photo} size={36} /> : <Avatar id={m.sender?.id ?? 0} name={m.sender?.name ?? '?'} photo={m.sender?.photo} size={36} />,
 					title: scope === 'private' ? m.chat.title : <>{m.sender?.name}<span className="a-muted"> in {m.chat.title}</span></>,
-					sub: <span className={`a-snippet2 ${m.deleted_at ? 'is-deleted' : ''}`}>{!m.sender && <b>You: </b>}{snippet(m)}</span>,
+					sub: <span className={`a-snippet2 ${m.deleted_at ? 'is-deleted' : ''}`}>{!m.sender && <b>You: </b>}{m.content_type !== 'text' && <span className="a-muted">{rowType(m)}: </span>}{snippet(m)}</span>,
 					side: <><span className="a-muted sm">{ago(m.date, v)}</span><MsgFlags m={m} /></>,
 				})} />
 		</Shell>

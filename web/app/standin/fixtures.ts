@@ -120,11 +120,14 @@ function messageRow(m) {
 	// A kind sample (kinds.ts) is listed as its kind.
 	const k = sampleOf(m);
 	const ct = k?.content_type ?? m.content_type;
+	// A service row says its action, as the message page does.
+	const svc = ct === 'service' ? (k ? k.service?.(ALL).type : SERVICE_TYPES[m.text] ?? 'custom') : undefined;
 	return {
 		id: m.id, scope: m.scope, message_id: m.message_id, date: iso(m.date), chat: chatRef(m.chat),
 		sender: m.is_outgoing ? null : userSummary(s, false), content_type: ct,
 		snippet: k ? k.text || `[${ct}]` : m.content_type === 'service' ? m.text : m.text || m.media?.name || `[${m.content_type}]`,
 		forwarded: m.forward?.from ?? null, edited: !!m.edits, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
+		...(svc ? { service_type: svc } : {}),
 	};
 }
 

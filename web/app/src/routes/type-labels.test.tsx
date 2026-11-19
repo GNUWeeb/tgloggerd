@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 // Message kinds by their human labels, not the archive's stored names:
-// the message page's pill and rows, and the content type filter.
+// the message page's pill and rows, the message lists' Type column and
+// phone rows, and the content type filter.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
+import { serviceLabel } from '../ui/labels.ts';
 import type { MessageProps } from './message.tsx';
 import type { MessagesProps } from './messages.tsx';
 
@@ -41,6 +43,21 @@ describe('the message page', () => {
 });
 
 describe('the message lists', () => {
+	const services = '/group_messages?f=' + encodeURIComponent(JSON.stringify([{ field: 'content_type', op: '=', value: 'service' }]));
+	type Row = MessagesProps['rows'][number] & { service_type?: string };
+
+	it('show each service row\'s action in the Type column and on phones', () => {
+		const rows = fixture<MessagesProps>(services).props.rows as Row[];
+		expect(rows.length).toBeGreaterThan(0);
+		renderPage(services);
+		const cells = [...document.querySelectorAll('.a-table .a-typecell')].map((c) => c.textContent);
+		expect(cells).toEqual(rows.map((r) => serviceLabel(r.service_type!)));
+		expect(cells).toContain('Members added');
+		expect(cells).not.toContain('service');
+		const phone = document.querySelector('.a-list li .a-handle')!.textContent!;
+		expect(phone.startsWith(`${serviceLabel(rows[0]!.service_type!)}: `)).toBe(true);
+	});
+
 	it('offer the content types by their labels and filter by the stored name', async () => {
 		const calls = fakeApi('superadmin');
 		renderPage('/group_messages');
