@@ -202,6 +202,14 @@ struct ExtraFile {
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
 
 /*
+ * The image of a link preview, its telegram_link_previews.photo_file_id
+ * (nullptr when it has none), and in *@type_name the preview's type, the
+ * telegram_link_previews.type value ("unsupported" for a type not known).
+ */
+const td_api::file *link_preview_image(const td_api::LinkPreviewType *t,
+				       const char **type_name);
+
+/*
  * A link preview's own video, animation or audio, role "preview_media"
  * at position 0: the medium of a video, animation or audio preview, or
  * the cached medium of an embedded player. Its image is not listed; it
