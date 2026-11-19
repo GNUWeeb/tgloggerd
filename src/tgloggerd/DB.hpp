@@ -6,6 +6,7 @@
 #define TGLOGGERD__DB_HPP
 
 #include <mysql/Database.hpp>
+#include <tgloggerd/ForwardFilter.hpp>
 #include <tgloggerd/models/User.hpp>
 #include <tgloggerd/models/ContactName.hpp>
 #include <tgloggerd/models/File.hpp>
@@ -54,22 +55,6 @@ struct MsgCountRefetch {
 	std::optional<int64_t> user;
 	std::optional<int64_t> group;
 	MsgChange change = MsgChange::None;
-};
-
-/*
- * The content types a Discord webhook integration can be told to forward, one
- * bit each. A message is filtered part by part: its text or caption follows
- * FWD_TEXT, its media the bit of its own type.
- */
-enum : unsigned {
-	FWD_STICKER  = 1u << 0,
-	FWD_TEXT     = 1u << 1,
-	FWD_PHOTO    = 1u << 2,
-	FWD_VIDEO    = 1u << 3,
-	FWD_DOCUMENT = 1u << 4,
-	/* Service (system) messages and every content type without a bit of
-	 * its own: voice, audio, animation, ... */
-	FWD_OTHER    = 1u << 5,
 };
 
 /* One enabled Discord webhook integration: mirror chat_id -> webhook_url. */
@@ -179,6 +164,7 @@ struct SentMessage {
  * tombstone, which rebuilds the content instead of storing it). */
 struct MessageForward {
 	std::string             text;              /* message text/caption */
+	std::string             content_type;      /* its kind, e.g. "poll" */
 	int64_t                 reply_to_chat_id = 0;
 	int64_t                 reply_to_msg_id = 0;
 	std::optional<uint64_t> file_id;           /* media attachment, if any */

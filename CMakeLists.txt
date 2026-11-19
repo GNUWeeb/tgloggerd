@@ -110,6 +110,8 @@ add_executable(tgloggerd
 	src/tgloggerd/DiscordClient.hpp
 	src/tgloggerd/DiscordForwarder.cpp
 	src/tgloggerd/DiscordForwarder.hpp
+	src/tgloggerd/ForwardFilter.cpp
+	src/tgloggerd/ForwardFilter.hpp
 	src/tgloggerd/StoragePath.hpp
 	src/tgloggerd/StorageJanitor.cpp
 	src/tgloggerd/StorageJanitor.hpp
@@ -197,6 +199,15 @@ target_include_directories(extra_files_test PRIVATE src)
 target_compile_options(extra_files_test PRIVATE -Wall -Wextra)
 target_link_libraries(extra_files_test PRIVATE Td::TdStatic tdjson_private
 	nlohmann_json::nlohmann_json Threads::Threads)
+
+# Which parts of a message each forwarding flag lets through to Discord
+# (no TDLib, no database); not part of the default build:
+#   cmake --build build --target forward_filter_test && build/forward_filter_test
+add_executable(forward_filter_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/forward_filter_test.cpp
+	src/tgloggerd/ForwardFilter.cpp)
+target_include_directories(forward_filter_test PRIVATE src)
+target_compile_options(forward_filter_test PRIVATE -Wall -Wextra)
 
 # How a rich message is stored (text, content_extra, the media in its
 # blocks) over hand-built TDLib objects; not part of the default build:

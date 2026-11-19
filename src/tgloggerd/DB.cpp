@@ -26,12 +26,19 @@ std::vector<DiscordWebhook> DB::loadDiscordWebhooks(void)
 {
 	auto rows = db_.query(
 		"SELECT telegram_chat_id, webhook_url, fwd_sticker, fwd_text, "
-		"fwd_photo, fwd_video, fwd_document, fwd_other "
+		"fwd_photo, fwd_video, fwd_document, fwd_other, fwd_animation, "
+		"fwd_video_note, fwd_voice, fwd_audio, fwd_poll, fwd_checklist, "
+		"fwd_dice, fwd_game, fwd_location, fwd_contact, fwd_story, "
+		"fwd_paid_media, fwd_invoice, fwd_service "
 		"FROM telegram_discord_webhooks WHERE enabled = 1");
 
 	/* Column order of the fwd_* flags above. */
-	static const unsigned bits[] = { FWD_STICKER, FWD_TEXT, FWD_PHOTO,
-					 FWD_VIDEO, FWD_DOCUMENT, FWD_OTHER };
+	static const unsigned bits[] = {
+		FWD_STICKER, FWD_TEXT, FWD_PHOTO, FWD_VIDEO, FWD_DOCUMENT,
+		FWD_OTHER, FWD_ANIMATION, FWD_VIDEO_NOTE, FWD_VOICE, FWD_AUDIO,
+		FWD_POLL, FWD_CHECKLIST, FWD_DICE, FWD_GAME, FWD_LOCATION,
+		FWD_CONTACT, FWD_STORY, FWD_PAID_MEDIA, FWD_INVOICE, FWD_SERVICE,
+	};
 
 	std::vector<DiscordWebhook> out;
 	out.reserve(rows.size());
@@ -471,9 +478,11 @@ std::optional<MessageForward> DB::getMessageForward(int64_t chat_id,
 {
 	/* Group ids are negative, private (peer user) ids positive. */
 	const char *sql = chat_id < 0
-		? "SELECT text, reply_to_chat_id, reply_to_msg_id, file_id "
+		? "SELECT text, reply_to_chat_id, reply_to_msg_id, file_id, "
+		  "content_type "
 		  "FROM telegram_group_messages WHERE chat_id = ? AND message_id = ?"
-		: "SELECT text, reply_to_chat_id, reply_to_msg_id, file_id "
+		: "SELECT text, reply_to_chat_id, reply_to_msg_id, file_id, "
+		  "content_type "
 		  "FROM telegram_private_messages WHERE chat_id = ? AND message_id = ?";
 
 	auto rows = db_.query(sql, { chat_id, message_id });
@@ -488,6 +497,7 @@ std::optional<MessageForward> DB::getMessageForward(int64_t chat_id,
 		mf.reply_to_msg_id = std::stoll(*rows[0][2]);
 	if (rows[0][3].has_value())
 		mf.file_id = (uint64_t)std::stoull(*rows[0][3]);
+	mf.content_type = rows[0][4].value_or("");
 	return mf;
 }
 
