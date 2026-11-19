@@ -143,7 +143,7 @@ service messages keep `content_type = 'service'` and get the
 | messageBasicGroupChatCreate | text only | title, initial members | chat_create |
 | messageSupergroupChatCreate | text only | title | chat_create |
 | messageChatChangeTitle | text only | (title is inside the description) | chat_change_title |
-| messageChatChangePhoto | partly | the new photo (only `updateChatPhoto` history keeps one) | chat_change_photo |
+| messageChatChangePhoto | fully | stored: the new photo (role `chat_photo`, section 4.3) and, since msg-chat-backgrounds, an animated photo's video; still lost: a sticker-based photo's sticker and fill | chat_change_photo |
 | messageChatDeletePhoto | fully | - | chat_delete_photo |
 | messageChatAddMembers | partly | which users were added | chat_add_members |
 | messageChatJoinByLink | fully | - | chat_join_by_link |
@@ -160,7 +160,7 @@ service messages keep `content_type = 'service'` and get the
 | messageChatHasProtectedContentDisableRequested | not | expired flag | chat_has_protected_content_disable_requested |
 | messagePinMessage | partly | which message was pinned | pin_message |
 | messageScreenshotTaken | fully | - | screenshot_taken |
-| messageChatSetBackground | partly | the background, own-only flag, previous message | chat_set_background |
+| messageChatSetBackground | fully | stored since msg-chat-backgrounds: the background with its fill and pattern settings (section 4.2.3) and its wallpaper or pattern (role `background`, section 4.3), the own-only flag and the previous message; still lost: a chat theme background's colours (only the theme's name is given) | chat_set_background |
 | messageChatSetTheme | partly | the theme | chat_set_theme |
 | messageChatSetMessageAutoDeleteTime | text only | who set it (`from_user_id`) | chat_set_message_auto_delete_time |
 | messageChatBoost | partly | number of boosts | chat_boost |
@@ -170,7 +170,7 @@ service messages keep `content_type = 'service'` and get the
 | messageForumTopicIsHiddenToggled | partly | hidden or shown | forum_topic_is_hidden_toggled |
 | messageCustomServiceAction | fully | - | custom_service_action |
 | messageContactRegistered | fully | - | contact_registered |
-| messageSuggestProfilePhoto | not | the photo | suggest_profile_photo |
+| messageSuggestProfilePhoto | fully | stored: the photo and, since msg-chat-backgrounds, an animated photo's video, as for chat_change_photo | suggest_profile_photo |
 | messageSuggestBirthdate | not | the date | suggest_birthdate |
 | messageProximityAlertTriggered | not | who, whom, distance | proximity_alert_triggered |
 | messageManagedBotCreated | not | bot and manager bot | managed_bot_created |
@@ -428,7 +428,7 @@ false.
 |---|---|
 | chat_create | `title`, `user_ids` (basic groups) |
 | chat_change_title | `title` |
-| chat_change_photo, suggest_profile_photo | `photo`: `{photo_id, width, height, animated, minithumbnail}` |
+| chat_change_photo, suggest_profile_photo | `photo`: `{photo_id, width, height, animated, minithumbnail}`; an animated photo's video is the `chat_photo` file at position 1 |
 | chat_add_members | `user_ids` |
 | chat_delete_member | `user_id` |
 | chat_join_from_community, chat_added_to_community | `community_id` |
@@ -438,7 +438,7 @@ false.
 | chat_has_protected_content_toggled | `old_value`, `new_value`, `request_message_id` |
 | chat_has_protected_content_disable_requested | `expired` |
 | pin_message | `message_id` |
-| chat_set_background | `background`: `{id, name, dark, type, dark_theme_dimming}`, `old_background_message_id`, `only_for_self` |
+| chat_set_background | `background`: `{id, name, dark, type, dark_theme_dimming}` and the fields of its type (below), `old_background_message_id`, `only_for_self` |
 | chat_set_theme | `theme_name`, or `theme_kind` for a gift theme |
 | chat_set_message_auto_delete_time | `seconds`, `from_user_id` |
 | chat_boost | `boost_count` |
@@ -470,6 +470,24 @@ false.
 | web_app_data_sent, web_app_data_received | `button_text`, `data` |
 | passport_data_sent, passport_data_received | `types` |
 | proximity_alert_triggered | `traveler`, `watcher`, `distance` |
+
+A background's `type` is `wallpaper`, `pattern`, `fill` or
+`chat_theme`, and adds the fields of that type to `background`:
+
+| type | Keys |
+|---|---|
+| `wallpaper` | `is_blurred`, `is_moving`; the JPEG is the `background` file |
+| `pattern` | `fill`, `intensity` (0-100), `is_inverted`, `is_moving`; the PNG or TGV (gzipped SVG, `application/x-tgwallpattern`) pattern is the `background` file, drawn over the fill |
+| `fill` | `fill`; no file |
+| `chat_theme` | `theme_name` (an emoji chat theme; its colours are not given); no file |
+
+A `fill` is `{type, colors, rotation_angle}`: `type` is `solid`,
+`gradient` or `freeform_gradient`; `colors` holds the RGB colours as
+integers (`0xRRGGBB`), one for a solid fill, the top then the bottom
+colour of a gradient, the three or four of a freeform gradient;
+`rotation_angle` is a gradient's clockwise rotation in degrees (0-359,
+a multiple of 45, absent when 0). The flags are absent when false and
+`intensity` when 0, as for the other keys.
 
 Kept out on purpose: a Premium gift code (anyone who can read the
 archive could redeem it; `has_code` records that there was one), an
@@ -506,17 +524,18 @@ A video note's round video is now the main file, like any other media.
 | `paid` | each photo or video of paid media, `position` its index among the items (previews of unpaid items have no file); an invoice's paid media at position 0 |
 | `game` | a game's photo (position 0) and animation (position 1) |
 | `invoice` | an invoice's product photo |
-| `chat_photo` | the new photo of a chat photo change or a suggested profile photo (largest size) |
+| `chat_photo` | the new photo of a chat photo change or a suggested profile photo: the still photo (largest size) at position 0 and, when the photo is animated, its MPEG-4 video at position 1 (file_type `animation`; the big animation, up to 1280x1280, else the small one, 160x160, when TDLib gives only that) |
 | `thumbnail` | the still thumbnail TDLib offers with a video, an animation, a video note or a video (.webm) sticker, when it is an image (JPEG, PNG or WebP; MPEG-4, GIF, TGS and WebM thumbnails are not stored), file_type `thumbnail`: the picture the web shows before the video plays |
 | `poll`, `preview` | reserved: poll media (msg-polls); other thumbnails (a document's, a photo's sizes) and a video's other qualities are not stored, since they repeat the media |
 | `rich` | the media inside a rich message's page blocks, `position` their order of appearance, depth first through collages, slideshows, quotes, lists, collapsible blocks, covers and embedded posts: each photo (largest size), video, animation, audio file, document and voice note, an embedded page's poster, an embedded post's author photo, the photos of related articles; not a chat link's photo (the chat's own) nor the icons inside rich text |
 | `gift` | a gift's sticker, an upgraded gift's model sticker, the animation sticker of a gifted premium, stars, grams or giveaway prize (msg-gifts) |
-| `background` | a chat background's document: the wallpaper or the pattern (msg-chat-backgrounds) |
+| `background` | a chat background's document at position 0: the wallpaper (JPEG) or the pattern (PNG or TGV), file_type `document`; a fill or a chat theme has none |
 | `preview_media` | a link preview's own video, animation or audio, beyond its image in `telegram_link_previews.photo_file_id` (msg-link-preview-media) |
 
 The last four roles come with migration 000045; nothing writes them
 until their items land (`rich` is written since msg-rich-store,
-`preview_media` since msg-link-preview-media). The
+`preview_media` since msg-link-preview-media, `background` since
+msg-chat-backgrounds). The
 ENUM append keeps every existing value's number, so it is instant
 (`ALGORITHM=INSTANT`, confirmed on a copy with rows), and its down
 file first deletes the rows that use them.

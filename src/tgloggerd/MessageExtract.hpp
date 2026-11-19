@@ -192,9 +192,10 @@ struct ExtraFile {
  * The files of @content beyond its main one, in a stable order: a video's
  * cover, a live photo's video, each paid media item, a game's photo and
  * animation, an invoice's photo and paid media, the photo of a chat photo
- * change or suggestion, the still thumbnail of a video, an animation, a
- * video note or a video sticker, the media in a rich message's blocks,
- * a link preview's own medium (link_preview_media_files).
+ * change or suggestion and its video, a chat background's wallpaper or
+ * pattern, the still thumbnail of a video, an animation, a video note or
+ * a video sticker, the media in a rich message's blocks, a link
+ * preview's own medium (link_preview_media_files).
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
 
@@ -324,6 +325,10 @@ const td_api::file *chat_photo_best_size_of(
 
 /* The largest size of a chat photo, or nullptr. */
 const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p);
+
+/* The video of an animated chat photo (the big animation, else the
+ * small one), or nullptr for a still photo. */
+const td_api::file *chat_photo_animation(const td_api::chatPhoto *p);
 
 /* The user id of a message's sender, or 0 if the sender is a chat or
  * channel, or absent. */
