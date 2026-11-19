@@ -80,3 +80,29 @@ test('an exposed group\'s note is edited in place', async ({ page }) => {
 	await expect(row).toContainText('Reviewed by the e2e run');
 	await expect(row.locator('td[title]')).toHaveText(added!);
 });
+
+test('an MCP token is minted for a member, renamed and transferred', async ({ page }) => {
+	await page.goto('/mcp-admin/tokens');
+	await page.getByRole('button', { name: /Mint a token/ }).click();
+	let d = page.getByRole('dialog');
+	await d.getByRole('textbox', { name: /^Name/ }).fill('e2e agent');
+	await d.getByLabel(/Owner/).selectOption({ label: 'Research team (member)' });
+	await d.getByRole('button', { name: 'Mint' }).click();
+	await expect(page.getByText('Copy this token now')).toBeVisible();
+	const row = page.locator('tbody tr', { hasText: 'e2e agent' });
+	await expect(row).toContainText('Research team');
+	await expect(row).toContainText('minted by Administrator');
+	await row.getByRole('button', { name: 'Rename' }).click();
+	d = page.getByRole('dialog');
+	await d.getByRole('textbox', { name: /^Name/ }).fill('e2e agent, renamed');
+	await d.getByRole('button', { name: 'Save' }).click();
+	await expect(d).toHaveCount(0);
+	const renamed = page.locator('tbody tr', { hasText: 'e2e agent, renamed' });
+	await renamed.getByRole('button', { name: 'Transfer' }).click();
+	d = page.getByRole('dialog');
+	await d.getByLabel(/New owner/).selectOption({ label: 'Security lead (admin)' });
+	await d.getByRole('button', { name: 'Transfer' }).click();
+	await expect(d).toHaveCount(0);
+	await expect(renamed).toContainText('Security lead');
+	await expect(renamed).toContainText('minted by Administrator');
+});
