@@ -1362,8 +1362,13 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 	if ((m = p.match(/^mcp\/tokens(?:\/(\d+)\/(revoke))?$/))) {
 		if (!allowed(s, 'mcp')) return [404, { error: 'not_found' }];
 		if (!m[1] && method === 'POST') {
+			const name = String(body.name ?? '').trim();
+			if (!name || name.length > 64) return [400, { error: 'bad_request', message: 'A name is 1 to 64 characters.', field: 'name' }];
+			// The viewer when left out, else one of the owners it may mint for.
+			const owner = body.owner_id ?? s.acct.id;
+			if (!mcpOwners(s).some((a) => a.id === owner)) return [400, { error: 'bad_request', message: 'This account cannot own a token you mint.', field: 'owner_id' }];
 			const id = Math.max(...mcpToks.map((t) => t.id)) + 1;
-			mcpToks.push({ id, name: body.name || '', owner: s.acct.id, minted_by: s.acct.id, created: '2026-11-17 16:00:00', last_used: '', revoked: null });
+			mcpToks.push({ id, name, owner, minted_by: s.acct.id, created: '2026-11-17 16:00:00', last_used: '', revoked: null });
 			return [201, { id, token: 'tgmcp_standin_' + id + '_shown_once' }];
 		}
 		const t = mcpToks.find((x) => String(x.id) === m[1] && managesMcp(s, x.owner));

@@ -134,6 +134,10 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 	const v = page.viewer;
 	const [minting, setMinting] = useState(false);
 	const [name, setName] = useState('');
+	// Who the new token is for: the viewer unless another owner is picked.
+	const me = v.account?.id ?? 0;
+	const owners = page.props.owners;
+	const [owner, setOwner] = useState(owners.some((o) => o.id === me) ? me : owners[0]?.id ?? me);
 	const [minted, setMinted] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
 	const [err, setErr] = useState('');
@@ -141,8 +145,8 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 	const mint = async () => {
 		setErr('');
 		try {
-			const r = await ok(api.POST('/api/mcp/tokens', { body: { name } }));
-			setMinting(false); setCopied(false); setMinted(r.token); setName(''); refresh();
+			const r = await ok(api.POST('/api/mcp/tokens', { body: owner === me ? { name } : { name, owner_id: owner } }));
+			setMinting(false); setCopied(false); setMinted(r.token); setName(''); setOwner(me); refresh();
 		} catch (x) { setErr(errText(x)); }
 	};
 	const revoke = async (id: number) => { try { await ok(api.POST('/api/mcp/tokens/{id}/revoke', { params: { path: { id } } })); refresh(); } catch (x) { setErr(errText(x)); } };
@@ -183,6 +187,13 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 					footer={<><span className="a-grow" /><Btn ghost onClick={() => setMinting(false)}>Cancel</Btn><Btn primary onClick={() => void mint()}>Mint</Btn></>}>
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 					<Field label="Name" hint="A label, so this one can be revoked later without guessing which is which."><input id="mcp-token-label" name="mcp-token-label" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} {...NO_FILL} /></Field>
+					{owners.length > 1 && (
+						<Field label="Owner" hint="Who manages the token. Its requests are still made in your name, so disabling your account stops it.">
+							<select className="a-select" value={owner} onChange={(e) => setOwner(Number(e.target.value))}>
+								{owners.map((o) => <option key={o.id} value={o.id}>{o.id === me ? `${o.name} (you)` : o.role ? `${o.name} (${o.role})` : o.name}</option>)}
+							</select>
+						</Field>
+					)}
 				</Modal>
 			)}
 		</Shell>
