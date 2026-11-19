@@ -111,7 +111,6 @@ Storing every kind of Telegram message faithfully:
 - [`chat-recheck`](todo/chat-recheck.md): Recheck a chat's messages against Telegram when it is opened or scrolled and after a restart, filling missed messages, edits and deletions.
 - [`msg-repair-census`](todo/msg-repair-census.md): Count what the repair pass left without a kind or detail, turn it off, and adjust these items.
 - [`msg-widgets`](todo/msg-widgets.md): Show a widget message's box at its size and its HTML as escaped source, never rendered.
-- [`msg-link-preview-types`](todo/msg-link-preview-types.md): Store and show the link preview types still kept as unsupported, and the media of the mapped ones.
 
 ## Web backend in Go
 
