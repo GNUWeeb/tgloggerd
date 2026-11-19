@@ -8,6 +8,7 @@ package logdb
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"tgloggerd/webapi/internal/scope"
 )
@@ -442,6 +443,8 @@ var Files = &Entity{
 		col("created_at", "f.created_at", Datetime, "Created", dtOps, true),
 		col("updated_at", "f.updated_at", Datetime, "Updated", dtOps, true),
 		col("accessed_at", "f.accessed_at", Datetime, "Last access", dtOps, true),
+		{Key: "role", Label: "Role in a message", Type: Enum, Enum: FileRoles,
+			Ops: enumOps, Pred: fileRolePred},
 	},
 	cols: []Col{
 		{"thumb", "", "filethumb", ""},
@@ -488,6 +491,64 @@ func filesFilter(sc scope.Scope) (string, []any) {
 			"WHERE fp.file_id = f.id)"
 	}
 	return cond, a
+}
+
+// FileRoles are the roles a file can play in a message beside being its
+// own file (FileOrigin.Role): those of telegram_message_files, in the
+// order of its ENUM (daemon migrations 000036 and 000045), and
+// link_preview, a link preview's picture (telegram_link_previews).
+const FileRoles = "cover,live_video,paid,preview,poll,game,invoice,chat_photo,thumbnail," +
+	"rich,gift,background,preview_media,link_preview"
+
+// fileRolePred is Files' role condition: the file plays one of roles in
+// a message the scope sees. Each table is read through its file index
+// (idx_message_files_file, idx_link_previews_photo), so the condition
+// costs one lookup per row it tests. A scope that does not see every
+// chat joins the message to check its chat, as filesFilter does.
+func fileRolePred(sc scope.Scope, roles []string) (string, []any) {
+	var (
+		mf    []string
+		lp    bool
+		parts []string
+		args  []any
+	)
+	for _, r := range roles {
+		if r == "link_preview" {
+			lp = true
+		} else {
+			mf = append(mf, r)
+		}
+	}
+	full := sc.SeesAllGroups() && sc.SeesPrivate()
+	gf, ga := sc.GroupFilter("xg.chat_id")
+	// visible is the condition on x's message, with its values.
+	visible := func() (string, string, []any) {
+		if full {
+			return "", "", nil
+		}
+		join := " LEFT JOIN telegram_group_messages xg ON xg.id = x.group_message_id"
+		cond := " AND (xg.id IS NOT NULL AND " + gf
+		if sc.SeesPrivate() {
+			cond += " OR x.private_message_id IS NOT NULL"
+		}
+		return join, cond + ")", ga
+	}
+	if len(mf) > 0 {
+		join, cond, ca := visible()
+		parts = append(parts, "EXISTS (SELECT 1 FROM telegram_message_files x"+join+
+			" WHERE x.file_id = f.id AND x.role IN ("+placeholders(len(mf))+")"+cond+")")
+		for _, r := range mf {
+			args = append(args, r)
+		}
+		args = append(args, ca...)
+	}
+	if lp {
+		join, cond, ca := visible()
+		parts = append(parts, "EXISTS (SELECT 1 FROM telegram_link_previews x"+join+
+			" WHERE x.photo_file_id = f.id"+cond+")")
+		args = append(args, ca...)
+	}
+	return strings.Join(parts, " OR "), args
 }
 
 // --- messages ----------------------------------------------------------

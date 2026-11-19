@@ -434,8 +434,10 @@ var filesList = &listSpec{
 		"created_at":  dateFilter("created_at"),
 		"updated_at":  dateFilter("updated_at"),
 		"accessed_at": dateFilter("accessed_at"),
+		"role":        enumFilter("role", logdb.FileRoles),
 	},
-	lists: map[string]pageListFilter{"file_type": enumInFilter("file_type", fileTypes)},
+	lists: map[string]pageListFilter{"file_type": enumInFilter("file_type", fileTypes),
+		"role": enumInFilter("role", logdb.FileRoles)},
 	search: func(_ scope.Scope, q string) []logdb.Cond {
 		cs := []logdb.Cond{cond("name", "%LIKE%", q)}
 		if isInt(q) {
@@ -1026,6 +1028,17 @@ type listFile struct {
 	// length in seconds, from the content_extra of the message that
 	// carried it; left out when unknown.
 	Duration int `json:"duration,omitempty"`
+	// Role is what the file is to Message when it is not that
+	// message's own file (a cover, a link preview's picture); null
+	// when it is, or when there is no message.
+	Role *listFileRole `json:"role"`
+}
+
+// listFileRole is FileRow.role: the file's role (logdb.FileRoles) and
+// the content kind of the message it plays it in.
+type listFileRole struct {
+	Role        string `json:"role"`
+	MessageKind string `json:"message_kind,omitempty"`
 }
 
 // filesProps are the files page's (FilesProps).
@@ -1097,7 +1110,12 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool
 		if o, ok := origins[f.ID]; ok {
 			f.Chat = &listChatName{ID: o.ChatID, Title: o.ChatTitle, Kind: o.ChatKind}
 			f.Message = &listMsgRef{Scope: o.Scope, ID: o.MessageID}
-			f.Duration = parseExtra(o.Extra).Duration
+			if o.Role != "" {
+				// The message's detail describes its own file.
+				f.Role = &listFileRole{Role: o.Role, MessageKind: o.Kind}
+			} else {
+				f.Duration = parseExtra(o.Extra).Duration
+			}
 			if o.SenderID != 0 {
 				f.Sender = &listIDName{ID: o.SenderID, Name: o.Sender}
 			}

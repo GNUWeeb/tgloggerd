@@ -76,12 +76,19 @@ type FileOrigin struct {
 	Sender    string // the sender's name, "" with SenderID 0
 	// Extra is the message's content_extra (docs/design/message-types.md
 	// section 4.2.1): a video's or audio file's length, among others.
+	// Only for the message's own file: it describes that file.
 	Extra []byte
+	// Role is "" when the file is the message's own file, else what it
+	// is to the message (FileRoles): a video's cover, a link preview's
+	// picture. Kind is then the message's content_type.
+	Role, Kind string
 }
 
 // FileOrigins are the first visible messages of the files ids, by file
-// id: a group message when there is one, else a private message. A
-// file sent in no visible message has none.
+// id: a group message when there is one, else a private message, that
+// carries it as its own file; for a file that is none's, the first
+// that carries it in a role (fileRoleOrigins). A file in no visible
+// message has none.
 func FileOrigins(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) (map[uint64]FileOrigin, error) {
 	out := map[uint64]FileOrigin{}
 	if len(ids) == 0 {
@@ -119,7 +126,7 @@ func FileOrigins(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) 
 		out[r.Uint("file_id")] = o
 	}
 	if !sc.SeesPrivate() || len(out) == len(ids) {
-		return out, nil
+		return out, fileRoleOrigins(ctx, db, sc, ids, out)
 	}
 	q = "SELECT pm.file_id, pm.id, pm.chat_id, pu.first_name AS peer_first, " +
 		"pu.last_name AS peer_last, pm.sender_id, pm.is_outgoing, pm.content_extra " +
@@ -147,7 +154,93 @@ func FileOrigins(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) 
 		}
 		out[id] = o
 	}
-	return out, nil
+	return out, fileRoleOrigins(ctx, db, sc, ids, out)
+}
+
+// fileRoleOrigins adds to out the origins of the ids out lacks from the
+// messages that carry them in a role: the first visible group message
+// with the file in telegram_message_files, then in a link preview,
+// then the same in private messages. Each query reads its table by
+// its file index for the few ids left, and none runs when no id is.
+func fileRoleOrigins(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64,
+	out map[uint64]FileOrigin) error {
+	type source struct {
+		table, fileCol, role string
+	}
+	sources := []source{
+		{"telegram_message_files", "file_id", "x.role"},
+		{"telegram_link_previews", "photo_file_id", "'link_preview'"},
+	}
+	gf, ga := sc.GroupFilter("fm.chat_id")
+	for _, private := range []bool{false, true} {
+		if private && !sc.SeesPrivate() {
+			break
+		}
+		for _, src := range sources {
+			var left []any
+			for _, id := range ids {
+				if _, ok := out[id]; !ok {
+					left = append(left, id)
+				}
+			}
+			if len(left) == 0 {
+				return nil
+			}
+			var q string
+			var args []any
+			if !private {
+				q = "SELECT x." + src.fileCol + " AS file_id, " + src.role + " AS role, " +
+					"gm.id, gm.chat_id, gm.content_type, g.title, gm.sender_user_id, " +
+					"su.first_name, su.last_name " +
+					"FROM (SELECT y." + src.fileCol + " AS fid, MIN(y.id) AS rid FROM " +
+					src.table + " y JOIN telegram_group_messages fm ON fm.id = y.group_message_id " +
+					"WHERE y." + src.fileCol + " IN (" + placeholders(len(left)) + ") AND " + gf +
+					" GROUP BY y." + src.fileCol + ") z JOIN " + src.table + " x ON x.id = z.rid " +
+					"JOIN telegram_group_messages gm ON gm.id = x.group_message_id " +
+					"LEFT JOIN `telegram_groups` g ON g.id = gm.chat_id " +
+					"LEFT JOIN telegram_users su ON su.id = gm.sender_user_id"
+				args = both(left, ga)
+			} else {
+				q = "SELECT x." + src.fileCol + " AS file_id, " + src.role + " AS role, " +
+					"pm.id, pm.chat_id, pm.content_type, pu.first_name AS peer_first, " +
+					"pu.last_name AS peer_last, pm.sender_id, pm.is_outgoing " +
+					"FROM (SELECT y." + src.fileCol + " AS fid, MIN(y.id) AS rid FROM " +
+					src.table + " y WHERE y." + src.fileCol + " IN (" + placeholders(len(left)) +
+					") AND y.private_message_id IS NOT NULL GROUP BY y." + src.fileCol + ") z " +
+					"JOIN " + src.table + " x ON x.id = z.rid " +
+					"JOIN telegram_private_messages pm ON pm.id = x.private_message_id " +
+					"LEFT JOIN telegram_users pu ON pu.id = pm.chat_id"
+				args = left
+			}
+			rs, err := db.QueryContext(ctx, q, args...)
+			if err != nil {
+				return err
+			}
+			rows, err := scanRows(rs)
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				o := FileOrigin{MessageID: r.Uint("id"), ChatID: r.Int("chat_id"),
+					Role: r.Str("role"), Kind: r.Str("content_type")}
+				if !private {
+					o.Scope, o.ChatTitle, o.ChatKind = "group", GroupTitle(r.Str("title")), "group"
+					if !r.Null("sender_user_id") {
+						o.SenderID = r.Int("sender_user_id")
+						o.Sender = DisplayName(r.Str("first_name"), r.Str("last_name"))
+					}
+				} else {
+					peer := DisplayName(r.Str("peer_first"), r.Str("peer_last"))
+					o.Scope, o.ChatTitle, o.ChatKind = "private", peer, "user"
+					if !r.Bool("is_outgoing") && !r.Null("sender_id") {
+						o.SenderID, o.Sender = r.Int("sender_id"), peer
+					}
+				}
+				out[r.Uint("file_id")] = o
+			}
+		}
+	}
+	return nil
 }
 
 // FileStill is what a video file (an animation, a video note, a video
