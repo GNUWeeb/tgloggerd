@@ -8,22 +8,20 @@ the message page.
 
 The API rebuilds a service message's text with the names of the users
 and chats it names (those the viewer may see) and sends them as
-`ServiceInfo.refs`, but the web never reads `refs.users` or
-`refs.chats`, so every name is plain text. It is the most common
-service line: members added, invited to a video chat, removed, owner
-changes, giveaway winners.
+`ServiceInfo.refs`, and the same text piece by piece as
+`ServiceInfo.parts`: `{text, user?, chat?}`, each name pointing at its
+index in `refs.users` or `refs.chats` (web/docs/message-kinds.md,
+"Service messages"). The web reads neither, so every name is plain
+text. It is the most common service line: members added, invited to a
+video chat, removed, owner changes, giveaway winners.
 
 ## Scope
 
-- Go (webapi): `ServiceInfo.parts`, the text as a list of
-  `{text, user?, chat?}` parts, each name pointing at its index in
-  `refs.users` or `refs.chats`; built where service.go rebuilds the
-  text, so the parts and the text always agree. `text` stays as it is
-  for search, snippets and older clients. OpenAPI and
-  web/docs/message-kinds.md follow.
 - React (frontend): the chat's service line and the message page draw
   the parts, each name a link to `/users/<id>` or `/groups/<id>`, and
-  fall back to the text when there are no parts.
+  fall back to the text when there are no parts. `parts` stays
+  optional in the spec: it is absent where the stored text, which
+  names nobody, is sent.
 - Left to `msg-service-text`: the service types whose text does not
   name anyone yet.
 
@@ -47,5 +45,4 @@ Nothing.
   that user, in the chat and on the message page; one naming a user
   the viewer may not see shows only the count, with no link and no
   name.
-- Go tests check the parts against the text for every type service.go
-  rebuilds; React tests cover the links.
+- React tests cover the links.
