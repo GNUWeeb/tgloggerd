@@ -265,7 +265,7 @@ export interface paths {
         };
         /**
          * What the search backend offers
-         * @description Whether a search engine answers the full-text fields of the message searches, and which options it offers for them, so a client offers those only when they work (web/docs/search-api.md, "Search engine"). Without an engine, engine is null and entities is empty: search is MySQL's, as before. Only the entities the viewer may search are listed; available says whether the engine answers now or searches fall back to MySQL.
+         * @description Whether a search engine answers the full-text fields of the searches (the messages' text, users' bio, groups' description), and which options it offers for them, so a client offers those only when they work (web/docs/search-api.md, "Search engine"). Without an engine, engine is null and entities is empty: search is MySQL's, as before. Only the entities the viewer may search are listed; available says whether the engine answers now or searches fall back to MySQL.
          */
         get: operations["searchCapabilities"];
         put?: never;
@@ -1995,7 +1995,7 @@ export interface components {
             order: "asc" | "desc";
             debug?: components["schemas"]["SearchDebug"];
             backend?: components["schemas"]["SearchBackend"];
-            /** @description With highlight=1 and the engine answering: per row, aligned to rows, up to three fragments of its text with the matched words in <mark>...</mark>, HTML-escaped otherwise; empty for a row without a match in its text and for service messages. */
+            /** @description With highlight=1 and the engine answering: per row, aligned to rows, up to three fragments of its full-text field (a message's text, a user's bio, a group's description) with the matched words in <mark>...</mark>, HTML-escaped otherwise; empty for a row without a match there and for service messages. */
             highlights?: string[][];
             /** @description With facets=1 and the engine answering the whole search: the chats with the most hits, busiest first, at most ten, within the request scope. */
             facets?: components["schemas"]["SearchFacet"][];
@@ -2029,9 +2029,9 @@ export interface components {
             };
         };
         SearchEngineEntity: {
-            /** @description The full-text fields the engine answers (text). */
+            /** @description The full-text fields the engine answers: text for the message entities, bio for users, description for groups. */
             fields: string[];
-            /** @description What the engine offers for them: phrase ("a b"), proximity ("a b" @N), prefix (word*), fuzzy (word~ and fuzzy=1), highlight and facets. */
+            /** @description What the engine offers for them: phrase ("a b"), proximity ("a b" @N), prefix (word*), fuzzy (word~ and fuzzy=1), highlight and, for the message entities only, facets. */
             options: ("phrase" | "proximity" | "prefix" | "fuzzy" | "highlight" | "facets")[];
             available: boolean;
             /** @description Why searches go to MySQL now (unavailable, behind), null while available. */
@@ -3110,6 +3110,11 @@ export interface components {
         };
         UsersProps: components["schemas"]["ListState"] & {
             rows: components["schemas"]["UserRow"][];
+            backend?: components["schemas"]["SearchBackend"];
+            /** @description As SearchAnswer.highlights, aligned to rows: with highlight=1 in the page's query and the engine answering a bio matches filter. */
+            highlights?: string[][];
+            /** @description The capabilities entry of the list's entity (GET /api/search/capabilities), so the page can offer the engine's options; present only with an engine configured. The page's query takes the search API's options for its filters: fuzzy=1, highlight=1 and engine=mysql. */
+            engine?: components["schemas"]["SearchEngineEntity"];
         };
         /** @description A row of the users list: the summary and, for a viewer who sees users in full, the Drogon list's other columns, always sent then (absent for a member). */
         UserRow: components["schemas"]["UserSummary"] & {
@@ -3162,6 +3167,11 @@ export interface components {
                 /** @description Always sent by the service. */
                 updated_at: string;
             })[];
+            backend?: components["schemas"]["SearchBackend"];
+            /** @description As SearchAnswer.highlights, aligned to rows: with highlight=1 in the page's query and the engine answering a description matches filter. */
+            highlights?: string[][];
+            /** @description The capabilities entry of the list's entity (GET /api/search/capabilities), so the page can offer the engine's options; present only with an engine configured. The page's query takes the search API's options for its filters: fuzzy=1, highlight=1 and engine=mysql. */
+            engine?: components["schemas"]["SearchEngineEntity"];
         };
         /** @description The group route (/groups/{id}, not its admins or history tabs) for an exposed group the viewer's scope does not see: signed out, a member without it, an admin it is hidden from. As public as the group's chat: its summary and counts, with none of its admins, history, posters, activity or files. A group neither visible nor exposed answers a sign-in to a visitor and 404 to the others. */
         GroupPublicProps: {
@@ -4612,9 +4622,9 @@ export interface operations {
                 debug?: "1";
                 /** @description 1 matches every plain word of the full-text conditions with a few typos, as word~ does for one word. Search engine only (GET /api/search/capabilities); ignored without one, and listed in backend.ignored when MySQL answers. */
                 fuzzy?: "1";
-                /** @description 1 adds highlights, the matching fragments of each row's text. Search engine only, like fuzzy. */
+                /** @description 1 adds highlights, the matching fragments of each row's full-text field (a message's text, a user's bio, a group's description). Search engine only, like fuzzy. */
                 highlight?: "1";
-                /** @description 1 adds facets, the hits per chat, when the engine answers the whole search. Search engine only, like fuzzy. */
+                /** @description 1 adds facets, the hits per chat, when the engine answers the whole search of a message entity (users and groups have none: listed in backend.ignored). Search engine only, like fuzzy. */
                 facets?: "1";
                 /** @description mysql keeps the search on MySQL even with a search engine (backend.fallback asked). */
                 engine?: "mysql";

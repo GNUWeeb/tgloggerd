@@ -1098,7 +1098,8 @@ paths:
           required: false
           description: >-
             1 adds highlights, the matching fragments of each row's
-            text. Search engine only, like fuzzy.
+            full-text field (a message's text, a user's bio, a group's
+            description). Search engine only, like fuzzy.
           schema:
             type: string
             enum: ['1']
@@ -1107,7 +1108,9 @@ paths:
           required: false
           description: >-
             1 adds facets, the hits per chat, when the engine answers
-            the whole search. Search engine only, like fuzzy.
+            the whole search of a message entity (users and groups have
+            none: listed in backend.ignored). Search engine only, like
+            fuzzy.
           schema:
             type: string
             enum: ['1']
@@ -1156,7 +1159,8 @@ paths:
       summary: What the search backend offers
       description: >-
         Whether a search engine answers the full-text fields of the
-        message searches, and which options it offers for them, so a
+        searches (the messages' text, users' bio, groups' description),
+        and which options it offers for them, so a
         client offers those only when they work (web/docs/search-api.md,
         "Search engine"). Without an engine, engine is null and
         entities is empty: search is MySQL's, as before. Only the
@@ -5524,9 +5528,11 @@ components:
           type: array
           description: >-
             With highlight=1 and the engine answering: per row, aligned
-            to rows, up to three fragments of its text with the matched
-            words in <mark>...</mark>, HTML-escaped otherwise; empty for
-            a row without a match in its text and for service messages.
+            to rows, up to three fragments of its full-text field (a
+            message's text, a user's bio, a group's description) with
+            the matched words in <mark>...</mark>, HTML-escaped
+            otherwise; empty for a row without a match there and for
+            service messages.
           items:
             type: array
             items:
@@ -5596,7 +5602,9 @@ components:
       properties:
         fields:
           type: array
-          description: The full-text fields the engine answers (text).
+          description: >-
+            The full-text fields the engine answers: text for the
+            message entities, bio for users, description for groups.
           items:
             type: string
         options:
@@ -5604,7 +5612,7 @@ components:
           description: >-
             What the engine offers for them: phrase ("a b"), proximity
             ("a b" @N), prefix (word*), fuzzy (word~ and fuzzy=1),
-            highlight and facets.
+            highlight and, for the message entities only, facets.
           items:
             type: string
             enum: [phrase, proximity, prefix, fuzzy, highlight, facets]
@@ -8120,6 +8128,27 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/UserRow'
+            backend:
+              $ref: '#/components/schemas/SearchBackend'
+            highlights:
+              type: array
+              description: >-
+                As SearchAnswer.highlights, aligned to rows: with
+                highlight=1 in the page's query and the engine
+                answering a bio matches filter.
+              items:
+                type: array
+                items:
+                  type: string
+            engine:
+              description: >-
+                The capabilities entry of the list's entity
+                (GET /api/search/capabilities), so the page can offer
+                the engine's options; present only with an engine
+                configured. The page's query takes the search API's
+                options for its filters: fuzzy=1, highlight=1 and
+                engine=mysql.
+              $ref: '#/components/schemas/SearchEngineEntity'
     UserRow:
       description: >-
         A row of the users list: the summary and, for a viewer who sees
@@ -8248,6 +8277,27 @@ components:
                       updated_at:
                         type: string
                         description: Always sent by the service.
+            backend:
+              $ref: '#/components/schemas/SearchBackend'
+            highlights:
+              type: array
+              description: >-
+                As SearchAnswer.highlights, aligned to rows: with
+                highlight=1 in the page's query and the engine
+                answering a description matches filter.
+              items:
+                type: array
+                items:
+                  type: string
+            engine:
+              description: >-
+                The capabilities entry of the list's entity
+                (GET /api/search/capabilities), so the page can offer
+                the engine's options; present only with an engine
+                configured. The page's query takes the search API's
+                options for its filters: fuzzy=1, highlight=1 and
+                engine=mysql.
+              $ref: '#/components/schemas/SearchEngineEntity'
     GroupPublicProps:
       type: object
       description: >-
