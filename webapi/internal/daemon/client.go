@@ -311,3 +311,88 @@ func (c *Client) Storage(ctx context.Context) (st Storage, ok bool) {
 	}
 	return st, true
 }
+
+// The outcomes of POST /v1/users/resolve.
+const (
+	ResolveOK        = "ok"
+	ResolveNotFound  = "not_found"
+	ResolveNotAUser  = "not_a_user"
+	ResolveFloodWait = "flood_wait"
+	ResolveError     = "error"
+)
+
+// ResolvedUser is the user a username resolved to.
+type ResolvedUser struct {
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
+	IsBot    bool   `json:"is_bot"`
+}
+
+// UserResolve is the daemon's answer to POST /v1/users/resolve. On
+// ResolveOK the daemon has stored the user in telegram_users, with its
+// full info and its profile photo (whose file may land a little
+// later). RetryAfter is in seconds, for ResolveFloodWait only. A
+// malformed username (400) is answered as ResolveError.
+type UserResolve struct {
+	Outcome    string        `json:"outcome"`
+	Message    string        `json:"message"`
+	RetryAfter int64         `json:"retry_after"`
+	User       *ResolvedUser `json:"user"`
+}
+
+// resolveUserTimeout bounds a resolve: the daemon asks Telegram for
+// the username and then for the user's full info, each normally in
+// well under a second. A daemon slower than this counts as away.
+const resolveUserTimeout = 30 * time.Second
+
+// ResolveUser is POST /v1/users/resolve {"username": "@name"}: the
+// daemon looks the username up on Telegram and stores the user it
+// names. ok is false when there is no answer to go by: the client is
+// off, the daemon is away, slow or not ready, or its answer is not a
+// resolve's; the caller tries again later. reply is the call itself,
+// for logs.
+func (c *Client) ResolveUser(ctx context.Context, username string) (res UserResolve, ok bool, reply Reply) {
+	return c.resolveUser(ctx, username, resolveUserTimeout)
+}
+
+func (c *Client) resolveUser(ctx context.Context, username string, timeout time.Duration) (UserResolve, bool, Reply) {
+	if !strings.HasPrefix(username, "@") {
+		username = "@" + username
+	}
+	r := c.Call(ctx, http.MethodPost, "/v1/users/resolve",
+		map[string]any{"username": username}, timeout)
+	var res UserResolve
+	switch {
+	case r.Sent && r.Status == http.StatusBadRequest:
+		// The daemon refuses the username's shape: asking again would
+		// be refused again.
+		res = UserResolve{Outcome: ResolveError, Message: "the daemon refused the username"}
+		if r.Body != nil {
+			var e struct {
+				Error string `json:"error"`
+			}
+			if json.Unmarshal(r.Body, &e) == nil && e.Error != "" {
+				res.Message = e.Error
+			}
+		}
+		return res, true, r
+	case !r.OK() || r.Body == nil || json.Unmarshal(r.Body, &res) != nil:
+		return UserResolve{}, false, r
+	}
+	switch res.Outcome {
+	case ResolveOK:
+		if res.User == nil || res.User.UserID == 0 {
+			return UserResolve{}, false, r
+		}
+	case ResolveNotFound, ResolveNotAUser, ResolveFloodWait, ResolveError:
+		res.User = nil
+	default:
+		return UserResolve{}, false, r
+	}
+	if res.Outcome != ResolveFloodWait {
+		res.RetryAfter = 0
+	} else if res.RetryAfter < 0 {
+		res.RetryAfter = 0
+	}
+	return res, true, r
+}
