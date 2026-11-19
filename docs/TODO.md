@@ -126,6 +126,7 @@ Accounts, roles and federations:
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
 - [`search-engine-profiles`](todo/search-engine-profiles.md): Index users' bios and groups' descriptions in the optional search engine (optional).
+- [`text-entities`](todo/text-entities.md): Show Telegram's text formatting, links and mentions in the chat and message pages.
 - [`group-member-search`](todo/group-member-search.md): Search a group's members by name, username or user id on its Members tab.
 - [`group-files-tab`](todo/group-files-tab.md): Add a Files tab to the group page, by kind, newest first, with senders and message links.
 - [`group-polls-tab`](todo/group-polls-tab.md): Add a Polls tab to the group page listing its polls with results, senders and message links.
