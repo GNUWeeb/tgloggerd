@@ -29,6 +29,9 @@ gift does not say which gift. So the web can only say "sent a gift".
   model, symbol, backdrop, price, sender and receiver through the
   scope), and the giveaway's prize sticker; OpenAPI and web/docs
   follow.
+  Done: the Go half; ServiceGiftDetail, UpgradedGift,
+  ServiceThemeDetail (a gift theme) and GiveawayDetail.sticker in
+  webapi/openapi.yaml, described in web/docs/message-kinds.md.
 - React (frontend): a gift card on the service line: the sticker
   (Lottie or WebM with the chat's players) over the backdrop's
   gradient, the model and symbol names with rarity, the price; the
