@@ -126,3 +126,55 @@ describe('renaming an mcp token', () => {
 		expect(adminApi('PATCH', `mcp/tokens/${agent}`, { name: 'research-agent' }, 'admin')).toEqual([204, null]);
 	});
 });
+
+describe('transferring an mcp token', () => {
+	const tokenOf = (name: string) => fixture<McpTokensProps>('/mcp-admin/tokens').props.tokens.find((t) => t.name === name)!;
+
+	it('gives a superadmin a Transfer action that sends the owner picked', async () => {
+		const calls = fakeApi('superadmin', { 'POST /api/mcp/tokens/:id/transfer': () => undefined });
+		renderPage('/mcp-admin/tokens');
+		const t = tokenOf('laptop');
+		fireEvent.click(within(rowOf('laptop')).getByRole('button', { name: /Transfer/ }));
+		const sel = within(dialog()).getByLabelText(/New owner/) as HTMLSelectElement;
+		// Not to the owner it has.
+		expect([...sel.options].map((o) => o.textContent)).not.toContain('Administrator (superadmin)');
+		const go = within(dialog()).getByRole('button', { name: 'Transfer' }) as HTMLButtonElement;
+		expect(go.disabled).toBe(true);
+		const lead = fixture<McpTokensProps>('/mcp-admin/tokens').props.owners.find((o) => o.name === 'Security lead')!;
+		fireEvent.change(sel, { target: { value: String(lead.id) } });
+		fireEvent.click(go);
+		const path = `/api/mcp/tokens/${t.id}/transfer`;
+		await waitFor(() => expect(callsTo(calls, 'POST', path)).toHaveLength(1));
+		expect(callsTo(calls, 'POST', path)[0]!.body).toEqual({ owner_id: lead.id });
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+	});
+
+	it('offers no transfer to an admin', () => {
+		renderPage('/mcp-admin/tokens', 'admin');
+		expect(screen.getAllByRole('button', { name: /Rename/ }).length).toBeGreaterThan(0);
+		expect(screen.queryByRole('button', { name: /Transfer/ })).toBeNull();
+	});
+
+	it('shows the server\'s refusal in the dialog', async () => {
+		fakeApi('superadmin', { 'POST /api/mcp/tokens/:id/transfer': () => json(400, { error: 'bad_request', message: 'This account cannot own a token.' }) });
+		renderPage('/mcp-admin/tokens');
+		fireEvent.click(within(rowOf('laptop')).getByRole('button', { name: /Transfer/ }));
+		const sel = within(dialog()).getByLabelText(/New owner/) as HTMLSelectElement;
+		fireEvent.change(sel, { target: { value: sel.options[1]!.value } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Transfer' }));
+		expect((await within(dialog()).findByRole('alert')).textContent).toBe('This account cannot own a token.');
+	});
+
+	it('transfers in the stand-in for superadmins only, keeping who minted it', () => {
+		const t = tokenOf('research-agent');
+		expect(adminApi('POST', `mcp/tokens/${t.id}/transfer`, { owner_id: 3 }, 'admin')[0]).toBe(404);
+		// A disabled account cannot own one.
+		expect(adminApi('POST', `mcp/tokens/${t.id}/transfer`, { owner_id: 7 }, 'superadmin')[0]).toBe(400);
+		expect(adminApi('POST', `mcp/tokens/${t.id}/transfer`, { owner_id: 4 }, 'superadmin')).toEqual([204, null]);
+		const after = tokenOf('research-agent');
+		expect([after.owner.name, after.minted_by.name]).toEqual(['Security lead', 'GNU/Weeb admins']);
+		// The admin no longer manages it.
+		expect(fixture<McpTokensProps>('/mcp-admin/tokens', 'admin').props.tokens.map((x) => x.id)).not.toContain(t.id);
+		expect(adminApi('POST', `mcp/tokens/${t.id}/transfer`, { owner_id: 5 }, 'superadmin')[0]).toBe(400);
+	});
+});

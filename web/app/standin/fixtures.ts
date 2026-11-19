@@ -1359,7 +1359,7 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		if (i < 0) return [404, { error: 'not_found' }];
 		mcpExposed[i].group.exposed = false; mcpExposed.splice(i, 1); return [204, null];
 	}
-	if ((m = p.match(/^mcp\/tokens(?:\/(\d+)(?:\/(revoke))?)?$/))) {
+	if ((m = p.match(/^mcp\/tokens(?:\/(\d+)(?:\/(revoke|transfer))?)?$/))) {
 		// Go routes only these methods here; any other is 405.
 		if (method !== (m[1] && !m[2] ? 'PATCH' : 'POST')) return [405, { error: 'method_not_allowed' }];
 		if (!allowed(s, 'mcp')) return [404, { error: 'not_found' }];
@@ -1373,8 +1373,15 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 			mcpToks.push({ id, name, owner, minted_by: s.acct.id, created: '2026-11-17 16:00:00', last_used: '', revoked: null });
 			return [201, { id, token: 'tgmcp_standin_' + id + '_shown_once' }];
 		}
+		// Moving a token to another owner is a superadmin's alone.
+		if (m[2] === 'transfer' && s.role !== 'superadmin') return [404, { error: 'not_found' }];
 		const t = mcpToks.find((x) => String(x.id) === m[1] && managesMcp(s, x.owner));
 		if (!t) return [404, { error: 'not_found' }];
+		if (m[2] === 'transfer') {
+			if (!mcpOwners(s).some((a) => a.id === body.owner_id)) return [400, { error: 'bad_request', message: 'This account cannot own a token.', field: 'owner_id' }];
+			// It keeps working, and keeps who minted it.
+			t.owner = body.owner_id; return [204, null];
+		}
 		// A revoked token can be renamed too; the name is cut to 64.
 		if (!m[2]) {
 			const name = String(body.name ?? '').trim().slice(0, 64);

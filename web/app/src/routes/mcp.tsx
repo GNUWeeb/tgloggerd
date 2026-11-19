@@ -1,7 +1,7 @@
 // Integrations > MCP: the exposure allowlist and the access tokens
 // (web/docs/mcp.md). Exposing a group also publishes its chat on the web.
 import { useState } from 'react';
-import { ArrowRight, Check, Copy, Globe, KeyRound, Pencil, Plus, ShieldAlert, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowRight, ArrowRightLeft, Check, Copy, Globe, KeyRound, Pencil, Plus, ShieldAlert, Trash2, TriangleAlert } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
 import { Avatar, Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
@@ -144,7 +144,14 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 	// The token being renamed, and the draft name.
 	const [renaming, setRenaming] = useState<Token | null>(null);
 	const [draft, setDraft] = useState('');
+	// The token being given to another owner (superadmins), and to whom.
+	const [moving, setMoving] = useState<Token | null>(null);
+	const [to, setTo] = useState('');
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
+	const transfer = async () => {
+		setErr('');
+		try { await ok(api.POST('/api/mcp/tokens/{id}/transfer', { params: { path: { id: moving!.id } }, body: { owner_id: Number(to) } })); setMoving(null); refresh(); } catch (x) { setErr(errText(x)); }
+	};
 	const rename = async () => {
 		setErr('');
 		try { await ok(api.PATCH('/api/mcp/tokens/{id}', { params: { path: { id: renaming!.id } }, body: { name: draft } })); setRenaming(null); refresh(); } catch (x) { setErr(errText(x)); }
@@ -161,7 +168,7 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 		<Shell crumbs={[['MCP', '/mcp-admin'], ['Access tokens', null]]}>
 			<PageHead title="Access tokens" sub="A token reads every exposed group, so treat one like a password."
 				actions={<Btn primary icon={Plus} onClick={() => setMinting(true)}>Mint a token</Btn>} />
-			{err && !minting && !renaming && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+			{err && !minting && !renaming && !moving && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			{minted && (
 				<div className="a-card a-minted">
 					<div className="a-cardhead"><h2><KeyRound size={15} /> Copy this token now</h2></div>
@@ -182,7 +189,7 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 								<td title={t.created}>{ago(t.created, v)}</td>
 								<td>{t.last_used ? ago(t.last_used, v) : <span className="a-muted">never</span>}</td>
 								<td>{t.revoked ? <span className="a-muted">revoked {ago(t.revoked, v)}</span> : <Pill tone="ok">active</Pill>}</td>
-								<td className="a-rowactions"><Btn ghost icon={Pencil} onClick={() => { setErr(''); setDraft(t.name); setRenaming(t); }}>Rename</Btn>{!t.revoked && <Btn ghost danger onClick={() => { if (confirm(`Revoke ${t.name || 'this token'}? Clients using it stop working at once.`)) void revoke(t.id); }}>Revoke</Btn>}</td>
+								<td className="a-rowactions"><Btn ghost icon={Pencil} onClick={() => { setErr(''); setDraft(t.name); setRenaming(t); }}>Rename</Btn>{page.props.can_transfer && <Btn ghost icon={ArrowRightLeft} onClick={() => { setErr(''); setTo(''); setMoving(t); }}>Transfer</Btn>}{!t.revoked && <Btn ghost danger onClick={() => { if (confirm(`Revoke ${t.name || 'this token'}? Clients using it stop working at once.`)) void revoke(t.id); }}>Revoke</Btn>}</td>
 							</tr>
 						))}</tbody>
 					</table>
@@ -208,6 +215,19 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 					footer={<><span className="a-grow" /><Btn ghost onClick={() => setRenaming(null)}>Cancel</Btn><Btn primary disabled={!draft.trim()} onClick={() => void rename()}>Save</Btn></>}>
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 					<Field label="Name" hint="Clients keep working; only the label changes."><input id="mcp-token-rename" name="mcp-token-rename" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={64} {...NO_FILL} /></Field>
+				</Modal>
+			)}
+			{moving && (
+				<Modal title={`Transfer ${moving.name || 'this token'}`} onClose={() => setMoving(null)}
+					footer={<><span className="a-grow" /><Btn ghost onClick={() => setMoving(null)}>Cancel</Btn><Btn primary disabled={!to} onClick={() => void transfer()}>Transfer</Btn></>}>
+					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+					<p className="a-muted sm">Owned by <b>{moving.owner.name}</b>.</p>
+					<Field label="New owner" hint={`The token keeps working, and its requests stay attributed to ${moving.minted_by.name}, who minted it.`}>
+						<select className="a-select" value={to} onChange={(e) => setTo(e.target.value)}>
+							<option value="">Choose an account...</option>
+							{owners.filter((o) => o.id !== moving.owner.id).map((o) => <option key={o.id} value={o.id}>{o.role ? `${o.name} (${o.role})` : o.name}</option>)}
+						</select>
+					</Field>
 				</Modal>
 			)}
 		</Shell>
