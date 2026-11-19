@@ -836,6 +836,7 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	k.widgetHTML = true
 	v := pr.view()
 	n := names{d.Users, d.Groups}
 	m := d.Message
