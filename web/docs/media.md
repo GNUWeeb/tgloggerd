@@ -118,12 +118,16 @@ without a session, gets it only for small files). The pages render:
   metadata kept".
 
 The Go service's chat API (`GET /api/chats/{scope}/{id}/messages`, and
-the React chat pages' data; webapi/openapi.yaml, ChatMedia) applies the
-same rule to message media, album items and link-preview images. Its
-media objects carry `url` only when the file is stored, or fetchable
-and small (null otherwise; see "Fetch from Telegram" below for big
-files), `fetch` when it is fetchable, and `thumb` with the same URL for
-pictures. Edit snapshots there carry no media.
+the React chat pages' data; webapi/openapi.yaml, ChatMedia) and the
+message page (MessageFull.media) apply the same rule to every media
+object they nest: message media, album items, edit snapshots,
+link-preview images, rich blocks, a message's detail (a game's or
+invoice's photo, paid media, a giveaway's sticker) and a service
+message's (a chat photo or its animation, a background, a gift's
+sticker and symbol). Each carries `url` only when the file is stored,
+or fetchable and small (null otherwise; see "Fetch from Telegram"
+below for big files), `fetch` when it is fetchable, and `thumb` with
+the same URL for pictures.
 
 ## Fetch from Telegram (Go service)
 

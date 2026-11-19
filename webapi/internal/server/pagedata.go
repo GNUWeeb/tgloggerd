@@ -756,13 +756,17 @@ type messageReplyJSON struct {
 	Snippet    string `json:"snippet"`
 }
 
+// messageMediaJSON is MessageFull.media; fetchable and fetch are
+// ChatMedia's (Server.fileLink).
 type messageMediaJSON struct {
-	FileID uint64  `json:"file_id"`
-	Name   string  `json:"name"`
-	Size   uint64  `json:"size"`
-	Stored bool    `json:"stored"`
-	Thumb  *string `json:"thumb"`
-	URL    *string `json:"url"`
+	FileID    uint64  `json:"file_id"`
+	Name      string  `json:"name"`
+	Size      uint64  `json:"size"`
+	Stored    bool    `json:"stored"`
+	Fetchable bool    `json:"fetchable"`
+	Fetch     *string `json:"fetch"`
+	Thumb     *string `json:"thumb"`
+	URL       *string `json:"url"`
 	mediaDetailJSON
 }
 
@@ -863,7 +867,8 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 		md := v.media(m.ContentType, m.File, m.Extra)
 		v.poster(md, m)
 		j.Media = &messageMediaJSON{FileID: m.File.ID, Name: md.Name, Size: md.Size,
-			Stored: md.Stored, Thumb: md.Thumb, URL: md.URL, mediaDetailJSON: md.mediaDetailJSON}
+			Stored: md.Stored, Fetchable: md.Fetchable, Fetch: md.Fetch, Thumb: md.Thumb, URL: md.URL,
+			mediaDetailJSON: md.mediaDetailJSON}
 	}
 	// The album's other items, as the chat shows them beside the first:
 	// each with its own message id, kind and deletion.
