@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
@@ -36,70 +37,113 @@ import (
 // token is never selected, and the URL is read only for sending a test
 // message and for masking; neither is ever answered.
 
-// FwdKeys are the content types a route forwards, in the forms' order:
-// the fwd_<key> columns (web/src/dao/ForwardTypes.hpp). Discord to
-// Telegram has the first five; "other" is Telegram to Discord only.
-var FwdKeys = []string{"sticker", "text", "photo", "video", "document", "other"}
-
-// T2DTypeCount and D2TTypeCount are how many of FwdKeys each direction
-// has.
-const (
-	T2DTypeCount = 6
-	D2TTypeCount = 5
-)
-
-// FwdTypes are the flags of FwdKeys, in that order.
-type FwdTypes [6]bool
-
-// AllFwdTypes forwards everything, the columns' default.
-func AllFwdTypes() FwdTypes {
-	return FwdTypes{true, true, true, true, true, true}
+// FwdDir is one forwarding direction's content types: each key is a
+// fwd_<key> column of its table, and Keys is the order the route form
+// lists them in (decision 2026-11-20-fwd-more-types), which is also the
+// API's type_options. The daemons read the same columns into a bitmask
+// of their own, so there is no bit-number contract to keep in step.
+type FwdDir struct {
+	Keys []string
 }
 
-// Keys are the enabled types' keys among the first n.
-func (t FwdTypes) Keys(n int) []string {
+// T2D is Telegram to Discord: a flag per type an admin would separate,
+// other for every kind without one (rich messages, calls, giveaways and
+// kinds added later).
+var T2D = FwdDir{Keys: []string{
+	"text",
+	"photo", "video", "animation", "video_note", "document", "sticker",
+	"voice", "audio",
+	"poll", "checklist", "dice", "game",
+	"location", "contact",
+	"story", "paid_media", "invoice",
+	"service",
+	"other",
+}}
+
+// D2T is Discord to Telegram: an attachment is audio (audio/*), an
+// animation (image/gif, and animated stickers), a photo (image/*), a
+// video (video/*) or else a document.
+var D2T = FwdDir{Keys: []string{
+	"text", "photo", "video", "animation", "document", "sticker", "audio",
+}}
+
+// FwdTypes is the set of types a route forwards, by key.
+type FwdTypes map[string]bool
+
+// List is the keys of t, in the direction's order.
+func (d FwdDir) List(t FwdTypes) []string {
 	out := []string{}
-	for i := 0; i < n; i++ {
-		if t[i] {
-			out = append(out, FwdKeys[i])
+	for _, k := range d.Keys {
+		if t[k] {
+			out = append(out, k)
 		}
 	}
 	return out
 }
 
-// ParseFwdTypes reads a list of keys among the first n of FwdKeys; an
-// unknown key fails. Repeats count once.
-func ParseFwdTypes(keys []string, n int) (FwdTypes, bool) {
-	var t FwdTypes
+// Parse reads a types list of the direction: an unknown key or an
+// empty list fails (disabling a route is how it stops). Repeats count
+// once.
+func (d FwdDir) Parse(keys []string) (FwdTypes, bool) {
+	t := FwdTypes{}
 	for _, k := range keys {
-		i := -1
-		for j := 0; j < n; j++ {
-			if FwdKeys[j] == k {
-				i = j
-			}
+		if !slices.Contains(d.Keys, k) {
+			return nil, false
 		}
-		if i < 0 {
-			return t, false
-		}
-		t[i] = true
+		t[k] = true
 	}
-	return t, true
+	return t, len(t) > 0
 }
 
-func (t FwdTypes) args(n int) []any {
-	out := make([]any, n)
-	for i := 0; i < n; i++ {
-		out[i] = t[i]
+// args is t's flags in the order of columns.
+func (d FwdDir) args(t FwdTypes) []any {
+	out := make([]any, len(d.Keys))
+	for i, k := range d.Keys {
+		out[i] = t[k]
 	}
 	return out
 }
 
-func fwdColumns(alias string, n int) string {
-	cols := make([]string, n)
-	for i := 0; i < n; i++ {
-		cols[i] = alias + "fwd_" + FwdKeys[i]
+// columns is the fwd_<key> columns, with a table alias such as "w.".
+func (d FwdDir) columns(alias string) string {
+	cols := make([]string, len(d.Keys))
+	for i, k := range d.Keys {
+		cols[i] = alias + "fwd_" + k
 	}
 	return strings.Join(cols, ", ")
+}
+
+// assignments is "fwd_<key> = ?, ..." for an UPDATE.
+func (d FwdDir) assignments() string {
+	return strings.ReplaceAll(d.columns(""), ",", " = ?,") + " = ?"
+}
+
+// fwdScan reads a row's flags, in the order of columns.
+type fwdScan struct {
+	d     FwdDir
+	flags []bool
+}
+
+func (d FwdDir) scanner() *fwdScan {
+	return &fwdScan{d: d, flags: make([]bool, len(d.Keys))}
+}
+
+func (f *fwdScan) dest() []any {
+	out := make([]any, len(f.flags))
+	for i := range f.flags {
+		out[i] = &f.flags[i]
+	}
+	return out
+}
+
+func (f *fwdScan) types() FwdTypes {
+	t := FwdTypes{}
+	for i, k := range f.d.Keys {
+		if f.flags[i] {
+			t[k] = true
+		}
+	}
+	return t
 }
 
 // ChatFilter is the condition that keeps rows whose Telegram chat id,
@@ -207,7 +251,7 @@ type T2DWebhook struct {
 func t2dQuery(sc scope.Scope, where string) (string, []any) {
 	cf, ca := ChatFilter(sc, "w.telegram_chat_id")
 	q := "SELECT w.id, w.telegram_chat_id, w.webhook_url, w.enabled, " +
-		fwdColumns("w.", T2DTypeCount) + ", " + chatColumns + ", " +
+		T2D.columns("w.") + ", " + chatColumns + ", " +
 		"(SELECT COUNT(*) FROM telegram_discord_sent_messages sm WHERE sm.endpoint_id = e.id), " +
 		"COALESCE(UNIX_TIMESTAMP((SELECT sm.created_at FROM telegram_discord_sent_messages sm " +
 		"WHERE sm.endpoint_id = e.id ORDER BY sm.id DESC LIMIT 1)), 0) " +
@@ -226,14 +270,13 @@ func scanT2D(rows *sql.Rows) ([]T2DWebhook, error) {
 			chat int64
 			c    chatCols
 		)
-		dest := []any{&w.ID, &chat, &w.URL, &w.Enabled}
-		for i := 0; i < T2DTypeCount; i++ {
-			dest = append(dest, &w.Types[i])
-		}
+		f := T2D.scanner()
+		dest := append([]any{&w.ID, &chat, &w.URL, &w.Enabled}, f.dest()...)
 		dest = append(append(dest, c.dest()...), &w.Sent, &w.LastSent)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
+		w.Types = f.types()
 		w.Chat = c.chat(chat)
 		out = append(out, w)
 	}
@@ -274,10 +317,10 @@ func chatType(id int64) string {
 
 // CreateT2D adds a webhook for a chat the caller resolved.
 func CreateT2D(ctx context.Context, db *sql.DB, chat int64, url string, enabled bool, t FwdTypes) (uint64, error) {
-	args := append([]any{chat, chatType(chat), url, enabled}, t.args(T2DTypeCount)...)
+	args := append([]any{chat, chatType(chat), url, enabled}, T2D.args(t)...)
 	res, err := db.ExecContext(ctx, "INSERT INTO telegram_discord_webhooks "+
 		"(telegram_chat_id, telegram_chat_type, webhook_url, enabled, "+
-		fwdColumns("", T2DTypeCount)+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", args...)
+		T2D.columns("")+") VALUES ("+placeholders(len(args))+")", args...)
 	if err != nil {
 		return 0, err
 	}
@@ -288,11 +331,10 @@ func CreateT2D(ctx context.Context, db *sql.DB, chat int64, url string, enabled 
 // UpdateT2D stores a webhook's chat, URL, state and types.
 func UpdateT2D(ctx context.Context, db *sql.DB, id uint64, chat int64, url string, enabled bool,
 	t FwdTypes) error {
-	args := append([]any{chat, chatType(chat), url, enabled}, t.args(T2DTypeCount)...)
+	args := append([]any{chat, chatType(chat), url, enabled}, T2D.args(t)...)
 	_, err := db.ExecContext(ctx, "UPDATE telegram_discord_webhooks SET telegram_chat_id = ?, "+
-		"telegram_chat_type = ?, webhook_url = ?, "+
-		"enabled = ?, fwd_sticker = ?, fwd_text = ?, fwd_photo = ?, fwd_video = ?, "+
-		"fwd_document = ?, fwd_other = ? WHERE id = ?", append(args, id)...)
+		"telegram_chat_type = ?, webhook_url = ?, enabled = ?, "+
+		T2D.assignments()+" WHERE id = ?", append(args, id)...)
 	return err
 }
 
@@ -322,7 +364,7 @@ type D2TRoute struct {
 func d2tQuery(sc scope.Scope, where string) (string, []any) {
 	cf, ca := ChatFilter(sc, "r.telegram_chat_id")
 	q := "SELECT r.id, r.discord_channel_id, COALESCE(c.name, ''), r.telegram_chat_id, " +
-		"r.enabled, " + fwdColumns("r.", D2TTypeCount) + ", " +
+		"r.enabled, " + D2T.columns("r.") + ", " +
 		"r.telegram_bot_id, COALESCE(r.discord_bot_id, 0), " + chatColumns + ", " +
 		"(SELECT COUNT(*) FROM discord_telegram_sent_messages s WHERE s.route_id = r.id) " +
 		"FROM discord_telegram_routes r " +
@@ -341,15 +383,14 @@ func scanD2T(rows *sql.Rows) ([]D2TRoute, error) {
 			chat int64
 			c    chatCols
 		)
-		dest := []any{&d.ID, &d.ChannelID, &d.ChannelName, &chat, &d.Enabled}
-		for i := 0; i < D2TTypeCount; i++ {
-			dest = append(dest, &d.Types[i])
-		}
+		f := D2T.scanner()
+		dest := append([]any{&d.ID, &d.ChannelID, &d.ChannelName, &chat, &d.Enabled}, f.dest()...)
 		dest = append(append(dest, &d.TelegramBotID, &d.DiscordBotID), c.dest()...)
 		dest = append(dest, &d.Sent)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
+		d.Types = f.types()
 		d.Chat = c.chat(chat)
 		out = append(out, d)
 	}
@@ -394,10 +435,10 @@ func isDuplicate(err error) bool {
 // caller checked.
 func CreateD2T(ctx context.Context, db *sql.DB, channel uint64, chat int64, telegramBot,
 	discordBot uint64, enabled bool, t FwdTypes) (uint64, error) {
-	args := append([]any{channel, chat, telegramBot, discordBot, enabled}, t.args(D2TTypeCount)...)
+	args := append([]any{channel, chat, telegramBot, discordBot, enabled}, D2T.args(t)...)
 	res, err := db.ExecContext(ctx, "INSERT INTO discord_telegram_routes "+
 		"(discord_channel_id, telegram_chat_id, telegram_bot_id, discord_bot_id, enabled, "+
-		fwdColumns("", D2TTypeCount)+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", args...)
+		D2T.columns("")+") VALUES ("+placeholders(len(args))+")", args...)
 	if isDuplicate(err) {
 		return 0, ErrDuplicateRoute
 	}
@@ -417,11 +458,10 @@ func UpdateD2T(ctx context.Context, db *sql.DB, d D2TRoute) error {
 		discordBot = d.DiscordBotID
 	}
 	args := append([]any{d.ChannelID, d.Chat.ID, d.TelegramBotID, discordBot, d.Enabled},
-		d.Types.args(D2TTypeCount)...)
+		D2T.args(d.Types)...)
 	_, err := db.ExecContext(ctx, "UPDATE discord_telegram_routes SET discord_channel_id = ?, "+
 		"telegram_chat_id = ?, telegram_bot_id = ?, discord_bot_id = ?, enabled = ?, "+
-		"fwd_sticker = ?, fwd_text = ?, fwd_photo = ?, fwd_video = ?, fwd_document = ? "+
-		"WHERE id = ?", append(args, d.ID)...)
+		D2T.assignments()+" WHERE id = ?", append(args, d.ID)...)
 	if isDuplicate(err) {
 		return ErrDuplicateRoute
 	}

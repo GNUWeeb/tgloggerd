@@ -44,7 +44,7 @@
 	"federation.unknown": "That federation does not exist.",
 	"forgot.required": "username is required.",
 	"fwd.bad_channel": "Enter the Discord channel ID (the numeric id, from Developer Mode, Copy Channel ID).",
-	"fwd.bad_types": "types is a list of: {types}.",
+	"fwd.bad_types": "types is a non-empty list of: {types}.",
 	"fwd.bad_webhook": "That does not look like a Discord webhook URL (https://discord.com/api/webhooks/...).",
 	"fwd.bot_kind": "That bot is not a {kind} bot.",
 	"fwd.chat_kind": "chat_kind is group for a group (a negative chat_id) and user for a private chat (a positive one).",

@@ -171,7 +171,7 @@ type t2dRoute struct {
 func (s *Server) t2dJSON(ctx context.Context, v scope.Viewer, h logdb.T2DWebhook,
 	owners map[int64]webdb.OwnerInfo) t2dRoute {
 	return t2dRoute{owned: s.ownership(ctx, v, h.ID, owners), Chat: s.fwdPick(h.Chat),
-		URLMasked: maskWebhook(h.URL), Types: h.Types.Keys(logdb.T2DTypeCount),
+		URLMasked: maskWebhook(h.URL), Types: logdb.T2D.List(h.Types),
 		Enabled: h.Enabled, Sent: h.Sent, LastSent: isoPtr(h.LastSent)}
 }
 
@@ -213,7 +213,7 @@ func (s *Server) d2tJSON(ctx context.Context, v scope.Viewer, d logdb.D2TRoute,
 		ChannelID: strconv.FormatUint(d.ChannelID, 10), ChannelName: d.ChannelName,
 		Chat:        s.fwdPick(d.Chat),
 		TelegramBot: s.botRefOf(ctx, v, bots[d.TelegramBotID], profiles),
-		Types:       d.Types.Keys(logdb.D2TTypeCount), Enabled: d.Enabled, Sent: d.Sent}
+		Types:       logdb.D2T.List(d.Types), Enabled: d.Enabled, Sent: d.Sent}
 	if b, ok := bots[d.DiscordBotID]; ok && d.DiscordBotID != 0 {
 		ref := s.botRefOf(ctx, v, b, profiles)
 		out.DiscordBot = &ref
@@ -340,13 +340,14 @@ func (s *Server) fwdTarget(w http.ResponseWriter, r *http.Request, sc scope.Scop
 	return c, ok
 }
 
-// fwdTypes reads a types list of a direction with n types.
+// fwdTypes reads a types list of direction d: an unknown type or an
+// empty list is 400.
 func (s *Server) fwdTypes(w http.ResponseWriter, r *http.Request, v scope.Viewer,
-	keys []string, n int) (logdb.FwdTypes, bool) {
-	t, ok := logdb.ParseFwdTypes(keys, n)
+	keys []string, d logdb.FwdDir) (logdb.FwdTypes, bool) {
+	t, ok := d.Parse(keys)
 	if !ok {
 		s.refuse(w, r, v, http.StatusBadRequest, "bad_request", "fwd.bad_types",
-			"types", strings.Join(logdb.FwdKeys[:n], ", "))
+			"types", strings.Join(d.Keys, ", "))
 	}
 	return t, ok
 }
@@ -381,7 +382,7 @@ func (s *Server) createT2D(w http.ResponseWriter, r *http.Request) {
 		s.refuse(w, r, v, http.StatusBadRequest, "bad_webhook", "fwd.bad_webhook")
 		return
 	}
-	types, ok := s.fwdTypes(w, r, v, *in.Types, logdb.T2DTypeCount)
+	types, ok := s.fwdTypes(w, r, v, *in.Types, logdb.T2D)
 	if !ok {
 		return
 	}
@@ -395,7 +396,7 @@ func (s *Server) createT2D(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAdmin(r, v.ID, "fwd_t2d_create", fmt.Sprintf("webhook %d chat %d enabled=%t types=%s",
-		id, chat.ID, *in.Enabled, strings.Join(types.Keys(logdb.T2DTypeCount), ",")))
+		id, chat.ID, *in.Enabled, strings.Join(logdb.T2D.List(types), ",")))
 	s.recordOwner(r, webdb.Resource{Type: webdb.ResT2DWebhook, ID: int64(id)}, v.ID)
 	writeJSON(w, http.StatusCreated, map[string]uint64{"id": id})
 }
@@ -466,12 +467,12 @@ func (s *Server) updateT2D(w http.ResponseWriter, r *http.Request) {
 		changed = append(changed, "url")
 	}
 	if in.Types != nil {
-		t, ok := s.fwdTypes(w, r, v, *in.Types, logdb.T2DTypeCount)
+		t, ok := s.fwdTypes(w, r, v, *in.Types, logdb.T2D)
 		if !ok {
 			return
 		}
 		h.Types = t
-		changed = append(changed, "types="+strings.Join(t.Keys(logdb.T2DTypeCount), ","))
+		changed = append(changed, "types="+strings.Join(logdb.T2D.List(t), ","))
 	}
 	if in.Enabled != nil {
 		h.Enabled = *in.Enabled
@@ -615,7 +616,7 @@ func (s *Server) createD2T(w http.ResponseWriter, r *http.Request) {
 		s.refuse(w, r, v, http.StatusBadRequest, "bad_channel", "fwd.bad_channel")
 		return
 	}
-	types, ok := s.fwdTypes(w, r, v, *in.Types, logdb.D2TTypeCount)
+	types, ok := s.fwdTypes(w, r, v, *in.Types, logdb.D2T)
 	if !ok {
 		return
 	}
@@ -642,7 +643,7 @@ func (s *Server) createD2T(w http.ResponseWriter, r *http.Request) {
 	s.auditAdmin(r, v.ID, "fwd_d2t_create", fmt.Sprintf("route %d channel %d chat %d "+
 		"discord_bot %d telegram_bot %d enabled=%t types=%s", id, channel, chat.ID,
 		*in.DiscordBot, *in.TelegramBot, *in.Enabled,
-		strings.Join(types.Keys(logdb.D2TTypeCount), ",")))
+		strings.Join(logdb.D2T.List(types), ",")))
 	s.recordOwner(r, webdb.Resource{Type: webdb.ResD2TRoute, ID: int64(id)}, v.ID)
 	writeJSON(w, http.StatusCreated, map[string]uint64{"id": id})
 }
@@ -702,12 +703,12 @@ func (s *Server) updateD2T(w http.ResponseWriter, r *http.Request) {
 		d.ChannelID = channel
 	}
 	if in.Types != nil {
-		t, ok := s.fwdTypes(w, r, v, *in.Types, logdb.D2TTypeCount)
+		t, ok := s.fwdTypes(w, r, v, *in.Types, logdb.D2T)
 		if !ok {
 			return
 		}
 		d.Types = t
-		changed = append(changed, "types="+strings.Join(t.Keys(logdb.D2TTypeCount), ","))
+		changed = append(changed, "types="+strings.Join(logdb.D2T.List(t), ","))
 	}
 	if in.Enabled != nil {
 		d.Enabled = *in.Enabled
@@ -833,8 +834,11 @@ func loadPlatformFwd(ctx context.Context, pr *pageRequest) (any, error) {
 }
 
 type t2dProps struct {
-	Routes      []t2dRoute `json:"routes"`
-	Federations []fedRef   `json:"federations"`
+	Routes []t2dRoute `json:"routes"`
+	// TypeOptions is every type the bridge honours, in the form's
+	// order; groups, labels and presets are the app's.
+	TypeOptions []string `json:"type_options"`
+	Federations []fedRef `json:"federations"`
 }
 
 func loadT2D(ctx context.Context, pr *pageRequest) (any, error) {
@@ -859,7 +863,7 @@ func loadT2D(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := t2dProps{Routes: []t2dRoute{}, Federations: feds}
+	p := t2dProps{Routes: []t2dRoute{}, TypeOptions: logdb.T2D.Keys, Federations: feds}
 	for _, w := range ws {
 		p.Routes = append(p.Routes, s.t2dJSON(ctx, v, w, owners))
 	}
@@ -867,8 +871,11 @@ func loadT2D(ctx context.Context, pr *pageRequest) (any, error) {
 }
 
 type d2tProps struct {
-	Routes      []d2tRoute `json:"routes"`
-	Federations []fedRef   `json:"federations"`
+	Routes []d2tRoute `json:"routes"`
+	// TypeOptions is every type the bridge honours, in the form's
+	// order; groups, labels and presets are the app's.
+	TypeOptions []string `json:"type_options"`
+	Federations []fedRef `json:"federations"`
 }
 
 func loadD2T(ctx context.Context, pr *pageRequest) (any, error) {
@@ -906,7 +913,7 @@ func loadD2T(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := d2tProps{Routes: []d2tRoute{}, Federations: feds}
+	p := d2tProps{Routes: []d2tRoute{}, TypeOptions: logdb.D2T.Keys, Federations: feds}
 	for _, r := range rs {
 		p.Routes = append(p.Routes, s.d2tJSON(ctx, v, r, owners, bots, profiles))
 	}

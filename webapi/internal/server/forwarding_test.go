@@ -78,7 +78,9 @@ func TestForwardingPages(t *testing.T) {
 		`"federation":{"id":0,"name":"Default"},"transfer_candidates":[],`+
 		`"chat":{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup",`+
 		`"photo":"`+photoOf(gnuWeebPhoto)+`"},"url_masked":"https://discord.com/api/webhooks/1100000000000000001/****",`+
-		`"types":["sticker","text","photo","video","document","other"],"enabled":true,`+
+		`"types":["text","photo","video","animation","video_note","document","sticker","voice","audio",`+
+		`"poll","checklist","dice","game","location","contact","story","paid_media","invoice","service","other"],`+
+		`"enabled":true,`+
 		`"sent":3,"last_sent":"2026-11-17T11:00:01Z"}`) {
 		t.Errorf("webhook 1 %s", got)
 	}
@@ -122,7 +124,7 @@ func TestForwardingPages(t *testing.T) {
 	if r2["channel_name"] != "" || r2["discord_bot"] != nil ||
 		js(r2["telegram_bot"]) != canon(`{"id":2,"kind":"telegram","name":"Bot 2","identity":null,`+
 			`"status":"disabled","enabled":false,"photo":null,"profile":null}`) ||
-		js(r2["types"]) != `["sticker","text","document"]` {
+		js(r2["types"]) != `["text","document","sticker","audio"]` {
 		t.Errorf("route 2 %s", js(r2))
 	}
 	if _, ok := r1["bot"]; ok {
@@ -208,7 +210,7 @@ func TestT2DOperations(t *testing.T) {
 
 	// A private chat, as a user.
 	b = e.want(201, "superadmin", "POST", t2dBase, map[string]any{"chat_id": 9299000002,
-		"chat_kind": "user", "webhook_url": newHook, "types": []string{}, "enabled": false})
+		"chat_kind": "user", "webhook_url": newHook, "types": []string{"poll"}, "enabled": false})
 	priv := uint64(b["id"].(float64))
 
 	want := []string{
@@ -219,7 +221,7 @@ func TestT2DOperations(t *testing.T) {
 		fmt.Sprintf("3 fwd_t2d_update webhook %d chat %d url", id, rustChat),
 		fmt.Sprintf("3 fwd_t2d_delete webhook %d chat %d", id, rustChat),
 		fmt.Sprintf("3 resource_drop t2d_webhook %d", id),
-		fmt.Sprintf("1 fwd_t2d_create webhook %d chat 9299000002 enabled=false types=", priv),
+		fmt.Sprintf("1 fwd_t2d_create webhook %d chat 9299000002 enabled=false types=poll", priv),
 		fmt.Sprintf("1 owner_set t2d_webhook %d", priv),
 	}
 	if got := e.audits(); strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -254,6 +256,7 @@ func TestT2DRefusals(t *testing.T) {
 		{with("webhook_url", "http://discord.com/api/webhooks/1/x"), 400, "bad_webhook"},
 		{with("webhook_url", "https://discord.com/api/channels/1/x"), 400, "bad_webhook"},
 		{with("types", []string{"text", "sound"}), 400, "bad_request"},
+		{with("types", []string{}), 400, "bad_request"},
 		{with("types", nil), 400, "bad_request"},
 		{with("enabled", nil), 400, "bad_request"},
 		{with("chat_kind", "user"), 400, "bad_request"},
@@ -460,6 +463,8 @@ func TestD2TRefusals(t *testing.T) {
 		{with("discord_channel_id", "0"), 400, "bad_channel"},
 		{with("discord_channel_id", "123456789012345678901"), 400, "bad_channel"},
 		{with("types", []string{"other"}), 400, "bad_request"},
+		{with("types", []string{"voice"}), 400, "bad_request"},
+		{with("types", []string{}), 400, "bad_request"},
 		{with("discord_bot_id", nil), 400, "bad_request"},
 		{with("telegram_bot_id", nil), 400, "bad_request"},
 		// A bot of the other kind in either place.

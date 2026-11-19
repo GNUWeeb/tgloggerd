@@ -62,9 +62,15 @@ configurations with their counts of what was sent, and the bots.
   granted to it or a private chat when private messages are, is 404
   as well, in the lists and counts too. A member sees and changes only
   the configurations it owns: any other is 404 to it.
-- Types are lists of the keys above (`["text", "photo"]`); create
-  needs them all, PATCH changes only the fields it is given. The
-  chat (and the Discord channel) of a configuration cannot change.
+- Types are lists of the keys of *Content-type filters* below
+  (`["text", "photo"]`), answered in the order of that table; create
+  needs them all, PATCH changes only the fields it is given. A write
+  takes the whole set: a type the direction does not have, or an empty
+  set, is 400 `bad_request` (disabling a route is how it stops). Each
+  direction's page answers `type_options`, every type its bridge
+  honours in the form's order; the groups, labels and presets of the
+  form are the app's, and a type the app does not know is shown under
+  "Other kinds" by its name.
 - The webhook URL is checked as `parseWebhook` does here, on create,
   on change and on test, also when a saved webhook is tested: anything
   but `https` on one of Discord's hosts with an `/api/webhooks/<id>/<token>`
@@ -218,14 +224,36 @@ Both pages show them as a row of checkboxes in the add/edit form, and the route
 table summarises them in its *Forwards* column (`Everything`, a list, or
 `Nothing`). Only the ticked types are forwarded.
 
+The types, in the order of each direction's `type_options` (decision
+[2026-11-20-fwd-more-types](../../docs/design/decisions/2026-11-20-fwd-more-types.md)):
+
 | Type (`fwd_<key>`) | Telegram → Discord | Discord → Telegram |
 |---|---|---|
-| `fwd_sticker`  | a sticker | a sticker (`sticker_items`) |
-| `fwd_text`     | a text message, or the caption of a media message | the message text |
-| `fwd_photo`    | a photo | an attachment whose MIME type is `image/*` |
-| `fwd_video`    | a video | an attachment whose MIME type is `video/*` |
-| `fwd_document` | a document (file) | every other attachment, including one with no MIME type |
-| `fwd_other`    | service (system) messages and every type not listed: voice, audio, animation (GIF), … | — (no such class) |
+| `text`       | a text message, or the caption of a media message | the message text |
+| `photo`      | a photo | an attachment whose MIME type is `image/*` (but `image/gif`) |
+| `video`      | a video | an attachment whose MIME type is `video/*` |
+| `animation`  | an animation (GIF) | an `image/gif` attachment, an animated sticker |
+| `video_note` | a round video note | — |
+| `document`   | a document (file) | every other attachment, including one with no MIME type |
+| `sticker`    | a sticker | a sticker (`sticker_items`) |
+| `voice`      | a voice note | — |
+| `audio`      | an audio file | an attachment whose MIME type is `audio/*` |
+| `poll`       | a poll or a quiz | — |
+| `checklist`  | a checklist | — |
+| `dice`       | a dice (any of its emoji) | — |
+| `game`       | a game | — |
+| `location`   | a location, a venue, a live location | — |
+| `contact`    | a shared contact | — |
+| `story`      | a story | — |
+| `paid_media` | paid media | — |
+| `invoice`    | an invoice | — |
+| `service`    | a service (system) message | — |
+| `other`      | every kind without a type of its own: rich messages, calls, giveaways, and every kind added later | — (no such class) |
+
+`other` stays the catch-all on Telegram → Discord, so a kind added
+later is never dropped silently. Discord → Telegram voice messages,
+embeds, polls and system messages are not told apart yet (item
+`fwd-discord-kinds`).
 
 A message is filtered **part by part**, not as a whole:
 
@@ -237,11 +265,18 @@ A message is filtered **part by part**, not as a whole:
 - When no part of a message is enabled, nothing is sent for it.
 
 Telegram → Discord files what a **service message** says ("X joined the group")
-under *Others*, not *Text message*: it is part of that message, not a caption.
+under `service`, not `text`: it is part of that message, not a caption. A
+kind's summary line (a location, a contact, a poll, a story, ...) follows its
+kind's type, and a rich message's text, being its content, follows `other`.
+Edits are filtered like the message.
 
 The flags are the `fwd_*` columns of `telegram_discord_webhooks` and
-`discord_telegram_routes` (migration `000031`), all defaulting to `1`, so a
-route forwards everything until told otherwise. The daemons pick a change up on
+`discord_telegram_routes` (migration `000031` for the first six, then
+`000049` for the rest), all defaulting to `1`, so a route forwards
+everything until told otherwise. When `000049` added its flags, it gave each
+the value of the flag its type followed until then (Telegram → Discord:
+`fwd_other`; Discord → Telegram: `audio` from `fwd_document`, `animation` from
+`fwd_photo`), so no existing route changed what it forwards. The daemons pick a change up on
 their next reload of the table, like any other edit (see *Propagation*).
 
 Changing a filter affects **new** messages only. An edit or delete of a message
@@ -262,6 +297,10 @@ named as in the table above (`fwd_other` on Telegram → Discord only):
 
 The pages always send every type. The "omitted" rule exists so a script written
 before the filters existed keeps working without switching anything off.
+
+These Drogon pages know only migration `000031`'s six types. The later ones
+are set through the JSON API: a Drogon update leaves them as they are, and a
+Drogon create leaves them at their default, forwarding.
 
 Saving with an `id` that no longer exists is refused with a 404
 (`That integration no longer exists. Please reload.` or `That route no longer
