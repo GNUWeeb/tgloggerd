@@ -1696,6 +1696,78 @@ void put_msg_id(nlohmann::json &j, const char *key, int64_t td_id)
 	put_num(j, key, server_msg_id(td_id));
 }
 
+/*
+ * A background's fill: {type, colors, rotation_angle}, the type "solid",
+ * "gradient" or "freeform_gradient", the colours as RGB integers
+ * (0xRRGGBB) in TDLib's order (a gradient's top then bottom colour), the
+ * rotation only for a gradient (absent when 0).
+ */
+nlohmann::json background_fill_json(const td_api::BackgroundFill *f)
+{
+	if (!f)
+		return nullptr;
+	nlohmann::json j = nlohmann::json::object();
+	put_str(j, "type", tl_variant(f, "backgroundFill"));
+	nlohmann::json colors = nlohmann::json::array();
+	switch (f->get_id()) {
+	case td_api::backgroundFillSolid::ID:
+		colors.push_back(static_cast<const td_api::backgroundFillSolid &>(*f).color_);
+		break;
+	case td_api::backgroundFillGradient::ID: {
+		auto &g = static_cast<const td_api::backgroundFillGradient &>(*f);
+		colors.push_back(g.top_color_);
+		colors.push_back(g.bottom_color_);
+		put_num(j, "rotation_angle", g.rotation_angle_);
+		break;
+	}
+	case td_api::backgroundFillFreeformGradient::ID:
+		for (int32_t c : static_cast<const td_api::backgroundFillFreeformGradient &>(*f).colors_)
+			colors.push_back(c);
+		break;
+	default:
+		break;
+	}
+	j["colors"] = colors;
+	return j;
+}
+
+/*
+ * The fields of a background's type, beside its "type" key: a wallpaper's
+ * is_blurred and is_moving; a pattern's fill, intensity, is_inverted and
+ * is_moving; a fill's fill; a chat theme's theme_name.
+ */
+void put_background_type(nlohmann::json &bg, const td_api::BackgroundType *t)
+{
+	if (!t)
+		return;
+	switch (t->get_id()) {
+	case td_api::backgroundTypeWallpaper::ID: {
+		auto &w = static_cast<const td_api::backgroundTypeWallpaper &>(*t);
+		put_flag(bg, "is_blurred", w.is_blurred_);
+		put_flag(bg, "is_moving", w.is_moving_);
+		break;
+	}
+	case td_api::backgroundTypePattern::ID: {
+		auto &p = static_cast<const td_api::backgroundTypePattern &>(*t);
+		put_json(bg, "fill", background_fill_json(p.fill_.get()));
+		put_num(bg, "intensity", p.intensity_);
+		put_flag(bg, "is_inverted", p.is_inverted_);
+		put_flag(bg, "is_moving", p.is_moving_);
+		break;
+	}
+	case td_api::backgroundTypeFill::ID:
+		put_json(bg, "fill", background_fill_json(
+			static_cast<const td_api::backgroundTypeFill &>(*t).fill_.get()));
+		break;
+	case td_api::backgroundTypeChatTheme::ID:
+		put_str(bg, "theme_name",
+			static_cast<const td_api::backgroundTypeChatTheme &>(*t).theme_name_);
+		break;
+	default:
+		break;
+	}
+}
+
 nlohmann::json chat_photo_json(const td_api::chatPhoto *p)
 {
 	if (!p)
@@ -1827,6 +1899,7 @@ std::optional<std::string> service_extra_json(const td_api::MessageContent &c)
 			put_flag(bg, "dark", b.is_dark_);
 			put_str(bg, "type", tl_variant(b.type_.get(), "backgroundType"));
 			put_num(bg, "dark_theme_dimming", m.background_->dark_theme_dimming_);
+			put_background_type(bg, b.type_.get());
 			j["background"] = bg;
 		}
 		break;
@@ -2692,7 +2765,8 @@ const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
  * The files of @content beyond the one message_content_file() returns, in
  * a stable order: a video's cover, a live photo's video, each paid media
  * item, a game's photo and animation, an invoice's photo and paid media,
- * the photo of a chat photo change or suggestion, the still
+ * the photo of a chat photo change or suggestion, a chat background's
+ * document (the wallpaper or the pattern), the still
  * thumbnail of a video, an animation, a video note or a video sticker
  * (the picture shown before it plays), the media in a rich message's
  * page blocks (rich_message_files), and a text message's link preview's
@@ -2824,6 +2898,20 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 				    content).photo_.get()),
 		    "photo", "", "chat_photo", 0);
 		break;
+	case td_api::messageChatSetBackground::ID: {
+		/* A wallpaper's JPEG or a pattern's PNG or TGV; a fill or
+		 * a chat theme has no document. */
+		auto &c = static_cast<const td_api::messageChatSetBackground &>(
+			content);
+		const td_api::document *d =
+			c.background_ && c.background_->background_
+				? c.background_->background_->document_.get()
+				: nullptr;
+		if (d)
+			add(d->document_.get(), "document", d->file_name_,
+			    "background", 0);
+		break;
+	}
 	case td_api::messageRichMessage::ID: {
 		auto &c = static_cast<const td_api::messageRichMessage &>(content);
 		if (c.message_)

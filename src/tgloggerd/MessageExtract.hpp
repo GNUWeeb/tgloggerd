@@ -192,9 +192,10 @@ struct ExtraFile {
  * The files of @content beyond its main one, in a stable order: a video's
  * cover, a live photo's video, each paid media item, a game's photo and
  * animation, an invoice's photo and paid media, the photo of a chat photo
- * change or suggestion, the still thumbnail of a video, an animation, a
- * video note or a video sticker, the media in a rich message's blocks,
- * a link preview's own medium (link_preview_media_files).
+ * change or suggestion, a chat background's wallpaper or pattern, the
+ * still thumbnail of a video, an animation, a video note or a video
+ * sticker, the media in a rich message's blocks, a link preview's own
+ * medium (link_preview_media_files).
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
 

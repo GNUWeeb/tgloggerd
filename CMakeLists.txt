@@ -221,6 +221,18 @@ target_compile_options(link_preview_test PRIVATE -Wall -Wextra)
 target_link_libraries(link_preview_test PRIVATE Td::TdStatic tdjson_private
 	nlohmann_json::nlohmann_json Threads::Threads)
 
+# How a chat background change and an animated chat photo are stored
+# (content_extra, the files beyond the main one) over hand-built TDLib
+# objects; not part of the default build:
+#   cmake --build build --target chat_background_test && build/chat_background_test
+add_executable(chat_background_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/chat_background_test.cpp
+	src/tgloggerd/MessageExtract.cpp)
+target_include_directories(chat_background_test PRIVATE src)
+target_compile_options(chat_background_test PRIVATE -Wall -Wextra)
+target_link_libraries(chat_background_test PRIVATE Td::TdStatic tdjson_private
+	nlohmann_json::nlohmann_json Threads::Threads)
+
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
 # Telegram). Added last: it links Td::TdStatic and connector-jdbc from the
 # subprojects above, and pulls in the self-contained gwdiscord library. Its
