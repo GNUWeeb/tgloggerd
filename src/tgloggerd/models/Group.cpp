@@ -220,4 +220,49 @@ void DB::syncGroupUsernames(mysql::Transaction &tx, const models::Group &g)
 	}
 }
 
+void DB::setGroupMemberInfo(int64_t group_id,
+			    std::optional<int64_t> member_count,
+			    std::optional<bool> can_get_members)
+{
+	if (!member_count && !can_get_members)
+		return;
+	mysql::Param count = std::monostate{};
+	if (member_count)
+		count = *member_count;
+	mysql::Param can = std::monostate{};
+	if (can_get_members)
+		can = (int64_t)(*can_get_members ? 1 : 0);
+	/*
+	 * updated_at is kept as it was: the row's own fields did not change,
+	 * and its ON UPDATE would otherwise move with every count.
+	 */
+	db_.execute("UPDATE telegram_groups SET"
+		    " member_count_at = IF(? IS NULL, member_count_at, NOW()),"
+		    " member_count = COALESCE(?, member_count),"
+		    " can_get_members = COALESCE(?, can_get_members),"
+		    " updated_at = updated_at"
+		    " WHERE id = ?",
+		    { count, count, can, group_id });
+}
+
+std::optional<DB::GroupMemberInfo> DB::getGroupMemberInfo(int64_t group_id)
+{
+	auto rows = db_.query("SELECT type, member_count,"
+			      " IFNULL(UNIX_TIMESTAMP(member_count_at), 0),"
+			      " can_get_members"
+			      " FROM telegram_groups WHERE id = ?",
+			      { group_id });
+	if (rows.empty())
+		return std::nullopt;
+	const auto &r = rows[0];
+	GroupMemberInfo g;
+	g.type = r[0].value_or("");
+	if (r[1].has_value())
+		g.member_count = std::stoll(*r[1]);
+	g.member_count_at = r[2].has_value() ? std::stoll(*r[2]) : 0;
+	if (r[3].has_value())
+		g.can_get_members = *r[3] == "1";
+	return g;
+}
+
 } /* namespace tgloggerd */

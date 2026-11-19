@@ -516,6 +516,81 @@ again, so the call is cheap to repeat. Errors: 503 when TDLib is not
 authorized or the daemon is shutting down; 504 when Telegram did not
 answer a step within 15 seconds.
 
+### POST /v1/chats/{chat_id}/refresh
+
+Asks Telegram for a group's full info now and stores its member count
+(`telegram_groups.member_count`, `member_count_at`, `can_get_members`;
+docs/design/group-members.md). No body.
+
+    200 {
+      "member_count": 1234,
+      "can_get_members": true,
+      "is_channel": false,
+      "account_is_admin": false,
+      "fetched_at": 1763540000
+    }
+
+`chat_id` is TDLib's chat id, as stored in `telegram_groups.id`.
+`member_count` is null and `fetched_at` (Unix time of the stored count)
+is null until a count is known. `can_get_members` says whether the
+account may list the members (false until known). `is_channel` and
+`account_is_admin` come from TDLib's cached group, without asking
+Telegram.
+
+One full-info request reaches Telegram at most once a minute per chat.
+Within the minute, or when Telegram fails, the stored row answers; a
+failure adds `"error"` with Telegram's message, and `fetched_at` tells
+how old the count is. Errors: 400 for a chat id that is not an integer;
+404 for a chat not in `telegram_groups`, or one that is not a group or
+channel; 503 when TDLib is not authorized; 504 when Telegram did not
+answer within 15 seconds.
+
+### GET /v1/chats/{chat_id}/members
+
+One page of a group's members, in the order Telegram gives them for its
+"recent" filter.
+`offset` (default 0) and `limit` (1 to 200, default 50) are query
+parameters; anything else is a 400.
+
+    200 {
+      "available": true,
+      "reason": "",
+      "total": 1234,
+      "members": [
+        {"user_id": 123456789, "status": "administrator", "joined_at": 1700000000}
+      ]
+    }
+
+- Supergroups and channels: `getSupergroupMembers` with the recent
+  filter. A channel lists its members only where the account is an
+  administrator.
+- Basic groups: the member list of their full info, paged here.
+- `status` is `creator`, `administrator`, `member` or `restricted` (a
+  restricted member still in the group); `joined_at` is null when
+  Telegram does not say. Members that are not users (an anonymous
+  administrator's chat) are left out.
+- `total` is Telegram's count of the group's members, or the stored
+  count when the list is not available, or null.
+- The users in the answer are stored in `telegram_users` by the daemon's
+  usual user handling (names, usernames, profile photos): TDLib reports
+  every user before an answer mentions it.
+
+When the list is not available, `available` is false, `members` is
+empty and `reason` says why:
+
+| `reason` | Meaning |
+|---|---|
+| `not_allowed` | A channel where the account is not an administrator, or Telegram refused the list (the group hides its members). |
+| `not_member` | The account is not in the group. |
+| `flood_wait` | Telegram rate-limited the account; `retry_after` is the wait in seconds. |
+| `error` | Anything else; `message` is Telegram's error. |
+
+`hidden` (a superadmin hid a channel's list) is the web's own reason;
+the daemon never answers it. An answer for the same chat, offset and
+limit is reused for 2 minutes, except `flood_wait` and `error`. A
+successful page also stores the group's count. Errors: 400, 404, 503
+and 504 as for `/v1/chats/{chat_id}/refresh`.
+
 ### POST /v1/users/{id}/lookup-name
 
 "Look up real name": reads the own name of a user who is a contact of the

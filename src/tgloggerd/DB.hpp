@@ -406,6 +406,27 @@ public:
 	void setGroupPhoto(int64_t group_id, uint64_t file_id);
 
 	/*
+	 * A group's member count and whether the account may list its
+	 * members, as Telegram last reported them (telegram_groups,
+	 * migration 000044). A member left out was not reported and keeps
+	 * what is stored; member_count_at is set when the count is written.
+	 * A no-op for a group not stored.
+	 */
+	void setGroupMemberInfo(int64_t group_id,
+				std::optional<int64_t> member_count,
+				std::optional<bool> can_get_members);
+
+	/* What telegram_groups holds about a group's members; nullopt when
+	 * the group is not stored. */
+	struct GroupMemberInfo {
+		std::string		type;	/* basic_group, supergroup, channel */
+		std::optional<int64_t>	member_count;
+		int64_t			member_count_at = 0;	/* unix; 0 if never */
+		std::optional<bool>	can_get_members;
+	};
+	std::optional<GroupMemberInfo> getGroupMemberInfo(int64_t group_id);
+
+	/*
 	 * Replace a group's stored administrator set with a freshly fetched
 	 * one, recording added/removed/privilege-change events in
 	 * telegram_group_admin_hist. Only call with a genuinely fetched list: an empty
