@@ -67,8 +67,10 @@ Admit Queue::push(const Item &it, Clock::time_point now)
 	return Admit::Queued;
 }
 
-std::optional<Item> Queue::pop(Clock::time_point now)
+std::optional<Item> Queue::pop(Clock::time_point now, bool background_ok)
 {
+	if (asked_.empty() && !background_ok)
+		return std::nullopt;
 	std::deque<Item> &q = !asked_.empty() ? asked_ : background_;
 	if (q.empty())
 		return std::nullopt;
@@ -167,6 +169,24 @@ std::vector<int64_t> catchUpChats(
 	out.reserve(recent.size());
 	for (const auto &r : recent)
 		out.push_back(r.second);
+	return out;
+}
+
+std::vector<int64_t> gapChats(
+	const std::vector<int64_t> &chats,
+	const std::unordered_map<int64_t, int64_t> &tdlib_last,
+	const std::unordered_map<int64_t, int64_t> &stored_max)
+{
+	std::vector<int64_t> out;
+	for (int64_t c : chats) {
+		auto t = tdlib_last.find(c);
+		if (t == tdlib_last.end() || t->second <= 0)
+			continue; /* TDLib named no last message: nothing to compare */
+		auto s = stored_max.find(c);
+		const int64_t have = s == stored_max.end() ? 0 : s->second;
+		if (have < t->second)
+			out.push_back(c);
+	}
 	return out;
 }
 

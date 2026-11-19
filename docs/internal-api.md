@@ -695,9 +695,19 @@ The daemon's own: about two minutes after TDLib is authorized, the
 newest stretch of every chat whose last message (from `updateNewChat`
 and `updateChatLastMessage`) is at most 48 hours old is queued, newest
 first, through the same queue and limits; they count as recent for the
-60-second rule. It covers the chats TDLib has announced by then, which
-is every chat in the chat lists when the history backfill, which loads
-them, is on. The log says how many were queued.
+60-second rule. Of those, only the chats with a gap at the newest end
+are queued: nothing stored for the chat, or its newest stored message
+older than TDLib's last message. It covers the chats TDLib has
+announced by then, which is every chat in the chat lists when the
+history backfill, which loads them, is on. The log says how many were
+active and how many had a gap.
+
+Catch-up rechecks run in the background: one starts only while no
+other recheck is in flight, so a recheck asked for never waits for
+two of them. Under Telegram's flood limits a history read can take a
+minute or more inside TDLib, and for a chat TDLib has not opened its
+first answer is often only the newest message or two; such a short
+answer concludes no deletion and is not paged further.
 
 ### GET /v1/users/{user_id}/photos
 

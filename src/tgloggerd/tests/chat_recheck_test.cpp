@@ -364,8 +364,42 @@ static void testQueuedAt(void)
 	CHECK(it && it->queued_at == t0, "queued_at is the push time");
 }
 
+static void testGapChats(void)
+{
+	printf("the catch-up rechecks only chats with a gap\n");
+	const std::vector<int64_t> chats{ -1, -2, -3, -4, 5 };
+	const std::unordered_map<int64_t, int64_t> tdlib{
+		{ -1, 100 }, { -2, 100 }, { -3, 100 }, { 5, 7 } };
+	const std::unordered_map<int64_t, int64_t> stored{
+		{ -1, 100 }, { -2, 99 }, { 5, 9 } };
+	auto g = gapChats(chats, tdlib, stored);
+	CHECK(g == std::vector<int64_t>({ -2, -3 }),
+	      "an older newest stored, or none stored: a gap");
+	CHECK(gapChats({ -1 }, tdlib, stored).empty(),
+	      "the newest already stored: no recheck");
+	CHECK(gapChats({ -4 }, tdlib, stored).empty(),
+	      "TDLib named no last message: nothing to compare");
+}
+
+static void testSlotForAsked(void)
+{
+	printf("a slot stays free for rechecks asked for\n");
+	Queue q;
+	const auto t0 = Clock::time_point{} + std::chrono::hours(1);
+	q.push({ -9, 0, true }, t0);
+	CHECK(!q.pop(t0, false), "no background recheck while one is in flight");
+	auto it = q.pop(t0, true);
+	CHECK(it && it->chat_id == -9, "but one when none is");
+	q.push({ -8, 0, true }, t0);
+	q.push({ -7, 0, false }, t0);
+	it = q.pop(t0, false);
+	CHECK(it && it->chat_id == -7, "an asked one goes regardless");
+}
+
 int main(void)
 {
+	testGapChats();
+	testSlotForAsked();
 	testRepairYields();
 	testQueuedAt();
 	testNewestLimit();

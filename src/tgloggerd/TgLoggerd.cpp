@@ -516,6 +516,32 @@ int TgLoggerd::start(void)
 	 * finds the message (setRecheckFoundHandler), and a tombstone on
 	 * Discord could not be.
 	 */
+	/*
+	 * The restart catch-up rechecks only the chats with a gap at the
+	 * newest end: TDLib's last message newer than the newest stored.
+	 */
+	tdlib_->setRecheckCatchUpHandler(
+		[this](std::vector<int64_t> chats,
+		       std::unordered_map<int64_t, int64_t> tdlib_last) {
+			serial_->post([this, chats, tdlib_last] {
+				try {
+					auto stored =
+						db_->newestStoredMessageIds(chats);
+					auto gaps = recheck::gapChats(
+						chats, tdlib_last, stored);
+					const size_t queued =
+						tdlib_->queueRecheckCatchUp(gaps);
+					pr_info(l_, "recheck: restart catch-up"
+						" queued %zu of %zu chat(s) with a"
+						" gap at the newest end (%zu"
+						" active in the last 48 h)",
+						queued, gaps.size(), chats.size());
+				} catch (const std::exception &e) {
+					pr_error(l_, "recheck: catch-up failed: %s",
+						 e.what());
+				}
+			});
+		});
 	tdlib_->setRecheckFoundHandler([this](int64_t chat_id, bool is_group,
 					      const std::vector<int64_t> &ids) {
 		serial_->post([this, chat_id, is_group, ids] {

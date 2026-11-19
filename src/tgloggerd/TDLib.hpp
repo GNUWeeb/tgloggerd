@@ -29,6 +29,7 @@
 #include "helpers/log.h"
 
 #include <utility>
+#include <unordered_map>
 #include <vector>
 
 /*
@@ -716,6 +717,23 @@ public:
 	 * days old is queued the same way, newest first.
 	 */
 	recheck::Admit recheckChat(int64_t chat_id, int64_t around);
+
+	/*
+	 * Set the callback for the restart catch-up's candidates, called once
+	 * per run on the loop thread with the recently active chats (newest
+	 * first) and TDLib's last message id (server id) of each. The callee
+	 * keeps those with a gap and queues them with queueRecheckCatchUp;
+	 * keep DB work off the loop thread. Without it, every candidate is
+	 * queued.
+	 */
+	void setRecheckCatchUpHandler(
+		std::function<void(std::vector<int64_t> chats,
+				   std::unordered_map<int64_t, int64_t> tdlib_last)>
+			cb);
+
+	/* Queue a newest-stretch background recheck of each of @chats; any
+	 * thread. Returns how many were queued. */
+	size_t queueRecheckCatchUp(const std::vector<int64_t> &chats);
 
 	/*
 	 * Set the callback for each recheck's answer (see recheckChat). Runs
