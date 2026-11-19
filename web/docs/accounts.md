@@ -163,7 +163,10 @@ A member's grants are stored per federation in
   have the daemon fetch files the store does not hold. Without
   `fetch_files` a member gets no link to an unstored file, and a link
   it holds answers 404 "File not stored" without reaching the daemon.
-  Superadmins and admins hold both, as before.
+  `mcp_tokens` lets it mint and manage its own MCP tokens on the MCP
+  page (mcp.md, Administration); taking it away leaves its tokens
+  working until whoever manages them revokes them. Superadmins and
+  admins hold all three by role.
 - File links (`/files/<token>`) stay capabilities that work without a
   session; a member only ever gets them for files it can see.
 - Exposed groups stay public: their chat page opens signed out, so it
@@ -222,7 +225,7 @@ accounts); every write carries the session's CSRF token.
   made member is filed in Default unless the same PATCH gives
   `grants`.
 - `abilities` replaces a member's abilities (`forward`,
-  `fetch_files`); only a member has them (400 `bad_request` for
+  `fetch_files`, `mcp_tokens`); only a member has them (400 `bad_request` for
   another role, and with field `abilities` for an unknown one). A
   superadmin, and an admin managing the member, sets them.
 - The last active superadmin cannot be disabled or demoted (409

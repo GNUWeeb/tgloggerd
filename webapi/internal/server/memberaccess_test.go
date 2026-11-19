@@ -625,6 +625,30 @@ func TestMemberGrantsAPI(t *testing.T) {
 	}
 }
 
+// mcp_tokens is a member ability like the others: an admin managing
+// the member gives it, it is stored and read back, and it reaches the
+// member's account.
+func TestMemberMCPTokensAbility(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t)
+	path := fmt.Sprintf("/api/accounts/%d", memberUID)
+	b := e.want(200, "admin", "PATCH", path, map[string]any{"abilities": []string{"mcp_tokens", "forward"}})
+	if js(b["abilities"]) != `["forward","mcp_tokens"]` {
+		t.Fatalf("abilities %v", b["abilities"])
+	}
+	if !auditHas(e, []string{"abilities none->forward,mcp_tokens"}) {
+		t.Errorf("audit %v", e.audits())
+	}
+	if got := e.appOne("SELECT GROUP_CONCAT(ability ORDER BY ability) FROM web_member_abilities "+
+		"WHERE web_user_id = ?", memberUID); got != "forward,mcp_tokens" {
+		t.Errorf("stored %s", got)
+	}
+	b = e.want(200, "superadmin", "PATCH", path, map[string]any{"abilities": []string{}})
+	if js(b["abilities"]) != `[]` {
+		t.Errorf("abilities after removing %v", b["abilities"])
+	}
+}
+
 // An admin sees, in a member's row, only the granted groups it may see
 // and change: none hidden from it (by title, id or audit line) and none
 // of a federation it does not administer. Its PATCH from that row keeps

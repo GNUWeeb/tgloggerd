@@ -288,7 +288,7 @@ func TestMemberGrants(t *testing.T) {
 	if !slices.Equal(m.GrantedGroups(), []int64{-12, -10}) {
 		t.Errorf("GrantedGroups = %v", m.GrantedGroups())
 	}
-	for _, a := range []Ability{JoinChat, LookupName, ManageMCP, StoreAudit, Forward} {
+	for _, a := range []Ability{JoinChat, LookupName, ManageMCP, StoreAudit, Forward, MCPTokens} {
 		if m.Can(a) {
 			t.Errorf("member Can(%s) without it", a)
 		}
@@ -300,6 +300,13 @@ func TestMemberGrants(t *testing.T) {
 	if !f.Can(Forward) || f.Can(FetchFiles) || !f.Page("platform_fwd") || f.SeesAllForwarding() ||
 		f.SeesAllBots() {
 		t.Error("a member with forward")
+	}
+	mt := For(Viewer{ID: 5, Role: Member, Abilities: []Ability{MCPTokens}})
+	if !mt.Can(MCPTokens) || mt.Can(ManageMCP) || mt.Can(Forward) {
+		t.Error("a member with mcp_tokens")
+	}
+	if a := For(Viewer{ID: 3, Role: Admin, Abilities: []Ability{MCPTokens}}); !a.Can(MCPTokens) {
+		t.Error("an admin without mcp_tokens")
 	}
 	// Without grants: nothing.
 	none := For(Viewer{ID: 6, Role: Member})

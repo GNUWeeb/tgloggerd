@@ -524,3 +524,29 @@ func TestMigrationTransfersMCPTokens(t *testing.T) {
 		t.Errorf("without the name superadmin: %s; %s", got, a)
 	}
 }
+
+// Web migration 000016 lets a member hold mcp_tokens; its down
+// migration takes the ability away again.
+func TestMigrationAddsMCPTokensAbility(t *testing.T) {
+	t.Parallel()
+	db := emptyAppDB(t)
+	migrateAppDB(t, db, "000016")
+	if _, err := db.Exec("INSERT INTO web_users (id, username, password_hash, role) VALUES " +
+		"(2, 'peek', '', 'member')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO web_member_abilities (web_user_id, ability) " +
+		"VALUES (2, 'forward'), (2, 'mcp_tokens')"); err != nil {
+		t.Fatal(err)
+	}
+	downAppDB(t, db, "000015")
+	var got string
+	if err := db.QueryRow("SELECT GROUP_CONCAT(ability) FROM web_member_abilities").Scan(&got); err != nil ||
+		got != "forward" {
+		t.Errorf("after the down migration: %q %v", got, err)
+	}
+	if _, err := db.Exec("INSERT INTO web_member_abilities (web_user_id, ability) " +
+		"VALUES (2, 'mcp_tokens')"); err == nil {
+		t.Error("mcp_tokens stored after the down migration")
+	}
+}

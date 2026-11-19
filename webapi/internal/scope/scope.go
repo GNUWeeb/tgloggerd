@@ -48,9 +48,9 @@ func ParseRole(s string) (Role, bool) {
 // Ability is something a request may do beyond seeing.
 type Ability string
 
-// The abilities. Forward and FetchFiles are the ones a member can be
-// given (web-accounts.md section 5); the others are admin actions on
-// the shared Telegram account (section 4).
+// The abilities. Forward, FetchFiles and MCPTokens are the ones a
+// member can be given (web-accounts.md section 5); the others are
+// admin actions on the shared Telegram account (section 4).
 const (
 	JoinChat   Ability = "join_chat"   // join groups (Join chat page)
 	LookupName Ability = "lookup_name" // "Look up real name": changes contacts
@@ -58,6 +58,7 @@ const (
 	StoreAudit Ability = "store_audit" // the store audit
 	Forward    Ability = "forward"     // set up forwarding
 	FetchFiles Ability = "fetch_files" // fetch unstored files from Telegram
+	MCPTokens  Ability = "mcp_tokens"  // mint and manage one's own MCP tokens
 )
 
 // Gate is a step a signed-in account must take before anything else.
@@ -102,8 +103,8 @@ type Viewer struct {
 	HideGroups []int64
 	// GrantedGroups are the groups granted to a member, by chat id:
 	// the union over its federations (web-member-access). Abilities
-	// are the abilities given to a member (Forward, FetchFiles). For
-	// sorts both and clears them for the other roles.
+	// are the abilities given to a member (Forward, FetchFiles,
+	// MCPTokens). For sorts both and clears them for the other roles.
 	GrantedGroups []int64
 	Abilities     []Ability
 }
@@ -177,7 +178,7 @@ func For(v Viewer) Scope {
 	var abilities []Ability
 	if v.Role == Member {
 		for _, a := range v.Abilities {
-			if a == Forward || a == FetchFiles {
+			if a == Forward || a == FetchFiles || a == MCPTokens {
 				abilities = append(abilities, a)
 			}
 		}
@@ -347,8 +348,9 @@ func (s Scope) SeesAllUsers() bool {
 // Can is whether the viewer may do a. Superadmins may do everything.
 // Admins may do all but what is withheld from them: join_chat is off
 // by default and granted per admin (web-admin-restrictions), and "Look
-// up real name" is for superadmins only. Members may do Forward and
-// FetchFiles when given them (web-member-access), and nothing else.
+// up real name" is for superadmins only. Members may do Forward,
+// FetchFiles and MCPTokens when given them (web-member-access,
+// mcp-token-ownership), and nothing else.
 func (s Scope) Can(a Ability) bool {
 	switch {
 	case s.is(Superadmin):
