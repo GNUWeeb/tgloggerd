@@ -173,6 +173,12 @@ func run(log *slog.Logger, cfg *config.Config) error {
 			"security", cfg.Mail.Security, "site", cfg.PublicURL)
 	}
 
+	// The Telegram bots' own users are resolved through the daemon in
+	// the background, so the bots can link to their user pages; with
+	// the daemon API off nothing runs.
+	bots := server.NewBotResolver(log.With("component", "bot-users"), ro, dc)
+	go bots.Run(ctx)
+
 	signer := auth.NewSigner(cfg.AppKey)
 	var acctLimiter *auth.RateLimiter
 	if cfg.LoginMaxPerAccount > 0 {
@@ -213,6 +219,7 @@ func run(log *slog.Logger, cfg *config.Config) error {
 			LogRequests:    cfg.MCPLogRequests,
 		},
 		SearchEngine: engine,
+		Bots:         bots,
 		Mail:         mailer,
 		MailCfg: server.MailConfig{
 			Site:      cfg.PublicURL,

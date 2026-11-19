@@ -261,6 +261,12 @@ func (c *countingConn) CheckNamedValue(v *driver.NamedValue) error {
 // read telegram_files.
 func countFiles(t *testing.T, e *adminEnv) *atomic.Int64 {
 	t.Helper()
+	return countTable(t, e, "telegram_files")
+}
+
+// countTable is countFiles for the statements that name table.
+func countTable(t *testing.T, e *adminEnv, table string) *atomic.Int64 {
+	t.Helper()
 	var name string
 	if err := e.ro.QueryRow("SELECT DATABASE()").Scan(&name); err != nil {
 		t.Fatal(err)
@@ -275,7 +281,7 @@ func countFiles(t *testing.T, e *adminEnv) *atomic.Int64 {
 		t.Fatal(err)
 	}
 	n := &atomic.Int64{}
-	db := sql.OpenDB(countingConnector{Connector: mc, table: "telegram_files", n: n})
+	db := sql.OpenDB(countingConnector{Connector: mc, table: table, n: n})
 	t.Cleanup(func() { db.Close() })
 	e.with(func(d *Deps) { d.RO = db })
 	return n

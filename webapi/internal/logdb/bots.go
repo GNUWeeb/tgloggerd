@@ -117,6 +117,9 @@ type BotRow struct {
 	UserID   string
 	Username string
 	Routes   int // Discord to Telegram routes using it
+	// HasUser is whether the archive has the telegram_users row of a
+	// Telegram bot's user id; never for a Discord bot.
+	HasUser bool
 	// Photo is a Telegram bot's own profile photo: that of the
 	// telegram_users row of its user id, when the archive has one.
 	// None for a Discord bot.
@@ -130,10 +133,10 @@ func botQuery(kind, where string) string {
 	}
 	// The photo comes in the same query, so a list of bots costs one
 	// query per kind however many there are.
-	photo := "0, NULL, NULL, NULL, NULL, NULL, NULL"
+	photo := "0, 0, NULL, NULL, NULL, NULL, NULL, NULL"
 	join := ""
 	if kind == KindTelegram {
-		photo = "COALESCE(bu.profile_photo_file_id, 0), " + fileColumnsOf("bf")
+		photo = "bu.id IS NOT NULL, COALESCE(bu.profile_photo_file_id, 0), " + fileColumnsOf("bf")
 		join = " LEFT JOIN telegram_users bu ON b.bot_user_id <> 0 AND bu.id = b.bot_user_id" +
 			" LEFT JOIN telegram_files bf ON bf.id = bu.profile_photo_file_id"
 	}
@@ -154,7 +157,7 @@ func scanBots(rows *sql.Rows, kind string) ([]BotRow, error) {
 			f     nullFile
 		)
 		if err := rows.Scan(append([]any{&b.ID, &b.Name, &b.Enabled, &b.Status, &b.StatusDetail, &at,
-			&b.UserID, &b.Username, &b.Routes, &photo}, f.dest()...)...); err != nil {
+			&b.UserID, &b.Username, &b.Routes, &b.HasUser, &photo}, f.dest()...)...); err != nil {
 			return nil, err
 		}
 		b.Photo = f.ref(photo)
@@ -350,4 +353,35 @@ func ImportDiscordBot(ctx context.Context, db *sql.DB, name, token string) (uint
 		return 0, false, 0, err
 	}
 	return id, created, n, tx.Commit()
+}
+
+// UnresolvedBot is a Telegram bot whose identity is known but whose
+// user the archive does not have.
+type UnresolvedBot struct {
+	ID       uint64
+	UserID   int64
+	Username string
+}
+
+// UnresolvedTelegramBots is every Telegram bot that has logged in (a
+// user id and a username) and whose telegram_users row is missing, by
+// id. Discord bots are never among them: their ids are no Telegram
+// users.
+func UnresolvedTelegramBots(ctx context.Context, db *sql.DB) ([]UnresolvedBot, error) {
+	rows, err := db.QueryContext(ctx, "SELECT b.id, b.bot_user_id, b.username FROM telegram_bots b "+
+		"LEFT JOIN telegram_users u ON u.id = b.bot_user_id "+
+		"WHERE b.bot_user_id <> 0 AND b.username <> '' AND u.id IS NULL ORDER BY b.id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UnresolvedBot
+	for rows.Next() {
+		var b UnresolvedBot
+		if err := rows.Scan(&b.ID, &b.UserID, &b.Username); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
 }

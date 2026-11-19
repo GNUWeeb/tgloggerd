@@ -101,7 +101,7 @@ func TestBotsPage(t *testing.T) {
 		`{"id":5,"name":"researcher","role":"member","active":true},` +
 		`{"id":4,"name":"sec_lead","role":"admin","active":true}]`
 	if got := js(botByID(t, b, 1000000002)); got != canon(`{"id":1000000002,"kind":"discord",`+
-		`"name":"Old reader","identity":null,"status":"token_refused","enabled":false,"photo":null,`+
+		`"name":"Old reader","identity":null,"status":"token_refused","enabled":false,"photo":null,"profile":null,`+
 		`"owner":{"id":0,"name":"Shared","active":true},"transfer_candidates":`+cands+`,`+
 		`"status_at":"2026-11-18T02:00:00Z",`+
 		`"status_detail":"Discord refused the token (close code 4004).","routes":0}`) {
@@ -123,9 +123,9 @@ func TestBotsPage(t *testing.T) {
 	noSecrets(t, "list", lb)
 	if got := js(lb); got != canon(`{"bots":[`+
 		`{"id":1000000001,"kind":"discord","name":"Main reader","identity":{"user_id":"1000000000000000001",`+
-		`"username":"gw_reader"},"status":"connected","enabled":true,"photo":null},`+
+		`"username":"gw_reader"},"status":"connected","enabled":true,"photo":null,"profile":null},`+
 		`{"id":1000000002,"kind":"discord","name":"Old reader","identity":null,`+
-		`"status":"token_refused","enabled":false,"photo":null}]}`) {
+		`"status":"token_refused","enabled":false,"photo":null,"profile":null}]}`) {
 		t.Errorf("list %s", got)
 	}
 	if lb := e.want(200, "superadmin", "GET", botsBase, nil); len(lb["bots"].([]any)) != 4 {
