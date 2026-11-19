@@ -124,7 +124,7 @@ func TestForwardingPages(t *testing.T) {
 	if r2["channel_name"] != "" || r2["discord_bot"] != nil ||
 		js(r2["telegram_bot"]) != canon(`{"id":2,"kind":"telegram","name":"Bot 2","identity":null,`+
 			`"status":"disabled","enabled":false,"photo":null,"profile":null}`) ||
-		js(r2["types"]) != `["text","document","sticker","audio"]` {
+		js(r2["types"]) != `["text","document","sticker","audio","embed","system"]` {
 		t.Errorf("route 2 %s", js(r2))
 	}
 	if _, ok := r1["bot"]; ok {
@@ -463,7 +463,7 @@ func TestD2TRefusals(t *testing.T) {
 		{with("discord_channel_id", "0"), 400, "bad_channel"},
 		{with("discord_channel_id", "123456789012345678901"), 400, "bad_channel"},
 		{with("types", []string{"other"}), 400, "bad_request"},
-		{with("types", []string{"voice"}), 400, "bad_request"},
+		{with("types", []string{"video_note"}), 400, "bad_request"},
 		{with("types", []string{}), 400, "bad_request"},
 		{with("discord_bot_id", nil), 400, "bad_request"},
 		{with("telegram_bot_id", nil), 400, "bad_request"},

@@ -71,9 +71,30 @@ public:
 	int64_t sendText(uint64_t key, int64_t chat_id, const std::string &text,
 			 int64_t reply_to_server_id, std::string *err);
 
+	/*
+	 * Send the voice note in the local file @path (OGG/Opus), @duration
+	 * seconds long, with @waveform in Telegram's packed 5-bit format and
+	 * @caption, the same way as sendText. The file is REMOVED once TDLib
+	 * reports the upload done or failed (or at once when the send cannot
+	 * start), so the caller hands over a file of its own. @accepted, if
+	 * set, says whether TDLib took the message: a 0 with it set means
+	 * the upload was not confirmed in time and may still arrive.
+	 */
+	int64_t sendVoiceNote(uint64_t key, int64_t chat_id,
+			      const std::string &path, int32_t duration,
+			      const std::string &waveform,
+			      const std::string &caption,
+			      int64_t reply_to_server_id, std::string *err,
+			      bool *accepted = nullptr);
+
 	/* Replace the text of a message this sender previously sent. */
 	bool editText(uint64_t key, int64_t chat_id, int64_t server_message_id,
 		      const std::string &text, std::string *err);
+
+	/* Replace the caption of a media message this sender sent. */
+	bool editCaption(uint64_t key, int64_t chat_id,
+			 int64_t server_message_id, const std::string &caption,
+			 std::string *err);
 
 private:
 	struct Impl;

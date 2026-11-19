@@ -41,4 +41,20 @@ unsigned attachment_type(const gwdiscord::Attachment &a)
 	return FWD_DOCUMENT; /* including one Discord sent no type for */
 }
 
+unsigned attachment_type(const gwdiscord::Message &m,
+			 const gwdiscord::Attachment &a)
+{
+	const unsigned t = attachment_type(a);
+	/*
+	 * A voice message carries its recording as its only attachment,
+	 * audio/ogg with a duration and a waveform: it follows FWD_VOICE, not
+	 * FWD_AUDIO, so a route can take voice messages without audio files
+	 * and the other way round.
+	 */
+	if (m.is_voice_message() &&
+	    (t == FWD_AUDIO || a.duration_secs > 0 || !a.waveform.empty()))
+		return FWD_VOICE;
+	return t;
+}
+
 } /* namespace discordd */

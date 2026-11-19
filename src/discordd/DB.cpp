@@ -58,20 +58,22 @@ std::vector<Route> DB::loadRoutes(bool bots_table)
 		"       r.telegram_bot_id, b.token, b.bot_user_id, b.username, "
 		"       r.fwd_sticker, r.fwd_text, r.fwd_photo, r.fwd_video, "
 		"       r.fwd_document, r.discord_bot_id, r.fwd_audio, "
-		"       r.fwd_animation "
+		"       r.fwd_animation, r.fwd_voice, r.fwd_embed, r.fwd_poll, "
+		"       r.fwd_system "
 		"FROM discord_telegram_routes r "
 		"JOIN telegram_bots b ON b.id = r.telegram_bot_id "
 		"LEFT JOIN discord_bots d ON d.id = r.discord_bot_id "
 		"WHERE r.enabled = 1 AND b.enabled = 1 "
 		"  AND (r.discord_bot_id IS NULL OR d.enabled = 1)";
 	/* Before migration 000040: no Discord bot column, no table, and no
-	 * audio or animation flag either (000048), so those follow the flags
-	 * they were split from. */
+	 * audio or animation flag either (000048), nor voice, embed, poll or
+	 * system (000050), so those follow the flags they were split from. */
 	static const char *SQL_BEFORE =
 		"SELECT r.id, r.discord_channel_id, r.telegram_chat_id, "
 		"       r.telegram_bot_id, b.token, b.bot_user_id, b.username, "
 		"       r.fwd_sticker, r.fwd_text, r.fwd_photo, r.fwd_video, "
-		"       r.fwd_document, NULL, r.fwd_document, r.fwd_photo "
+		"       r.fwd_document, NULL, r.fwd_document, r.fwd_photo, "
+		"       r.fwd_document, r.fwd_text, r.fwd_text, r.fwd_text "
 		"FROM discord_telegram_routes r "
 		"JOIN telegram_bots b ON b.id = r.telegram_bot_id "
 		"WHERE r.enabled = 1 AND b.enabled = 1";
@@ -99,6 +101,13 @@ std::vector<Route> DB::loadRoutes(bool bots_table)
 			rt.types |= FWD_AUDIO;
 		if (row_u64(r, 14))
 			rt.types |= FWD_ANIMATION;
+		/* From column 15 on, migration 000050's flags. */
+		static const unsigned more[] = { FWD_VOICE, FWD_EMBED,
+						 FWD_POLL, FWD_SYSTEM };
+		for (size_t i = 0; i < sizeof(more) / sizeof(more[0]); i++) {
+			if (row_u64(r, 15 + i))
+				rt.types |= more[i];
+		}
 		out.push_back(std::move(rt));
 	}
 	return out;

@@ -3655,10 +3655,10 @@ export interface components {
          */
         T2DType: "text" | "photo" | "video" | "animation" | "video_note" | "document" | "sticker" | "voice" | "audio" | "poll" | "checklist" | "dice" | "game" | "location" | "contact" | "story" | "paid_media" | "invoice" | "service" | "other";
         /**
-         * @description A kind of content a Discord to Telegram route may forward, in the order of type_options. audio is audio/* attachments; animation is image/gif attachments and animated stickers; any other attachment is a photo (image/*), a video (video/*) or a document.
+         * @description A kind of content a Discord to Telegram route may forward, in the order of type_options. audio is audio/* attachments; animation is image/gif attachments and animated stickers; any other attachment is a photo (image/*), a video (video/*) or a document. voice is a voice message, sent as a voice note; embed is a bot's or webhook's rich embeds, poll a poll's question and answers, and system a system message (a member joining, a pin, a boost, ...), each rendered as text lines.
          * @enum {string}
          */
-        D2TType: "text" | "photo" | "video" | "animation" | "document" | "sticker" | "audio";
+        D2TType: "text" | "photo" | "video" | "animation" | "document" | "sticker" | "audio" | "voice" | "embed" | "poll" | "system";
         /** @description The kinds of content forwarded, in the order of type_options. A write takes the whole set: an unknown type or an empty set is 400 bad_request (disabling a route is how it stops). */
         T2DTypes: components["schemas"]["T2DType"][];
         /** @description The kinds of content forwarded, in the order of type_options. A write takes the whole set: an unknown type or an empty set is 400 bad_request (disabling a route is how it stops). */

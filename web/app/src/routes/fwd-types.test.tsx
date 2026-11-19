@@ -102,16 +102,20 @@ describe('forwarding content types', () => {
 		expect((callsTo(calls, 'PATCH', `/api/forwarding/telegram-discord/${r.id}`)[0]!.body as { types: string[] }).types).toEqual(['text', 'sticker', 'service']);
 	});
 
-	it('shows Discord to Telegram only its own short list', () => {
+	it('shows Discord to Telegram only its own list, with its own kinds', () => {
 		fakeApi('superadmin');
 		renderPage(D2T);
 		fireEvent.click(screen.getByRole('button', { name: /Add route/ }));
-		expect(groupNames()).toEqual(['Text', 'Media', 'Audio']);
+		expect(groupNames()).toEqual(['Text', 'Media', 'Audio', 'Polls and games', 'Embeds', 'System messages']);
 		expect(within(groupRow('Media')).getByText('5 of 5')).toBeTruthy();
-		// Messages and media would be everything here.
-		expect(within(dialog()).getAllByRole('radio').map((x) => x.textContent)).toEqual(['Everything', 'Text only']);
-		fireEvent.click(within(groupRow('Media')).getByRole('button', { name: 'Show Media' }));
-		expect([...dialog().querySelectorAll('.a-checkchip')].map((x) => x.textContent)).toEqual(['Photos', 'Videos', 'GIFs', 'Files', 'Stickers']);
+		expect(within(groupRow('Audio')).getByText('2 of 2')).toBeTruthy();
+		// Messages and media leave out Discord's system messages.
+		expect(within(dialog()).getAllByRole('radio').map((x) => x.textContent)).toEqual(['Everything', 'Messages and media', 'Text only']);
+		fireEvent.click(within(dialog()).getByRole('radio', { name: 'Messages and media' }));
+		expect(within(groupRow('System messages')).getByRole('checkbox').getAttribute('aria-checked')).toBe('false');
+		expect(within(groupRow('Embeds')).getByRole('checkbox').getAttribute('aria-checked')).toBe('true');
+		fireEvent.click(within(groupRow('Audio')).getByRole('button', { name: 'Show Audio' }));
+		expect([...dialog().querySelectorAll('.a-checkchip')].map((x) => x.textContent)).toEqual(['Voice messages', 'Music']);
 	});
 
 	it('shows an option the app does not know under Other kinds by its name', () => {
@@ -119,7 +123,7 @@ describe('forwarding content types', () => {
 		fakeApi('superadmin');
 		renderPage(D2T, 'superadmin', { props: { ...page.props, type_options: [...page.props.type_options, 'hologram' as never] } });
 		fireEvent.click(screen.getByRole('button', { name: /Add route/ }));
-		expect(groupNames()).toEqual(['Text', 'Media', 'Audio', 'Other kinds']);
+		expect(groupNames()).toEqual(['Text', 'Media', 'Audio', 'Polls and games', 'Embeds', 'System messages', 'Other kinds']);
 		fireEvent.click(within(groupRow('Other kinds')).getByRole('button', { name: 'Show Other kinds' }));
 		expect(box('hologram').checked).toBe(true);
 	});
@@ -145,6 +149,7 @@ describe('forwarding route list', () => {
 		renderPage(D2T);
 		const texts = [...document.querySelectorAll('tbody .a-wrapcell > span')].map((c) => c.textContent);
 		expect(texts).toContain('All content');
-		expect(texts).toContain('Text only');
+		// A route that was text only also carries what was posted as text.
+		expect(texts).toContain('Text, Polls and games, Embeds, System messages');
 	});
 });

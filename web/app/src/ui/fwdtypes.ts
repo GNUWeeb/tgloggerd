@@ -12,6 +12,8 @@ const LABEL: Record<FwdType, string> = {
 	voice: 'Voice messages', audio: 'Music', poll: 'Polls', checklist: 'Checklists', dice: 'Dice', game: 'Games',
 	location: 'Locations', contact: 'Contacts', story: 'Stories', paid_media: 'Paid media', invoice: 'Invoices',
 	service: 'Service messages', other: 'Everything else',
+	// Discord to Telegram only.
+	embed: 'Embeds', system: 'System messages',
 };
 
 // A type the app does not know yet shows its raw name.
@@ -26,7 +28,9 @@ const GROUPS: GroupDef[] = [
 	{ id: 'polls', name: 'Polls and games', types: ['poll', 'checklist', 'dice', 'game'] },
 	{ id: 'places', name: 'Places and contacts', types: ['location', 'contact'] },
 	{ id: 'extras', name: 'Telegram extras', types: ['story', 'paid_media', 'invoice'] },
+	{ id: 'embeds', name: 'Embeds', types: ['embed'], hint: 'Link previews and the cards bots post.' },
 	{ id: 'service', name: 'Service messages', types: ['service'], hint: 'Joins, pins, title changes and the like.' },
+	{ id: 'system', name: 'System messages', types: ['system'], hint: 'Discord\'s joins, pins, boosts and the like.' },
 	{ id: 'other', name: 'Everything else', types: ['other'], hint: 'Rich messages, calls, giveaways and kinds added later.' },
 ];
 const UNKNOWN = 'unknown';
@@ -47,11 +51,12 @@ export function groupsOf(options: readonly string[]): Group[] {
 
 export type Preset = { id: string; name: string; types: string[] };
 
-const MESSAGES_AND_MEDIA = new Set(['text', 'media', 'audio', 'polls', 'places']);
+// Messages and media leave out the service and system messages, the
+// Telegram extras and everything else.
+const MESSAGES_AND_MEDIA = new Set(['text', 'media', 'audio', 'polls', 'places', 'embeds']);
 
 // The presets, each limited to the direction's options; one that comes
-// out the same as an earlier one (Discord to Telegram has nothing beyond
-// messages and media) or empty is left out.
+// out the same as an earlier one or empty is left out.
 export function presetsOf(options: readonly string[]): Preset[] {
 	const gs = groupsOf(options);
 	const all: Preset[] = [

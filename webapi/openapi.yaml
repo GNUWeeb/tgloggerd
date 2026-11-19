@@ -9378,8 +9378,11 @@ components:
         the order of type_options. audio is audio/* attachments;
         animation is image/gif attachments and animated stickers; any
         other attachment is a photo (image/*), a video (video/*) or a
-        document.
-      enum: [text, photo, video, animation, document, sticker, audio]
+        document. voice is a voice message, sent as a voice note; embed
+        is a bot's or webhook's rich embeds, poll a poll's question and
+        answers, and system a system message (a member joining, a pin,
+        a boost, ...), each rendered as text lines.
+      enum: [text, photo, video, animation, document, sticker, audio, voice, embed, poll, system]
     T2DTypes:
       type: array
       description: >-
