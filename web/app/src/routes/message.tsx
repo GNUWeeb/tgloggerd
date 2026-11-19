@@ -77,7 +77,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						{m.media && (
 							<div className="a-msgmedia">
 								{drawn ? <MessageMedia msg={{ content_type: m.content_type, media: m.media, album: [] }} onClick={v.chat?.media === 'click'} />
-									: <div className="a-filerow"><Thumb type={m.content_type} thumb={m.media.thumb} stored={m.media.stored} size={44} /><div><b>{m.media.name || m.content_type}</b><div className="a-muted sm">{bytes(m.media.size)}{m.media.duration ? ' . ' + duration(m.media.duration) : ''}</div></div></div>}
+									: <div className="a-filerow"><Thumb type={m.content_type} thumb={m.media.thumb} url={m.media.url} stored={m.media.stored} ext={m.media.ext} size={44} /><div><b>{m.media.name || m.content_type}</b><div className="a-muted sm">{bytes(m.media.size)}{m.media.duration ? ' . ' + duration(m.media.duration) : ''}</div></div></div>}
 							</div>
 						)}
 						{m.detail && <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} v={v} /></div>}

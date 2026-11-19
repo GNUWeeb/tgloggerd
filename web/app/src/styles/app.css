@@ -341,7 +341,10 @@
    one cannot stretch the box (and with it the grid row). */
 .app .a-filecard-media { aspect-ratio: 4 / 3; flex: none; display: block; position: relative; overflow: hidden; min-height: 0; background: var(--hover); }
 .app .a-filecard-media > .a-thumb { position: absolute; inset: 0; width: 100%; height: 100%; }
+.app .a-thumb > img { position: relative; }
 .app .a-thumb.a-fill img { position: absolute; inset: 0; max-width: 100%; max-height: 100%; object-fit: contain; }
+/* A video's blurred preview fills the box, under its still if any. */
+.app .a-thumb img.a-thumb-mini { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; object-fit: cover; filter: blur(8px); transform: scale(1.15); }
 .app .a-filecard-media .a-thumb-sticker { font-size: 64px !important; }
 .app .a-dur { position: absolute; left: 8px; bottom: 8px; background: rgb(0 0 0 / .55); color: #fff; font-size: 11.5px; padding: 1px 6px; border-radius: 6px; font-variant-numeric: tabular-nums; }
 .app .a-filecard-meta { display: flex; flex-direction: column; padding: 8px 10px; min-width: 0; }

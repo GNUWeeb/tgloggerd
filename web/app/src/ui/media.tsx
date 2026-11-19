@@ -24,27 +24,45 @@ export function duration(s: number): string {
 	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-// An <img> cannot draw a .webm video or a .tgs (Lottie) sticker, which
-// an older server sent as such a file's own thumb: the type's icon
-// stands in instead of a broken image.
+// The file types that play: their thumb is a still picture of them.
+const VIDEO_TYPES: ReadonlySet<string> = new Set(['video', 'animation', 'video_note']);
+export const isVideoType = (type: string) => VIDEO_TYPES.has(type);
+
+// An <img> cannot draw a video or a .tgs (Lottie) sticker. Go sends a
+// video's (and a .webm sticker's) still picture as its thumb; an older
+// server sent such a file's own URL. So the check is on the thumb, not
+// the file: a thumb that is a .webm or .tgs URL, or the file's own URL
+// when the file plays or is a .webm or .tgs, is refused, and the type's
+// icon stands in instead of a broken image.
 const UNDRAWABLE = /\.(webm|tgs)$/i;
-export function drawableThumb(thumb: string | null | undefined, ext?: string): string | null {
-	if (!thumb || (ext && UNDRAWABLE.test('.' + ext))) return null;
-	return UNDRAWABLE.test(new URL(thumb, 'http://x').pathname) ? null : thumb;
+export type ThumbOf = { url?: string | null; ext?: string; type?: string };
+export function drawableThumb(thumb: string | null | undefined, file: ThumbOf = {}): string | null {
+	if (!thumb || UNDRAWABLE.test(new URL(thumb, 'http://x').pathname)) return null;
+	const plays = (file.ext && UNDRAWABLE.test('.' + file.ext)) || (file.type && isVideoType(file.type));
+	return plays && thumb === file.url ? null : thumb;
 }
 
-export function Thumb({ type, thumb: given, stored, ext, size = 36, radius = 8, fill = false }: { type: ContentType; thumb?: string | null; stored: boolean; ext?: string; size?: number; radius?: number; fill?: boolean }) {
-	const thumb = drawableThumb(given, ext);
+// A file's picture: its thumb, a video's still with the play mark over
+// it, or a video's blurred preview (minithumb) when it has no still.
+// The blurred preview also lies under the still while that loads. A
+// video that is not stored keeps its still, marked as not stored.
+export function Thumb({ type, thumb: given, url, minithumb, stored, ext, size = 36, radius = 8, fill = false }: { type: ContentType; thumb?: string | null; url?: string | null; minithumb?: string | null; stored: boolean; ext?: string; size?: number; radius?: number; fill?: boolean }) {
+	const thumb = drawableThumb(given, { url, ext, type });
+	const mini = minithumb || null;
 	const style = fill ? { borderRadius: radius } : { width: size, height: size, borderRadius: radius };
 	const cls = `a-thumb ${fill ? 'a-fill' : ''}`;
-	if (!stored) return <span className={`${cls} a-thumb-missing`} style={style} title="Not stored"><CloudOff size={Math.round(size * 0.4)} /></span>;
-	if (thumb) {
+	if (!stored && !thumb && !mini) return <span className={`${cls} a-thumb-missing`} style={style} title="Not stored"><CloudOff size={Math.round(size * 0.4)} /></span>;
+	if (thumb || mini) {
+		const video = isVideoType(type);
 		return (
-			<span className={cls} style={style}>
+			<span className={`${cls} ${thumb ? '' : 'a-thumb-blurred'}`} style={style} title={stored ? undefined : 'Not stored'}>
+				{mini && <img className="a-thumb-mini" src={mini} alt="" />}
 				{/* A filled box keeps its own size and shows the picture whole;
 				    a small square thumbnail is cropped to fill it. */}
-				<img src={thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: fill ? 'contain' : 'cover' }} />
-				{(type === 'video' || type === 'animation') && <span className="a-thumb-play"><Play size={Math.round(size * 0.3)} fill="currentColor" /></span>}
+				{thumb && <img src={thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: fill ? 'contain' : 'cover' }} />}
+				{!stored
+					? <span className="a-thumb-play"><CloudOff size={Math.round(size * 0.3)} /></span>
+					: video && <span className="a-thumb-play"><Play size={Math.round(size * 0.3)} fill="currentColor" /></span>}
 			</span>
 		);
 	}

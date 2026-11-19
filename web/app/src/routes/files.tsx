@@ -5,7 +5,7 @@ import { Link, setQuery, useNav, useQueryParams } from '../nav.tsx';
 import { Btn, KV, PageHead, Pill } from '../ui/primitives.tsx';
 import { DataTable, emptyText, FilterBar, Pager, useListNav, type Col } from '../ui/list.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { Thumb, TypeIcon, drawableThumb, duration } from '../ui/media.tsx';
+import { Thumb, TypeIcon, drawableThumb, duration, isVideoType } from '../ui/media.tsx';
 import { ago, bytes, dateTime, fmt } from '../format.ts';
 import type { PageData, Viewer } from '../page.ts';
 import type { Cond, FieldDef, FileRow, ListProps } from '../types.ts';
@@ -47,7 +47,7 @@ const chatHref = (c: NonNullable<FileRow['chat']>) => (c.kind === 'group' ? `/gr
 // shape: never cropped, within the pane and most of the window's height.
 // A stored picture opens bigger, in the chat's viewer, on a click.
 function PreviewImage({ f, src, onZoom }: { f: FileRow; src: string; onZoom: (() => void) | null }) {
-	const video = f.file_type === 'video' || f.file_type === 'animation';
+	const video = isVideoType(f.file_type);
 	const img = <img className="a-preview-img" src={src} alt="" />;
 	if (onZoom) return <button type="button" className="a-preview-media a-preview-zoom" onClick={onZoom} aria-label="View bigger">{img}</button>;
 	return (
@@ -59,10 +59,12 @@ function PreviewImage({ f, src, onZoom }: { f: FileRow; src: string; onZoom: (()
 }
 
 function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void }) {
-	const big = f.file_type === 'photo' || f.file_type === 'video' || f.file_type === 'animation' || f.file_type === 'sticker';
+	const big = f.file_type === 'photo' || isVideoType(f.file_type) || f.file_type === 'sticker';
 	const [zoom, setZoom] = useState(false);
-	const pic = drawableThumb(f.thumb, f.ext);
-	const zoomable = (f.file_type === 'photo' || f.file_type === 'sticker') && !!pic && !!f.url;
+	const pic = drawableThumb(f.thumb, { url: f.url, ext: f.ext, type: f.file_type });
+	// The bigger view shows the file itself: only a picture's. A video
+	// sticker's still is not the sticker.
+	const zoomable = (f.file_type === 'photo' || f.file_type === 'sticker') && !!pic && !!f.url && !/^(webm|tgs)$/i.test(f.ext);
 	const unzoom = useCallback(() => setZoom(false), []);
 	return (
 		// While the bigger view is open, Esc and clicks belong to it.
@@ -79,9 +81,12 @@ function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void
 			</>}>
 			<div className="a-previewgrid">
 				<div className={`a-preview ${big ? 'big' : ''}`}>
-					{f.stored && pic ? <PreviewImage f={f} src={pic} onZoom={zoomable ? () => setZoom(true) : null} />
-						: f.stored ? <Thumb type={f.file_type} thumb={null} stored ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
-						: <div className="a-preview-missing"><CloudOff size={28} /><span>{f.url ? 'Not stored. Fetch from Telegram downloads it from there, if Telegram still has it.' : 'Not stored in the archive; only its details were kept.'}</span></div>}
+					{/* A video's still or blurred preview shows even when the
+					    video itself is not stored. */}
+					{pic ? <PreviewImage f={f} src={pic} onZoom={zoomable && f.stored ? () => setZoom(true) : null} />
+						: f.stored || f.minithumb ? <Thumb type={f.file_type} thumb={null} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
+						: null}
+					{!f.stored && <div className="a-preview-missing"><CloudOff size={28} /><span>{f.url ? 'Not stored. Fetch from Telegram downloads it from there, if Telegram still has it.' : 'Not stored in the archive; only its details were kept.'}</span></div>}
 				</div>
 				<KV rows={[
 					[null, 'Type', f.file_type],
@@ -122,7 +127,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 		{ key: 'id', label: 'ID', sort: true, align: 'right', cls: 'a-hide-md', render: (f) => <span className="num">{f.id}</span> },
 		{ key: 'name', label: 'File', sort: true, cls: 'c-name', render: (f) => (
 			<button type="button" className="a-usercell a-plain" onClick={() => show(f)}>
-				<Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} ext={f.ext} size={30} radius={6} />
+				<Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={30} radius={6} />
 				<span><span className="a-uname a-clip">{f.name}</span><span className="a-handle">{f.chat?.title ?? NO_MESSAGE}</span></span>
 			</button>
 		) },
@@ -149,7 +154,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 				<div className="a-card a-tablecard">
 					<div className="a-filegrid">{L.rows.map((f) => (
 						<button type="button" key={f.id} className="a-filecard" onClick={() => show(f)}>
-							<span className="a-filecard-media"><Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} ext={f.ext} size={150} radius={0} fill />
+							<span className="a-filecard-media"><Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={150} radius={0} fill />
 								{f.duration ? <span className="a-dur">{duration(f.duration)}</span> : null}
 							</span>
 							<span className="a-filecard-meta"><span className="a-ellipsis a-uname">{f.name}</span><span className="a-muted sm">{bytes(f.size)} . {ago(f.created_at, v)}</span></span>
@@ -161,7 +166,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 			) : (
 				<DataTable L={L} cols={cols} noun="files" empty={emptyText(L, member, 'files', 'No files match these filters.')}
 					href={(f) => setQuery(page.url, { file: f.id })} open={show}
-					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} ext={f.ext} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
+					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
 			)}
 			{preview && <Preview f={preview} v={v} onClose={() => show(null)} />}
 		</Shell>
