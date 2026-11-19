@@ -230,7 +230,8 @@ caption's), on each edit's earlier version, on a poll's question
 each checklist task. The shape is TextEntity in webapi/openapi.yaml:
 `{offset, length, type}`, with `url` for a text_url, `language` for a
 pre_code block, `custom_emoji_id` (a string, as the id does not fit a
-double) for a custom emoji, and `user_id` for mentions. A plain text
+double) and `custom_emoji` (below, "Custom emoji") for a custom emoji,
+and `user_id` for mentions. A plain text
 has `[]`.
 
 - `offset` and `length` count UTF-16 code units, as Telegram does
@@ -266,19 +267,63 @@ logged once at debug level.
 
 ## Topics, pins and interaction
 
-Each message carries `topic_id` (its forum topic, null outside forums),
-`pinned`, and the latest `views`, `forwards`, `replies` (null while
-never observed) and `reactions` (`[{emoji | custom_emoji_id | paid,
-count}]`, empty when none were seen). A forum group's chat page lists
-its `topics` (pinned first, then the newest); `?topic=<id>` on the
-chat page and `topic` on the chat window keep the window to one topic,
-with the cursors and has_older/has_newer counted within it. The
-topic's rows are read through the (chat_id, topic_kind, topic_id)
-index. A private chat takes no topic (400 on the API). The message page
-has no topic list, so its message also carries `topic`: the ChatTopic
-`topic_id` names (name, icon colour, closed, hidden), read by its
-primary key, or null when `topic_id` is null or the topic was never
-seen.
+Each message carries `topic_id` (its forum topic, null outside
+forums), `pinned`, and the latest `views`, `forwards`, `replies` (null
+while never observed) and `reactions` (`[{emoji | custom_emoji_id and
+custom_emoji | paid, count}]`, empty when none were seen). A forum
+group's chat page lists its `topics` (pinned first, then the newest);
+`?topic=<id>` on the chat page and `topic` on the chat window keep the
+window to one topic, with the cursors and has_older/has_newer counted
+within it. The topic's rows are read through the (chat_id, topic_kind,
+topic_id) index. A private chat takes no topic (400 on the API). The
+message page has no topic list, so its message also carries `topic`:
+the ChatTopic `topic_id` names (name, icon colour and custom emoji,
+closed, hidden), read by its primary key, or null when `topic_id` is
+null or the topic was never seen.
+
+## Custom emoji
+
+Telegram names a custom emoji by its id only, and a message effect
+(`meta.effect_id`) likewise. Each id goes out with what is known of it
+beside it, null while nothing is:
+
+- a text entity of type custom_emoji and a reaction with a
+  `custom_emoji_id` carry `custom_emoji`, a CustomEmoji
+  `{emoji, format, url, needs_repainting}` or null;
+- a ChatTopic (the chat page's `topics`, the message page's `topic`)
+  and a topic line's ServiceTopic carry `icon_custom_emoji_id` and
+  `icon_custom_emoji` (null for an icon drawn with its colour alone);
+  a topic line takes the icon its action set, or removed, else the
+  topic's as last seen;
+- each ChatMessage and MessageFull carries `effect_id` and `effect`, a
+  MessageEffect `{emoji, format, url}` or null.
+
+`emoji` is the fallback emoji. `url` is the sticker's /files/ URL in
+`format` (webp, tgs or webm), given as any file's is (stored, or
+fetchable by the viewer through the daemon), and null when there is no
+such file or its format is not known: the client shows the emoji then.
+A custom emoji with `needs_repainting` is drawn in the text colour. An
+effect's picture is its static icon (webp), else a premium sticker
+effect's sticker, else an emoji reaction effect's select animation
+(tgs); its full-screen animation is not sent.
+
+The ids of a page (its messages' entities, edits, polls, checklist
+tasks, reactions, effects, topic lines and the topics the page lists)
+are resolved in one batch: read from telegram_custom_emoji and
+telegram_message_effects, which the daemon fills on demand
+(docs/design/message-types.md sections 4.11 and 4.12), and those the
+tables lack asked of the daemon in one `POST /v1/custom-emoji` and one
+`POST /v1/message-effects` (docs/internal-api.md). The page waits for
+those answers at most 400 ms; an ask that takes longer goes on in the
+background, the page sends its ids as null, and a later page reads the
+rows the ask stored. The service remembers, in memory:
+
+- the ids being asked for, which another page does not ask for again
+  nor wait on;
+- the ids Telegram does not know, not asked for again for an hour;
+- a pause after a flood wait (its retry_after) and, for 30 s, after an
+  ask with no answer (the daemon off, away or slow) or one Telegram
+  failed; no page asks in a pause, so it costs no page any time.
 
 ## Link previews
 

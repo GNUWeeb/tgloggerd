@@ -108,6 +108,9 @@ type Deps struct {
 	// photoAsks replaces the photo lists' background asks
 	// (photoRefresher).
 	photoAsks *photoRefresher
+	// emoji replaces the pages' custom emoji resolver
+	// (emojiResolver).
+	emoji *emojiResolver
 }
 
 // searchFunc is logdb.Search's signature.
@@ -168,6 +171,9 @@ type Server struct {
 	// photoAsks has the daemon list a user's or group's photos when
 	// its page opens.
 	photoAsks *photoRefresher
+	// emoji resolves the custom emoji and message effects of a page
+	// (emoji.go).
+	emoji *emojiResolver
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -232,6 +238,10 @@ func New(d Deps) http.Handler {
 	s.photoAsks = d.photoAsks
 	if s.photoAsks == nil {
 		s.photoAsks = newPhotoRefresher(d.Log, d.Daemon, s.clock)
+	}
+	s.emoji = d.emoji
+	if s.emoji == nil {
+		s.emoji = newEmojiResolver(d.Log, d.Daemon, s.clock)
 	}
 	s.search = logdb.Search
 	if d.search != nil {

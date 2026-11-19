@@ -42,6 +42,11 @@ type serviceDetailExtra struct {
 	Title        string `json:"title"`
 	BasicGroupID int64  `json:"basic_group_id"`
 	OnlyForSelf  bool   `json:"only_for_self"`
+	// IconEmoji is the custom emoji icon a topic created or edited
+	// sets (a decimal string; absent for none); IconEdited says an
+	// edit set it, or removed it.
+	IconEmoji  looseID `json:"icon_custom_emoji_id"`
+	IconEdited bool    `json:"icon_edited"`
 }
 
 // community is the community's chat id; 0 when the id is not one. A
@@ -121,9 +126,11 @@ func (s *Server) loadServiceDetail(ctx context.Context, k *kinds, pins, topics [
 }
 
 type serviceTopicJSON struct {
-	ID        *int64  `json:"id"`
-	Name      *string `json:"name"`
-	IconColor *int64  `json:"icon_color"`
+	ID          *int64           `json:"id"`
+	Name        *string          `json:"name"`
+	IconColor   *int64           `json:"icon_color"`
+	IconEmojiID *string          `json:"icon_custom_emoji_id"`
+	IconEmoji   *customEmojiJSON `json:"icon_custom_emoji"`
 }
 
 // The variants of ServiceDetail, tagged by kind.
@@ -203,7 +210,7 @@ func (v view) serviceDetail(k kinds, m logdb.Message) any {
 			return servicePollOptionJSON{Kind: "poll_option", Text: x.Option.Text}
 		}
 	case isTopicType(t):
-		if tj := serviceTopic(k, m, x); tj != nil {
+		if tj := v.serviceTopic(k, m, x); tj != nil {
 			return serviceTopicDetailJSON{Kind: "topic", Topic: *tj}
 		}
 	case t == "chat_added_to_community", t == "chat_removed_from_community",
@@ -225,11 +232,24 @@ func (v view) serviceDetail(k kinds, m logdb.Message) any {
 	return nil
 }
 
+// serviceTopicIcon is the custom emoji of the icon of the topic a
+// topic line is about: the action's own when it sets one (or removes
+// it: 0), else the topic's as last seen; 0 for none.
+func serviceTopicIcon(k kinds, m logdb.Message, x *serviceDetailExtra) int64 {
+	if x.IconColor != nil || x.IconEdited {
+		return int64(x.IconEmoji)
+	}
+	if t, ok := k.topics[m.TopicID]; ok && m.TopicID != 0 {
+		return t.IconEmoji
+	}
+	return 0
+}
+
 // serviceTopic is the topic a topic line is about: its id (the
-// message's own forum topic), and its name and icon colour as the
-// action gives them, else as the topic was last seen; nil when none of
-// them is known.
-func serviceTopic(k kinds, m logdb.Message, x *serviceDetailExtra) *serviceTopicJSON {
+// message's own forum topic), and its name, icon colour and icon custom
+// emoji as the action gives them, else as the topic was last seen; nil
+// when none of them is known.
+func (v view) serviceTopic(k kinds, m logdb.Message, x *serviceDetailExtra) *serviceTopicJSON {
 	var j serviceTopicJSON
 	if m.TopicID != 0 {
 		id := m.TopicID
@@ -247,7 +267,10 @@ func serviceTopic(k kinds, m logdb.Message, x *serviceDetailExtra) *serviceTopic
 		color := *x.IconColor
 		j.IconColor = &color
 	}
-	if j.ID == nil && j.Name == nil && j.IconColor == nil {
+	if id := serviceTopicIcon(k, m, x); id != 0 {
+		j.IconEmojiID, j.IconEmoji = idString(id), v.customEmojiOf(k, id)
+	}
+	if j.ID == nil && j.Name == nil && j.IconColor == nil && j.IconEmojiID == nil {
 		return nil
 	}
 	return &j

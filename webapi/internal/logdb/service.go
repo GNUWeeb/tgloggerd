@@ -74,7 +74,8 @@ func TopicsByID(ctx context.Context, db *sql.DB, chat int64, ids []int64) (map[i
 	if len(ids) == 0 || chat >= 0 {
 		return out, nil
 	}
-	rows, err := db.QueryContext(ctx, "SELECT topic_id, name, icon_color, is_closed, is_hidden "+
+	rows, err := db.QueryContext(ctx, "SELECT topic_id, name, icon_color, is_closed, is_hidden, "+
+		"COALESCE(icon_custom_emoji_id, 0) "+
 		"FROM telegram_forum_topics WHERE chat_id = ? AND topic_id IN ("+
 		placeholders(len(ids))+")", append([]any{chat}, int64Args(ids)...)...)
 	if err != nil {
@@ -83,7 +84,7 @@ func TopicsByID(ctx context.Context, db *sql.DB, chat int64, ids []int64) (map[i
 	defer rows.Close()
 	for rows.Next() {
 		var t Topic
-		if err := rows.Scan(&t.ID, &t.Name, &t.Color, &t.Closed, &t.Hidden); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Color, &t.Closed, &t.Hidden, &t.IconEmoji); err != nil {
 			return nil, err
 		}
 		out[t.ID] = t

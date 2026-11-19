@@ -195,6 +195,8 @@ type Message struct {
 	Forward                  *Forward
 	Edits                    []Edit
 	Preview                  *LinkPreview
+	// EffectID is the message effect (meta.effect_id); 0 for none.
+	EffectID int64
 }
 
 // Window is a run of a chat's messages, oldest first, with whether
@@ -249,7 +251,8 @@ func (t chatTables) messageSelect() string {
 		"m.content_type, COALESCE(m.service_type, ''), COALESCE(m.tdlib_type, ''), " +
 		"m.content_extra, COALESCE(m.text, ''), m.entities, COALESCE(m.file_id, 0), " + fileColumnsOf("f") + ", " +
 		"UNIX_TIMESTAMP(m.deleted_at), m.media_album_id, " + t.topic + ", m.is_pinned, " +
-		"m.view_count, m.forward_count, m.reply_count, m.reactions, m.reply_to_chat_id, " +
+		"m.view_count, m.forward_count, m.reply_count, m.reactions, " +
+		"JSON_UNQUOTE(JSON_EXTRACT(m.meta, '$.effect_id')), m.reply_to_chat_id, " +
 		"m.reply_to_msg_id, fw.origin_type, fw.origin_sender_name, " +
 		"fw.origin_sender_user_id, fw.origin_chat_id, fw.origin_message_id, fw.origin_date, " +
 		"rm.id, rm.chat_id, rm.message_id, " +
@@ -286,13 +289,14 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 			rmSnippet, rmCtype      sql.NullString
 			rmExtra                 []byte
 			rmFile                  sql.NullString
+			effect                  sql.NullString
 		)
 		dest := []any{&m.RowID, &m.ChatID, &m.MessageID, &sUser, &sChat, &m.Outgoing, &sig,
 			&m.IsChannelPost, &m.Date, &m.EditDate, &m.ContentType, &m.ServiceType,
 			&m.TdlibType, &m.Extra, &m.Text, &m.Entities, &fileID}
 		dest = append(dest, f.dest()...)
 		dest = append(dest, &deleted, &album, &topic, &m.Pinned, &views, &fwds, &replies,
-			&m.Reactions, &rChat, &rMsg, &oType, &oName, &oUser, &oChat,
+			&m.Reactions, &effect, &rChat, &rMsg, &oType, &oName, &oUser, &oChat,
 			&oMsg, &oDate, &rmID, &rmChat, &rmMsg, &rmU, &rmC, &rmOut, &rmSnippet, &rmCtype,
 			&rmDeleted, &rmExtra, &rmFile)
 		if err := rows.Scan(dest...); err != nil {
@@ -305,6 +309,9 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 		}
 		m.DeletedAt, m.AlbumID, m.TopicID = deleted.Int64, album.Int64, topic.Int64
 		m.Views, m.Forwards, m.Replies = nullPtr(views), nullPtr(fwds), nullPtr(replies)
+		// The daemon writes the id as a decimal string; anything
+		// else is no effect.
+		m.EffectID, _ = strconv.ParseInt(effect.String, 10, 64)
 		switch {
 		case rmID.Valid:
 			m.Reply = &Reply{MessageID: rmMsg.Int64, ChatID: rmChat.Int64, Resolved: true,
@@ -485,6 +492,8 @@ type Topic struct {
 	Color  int64
 	Closed bool
 	Hidden bool
+	// IconEmoji is the icon's custom emoji; 0 for none.
+	IconEmoji int64
 }
 
 // Topics are a group's forum topics, pinned ones first, then the
@@ -494,7 +503,8 @@ func (c Chat) Topics(ctx context.Context, db *sql.DB) ([]Topic, error) {
 	if !c.Group {
 		return out, nil
 	}
-	rows, err := db.QueryContext(ctx, "SELECT topic_id, name, icon_color, is_closed, is_hidden "+
+	rows, err := db.QueryContext(ctx, "SELECT topic_id, name, icon_color, is_closed, is_hidden, "+
+		"COALESCE(icon_custom_emoji_id, 0) "+
 		"FROM telegram_forum_topics WHERE chat_id = ? "+
 		"ORDER BY is_pinned DESC, creation_date DESC, topic_id DESC", c.ID)
 	if err != nil {
@@ -503,7 +513,7 @@ func (c Chat) Topics(ctx context.Context, db *sql.DB) ([]Topic, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var t Topic
-		if err := rows.Scan(&t.ID, &t.Name, &t.Color, &t.Closed, &t.Hidden); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Color, &t.Closed, &t.Hidden, &t.IconEmoji); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -514,9 +524,10 @@ func (c Chat) Topics(ctx context.Context, db *sql.DB) ([]Topic, error) {
 // topic is one of a group's forum topics, nil when it was never seen.
 func (c Chat) topic(ctx context.Context, db *sql.DB, id int64) (*Topic, error) {
 	var t Topic
-	err := db.QueryRowContext(ctx, "SELECT topic_id, name, icon_color, is_closed, is_hidden "+
+	err := db.QueryRowContext(ctx, "SELECT topic_id, name, icon_color, is_closed, is_hidden, "+
+		"COALESCE(icon_custom_emoji_id, 0) "+
 		"FROM telegram_forum_topics WHERE chat_id = ? AND topic_id = ?", c.ID, id).
-		Scan(&t.ID, &t.Name, &t.Color, &t.Closed, &t.Hidden)
+		Scan(&t.ID, &t.Name, &t.Color, &t.Closed, &t.Hidden, &t.IconEmoji)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

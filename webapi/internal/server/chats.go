@@ -294,6 +294,9 @@ type messageKindsJSON struct {
 	Forwards  *int64         `json:"forwards"`
 	Replies   *int64         `json:"replies"`
 	Reactions []reactionJSON `json:"reactions"`
+	// EffectID and Effect are the message's effect (emoji.go).
+	EffectID *string            `json:"effect_id"`
+	Effect   *messageEffectJSON `json:"effect"`
 }
 
 // channelCounts is whether a message's view and forward counts mean
@@ -311,6 +314,9 @@ type reactionJSON struct {
 	CustomEmojiID string `json:"custom_emoji_id,omitempty"`
 	Paid          bool   `json:"paid,omitempty"`
 	Count         int64  `json:"count"`
+	// CustomEmoji is present (an object or null) exactly when
+	// CustomEmojiID is; never read from the column.
+	CustomEmoji json.RawMessage `json:"custom_emoji,omitempty"`
 }
 
 // reactions reads the reactions column; nil, malformed or withdrawn
@@ -325,6 +331,7 @@ func reactions(raw []byte) []reactionJSON {
 		return out
 	}
 	for _, r := range rs {
+		r.CustomEmoji = nil
 		if r.Count > 0 && (r.Emoji != "" || r.CustomEmojiID != "" || r.Paid) {
 			out = append(out, r)
 		}
@@ -334,7 +341,13 @@ func reactions(raw []byte) []reactionJSON {
 
 func (v view) messageKinds(k kinds, m logdb.Message) messageKindsJSON {
 	j := messageKindsJSON{Detail: v.detail(k, m), Service: v.service(k, m), Pinned: m.Pinned,
-		Replies: m.Replies, Reactions: reactions(m.Reactions)}
+		Replies: m.Replies, Reactions: reactions(m.Reactions),
+		EffectID: idString(m.EffectID), Effect: v.effect(k, m.EffectID)}
+	for i, r := range j.Reactions {
+		if r.CustomEmojiID != "" {
+			j.Reactions[i].CustomEmoji = jsonOrNull(v.customEmoji(k, r.CustomEmojiID))
+		}
+	}
 	if channelCounts(m) {
 		j.Views, j.Forwards = m.Views, m.Forwards
 	}

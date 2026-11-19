@@ -85,10 +85,10 @@ func TestMessagePageTopic(t *testing.T) {
 		row   int
 		topic string
 	}{
-		{"superadmin", 4001, `{"closed":false,"hidden":false,"icon_color":7322096,"id":5,"name":"Releases"}`},
-		{"member", 4002, `{"closed":false,"hidden":false,"icon_color":7322096,"id":5,"name":"Releases"}`},
-		{"superadmin", 4006, `{"closed":false,"hidden":true,"icon_color":0,"id":1,"name":"General"}`},
-		{"superadmin", 4016, `{"closed":true,"hidden":false,"icon_color":16749490,"id":9,"name":"Off-topic"}`},
+		{"superadmin", 4001, `{"closed":false,"hidden":false,"icon_color":7322096,"icon_custom_emoji":null,"icon_custom_emoji_id":null,"id":5,"name":"Releases"}`},
+		{"member", 4002, `{"closed":false,"hidden":false,"icon_color":7322096,"icon_custom_emoji":null,"icon_custom_emoji_id":null,"id":5,"name":"Releases"}`},
+		{"superadmin", 4006, `{"closed":false,"hidden":true,"icon_color":0,"icon_custom_emoji":null,"icon_custom_emoji_id":null,"id":1,"name":"General"}`},
+		{"superadmin", 4016, `{"closed":true,"hidden":false,"icon_color":16749490,"icon_custom_emoji":null,"icon_custom_emoji_id":null,"id":9,"name":"Off-topic"}`},
 		{"superadmin", 4007, `null`},
 		{"superadmin", 4021, `null`},
 	} {
