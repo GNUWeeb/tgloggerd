@@ -14,9 +14,10 @@ import (
 
 // The MCP exposure allowlist, telegram_public_groups (web/docs/mcp.md,
 // migration 000022), as the Drogon dao::mcp keeps it. The web's account
-// is granted INSERT and DELETE on it, not UPDATE: a row is a decision
-// to expose a group, added or withdrawn, never quietly edited. Every
-// read takes the scope, so a group hidden from the viewer is neither
+// is granted INSERT and DELETE on it, and UPDATE on the note alone: a
+// row is a decision to expose a group, added or withdrawn; only the
+// reason written down for it may be reworded later, never who made the
+// decision or when. Every read takes the scope, so a group hidden from the viewer is neither
 // listed nor counted nor changed (web-accounts.md section 4).
 
 // ExposedGroup is an exposed group the scope sees.
@@ -111,4 +112,32 @@ func UnexposeGroup(ctx context.Context, db *sql.DB, id int64) (bool, error) {
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+// SetExposedNote replaces the note of an exposed group the caller has
+// checked and answers the note it had; false when the group is not
+// exposed. Who exposed the group and when stay as they are. note is at
+// most 255 characters.
+func SetExposedNote(ctx context.Context, db *sql.DB, id int64, note string) (string, bool, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", false, err
+	}
+	defer tx.Rollback()
+	var old string
+	err = tx.QueryRowContext(ctx, "SELECT note FROM telegram_public_groups "+
+		"WHERE group_id = ? FOR UPDATE", id).Scan(&old)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if old != note {
+		if _, err := tx.ExecContext(ctx, "UPDATE telegram_public_groups SET note = ? "+
+			"WHERE group_id = ?", note, id); err != nil {
+			return "", false, err
+		}
+	}
+	return old, true, tx.Commit()
 }

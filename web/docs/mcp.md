@@ -574,6 +574,7 @@ The Go service serves the administration as JSON operations
 
     POST   /api/mcp/groups               {"group_id": -100..., "note": "..."}; 201
     DELETE /api/mcp/groups/{group_id}
+    PATCH  /api/mcp/groups/{group_id}    {"note": "..."}; 204
     POST   /api/mcp/tokens               {"name": "..."}; 201 {id, token}
     POST   /api/mcp/tokens/{id}/revoke
 
@@ -582,14 +583,20 @@ The Go service serves the administration as JSON operations
 - Only groups the viewer may see are exposed, listed, counted or
   withdrawn; a hidden group is 404 like an unknown one
   (web-accounts.md section 4). Exposing a group twice is 409
-  `already_exposed`; a note (cut to 255 characters) changes by
-  withdrawing and exposing again, as the table's grants intend.
+  `already_exposed`. A note is trimmed and cut to 255 characters;
+  PATCH rewords it in place (an empty note clears it, a body without
+  `note` is 400) and leaves who exposed the group and when as they
+  are. The web's database account may update that column and no
+  other (`docker/mysql/web-grants.sql`).
 - A token is minted as here, `tgmcp_` and 32 random bytes in hex,
   answered once and stored as its SHA-256; its name is 1 to 64
   characters. Revoking stamps `revoked_at`; revoking twice is a no-op.
 - Every change writes a `web_audit` row: `mcp_expose`,
-  `mcp_unexpose`, `mcp_token_create`, `mcp_token_revoke` (with the
-  group or the token's id and name, never the token).
+  `mcp_unexpose`, `mcp_note`, `mcp_token_create`, `mcp_token_revoke`
+  (with the group or the token's id and name, never the token;
+  `mcp_note` with `old -> new`, each note cut to its share of the
+  255 characters when both do not fit). An unchanged note writes no
+  row.
 - An exposed group and a token are owned by the account that exposed
   or created it (`web_resource_relations`, see *Ownership* in
   [accounts.md](accounts.md)); withdrawing a group drops its owner, a

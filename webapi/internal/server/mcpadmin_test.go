@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/scope"
@@ -137,6 +138,119 @@ func TestMcpGroups(t *testing.T) {
 	}
 	if len(e.audits()) != 6 {
 		t.Errorf("refusals audited: %v", e.audits())
+	}
+}
+
+// The note of an exposed group is reworded in place: who exposed it
+// and when stay, and the audit row keeps the old and the new note.
+func TestMcpGroupNote(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t)
+	const gnu = -1001000000001 // GNU/Weeb, exposed with "community"
+	path := fmt.Sprintf("/api/mcp/groups/%d", gnu)
+	row := func() string {
+		return e.one("SELECT CONCAT_WS(' ', added_by, created_at) FROM telegram_public_groups "+
+			"WHERE group_id = ?", gnu)
+	}
+	note := func() string {
+		return e.one("SELECT note FROM telegram_public_groups WHERE group_id = ?", gnu)
+	}
+	if _, err := e.ro.Exec("UPDATE telegram_public_groups SET added_by = 1, "+
+		"created_at = '2026-01-01 00:00:00' WHERE group_id = ?", gnu); err != nil {
+		t.Fatal(err)
+	}
+	before := row()
+
+	e.want(204, "admin", "PATCH", path, map[string]any{"note": "  kernel hackers  "})
+	if got := note(); got != "kernel hackers" {
+		t.Errorf("note %q", got)
+	}
+	if got := row(); got != before {
+		t.Errorf("exposer and date %q, want %q", got, before)
+	}
+	_, b := e.page("admin", "/mcp-admin/groups")
+	if !strings.Contains(js(b["props"]), `"note":"kernel hackers"`) {
+		t.Errorf("page %s", js(b["props"]))
+	}
+	// Unchanged: nothing to audit.
+	e.want(204, "superadmin", "PATCH", path, map[string]any{"note": "kernel hackers"})
+	// Clipped to the column.
+	e.want(204, "superadmin", "PATCH", path, map[string]any{"note": strings.Repeat("n", 300)})
+	if got := note(); got != strings.Repeat("n", 255) {
+		t.Errorf("clipped note %d characters", len(got))
+	}
+	// An empty note clears it.
+	e.want(204, "admin", "PATCH", path, map[string]any{"note": ""})
+	if got := note(); got != "" {
+		t.Errorf("cleared note %q", got)
+	}
+	if got := row(); got != before {
+		t.Errorf("exposer and date %q, want %q", got, before)
+	}
+
+	prefix := fmt.Sprintf("group %d ", gnu)
+	room := 255 - len(prefix) - len(" -> ")
+	want := []string{
+		fmt.Sprintf("3 mcp_note %scommunity -> kernel hackers", prefix),
+		fmt.Sprintf("1 mcp_note %skernel hackers -> %s", prefix, strings.Repeat("n", room-len("kernel hackers"))),
+		fmt.Sprintf("3 mcp_note %s%s -> ", prefix, strings.Repeat("n", room)),
+	}
+	if got := e.audits(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("audit\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	if _, err := e.ro.Exec("UPDATE telegram_public_groups SET note = 'community' WHERE group_id = ?",
+		gnu); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		role   string
+		path   string
+		body   any
+		status int
+	}{
+		{"superadmin", "/api/mcp/groups/-1009999999999", map[string]any{"note": "x"}, 404},
+		{"superadmin", "/api/mcp/groups/-1001000000002", map[string]any{"note": "x"}, 404}, // not exposed
+		{"superadmin", "/api/mcp/groups/x", map[string]any{"note": "x"}, 404},
+		{"superadmin", "/api/mcp/groups/1001000000001", map[string]any{"note": "x"}, 404},
+		{"superadmin", path, map[string]any{}, 400},
+		{"superadmin", path, map[string]any{"note": nil}, 400},
+		{"superadmin", path, map[string]any{"note": 5}, 400},
+		{"member", path, map[string]any{"note": "x"}, 404},
+		{"", path, map[string]any{"note": "x"}, 401},
+	} {
+		if st, b, _ := e.call(c.role, "PATCH", c.path, c.body); st != c.status {
+			t.Errorf("%s %s %v: %d %v", c.role, c.path, c.body, st, b)
+		}
+	}
+	if st, _, _ := e.call("admin", "PATCH", path, map[string]any{"note": "x"}, false); st != 403 {
+		t.Errorf("no csrf %d", st)
+	}
+	if got := note(); got != "community" {
+		t.Errorf("note after refusals %q", got)
+	}
+	if e.one("SELECT COUNT(*) FROM telegram_public_groups WHERE group_id = -1001000000002") != "0" {
+		t.Error("a refused note exposed a group")
+	}
+	if len(e.audits()) != len(want) {
+		t.Errorf("refusals audited: %v", e.audits())
+	}
+}
+
+// noteChange gives each note its share of the audit detail.
+func TestMcpNoteChange(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("o", 200)
+	got := noteChange("group -1 ", long, strings.Repeat("n", 200))
+	if utf8.RuneCountInString(got) != 255 || !strings.Contains(got, strings.Repeat("o", 121)+" -> "+strings.Repeat("n", 121)) {
+		t.Errorf("both long: %d %q", len(got), got)
+	}
+	if got := noteChange("group -1 ", "a", "b"); got != "group -1 a -> b" {
+		t.Errorf("short %q", got)
+	}
+	got = noteChange("group -1 ", strings.Repeat("\u00e9", 250), "b")
+	if utf8.RuneCountInString(got) != 255 || !strings.HasSuffix(got, "\u00e9 -> b") {
+		t.Errorf("runes %d %q", utf8.RuneCountInString(got), got)
 	}
 }
 

@@ -3259,8 +3259,7 @@ paths:
         today), and only groups the viewer may see (web-accounts.md
         section 4): a hidden or unknown group is 404. The note is cut
         to 255 characters. A group already exposed is 409
-        already_exposed; to change its note, withdraw it and expose it
-        again. Exposing also makes the group's chat public on the web
+        already_exposed; its note changes by setMcpGroupNote. Exposing also makes the group's chat public on the web
         (web/docs/mcp.md). Audited as mcp_expose.
       security:
         - session: []
@@ -3317,6 +3316,43 @@ paths:
       responses:
         '204':
           description: No longer exposed.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: setMcpGroupNote
+      tags: [mcp]
+      summary: Change the note of an exposed group
+      description: >-
+        Under the same permission as exposeMcpGroup. The note is
+        trimmed and cut to 255 characters; an empty one clears it. Who
+        exposed the group and when stay as they are. A group the
+        viewer may not see, or one not exposed, is 404; a body without
+        note is 400. Audited as mcp_note, with the old and the new
+        note; an unchanged note is not audited.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note]
+              properties:
+                note:
+                  type: string
+      responses:
+        '204':
+          description: The note is saved.
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':

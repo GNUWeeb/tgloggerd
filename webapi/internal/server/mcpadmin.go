@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/mcp"
@@ -76,8 +77,8 @@ func (s *Server) exposeMcpGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !added {
-		// A note changes by withdrawing and adding the group again,
-		// which keeps the decision visible in its time.
+		// Its note changes by PATCH, which keeps who exposed it and
+		// when.
 		s.refuse(w, r, v, http.StatusConflict, "already_exposed", "mcp.already_exposed")
 		return
 	}
@@ -121,6 +122,79 @@ func (s *Server) unexposeMcpGroup(w http.ResponseWriter, r *http.Request) {
 	s.auditAdmin(r, v.ID, "mcp_unexpose", "group "+strconv.FormatInt(id, 10))
 	s.dropOwner(r, webdb.Resource{Type: webdb.ResMCPGroup, ID: id}, v.ID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// setMcpGroupNote answers PATCH /api/mcp/groups/{group_id}: the note
+// of an exposed group is reworded in place, under the same permission
+// as exposing it. Who exposed the group and when stay as they are; the
+// audit row keeps the old and the new note, so the earlier reason is
+// not lost. An unchanged note answers 204 and audits nothing.
+func (s *Server) setMcpGroupNote(w http.ResponseWriter, r *http.Request) {
+	sc, v, ok := s.adminWrite(w, r, scope.ManageMCP)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("group_id"), 10, 64)
+	if err != nil || id >= 0 {
+		notFound(w)
+		return
+	}
+	var in struct {
+		Note *string `json:"note"`
+	}
+	if !decodeBody(w, r, &in) {
+		return
+	}
+	if in.Note == nil {
+		s.refuse(w, r, v, http.StatusBadRequest, "bad_request", "mcp.note_required")
+		return
+	}
+	ctx := r.Context()
+	visible, err := logdb.GroupVisible(ctx, s.ro, sc, id)
+	if err != nil {
+		s.internalError(w, "group", err)
+		return
+	}
+	if !visible {
+		notFound(w)
+		return
+	}
+	note := clip(*in.Note, mcpNoteMax)
+	old, found, err := logdb.SetExposedNote(ctx, s.ro, id, note)
+	if err != nil {
+		s.internalError(w, "group note", err)
+		return
+	}
+	if !found {
+		notFound(w)
+		return
+	}
+	if old != note {
+		s.auditAdmin(r, v.ID, "mcp_note", noteChange("group "+strconv.FormatInt(id, 10)+" ", old, note))
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// noteChange is the audit detail of a reworded note, prefix then
+// "old -> new". The detail column holds webdb.MaxAuditDetail
+// characters; when both notes do not fit, each is cut to its share
+// (a short one leaves the rest to the other), so neither is lost.
+func noteChange(prefix, old, note string) string {
+	const sep = " -> "
+	room := webdb.MaxAuditDetail - utf8.RuneCountInString(prefix) - len(sep)
+	no, nn := utf8.RuneCountInString(old), utf8.RuneCountInString(note)
+	if no+nn > room {
+		half := room / 2
+		switch {
+		case no <= half:
+			nn = room - no
+		case nn <= half:
+			no = room - nn
+		default:
+			no, nn = half, room-half
+		}
+	}
+	return prefix + clip(old, no) + sep + clip(note, nn)
 }
 
 // createMcpToken answers POST /api/mcp/tokens. The token is in this
