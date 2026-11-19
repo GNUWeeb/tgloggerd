@@ -6,6 +6,7 @@
 // line and the message page both draw it.
 import { useState, type ReactNode } from 'react';
 import { CloudOff, Download, Play } from 'lucide-react';
+import { BackgroundDetail } from './background.tsx';
 import { Link } from '../nav.tsx';
 import { Lightbox, plainClick } from '../routes/chat-media.tsx';
 import { TopicIcon } from '../routes/chat-kinds.tsx';
@@ -104,6 +105,8 @@ export function ServiceDetailView({ service, text, v, topicHref, self = false, p
 			return name ? <> <q className="c-svcquote">{d.basic_group ? <Link to={`/groups/${d.basic_group.id}`} className="c-svcref">{name}</Link> : name}</q></> : null;
 		}
 		case 'background':
-			return d.only_for_self ? <span className="c-svcdetail"> for {self ? 'yourself' : 'themselves'}</span> : null;
+			// Its swatch (src/ui/background.tsx): 48px high on a line,
+			// the photo's size on the message page.
+			return <><BackgroundDetail d={d} size={Math.max(48, photoSize)} onClick={onClick} />{d.only_for_self && <span className="c-svcdetail"> for {self ? 'yourself' : 'themselves'}</span>}</>;
 	}
 }

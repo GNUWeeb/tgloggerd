@@ -254,6 +254,19 @@
 .app .c-svcanim { position: relative; background: var(--c-svc); color: var(--c-svc-fg); }
 .app .c-svcanim .c-svcplay { position: absolute; color: #fff; filter: drop-shadow(0 1px 2px rgb(0 0 0 / .6)); }
 .app .c-svcquote { font-style: italic; }
+/* A chat background's swatch: the fill as the box's background, the
+   wallpaper or pattern image over it (src/ui/background.tsx). */
+.app .c-bgswatch { position: relative; display: inline-block; vertical-align: middle; margin: -2px 0; padding: 0; border: 1px solid rgb(0 0 0 / .12); border-radius: 6px; overflow: hidden; color: var(--c-svc-fg); }
+.app .c-bgswatch img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.app .c-bgswatch.c-bgblur img { filter: blur(3px); transform: scale(1.1); }
+.app .c-bgswatch.c-bgnone { background: var(--c-svc); }
+.app button.c-bgswatch, .app a.c-bgswatch { cursor: pointer; }
+.app button.c-bgswatch { display: inline-grid; place-items: center; }
+/* An inverted pattern: white shapes on black, multiplied onto the fill. */
+.app .c-bgpat { position: absolute; inset: 0; background: #000; mix-blend-mode: multiply; }
+.app .c-bgpat img { filter: invert(1); }
+/* A pattern that cannot be drawn: a dotted hint over its fill. */
+.app .c-bgswatch.c-bghint::after { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle, rgb(255 255 255 / .55) 1.2px, transparent 1.6px); background-size: 8px 8px; }
 .app .c-svctopic { display: inline-flex; align-items: center; gap: 4px; }
 .app .c-editmedia { display: inline-block; margin: 4px 0; }
 .app .c-editmedia img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; display: block; }

@@ -139,6 +139,60 @@ describe('a service line in the chat', () => {
 		expect(words(line('chat_set_background', 'changed the chat background', { ...OLD_BG, only_for_self: false }))).toBe('Sample Sender changed the chat background');
 	});
 
+	it('shows a wallpaper, blurred, which opens the viewer', () => {
+		const image = { ...PHOTO, url: '/files/w1', thumb: '/files/w1t', w: 1440, h: 2560 };
+		const l = line('chat_set_background', 'changed the chat background', { ...OLD_BG, type: 'wallpaper', image, is_blurred: true });
+		const a = within(l).getByRole('link', { name: 'Wallpaper, blurred' });
+		expect(a.classList.contains('c-bgblur')).toBe(true);
+		expect(a.style.width).toBe('36px');
+		expect(a.style.height).toBe('48px');
+		expect(a.querySelector('img')!.getAttribute('src')).toBe('/files/w1t');
+		fireEvent.click(a);
+		expect(screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('img')!.getAttribute('src')).toBe('/files/w1');
+		document.body.innerHTML = '';
+		const ask = line('chat_set_background', 'changed the chat background', { ...OLD_BG, type: 'wallpaper', image }, {}, { chat: { media: 'click' } });
+		expect(ask.querySelector('img')).toBeNull();
+		fireEvent.click(within(ask).getByRole('button', { name: 'Show the background' }));
+		expect(within(ask).getByRole('link', { name: 'Wallpaper' }).querySelector('img')).toBeTruthy();
+	});
+
+	it('draws a pattern over its fill at its intensity, and an inverted one on a dark ground', () => {
+		const image = { ...PHOTO, url: '/files/pt', thumb: null, ext: 'png' };
+		const fill = { type: 'gradient' as const, colors: [0xdbddbb, 0x6ba587], rotation_angle: 45 };
+		const l = line('chat_set_background', 'changed the chat background', { ...OLD_BG, type: 'pattern', image, fill, intensity: 40, is_moving: true });
+		const a = within(l).getByRole('link', { name: 'Pattern over a gradient, 40% intensity, moving' });
+		expect(a.getAttribute('style')).toContain('linear-gradient(225deg, #dbddbb, #6ba587)');
+		expect(a.querySelector('img')!.style.opacity).toBe('0.4');
+		expect(a.querySelector('.c-bgpat')).toBeNull();
+		document.body.innerHTML = '';
+		const inv = line('chat_set_background', 'changed the chat background', { ...OLD_BG, type: 'pattern', image, fill: { type: 'freeform_gradient', colors: [0x111111, 0x222222, 0x333333, 0x444444], rotation_angle: 0 }, intensity: 55, is_inverted: true, dark: true });
+		const b = within(inv).getByRole('link', { name: 'Pattern over a freeform gradient, 55% intensity, inverted, for a dark theme' });
+		expect(b.getAttribute('style')).toContain('radial-gradient(');
+		const pat = b.querySelector('.c-bgpat') as HTMLElement;
+		expect(pat.style.opacity).toBe('0.55');
+		expect(pat.querySelector('img')!.getAttribute('src')).toBe('/files/pt');
+	});
+
+	it('shows a pattern it cannot draw as its fill with a hint', () => {
+		const image = { ...PHOTO, url: '/files/tgv', thumb: null, render: 'file' as const, ext: 'tgv' };
+		const l = line('chat_set_background', 'changed the chat background', { ...OLD_BG, type: 'pattern', image, fill: { type: 'solid', colors: [0x2b5278], rotation_angle: 0 }, intensity: 50 });
+		const s = within(l).getByRole('img', { name: 'Pattern over a solid colour, 50% intensity (the pattern is not drawn)' });
+		expect(s.classList.contains('c-bghint')).toBe(true);
+		expect(s.querySelector('img')).toBeNull();
+		expect(s.getAttribute('style')).toMatch(/#2b5278|rgb\(43, 82, 120\)/);
+	});
+
+	it('shows a fill\'s colours, and names a chat theme', () => {
+		const l = line('chat_set_background', 'changed the chat background', { ...OLD_BG, type: 'fill', fill: { type: 'gradient', colors: [0xffd67e, 0xe17076], rotation_angle: 90 }, only_for_self: true });
+		const s = within(l).getByRole('img', { name: 'Fill of a gradient' });
+		expect(s.getAttribute('style')).toContain('linear-gradient(270deg, #ffd67e, #e17076)');
+		expect(words(l).replace(/\s+/g, ' ')).toBe('Sample Sender changed the chat background for themselves');
+		document.body.innerHTML = '';
+		const t = line('chat_set_background', 'changed the chat background', { ...OLD_BG, type: 'chat_theme', theme_name: 'Snow' });
+		expect(words(t)).toBe('Sample Sender changed the chat background to the chat theme Snow');
+		expect(t.querySelector('.c-bgswatch')).toBeNull();
+	});
+
 	it('stays as it was without a detail', () => {
 		expect(words(line('pin_message', 'pinned a message', null))).toBe('Sample Sender pinned a message');
 		document.body.innerHTML = '';
@@ -180,6 +234,24 @@ describe('a service message\'s page', () => {
 		const v = screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('video')!;
 		expect(v.getAttribute('src')).toBe('/files/standin-986012');
 		expect(v.getAttribute('poster')).toBe('/files/standin-986011');
+	});
+
+	it('shows each of the stand-in\'s backgrounds, larger, and a wallpaper opens the viewer', () => {
+		const bgs = (chatStream(FORUM_GROUP) as Raw[]).filter((x) => (sampleOf(x)?.service?.(ALL)?.detail as { type?: string } | null)?.type);
+		expect(bgs.map((x) => (sampleOf(x)!.service!(ALL).detail as { type: string }).type)).toEqual(['wallpaper', 'pattern', 'pattern', 'pattern', 'fill', 'fill', 'chat_theme']);
+		for (const x of bgs.slice(0, 6)) {
+			open(x);
+			const s = text().querySelector('.c-bgswatch') as HTMLElement;
+			expect(s.style.width).toBe('72px');
+			expect(s.style.height).toBe('96px');
+			document.body.innerHTML = '';
+		}
+		open(bgs[0]!);
+		fireEvent.click(within(text() as HTMLElement).getByRole('link', { name: 'Wallpaper, blurred' }));
+		expect(screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('img')!.getAttribute('src')).toBe('/files/standin-986020');
+		document.body.innerHTML = '';
+		open(bgs[6]!);
+		expect(text().textContent).toContain('to the chat theme \u{1F384}');
 	});
 
 	it('quotes the pinned message, and leaves a pin logged without it as it was', () => {
