@@ -28,10 +28,10 @@ test('a webhook is added for a chat found by search, and a bad URL is refused', 
 	await d.getByRole('button', { name: 'Choose a chat' }).click();
 	await d.locator('.a-picker-search input').fill('rust');
 	await d.locator('.a-picker-pop').getByRole('button', { name: /Rust Programming/ }).click();
-	await d.locator('input[type=password]').fill('https://evil.example/hook');
+	await d.locator('#webhook-url').fill('https://evil.example/hook');
 	await d.getByRole('button', { name: 'Save' }).click();
 	await expect(d.getByRole('alert')).toHaveText('That is not a Discord webhook URL.');
-	await d.locator('input[type=password]').fill('https://discord.com/api/webhooks/1/abc');
+	await d.locator('#webhook-url').fill('https://discord.com/api/webhooks/1/abc');
 	await d.getByRole('button', { name: 'Save' }).click();
 	await expect(page.locator('tbody tr')).toHaveCount(rows + 1);
 });
@@ -51,8 +51,13 @@ test('a bot is added, and its status follows what discordd reports', async ({ pa
 	await expect(page.locator('.a-livestate.is-live')).toBeVisible();
 	await page.click('button:has-text("Add bot")');
 	const d = page.getByRole('dialog');
-	await d.locator('input:not([type=password])').fill('E2E reader');
-	await d.locator('input[type=password]').fill('MTIzNDU2Nzg5MDEyMzQ1Njc5.GaBcDe.' + 'w'.repeat(27));
+	await d.locator('#bot-label').fill('E2E reader');
+	// Not a password field (password managers fill those with the site
+	// login), but masked all the same.
+	const token = d.locator('#bot-token');
+	await expect(token).toHaveAttribute('type', 'text');
+	expect(await token.evaluate((e) => getComputedStyle(e).getPropertyValue('-webkit-text-security'))).toBe('disc');
+	await token.fill('MTIzNDU2Nzg5MDEyMzQ1Njc5.GaBcDe.' + 'w'.repeat(27));
 	await d.getByRole('button', { name: 'Add bot' }).click();
 	const row = page.locator('tr', { hasText: 'E2E reader' });
 	await expect(row).toContainText('connecting');

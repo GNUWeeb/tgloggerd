@@ -52,12 +52,12 @@ describe('bots page', () => {
 		renderPage('/platform-fwd/bots');
 		fireEvent.click(screen.getByRole('button', { name: /Add bot/ }));
 		fireEvent.click(within(dialog()).getByRole('tab', { name: 'Telegram' }));
-		fireEvent.change(dialog().querySelector('input:not([type=password])')!, { target: { value: 'Relay 2' } });
-		fireEvent.change(dialog().querySelector('input[type=password]')!, { target: { value: '12345:short' } });
+		fireEvent.change(dialog().querySelector('#bot-label')!, { target: { value: 'Relay 2' } });
+		fireEvent.change(dialog().querySelector('#bot-token')!, { target: { value: '12345:short' } });
 		fireEvent.submit(dialog().querySelector('form')!);
 		expect(within(dialog()).getByRole('alert').textContent).toMatch(/does not look like a Telegram bot token/);
 		expect(callsTo(calls, 'POST', '/api/bots')).toHaveLength(0);
-		fireEvent.change(dialog().querySelector('input[type=password]')!, { target: { value: TG } });
+		fireEvent.change(dialog().querySelector('#bot-token')!, { target: { value: TG } });
 		fireEvent.submit(dialog().querySelector('form')!);
 		await waitFor(() => expect(callsTo(calls, 'POST', '/api/bots')).toHaveLength(1));
 		expect(callsTo(calls, 'POST', '/api/bots')[0]!.body).toEqual({ kind: 'telegram', name: 'Relay 2', token: TG });
@@ -67,8 +67,8 @@ describe('bots page', () => {
 		fakeApi('superadmin', { 'POST /api/bots': () => json(409, { error: 'token_in_use', message: 'Another account has this bot already.' }) });
 		renderPage('/platform-fwd/bots');
 		fireEvent.click(screen.getByRole('button', { name: /Add bot/ }));
-		fireEvent.change(dialog().querySelector('input:not([type=password])')!, { target: { value: 'Mine' } });
-		fireEvent.change(dialog().querySelector('input[type=password]')!, { target: { value: DC } });
+		fireEvent.change(dialog().querySelector('#bot-label')!, { target: { value: 'Mine' } });
+		fireEvent.change(dialog().querySelector('#bot-token')!, { target: { value: DC } });
 		fireEvent.submit(dialog().querySelector('form')!);
 		await within(dialog()).findByText('Another account has this bot already.');
 	});
@@ -78,7 +78,7 @@ describe('bots page', () => {
 		const calls = fakeApi('superadmin', { 'PATCH /api/bots/:id': () => b });
 		renderPage('/platform-fwd/bots');
 		fireEvent.click(screen.getByRole('button', { name: `Edit ${b.name}` }));
-		fireEvent.change(dialog().querySelector('input:not([type=password])')!, { target: { value: 'Renamed' } });
+		fireEvent.change(dialog().querySelector('#bot-label')!, { target: { value: 'Renamed' } });
 		fireEvent.submit(dialog().querySelector('form')!);
 		await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/bots/${b.id}`)).toHaveLength(1));
 		expect(callsTo(calls, 'PATCH', `/api/bots/${b.id}`)[0]!.body).toEqual({ name: 'Renamed' });
@@ -99,6 +99,55 @@ describe('bots page', () => {
 		expect(callsTo(calls, 'DELETE', /^\/api\/bots\//)).toHaveLength(0);
 		fireEvent.click(within(row).getByRole('button', { name: `Remove ${b.name}` }));
 		expect((await screen.findByRole('alert')).textContent).toBe('2 routes use this bot.');
+	});
+
+	// A text field followed by a password field looks like a login form:
+	// browsers filled the site login into Name and Token, and the token
+	// field would then save the admin's password as a bot token.
+	it('keeps password managers out of the add and edit dialogs', () => {
+		const b = fixture<BotsProps>('/platform-fwd/bots').props.bots[0]!;
+		renderPage('/platform-fwd/bots');
+		const check = () => {
+			const inputs = [...dialog().querySelectorAll('input')];
+			expect(inputs.length).toBeGreaterThanOrEqual(2);
+			for (const i of inputs) {
+				expect(i.type).not.toBe('password');
+				expect(i.getAttribute('autocomplete')).toBe('off');
+				expect(i.getAttribute('data-1p-ignore')).not.toBeNull();
+				expect(i.getAttribute('data-lpignore')).toBe('true');
+				expect(i.getAttribute('data-form-type')).toBe('other');
+				for (const a of [i.name, i.id]) expect(a).not.toMatch(/^$|name|user|mail|pass|login/i);
+			}
+			const tok = dialog().querySelector<HTMLInputElement>('#bot-token')!;
+			expect(tok.className).toContain('a-secret');
+			expect(tok.getAttribute('autocorrect')).toBe('off');
+			expect(tok.getAttribute('autocapitalize')).toBe('off');
+			expect(tok.getAttribute('spellcheck')).toBe('false');
+			const eye = within(dialog()).getByRole('button', { name: 'Show token' });
+			expect(eye.getAttribute('aria-pressed')).toBe('false');
+			fireEvent.click(eye);
+			expect(eye.getAttribute('aria-pressed')).toBe('true');
+			expect(tok.className).not.toContain('a-secret');
+		};
+		fireEvent.click(screen.getByRole('button', { name: /Add bot/ }));
+		check();
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+		fireEvent.click(screen.getByRole('button', { name: `Edit ${b.name}` }));
+		check();
+	});
+
+	it('opens the add dialog empty after typing and cancelling', () => {
+		renderPage('/platform-fwd/bots');
+		fireEvent.click(screen.getByRole('button', { name: /Add bot/ }));
+		fireEvent.change(dialog().querySelector('#bot-label')!, { target: { value: 'Typed' } });
+		fireEvent.change(dialog().querySelector('#bot-token')!, { target: { value: TG } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Show token' }));
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+		expect(screen.queryByRole('dialog')).toBeNull();
+		fireEvent.click(screen.getByRole('button', { name: /Add bot/ }));
+		expect(dialog().querySelector<HTMLInputElement>('#bot-label')!.value).toBe('');
+		expect(dialog().querySelector<HTMLInputElement>('#bot-token')!.value).toBe('');
+		expect(dialog().querySelector('#bot-token')!.className).toContain('a-secret');
 	});
 
 	it('never puts a token on the page', () => {

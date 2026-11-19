@@ -3,11 +3,11 @@
 // their own routes; a "People with access" dialog transfers ownership.
 import { useEffect, useState } from 'react';
 import { track } from '../ui/busy.ts';
-import { ArrowLeftRight, ArrowRight, BotMessageSquare, Crown, Eye, EyeOff, Network, Pencil, Plus, Send, Trash2, TriangleAlert, Users } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, BotMessageSquare, Crown, Network, Pencil, Plus, Send, Trash2, TriangleAlert, Users } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
-import { ChatPicker, CheckChips, Field, Seg, Switch, type PickItem } from '../ui/forms.tsx';
+import { ChatPicker, CheckChips, Field, SecretInput, Seg, Switch, type PickItem } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
 import { ApiError, api, ok } from '../api/client.ts';
 import { ago, fmt } from '../format.ts';
@@ -160,7 +160,6 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 	const [access, setAccess] = useState<T2DRoute | null>(null);
 	type Draft = { id?: number; chat: PickItem | null; was?: PickItem; url: string; types: T2DRoute['types']; enabled: boolean; federation_id: number | null };
 	const [edit, setEdit] = useState<Draft | null>(null);
-	const [show, setShow] = useState(false);
 	const [err, setErr] = useState('');
 	const [note, setNote] = useState('');
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
@@ -219,10 +218,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 					</Field>
 					{!edit.id && <FederationSelect value={edit.federation_id} onChange={(f) => setEdit({ ...edit, federation_id: f })} options={page.props.federations} />}
 					<Field label="Discord webhook URL" hint={edit.id ? 'Stored and never shown again; enter a new URL to replace it.' : 'Discord: channel settings, Integrations, Webhooks, Copy Webhook URL.'}>
-						<span className="a-inputwrap">
-							<input type={show ? 'text' : 'password'} value={edit.url} onChange={(e) => setEdit({ ...edit, url: e.target.value })} placeholder={edit.id ? '(unchanged)' : 'https://discord.com/api/webhooks/...'} autoComplete="off" />
-							<button type="button" className="a-icon-btn sm" onClick={() => setShow((x) => !x)} aria-label={show ? 'Hide' : 'Show'}>{show ? <EyeOff size={14} /> : <Eye size={14} />}</button>
-						</span>
+						<SecretInput id="webhook-url" value={edit.url} onChange={(url) => setEdit({ ...edit, url })} what="webhook URL" placeholder={edit.id ? '(unchanged)' : 'https://discord.com/api/webhooks/...'} />
 					</Field>
 					<Field label="Content to forward" hint="Each part of a message is filtered on its own: a caption follows Text message, the media its own type.">
 						<CheckChips items={KINDS} value={edit.types} onChange={(t) => setEdit({ ...edit, types: t })} />

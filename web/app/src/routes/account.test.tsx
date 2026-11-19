@@ -244,3 +244,52 @@ describe('choose your own password', () => {
 		await screen.findByRole('heading', { name: 'Choose your own password' });
 	});
 });
+
+// The account's own password fields must stay real password fields with
+// their autocomplete hints, so password managers fill and save them; only
+// tokens and other secrets are kept away from them (bots, forwarding).
+describe('real password fields', () => {
+	const ac = (name: string, root: ParentNode = document) => {
+		const i = root.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+		expect(i.type).toBe('password');
+		return i.getAttribute('autocomplete');
+	};
+
+	it('sign in with the current password', async () => {
+		fakeApi('public', { 'GET /api/login': () => ({ signed_in: false, csrf: 'pre-1' }) });
+		renderPage('/login', 'public');
+		await screen.findByRole('button', { name: /Sign in/ });
+		expect(ac('password')).toBe('current-password');
+	});
+
+	it('change the password and the email address with the current one', () => {
+		renderPage('/settings');
+		expect(ac('current_password')).toBe('current-password');
+		expect(ac('new_password')).toBe('new-password');
+		expect(ac('confirm_password')).toBe('new-password');
+		fireEvent.click(screen.getByRole('button', { name: /^(Change|Add)$/ }));
+		expect(ac('password', screen.getByRole('dialog'))).toBe('current-password');
+	});
+
+	it('set a new password from a link', async () => {
+		history.replaceState(null, '', '/password/set#token=tok-123');
+		renderPage('/password/set#token=tok-123', 'public');
+		await waitFor(() => expect(location.hash).toBe(''));
+		expect(ac('new_password')).toBe('new-password');
+		expect(ac('confirm_password')).toBe('new-password');
+	});
+
+	it('replace a temporary password', () => {
+		renderPage('/groups', 'newpw');
+		expect(ac('current_password')).toBe('current-password');
+		expect(ac('new_password')).toBe('new-password');
+		expect(ac('confirm_password')).toBe('new-password');
+	});
+
+	it('give a new account its first password', () => {
+		renderPage('/settings/accounts');
+		fireEvent.click(screen.getByRole('button', { name: /New account/ }));
+		const pw = screen.getByRole('dialog').querySelector<HTMLInputElement>('input[type=password]')!;
+		expect(pw.getAttribute('autocomplete')).toBe('new-password');
+	});
+});

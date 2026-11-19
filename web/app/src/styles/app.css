@@ -456,6 +456,8 @@
 .app .a-field input:focus, .app .a-inputwrap:focus-within { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .app .a-inputwrap { display: flex; align-items: center; gap: 6px; padding-right: 4px; }
 .app .a-inputwrap input { border: 0; height: 100%; padding: 0; background: none; box-shadow: none !important; }
+/* Masks a secret typed into a text field (SecretInput in ui/forms.tsx). */
+.app input.a-secret { -webkit-text-security: disc; }
 .app .a-picker { position: relative; }
 .app .a-picker-btn { width: 100%; height: 40px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 0 10px; cursor: pointer; text-align: left; color: var(--fg); }
 .app .a-picker-btn > .a-ellipsis { flex: 1; }

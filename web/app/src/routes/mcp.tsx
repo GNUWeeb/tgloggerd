@@ -5,7 +5,7 @@ import { ArrowRight, Check, Copy, Globe, KeyRound, Plus, ShieldAlert, Trash2, Tr
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
 import { Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
-import { ChatPicker, Field, type PickItem } from '../ui/forms.tsx';
+import { ChatPicker, Field, NO_FILL, type PickItem } from '../ui/forms.tsx';
 import { GroupCell } from '../ui/bits.tsx';
 import { Modal } from '../ui/Modal.tsx';
 import { ApiError, api, ok } from '../api/client.ts';
@@ -147,7 +147,7 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 				<Modal title="Mint a token" onClose={() => setMinting(false)}
 					footer={<><span className="a-grow" /><Btn ghost onClick={() => setMinting(false)}>Cancel</Btn><Btn primary onClick={() => void mint()}>Mint</Btn></>}>
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
-					<Field label="Name" hint="A label, so this one can be revoked later without guessing which is which."><input value={name} onChange={(e) => setName(e.target.value)} maxLength={64} autoComplete="off" /></Field>
+					<Field label="Name" hint="A label, so this one can be revoked later without guessing which is which."><input id="mcp-token-label" name="mcp-token-label" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} {...NO_FILL} /></Field>
 				</Modal>
 			)}
 		</Shell>

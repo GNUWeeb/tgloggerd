@@ -1,7 +1,7 @@
 // Form parts for the settings and administration pages.
 import { useEffect, useState, type ReactNode } from 'react';
 import { track } from './busy.ts';
-import { Check, Search, X } from 'lucide-react';
+import { Check, Eye, EyeOff, Search, X } from 'lucide-react';
 import { Avatar } from './primitives.tsx';
 import { searchChats, type ChatQuery } from '../api/search.ts';
 import type { PickItem } from '../types.ts';
@@ -13,6 +13,33 @@ export function Field({ label, hint, children }: { label: ReactNode; hint?: Reac
 			{children}
 			{hint && <span className="a-field-hint">{hint}</span>}
 		</label>
+	);
+}
+
+// Attributes that keep browsers and password managers from treating a
+// field as part of a login form and filling it with the saved site
+// login. Spread on every field of a form that holds a token or secret.
+export const NO_FILL = {
+	autoComplete: 'off',
+	'data-1p-ignore': 'true',
+	'data-lpignore': 'true',
+	'data-form-type': 'other',
+} as const;
+
+// A token, webhook URL or other secret that is not the account's own
+// password. It is never type=password: browsers and password managers
+// ignore autocomplete=off there and fill in the site login. It is
+// masked by CSS instead (.a-secret), with a toggle button to show it
+// (a stable name; aria-pressed says whether it is shown). Name and
+// id must not look like a login field (never name, user, password...).
+export function SecretInput({ id, value, onChange, what, placeholder }: { id: string; value: string; onChange: (v: string) => void; what: string; placeholder?: string }) {
+	const [shown, setShown] = useState(false);
+	return (
+		<span className="a-inputwrap">
+			<input type="text" id={id} name={id} className={shown ? '' : 'a-secret'} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+				{...NO_FILL} autoCorrect="off" autoCapitalize="off" spellCheck={false} />
+			<button type="button" className="a-icon-btn sm" aria-pressed={shown} aria-label={`Show ${what}`} title={shown ? `Hide ${what}` : `Show ${what}`} onClick={() => setShown((x) => !x)}>{shown ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+		</span>
 	);
 }
 
@@ -74,7 +101,7 @@ export function ChatPicker({ value, onChange, search, exclude = NO_IDS, placehol
 			</button>
 			{open && (
 				<div className="a-picker-pop">
-					<div className="a-picker-search"><Search size={14} /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} /></div>
+					<div className="a-picker-search"><Search size={14} /><input autoFocus name="chat-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} {...NO_FILL} /></div>
 					<ul aria-busy={r.loading}>
 						{list.map((o) => (
 							<li key={o.kind + o.id}>

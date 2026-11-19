@@ -385,7 +385,7 @@ describe('forwarding', () => {
 		fireEvent.click(screen.getByRole('button', { name: /Add webhook/ }));
 		fireEvent.click(dialog().querySelector('.a-picker-btn')!);
 		fireEvent.click(await within(await popup()).findByRole('button', { name: /Rust Programming/ }));
-		fill(dialog(), 'input[type=password]', 'https://discord.com/api/webhooks/1/abc');
+		fill(dialog(), '#webhook-url', 'https://discord.com/api/webhooks/1/abc');
 		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
 		await waitFor(() => expect(callsTo(calls, 'POST', '/api/forwarding/telegram-discord')).toHaveLength(1));
 		expect(callsTo(calls, 'POST', '/api/forwarding/telegram-discord')[0]!.body).toMatchObject({ chat_id: -100777, chat_kind: 'group', webhook_url: 'https://discord.com/api/webhooks/1/abc', enabled: true });
@@ -400,9 +400,36 @@ describe('forwarding', () => {
 		fireEvent.click(screen.getByRole('button', { name: /Add webhook/ }));
 		fireEvent.click(dialog().querySelector('.a-picker-btn')!);
 		fireEvent.click(await within(await popup()).findByRole('button', { name: /Rust Programming/ }));
-		fill(dialog(), 'input[type=password]', 'https://evil.example/x');
+		fill(dialog(), '#webhook-url', 'https://evil.example/x');
 		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
 		await within(dialog()).findByText('That is not a Discord webhook URL.');
+	});
+
+	// A masked password field in a form looks like a login form to
+	// browsers, which filled the saved site password into it.
+	it('keeps password managers out of the webhook URL', async () => {
+		fakeApi('superadmin', { 'GET /api/chats/search': () => ({ items: [pick(-100777, 'Rust Programming')], next_cursor: null }) });
+		renderPage('/platform-fwd/telegram-discord');
+		fireEvent.click(screen.getByRole('button', { name: /Add webhook/ }));
+		expect(dialog().querySelector('input[type=password]')).toBeNull();
+		const url = dialog().querySelector<HTMLInputElement>('#webhook-url')!;
+		expect(url.type).toBe('text');
+		expect(url.name).toBe('webhook-url');
+		expect(url.className).toContain('a-secret');
+		for (const [a, v] of [['autocomplete', 'off'], ['autocorrect', 'off'], ['autocapitalize', 'off'], ['spellcheck', 'false'], ['data-lpignore', 'true'], ['data-form-type', 'other']]) expect(url.getAttribute(a!)).toBe(v);
+		expect(url.getAttribute('data-1p-ignore')).not.toBeNull();
+		const eye = within(dialog()).getByRole('button', { name: 'Show webhook URL' });
+		fireEvent.click(eye);
+		expect(eye.getAttribute('aria-pressed')).toBe('true');
+		expect(url.className).not.toContain('a-secret');
+		fireEvent.click(dialog().querySelector('.a-picker-btn')!);
+		const search = (await popup()).querySelector<HTMLInputElement>('input')!;
+		expect(search.getAttribute('autocomplete')).toBe('off');
+		expect(search.getAttribute('data-form-type')).toBe('other');
+		// Shown again masked after closing and reopening.
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+		fireEvent.click(screen.getByRole('button', { name: /Add webhook/ }));
+		expect(dialog().querySelector('#webhook-url')!.className).toContain('a-secret');
 	});
 
 	it('tests a saved webhook by its id, and switches a route off', async () => {
@@ -624,5 +651,16 @@ describe('MCP', () => {
 		fireEvent.click(within(dialog()).getByRole('button', { name: 'Mint' }));
 		await screen.findByText('tgmcp_test_once');
 		expect(screen.getByText(/Copy this token now/)).toBeTruthy();
+	});
+
+	it('keeps password managers out of the token name', () => {
+		renderPage('/mcp-admin/tokens');
+		fireEvent.click(screen.getByRole('button', { name: /Mint a token/ }));
+		const i = dialog().querySelector('input')!;
+		expect(i.name).toBe('mcp-token-label');
+		expect(i.getAttribute('autocomplete')).toBe('off');
+		expect(i.getAttribute('data-1p-ignore')).not.toBeNull();
+		expect(i.getAttribute('data-lpignore')).toBe('true');
+		expect(i.getAttribute('data-form-type')).toBe('other');
 	});
 });

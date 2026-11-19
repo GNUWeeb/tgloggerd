@@ -8,7 +8,7 @@ import { Bot as BotIcon, Pencil, Plus, Trash2, TriangleAlert, Users as UsersIcon
 import Shell from '../ui/Shell.tsx';
 import { useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
-import { Field, Seg, Switch } from '../ui/forms.tsx';
+import { Field, NO_FILL, SecretInput, Seg, Switch } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
 import { ApiError, api, ok } from '../api/client.ts';
 import { ago } from '../format.ts';
@@ -52,7 +52,7 @@ const errText = (x: unknown) => (x instanceof ApiError ? x.message : 'The server
 function TokenField({ kind, value, onChange, label = 'Token' }: { kind: Kind; value: string; onChange: (v: string) => void; label?: string }) {
 	return (
 		<Field label={label} hint={TOKEN_HINT[kind]}>
-			<input type="password" value={value} onChange={(e) => onChange(e.target.value.trim())} autoComplete="off" spellCheck={false} />
+			<SecretInput id="bot-token" value={value} onChange={(v) => onChange(v.trim())} what="token" />
 		</Field>
 	);
 }
@@ -80,7 +80,7 @@ function AddBot({ onClose, onSaved }: { onClose: () => void; onSaved: () => void
 				{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 				<Seg value={kind} onChange={(k) => { setKind(k); setErr(''); }} items={[['discord', 'Discord'], ['telegram', 'Telegram']]} />
 				<p className="a-muted sm">{kind === 'discord' ? 'A Discord bot reads the Discord channels of your Discord to Telegram routes.' : 'A Telegram bot sends into the Telegram chats of your Discord to Telegram routes; add it to those chats.'}</p>
-				<Field label="Name" hint="Your own label for it."><input value={name} onChange={(e) => setName(e.target.value)} maxLength={64} autoFocus /></Field>
+				<Field label="Name" hint="Your own label for it."><input id="bot-label" name="bot-label" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} autoFocus {...NO_FILL} /></Field>
 				<TokenField kind={kind} value={token} onChange={setToken} />
 			</form>
 		</Modal>
@@ -107,7 +107,7 @@ function EditBot({ bot, onClose, onSaved }: { bot: Bot; onClose: () => void; onS
 			footer={<><span className="a-grow" /><Btn ghost onClick={onClose}>Cancel</Btn><button className="a-btn a-btn-primary" type="submit" form="edit-bot">Save</button></>}>
 			<form id="edit-bot" className="a-form" onSubmit={(e) => void submit(e)}>
 				{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
-				<Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} maxLength={64} /></Field>
+				<Field label="Name"><input id="bot-label" name="bot-label" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} {...NO_FILL} /></Field>
 				<TokenField kind={bot.kind} value={token} onChange={setToken} label="New token" />
 				<p className="a-muted sm">Leave the token empty to keep the bot's current one.</p>
 			</form>
