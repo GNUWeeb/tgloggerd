@@ -17,11 +17,7 @@ import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
 export type BotsProps = S['BotsProps'];
-// photo: a Telegram bot's profile photo (null for Discord bots); profile:
-// the bot's user id when the viewer may open its user page (null
-// otherwise, and for Discord bots). Both stay until the API description
-// has them.
-type Bot = S['Bot'] & { photo?: string | null; profile?: number | null };
+type Bot = S['Bot'];
 type Kind = S['BotKind'];
 type Status = S['BotStatus'];
 

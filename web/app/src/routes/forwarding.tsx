@@ -20,11 +20,7 @@ type Person = S['FwdPerson'];
 type Owned = S['Owned'];
 export type T2DRoute = S['T2DRoute'];
 export type D2TRoute = S['D2TRoute'];
-// photo: a Telegram bot's profile photo (null for Discord bots); profile:
-// the bot's user id when the viewer may open its user page (null
-// otherwise, and for Discord bots). Both stay until the API description
-// has them.
-type BotRef = S['BotRef'] & { photo?: string | null; profile?: number | null };
+type BotRef = S['BotRef'];
 type BotKind = S['BotKind'];
 
 export type ForwardingIndexProps = S['ForwardingIndexProps'];
