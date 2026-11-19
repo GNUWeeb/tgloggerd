@@ -113,6 +113,11 @@ add_executable(tgloggerd
 	src/tgloggerd/ChatRef.hpp
 	src/tgloggerd/ChatApi.cpp
 	src/tgloggerd/ChatApi.hpp
+	src/tgloggerd/ChatRecheck.cpp
+	src/tgloggerd/ChatRecheck.hpp
+	src/tgloggerd/RecheckApi.cpp
+	src/tgloggerd/RecheckApi.hpp
+	src/tgloggerd/RecheckBackend.cpp
 	src/tgloggerd/ContactLookup.cpp
 	src/tgloggerd/ContactLookup.hpp
 	src/tgloggerd/ContactApi.cpp
@@ -310,6 +315,48 @@ add_executable(community_db_test EXCLUDE_FROM_ALL
 target_include_directories(community_db_test PRIVATE src)
 target_compile_options(community_db_test PRIVATE -Wall -Wextra)
 target_link_libraries(community_db_test PRIVATE connector-jdbc
+	nlohmann_json::nlohmann_json Threads::Threads)
+
+# The chat recheck's queue limits, deletion selection and restart
+# catch-up over plain data; not part of the default build:
+#   cmake --build build --target chat_recheck_test && build/chat_recheck_test
+add_executable(chat_recheck_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/chat_recheck_test.cpp
+	src/tgloggerd/ChatRecheck.cpp)
+target_include_directories(chat_recheck_test PRIVATE src)
+target_compile_options(chat_recheck_test PRIVATE -Wall -Wextra)
+
+# POST /v1/chats/{chat_id}/recheck over a real loopback listener with
+# stand-ins for TDLib, the database and the queue's clock; not part of
+# the default build:
+#   cmake --build build --target recheck_api_test && build/recheck_api_test
+add_executable(recheck_api_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/recheck_api_test.cpp
+	src/tgloggerd/RecheckApi.cpp
+	src/tgloggerd/ChatRecheck.cpp
+	src/tgloggerd/InternalApi.cpp
+	src/tgloggerd/ThreadPool.cpp
+	src/tgloggerd/helpers/log.c)
+target_include_directories(recheck_api_test PRIVATE src
+	${SODIUM_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
+target_compile_options(recheck_api_test PRIVATE -Wall -Wextra)
+target_link_libraries(recheck_api_test PRIVATE connector-jdbc
+	${SODIUM_LIBRARIES} nlohmann_json::nlohmann_json Threads::Threads)
+
+# What a chat recheck reads and marks in the message tables, and the
+# plans of its reads, against a throwaway MySQL with every migration
+# applied (TGL_TEST_MYSQL_* as community_db_test); not part of the
+# default build:
+#   cmake --build build --target chat_recheck_db_test && build/chat_recheck_db_test
+add_executable(chat_recheck_db_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/chat_recheck_db_test.cpp
+	src/tgloggerd/DB.cpp
+	${TGLOGGERD_MODEL_SOURCES}
+	src/mysql/ConnectionPool.cpp
+	src/mysql/Database.cpp)
+target_include_directories(chat_recheck_db_test PRIVATE src)
+target_compile_options(chat_recheck_db_test PRIVATE -Wall -Wextra)
+target_link_libraries(chat_recheck_db_test PRIVATE connector-jdbc
 	nlohmann_json::nlohmann_json Threads::Threads)
 
 # discordd -- the Discord daemon (logs Discord messages, forwards them to

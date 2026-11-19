@@ -11,6 +11,7 @@
 #include <td/telegram/td_api.h>
 #include <td/telegram/td_api.hpp>
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <memory>
@@ -636,6 +637,9 @@ constexpr int kAdminPollMaxMiss = 3;
  * server; tolerate this many empties before declaring a chat's history done. */
 constexpr int kBackfillEmptyRetries = 3;
 
+/* Seconds from authorization to the restart catch-up of chat rechecks. */
+constexpr double kRecheckCatchUpDelay = 120.0;
+
 /*
  * The (chat_id, message_id) of the message @m replies to, written to
  * @chat_id / @msg_id. Returns false for a non-reply or a story reply. The
@@ -981,6 +985,22 @@ struct TDLib::Impl {
 	time_t						relink_tick_ = 0;
 	int						relink_in_tick_ = 0;
 
+	/*
+	 * Chat rechecks (TDLib::recheckChat): the queue under refetch_mtx_,
+	 * the rest loop thread only. chat_last_date_ is each chat's last
+	 * message date from updateNewChat and updateChatLastMessage, for the
+	 * restart catch-up; recheck_paused_until_ a flood wait's end.
+	 */
+	recheck::Queue					recheck_q_;
+	std::function<void(const RecheckAnswer &)>	recheck_handler_;
+	std::function<void(int64_t, bool, const std::vector<int64_t> &)>
+							recheck_found_handler_;
+	std::unordered_map<int64_t, int64_t>		chat_last_date_;
+	int						recheck_inflight_ = 0;
+	int						recheck_in_tick_ = 0;
+	time_t						recheck_paused_until_ = 0;
+	bool						recheck_catchup_armed_ = false;
+
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
 	~Impl(void);
 
@@ -1055,6 +1075,10 @@ struct TDLib::Impl {
 	void enqueue_refetch_group(int64_t group_id);
 	void drain_refetch(void);
 	void drain_relink(void);
+	void drain_recheck(void);
+	void on_recheck_page(const recheck::Item &it, Object obj);
+	void note_chat_last_message(int64_t chat_id, const td_api::message *m);
+	void queue_recheck_catchup(void);
 	void refetch_user_info(int64_t user_id);
 	void refetch_group_info(int64_t chat_id);
 	void handle_file_update(const td_api::file &f);
@@ -1337,6 +1361,8 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 			},
 			[this](td_api::updateNewChat &u) {
 				if (u.chat_) {
+					note_chat_last_message(u.chat_->id_,
+						u.chat_->last_message_.get());
 					handle_new_chat(*u.chat_, true);
 					/* Register every accessible chat (group and
 					 * private) for background history backfill,
@@ -1568,6 +1594,10 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 					u.message_ids_,
 					u.is_permanent_);
 			},
+			[this](td_api::updateChatLastMessage &u) {
+				note_chat_last_message(u.chat_id_,
+						       u.last_message_.get());
+			},
 			[](auto &) {}
 		)
 	);
@@ -1707,6 +1737,19 @@ void TDLib::Impl::on_authorization_state_update(void)
 					backfill_started_ = true;
 					arm_backfill_alarm();
 					on_backfill_discovery();
+				}
+				/*
+				 * The restart catch-up, once per run, once the
+				 * chat lists had time to load (the backfill's
+				 * discovery above asks for them).
+				 */
+				if (!recheck_catchup_armed_) {
+					recheck_catchup_armed_ = true;
+					send_query(td_api::make_object<td_api::setAlarm>(
+							   kRecheckCatchUpDelay),
+						   [this](Object) {
+							   queue_recheck_catchup();
+						   });
 				}
 			},
 			[this](td_api::authorizationStateLoggingOut &) {
@@ -3026,6 +3069,7 @@ void TDLib::Impl::drain_relink(void)
 	if (now != relink_tick_) {
 		relink_tick_ = now;
 		relink_in_tick_ = 0;
+		recheck_in_tick_ = 0;
 	}
 	while (relink_in_tick_ < kRelinkPerSecond) {
 		std::pair<int64_t, int64_t> m;
@@ -3044,6 +3088,8 @@ void TDLib::Impl::drain_relink(void)
 				  << " of " << relink_total_
 				  << " message(s) missing their media\n";
 	}
+	/* Chat rechecks, from the same budget, ahead of the repair. */
+	drain_recheck();
 	/*
 	 * Old-row repair, after the relink queue and from what is left of the
 	 * same budget. A re-fetched message is stored again through the
@@ -3066,6 +3112,155 @@ void TDLib::Impl::drain_relink(void)
 				" without their kind or detail", repair_sent_,
 				repair_total_);
 	}
+}
+
+/*
+ * At most this many rechecks start per second, each counted against
+ * kRelinkPerSecond too, and this many wait for their answer at once: a
+ * getChatHistory that reaches the server is heavier than a getMessage.
+ */
+constexpr int kRecheckPerSecond = 2;
+constexpr int kRecheckInflight = 2;
+
+void TDLib::Impl::drain_recheck(void)
+{
+	if (!is_authorized_ || closing_)
+		return;
+	const time_t now = std::time(nullptr);
+	if (now < recheck_paused_until_)
+		return;
+	while (relink_in_tick_ < kRelinkPerSecond &&
+	       recheck_in_tick_ < kRecheckPerSecond &&
+	       recheck_inflight_ < kRecheckInflight) {
+		std::optional<recheck::Item> it;
+		{
+			std::lock_guard<std::mutex> lk(refetch_mtx_);
+			it = recheck_q_.pop(recheck::Clock::now());
+		}
+		if (!it)
+			return;
+		relink_in_tick_++;
+		recheck_in_tick_++;
+		recheck_inflight_++;
+		/*
+		 * The stretch's shape is recheck::shapeOf's. only_local
+		 * false: TDLib answers from its own database where it holds
+		 * the stretch and asks Telegram for the gaps.
+		 */
+		const recheck::Shape sh = recheck::shapeOf(it->around);
+		recheck::Item item = *it;
+		send_query(td_api::make_object<td_api::getChatHistory>(
+				   it->chat_id, sh.from, sh.offset, sh.limit,
+				   false),
+			   [this, item](Object obj) {
+				   on_recheck_page(item, std::move(obj));
+			   });
+	}
+}
+
+void TDLib::Impl::on_recheck_page(const recheck::Item &it, Object obj)
+{
+	if (recheck_inflight_ > 0)
+		recheck_inflight_--;
+
+	if (obj->get_id() == td_api::error::ID) {
+		auto err = td::move_tl_object_as<td_api::error>(obj);
+		/* A flood wait holds every recheck back for its time; the
+		 * recheck itself is not repeated. */
+		if (err->code_ == 429 || err->code_ == 420) {
+			long secs = 30;
+			auto pos = err->message_.find_last_of(' ');
+			if (pos != std::string::npos)
+				secs = std::max(1L, std::atol(err->message_.c_str() + pos + 1));
+			recheck_paused_until_ = std::time(nullptr) + secs;
+		}
+		pr_info(l_, "recheck: chat %lld around %lld: %d %s",
+			(long long)it.chat_id, (long long)it.around, err->code_,
+			err->message_.c_str());
+		return;
+	}
+	if (obj->get_id() != td_api::messages::ID)
+		return;
+
+	auto msgs = td::move_tl_object_as<td_api::messages>(obj);
+	RecheckAnswer a;
+	a.chat_id = it.chat_id;
+	a.is_group = !is_private_chat(it.chat_id);
+	a.page.around = it.around;
+
+	/*
+	 * A message found again that an earlier recheck marked deleted was
+	 * not gone after all: undo that first. The handler queues the undo
+	 * on the serial worker ahead of the stores below, which would
+	 * otherwise replace meta and drop the flag that tells it apart.
+	 */
+	if (recheck_found_handler_) {
+		std::vector<int64_t> found;
+		for (const auto &m : msgs->messages_)
+			if (m && m->chat_id_ == it.chat_id &&
+			    is_server_msg_id(m->id_))
+				found.push_back(to_server_msg_id(m->id_));
+		if (!found.empty())
+			recheck_found_handler_(it.chat_id, a.is_group, found);
+	}
+
+	/*
+	 * Oldest first through the same handlers as a live message, which
+	 * store what is missing and record an edit as a new version. Not
+	 * the forward handler: only updateNewMessage forwards, so nothing
+	 * found late reaches Discord.
+	 */
+	for (auto rit = msgs->messages_.rbegin(); rit != msgs->messages_.rend();
+	     ++rit) {
+		if (!*rit || (*rit)->chat_id_ != it.chat_id)
+			continue;
+		td_api::message &m = **rit;
+		a.page.total++;
+		if (!is_server_msg_id(m.id_))
+			continue;
+		if (a.is_group)
+			handle_message_for_group_chat(m, 0);
+		else
+			handle_message_for_private_chat(m, 0);
+		a.page.ids.push_back(to_server_msg_id(m.id_));
+	}
+	if (recheck_handler_)
+		recheck_handler_(a);
+}
+
+void TDLib::Impl::note_chat_last_message(int64_t chat_id,
+					 const td_api::message *m)
+{
+	if (m && m->date_ > 0)
+		chat_last_date_[chat_id] = m->date_;
+}
+
+void TDLib::Impl::queue_recheck_catchup(void)
+{
+	if (stopped_ || closing_)
+		return;
+	auto chats = recheck::catchUpChats(chat_last_date_, std::time(nullptr));
+	size_t queued = 0, recent = 0, busy = 0;
+	{
+		std::lock_guard<std::mutex> lk(refetch_mtx_);
+		const auto now = recheck::Clock::now();
+		for (int64_t c : chats) {
+			switch (recheck_q_.push({ c, 0, true }, now)) {
+			case recheck::Admit::Queued:
+				queued++;
+				break;
+			case recheck::Admit::Busy:
+				busy++;
+				break;
+			default:
+				recent++;
+				break;
+			}
+		}
+	}
+	pr_info(l_, "recheck: restart catch-up queued %zu of %zu chat(s) with a"
+		" message in the last 48 h (%zu rechecked already, %zu over"
+		" the queue's bound)", queued, chats.size(), recent, busy);
 }
 
 void TDLib::Impl::drain_refetch(void)
@@ -4512,6 +4707,24 @@ void TDLib::setCommunityHandlers(
 void TDLib::fetchCommunityFullInfo(int64_t community_id)
 {
 	impl_->enqueue_community_full_info(community_id);
+}
+
+recheck::Admit TDLib::recheckChat(int64_t chat_id, int64_t around)
+{
+	std::lock_guard<std::mutex> lk(impl_->refetch_mtx_);
+	return impl_->recheck_q_.push({ chat_id, around, false },
+				      recheck::Clock::now());
+}
+
+void TDLib::setRecheckFoundHandler(
+	std::function<void(int64_t, bool, const std::vector<int64_t> &)> cb)
+{
+	impl_->recheck_found_handler_ = std::move(cb);
+}
+
+void TDLib::setRecheckHandler(std::function<void(const RecheckAnswer &)> cb)
+{
+	impl_->recheck_handler_ = std::move(cb);
 }
 
 void TDLib::repairMessages(std::vector<std::pair<int64_t, int64_t>> msgs)

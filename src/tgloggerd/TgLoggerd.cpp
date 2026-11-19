@@ -14,6 +14,7 @@
 #include <tgloggerd/ChatApi.hpp>
 #include <tgloggerd/PhotoApi.hpp>
 #include <tgloggerd/EmojiApi.hpp>
+#include <tgloggerd/RecheckApi.hpp>
 #include <tgloggerd/ContactApi.hpp>
 #include <tgloggerd/BotWatch.hpp>
 #include <tgloggerd/EventBus.hpp>
@@ -504,6 +505,79 @@ int TgLoggerd::start(void)
 			}
 		});
 	});
+	/*
+	 * A chat recheck's answer, once its messages are stored (they were
+	 * posted to serial_ first): the stored live messages strictly
+	 * between the lowest and highest id returned that it did not return
+	 * are marked deleted, flagged as found on recheck, unless the answer
+	 * was too short to tell (recheck::selectDeleted). Each sends the
+	 * usual deletion event. Its Discord copy is NOT tombstoned: a
+	 * deletion concluded from a recheck is undone when a later recheck
+	 * finds the message (setRecheckFoundHandler), and a tombstone on
+	 * Discord could not be.
+	 */
+	tdlib_->setRecheckFoundHandler([this](int64_t chat_id, bool is_group,
+					      const std::vector<int64_t> &ids) {
+		serial_->post([this, chat_id, is_group, ids] {
+			try {
+				auto back = db_->restoreRecheckDeleted(
+					chat_id, is_group, ids);
+				for (int64_t id : back)
+					events_->messageEdited(chat_id, id);
+				if (!back.empty())
+					pr_warn(l_, "recheck: chat %lld: %zu"
+						" message(s) marked deleted on an"
+						" earlier recheck came back;"
+						" restored", (long long)chat_id,
+						back.size());
+			} catch (const std::exception &e) {
+				pr_error(l_, "recheck: chat %lld: restore"
+					 " failed: %s", (long long)chat_id,
+					 e.what());
+			}
+		});
+	});
+	tdlib_->setRecheckHandler([this](const RecheckAnswer &a) {
+		serial_->post([this, a] {
+			try {
+				std::vector<int64_t> marked;
+				const char *why = "fewer than two messages returned";
+				if (auto span = recheck::spanOf(a.page)) {
+					auto v = recheck::selectDeleted(a.page,
+						db_->listRecheckStored(a.chat_id,
+							a.is_group, *span));
+					why = v.why;
+					if (v.concluded)
+						marked = db_->markDeletedOnRecheck(
+							a.chat_id, a.is_group,
+							v.deleted);
+				}
+				for (int64_t id : marked) {
+					publish_message(*events_, a.chat_id, id,
+							MsgChange::Deleted,
+							std::nullopt);
+				}
+				if (marked.size() > recheck::kWarnMarked)
+					pr_warn(l_, "recheck: chat %lld around %lld:"
+						" %zu returned, %zu marked deleted",
+						(long long)a.chat_id,
+						(long long)a.page.around,
+						a.page.total, marked.size());
+				else
+					pr_info(l_, "recheck: chat %lld around %lld:"
+						" %zu returned, %zu marked deleted%s%s",
+						(long long)a.chat_id,
+						(long long)a.page.around,
+						a.page.total, marked.size(),
+						*why ? "; none concluded: " : "",
+						why);
+			} catch (const std::exception &e) {
+				pr_error(l_, "recheck: chat %lld around %lld: %s",
+					 (long long)a.chat_id,
+					 (long long)a.page.around, e.what());
+			}
+		});
+	});
 	tdlib_->setContentVersionHandler(
 		[this](int64_t chat_id, int64_t message_id,
 		       const models::MessageContent &mc, bool is_group) {
@@ -955,6 +1029,7 @@ int TgLoggerd::start(void)
 		registerChatApi(*api_, *tdlib_, *db_);
 		registerPhotoApi(*api_, *tdlib_, *db_);
 		registerEmojiApi(*api_, emojiBackendOf(*tdlib_, *db_));
+		registerRecheckApi(*api_, recheckBackendOf(*tdlib_, *db_));
 		registerContactApi(*api_, *contacts_);
 		registerEventApi(*api_, *events_);
 		registerStatusApi(*api_, [t = tdlib_.get()] {

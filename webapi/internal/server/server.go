@@ -89,6 +89,10 @@ type Deps struct {
 	// Bots resolves the Telegram bots' own users (BotResolver), nudged
 	// when a bot is created or given a new token; nil nudges nothing.
 	Bots *BotResolver
+	// Recheck limits the chat rechecks asked of the daemon when chats
+	// and messages are served (recheck.go); the zero value is
+	// DefaultRecheck.
+	Recheck RecheckConfig
 
 	// pages replaces the page table, state the database's account
 	// state behind a session, clock the time, prefs the accounts'
@@ -114,6 +118,8 @@ type Deps struct {
 	// emoji replaces the pages' custom emoji resolver
 	// (emojiResolver).
 	emoji *emojiResolver
+	// rechecks replaces the chat rechecker (rechecker).
+	rechecks *rechecker
 }
 
 // searchFunc is logdb.Search's signature.
@@ -181,6 +187,8 @@ type Server struct {
 	emoji *emojiResolver
 	// series keeps the dashboard series' finished periods.
 	series *logdb.SeriesCache
+	// rechecks has the daemon recheck the chat stretches served.
+	rechecks *rechecker
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -253,6 +261,10 @@ func New(d Deps) http.Handler {
 	s.emoji = d.emoji
 	if s.emoji == nil {
 		s.emoji = newEmojiResolver(d.Log, d.Daemon, s.clock)
+	}
+	s.rechecks = d.rechecks
+	if s.rechecks == nil {
+		s.rechecks = newRechecker(d.Log, d.Daemon, s.clock, d.Recheck)
 	}
 	s.series = logdb.NewSeriesCache(logdb.SeriesCachePeriods, logdb.SeriesCacheTTL)
 	s.search = logdb.Search

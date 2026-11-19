@@ -205,7 +205,10 @@ type Message struct {
 	// invoice's, paid media's items, a service message's new photo.
 	Files     []MessageFile
 	DeletedAt int64 // 0 = not deleted
-	AlbumID   int64 // 0 = none
+	// DeletedOnRecheck: the deletion was found by a recheck against
+	// Telegram (meta.deleted_on_recheck), not seen as it happened.
+	DeletedOnRecheck bool
+	AlbumID          int64 // 0 = none
 	// TopicID is the forum topic of a group message (topic_kind
 	// forum, since migration 000034); 0 = none.
 	TopicID int64
@@ -268,6 +271,13 @@ func tablesOf(group bool) chatTables {
 	return privateTables
 }
 
+// deletedOnRecheck is 1 when the daemon marked a message deleted
+// because a recheck against Telegram found it gone (it sets
+// meta.deleted_on_recheck to JSON true with deleted_at), else 0; a
+// NULL meta is 0.
+const deletedOnRecheck = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(m.meta, " +
+	"'$.deleted_on_recheck')) = 'true', 0)"
+
 // messageSelect is the rich row of a message, without its WHERE.
 func (t chatTables) messageSelect() string {
 	return "SELECT m.id, m.chat_id, m.message_id, " + t.senderUser + ", " + t.senderChat +
@@ -276,7 +286,8 @@ func (t chatTables) messageSelect() string {
 		"m.content_extra, COALESCE(m.text, ''), m.entities, COALESCE(m.file_id, 0), " + fileColumnsOf("f") + ", " +
 		"UNIX_TIMESTAMP(m.deleted_at), m.media_album_id, " + t.topic + ", m.is_pinned, " +
 		"m.view_count, m.forward_count, m.reply_count, m.reactions, " +
-		"JSON_UNQUOTE(JSON_EXTRACT(m.meta, '$.effect_id')), m.reply_to_chat_id, " +
+		"JSON_UNQUOTE(JSON_EXTRACT(m.meta, '$.effect_id')), " + deletedOnRecheck + ", " +
+		"m.reply_to_chat_id, " +
 		"m.reply_to_msg_id, fw.origin_type, fw.origin_sender_name, " +
 		"fw.origin_sender_user_id, fw.origin_chat_id, fw.origin_message_id, fw.origin_date, " +
 		"rm.id, rm.chat_id, rm.message_id, " +
@@ -320,7 +331,7 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 			&m.TdlibType, &m.Extra, &m.Text, &m.Entities, &fileID}
 		dest = append(dest, f.dest()...)
 		dest = append(dest, &deleted, &album, &topic, &m.Pinned, &views, &fwds, &replies,
-			&m.Reactions, &effect, &rChat, &rMsg, &oType, &oName, &oUser, &oChat,
+			&m.Reactions, &effect, &m.DeletedOnRecheck, &rChat, &rMsg, &oType, &oName, &oUser, &oChat,
 			&oMsg, &oDate, &rmID, &rmChat, &rmMsg, &rmU, &rmC, &rmOut, &rmSnippet, &rmCtype,
 			&rmDeleted, &rmExtra, &rmFile)
 		if err := rows.Scan(dest...); err != nil {

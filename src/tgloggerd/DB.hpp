@@ -6,6 +6,7 @@
 #define TGLOGGERD__DB_HPP
 
 #include <mysql/Database.hpp>
+#include <tgloggerd/ChatRecheck.hpp>
 #include <tgloggerd/ForwardFilter.hpp>
 #include <tgloggerd/models/User.hpp>
 #include <tgloggerd/models/ContactName.hpp>
@@ -228,6 +229,43 @@ public:
 	 * content_type, for the dry run: ("group", "unknown") -> n, ... */
 	std::vector<std::tuple<std::string, std::string, uint64_t>>
 	countMessagesToRepair(void);
+
+	/*
+	 * What a chat recheck needs of the stored messages of @chat_id
+	 * (telegram_group_messages, or telegram_private_messages unless
+	 * @is_group) around @span: the live ones strictly between its ends,
+	 * and whether a live one lies below it. Two range reads on the
+	 * (chat_id, message_id) unique key.
+	 */
+	recheck::Stored listRecheckStored(int64_t chat_id, bool is_group,
+					  const recheck::Span &span);
+
+	/*
+	 * Mark the live messages @message_ids of @chat_id deleted as found by
+	 * a recheck: deleted_at and meta.deleted_on_recheck = true in one
+	 * UPDATE each (a NULL meta becomes an object). The only writer of
+	 * that flag. Returns the ids it marked; one already deleted, or not
+	 * stored, is left as it is.
+	 */
+	std::vector<int64_t> markDeletedOnRecheck(
+		int64_t chat_id, bool is_group,
+		const std::vector<int64_t> &message_ids);
+
+	/*
+	 * Undo markDeletedOnRecheck for those of @message_ids a later
+	 * recheck found again: deleted_at back to NULL and the flag removed,
+	 * for rows that carry the flag only (a deletion Telegram reported is
+	 * never undone). Returns the ids it restored.
+	 */
+	std::vector<int64_t> restoreRecheckDeleted(
+		int64_t chat_id, bool is_group,
+		const std::vector<int64_t> &message_ids);
+
+	/*
+	 * Whether the chat is stored: a telegram_groups row for a group, a
+	 * telegram_users row for a private chat (its id is the peer's).
+	 */
+	bool chatKnown(int64_t chat_id);
 
 	/* Discord-forwarder lookups (see DiscordForwarder). */
 	std::optional<SenderUser> getSenderUser(int64_t user_id);

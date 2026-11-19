@@ -233,6 +233,7 @@ func run(log *slog.Logger, cfg *config.Config) error {
 			ResetTTL:  cfg.ResetLinkTTL,
 			VerifyTTL: cfg.VerifyLinkTTL,
 		},
+		Recheck: server.RecheckConfig(cfg.Recheck),
 	})
 
 	addr := net.JoinHostPort(cfg.ListenAddr, strconv.Itoa(int(cfg.ListenPort)))

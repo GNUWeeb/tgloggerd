@@ -25,6 +25,7 @@
 #include <tgloggerd/models/Backfill.hpp>
 #include <tgloggerd/models/Community.hpp>
 
+#include "ChatRecheck.hpp"
 #include "helpers/log.h"
 
 #include <utility>
@@ -208,6 +209,18 @@ struct InteractionUpdate {
 	int64_t			message_id = 0;	/* server id */
 	bool			is_group = false;
 	models::Interaction	interaction;
+};
+
+/*
+ * What one chat recheck got back (see TDLib::recheckChat), handed over
+ * after its messages went through the message handlers: is_group
+ * selects the table, page the getChatHistory sent and the server ids
+ * it returned.
+ */
+struct RecheckAnswer {
+	int64_t		chat_id = 0;
+	bool		is_group = false;
+	recheck::Page	page;
 };
 
 struct ForwardMessage {
@@ -687,6 +700,36 @@ public:
 	 * DB::listMessagesToRepair.
 	 */
 	void repairMessages(std::vector<std::pair<int64_t, int64_t>> msgs);
+
+	/*
+	 * Queue a recheck of chat @chat_id around server message @around (0 =
+	 * the newest), within the limits of recheck::Queue, and say what
+	 * became of it. Thread-safe. The recheck runs on the loop thread,
+	 * paced under the relink and repair budget (after relink, before
+	 * repair): one getChatHistory, every message it returns stored
+	 * through the message handlers as if it had just arrived (never
+	 * forwarded), then the answer handed to the recheck handler, which
+	 * concludes deletions. About two minutes after authorization the
+	 * newest stretch of every chat whose last message is at most two
+	 * days old is queued the same way, newest first.
+	 */
+	recheck::Admit recheckChat(int64_t chat_id, int64_t around);
+
+	/*
+	 * Set the callback for each recheck's answer (see recheckChat). Runs
+	 * on the loop thread; keep DB work off it.
+	 */
+	void setRecheckHandler(std::function<void(const RecheckAnswer &)> cb);
+
+	/*
+	 * Set the callback for the messages a recheck found, called with
+	 * their server ids BEFORE they are stored, so a deletion an earlier
+	 * recheck concluded for one of them can be undone ahead of the
+	 * store. Runs on the loop thread; keep DB work off it.
+	 */
+	void setRecheckFoundHandler(
+		std::function<void(int64_t chat_id, bool is_group,
+				   const std::vector<int64_t> &ids)> cb);
 
 	/*
 	 * When enabled, issue a one-time optimizeStorage once the client

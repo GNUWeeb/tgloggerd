@@ -98,6 +98,9 @@ type Config struct {
 	// LiveRecheck is how often an open stream checks its session again
 	// (WEBAPI_LIVE_RECHECK, seconds).
 	LiveRecheck time.Duration
+	// Recheck limits the chat rechecks asked of the daemon
+	// (WEBAPI_RECHECK_*; webapi/README, "Recheck").
+	Recheck Recheck
 	// CountCache is how long whole-table and list counts are kept
 	// (WEBAPI_COUNT_CACHE_SECS, default 60; 0 counts on every request).
 	CountCache time.Duration
@@ -177,6 +180,68 @@ type SearchEngine struct {
 	// use MySQL (WEBAPI_SEARCH_ENGINE_MAX_LAG, seconds).
 	Timeout time.Duration
 	MaxLag  time.Duration
+}
+
+// Recheck is how the chat rechecks are limited. Off is WEBAPI_RECHECK
+// == "0". Newest and Older are the least time between two asks for a
+// chat's newest messages and for the stretch around one anchor
+// (WEBAPI_RECHECK_NEWEST_SECS, default 60; _OLDER_SECS, 3600). The
+// signed-out visitors share one bucket: PublicPerMinute tokens a minute
+// (WEBAPI_RECHECK_PUBLIC_PER_MIN, 20; 0 = they ask for none), at most
+// PublicBurst (_PUBLIC_BURST, 20), of which older stretches leave
+// PublicReserve to the newest (_PUBLIC_RESERVE, 10). Timeout bounds one
+// ask (WEBAPI_RECHECK_TIMEOUT, milliseconds, 5000) and MaxInFlight is
+// how many may wait at once (WEBAPI_RECHECK_MAX_IN_FLIGHT, 8). The
+// fields are server.RecheckConfig's, in its order, so main converts it.
+type Recheck struct {
+	Off                                         bool
+	Newest, Older                               time.Duration
+	PublicPerMinute, PublicBurst, PublicReserve int
+	Timeout                                     time.Duration
+	MaxInFlight                                 int
+}
+
+func recheckLimits() (Recheck, error) {
+	var (
+		r   Recheck
+		err error
+		n   int
+	)
+	r.Off = env("WEBAPI_RECHECK", "1") == "0"
+	if n, err = positive("WEBAPI_RECHECK_NEWEST_SECS", "60"); err != nil {
+		return r, err
+	}
+	r.Newest = time.Duration(n) * time.Second
+	if n, err = positive("WEBAPI_RECHECK_OLDER_SECS", "3600"); err != nil {
+		return r, err
+	}
+	r.Older = time.Duration(n) * time.Second
+	for _, v := range []struct {
+		key, def string
+		dst      *int
+	}{
+		{"WEBAPI_RECHECK_PUBLIC_PER_MIN", "20", &r.PublicPerMinute},
+		{"WEBAPI_RECHECK_PUBLIC_BURST", "20", &r.PublicBurst},
+		{"WEBAPI_RECHECK_PUBLIC_RESERVE", "10", &r.PublicReserve},
+	} {
+		if *v.dst, err = integer(v.key, v.def); err != nil {
+			return r, err
+		}
+		if *v.dst < 0 {
+			return r, fmt.Errorf("%s: %q is negative", v.key, env(v.key, v.def))
+		}
+	}
+	if r.PublicPerMinute > 0 && r.PublicReserve >= r.PublicBurst {
+		return r, fmt.Errorf("WEBAPI_RECHECK_PUBLIC_RESERVE (%d) must be under "+
+			"WEBAPI_RECHECK_PUBLIC_BURST (%d)", r.PublicReserve, r.PublicBurst)
+	}
+	if r.Timeout, err = millis("WEBAPI_RECHECK_TIMEOUT", "5000"); err != nil {
+		return r, err
+	}
+	if r.MaxInFlight, err = positive("WEBAPI_RECHECK_MAX_IN_FLIGHT", "8"); err != nil {
+		return r, err
+	}
+	return r, nil
 }
 
 // env returns the variable's value, or def when it is unset or empty.
@@ -363,6 +428,9 @@ func FromEnv() (*Config, error) {
 		return nil, err
 	}
 	c.LiveRecheck = time.Duration(recheck) * time.Second
+	if c.Recheck, err = recheckLimits(); err != nil {
+		return nil, err
+	}
 	counts, err := integer("WEBAPI_COUNT_CACHE_SECS", "60")
 	if err != nil || counts < 0 {
 		return nil, fmt.Errorf("WEBAPI_COUNT_CACHE_SECS: %q is not a number of seconds",

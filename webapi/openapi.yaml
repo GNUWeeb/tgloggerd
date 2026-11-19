@@ -937,6 +937,20 @@ paths:
         only when the viewer sees that chat (reply_to.chat_id names
         it); otherwise reply_to is null. Senders are shown in full
         (counts, contact name) only to viewers that see all users.
+
+
+        Recheck: serving a window also asks the daemon, in the
+        background, to read that stretch of the chat from Telegram
+        again (POST /v1/chats/{chat_id}/recheck), so messages, edits
+        and deletions the logger missed are stored and arrive as the
+        usual live events. The answer never waits for it, and nothing
+        in it says whether one was asked. A window without before,
+        after, around or after_ts is the newest stretch, asked at most
+        once a minute per chat; any other is the stretch around its
+        anchor, asked at most once an hour per chat and anchor. The
+        requests of all signed-out visitors together share one budget,
+        which keeps its last part for newest stretches (webapi/README,
+        "Recheck"). The chat and message pages ask the same way.
       security:
         - {}
         - session: []
@@ -6267,6 +6281,13 @@ components:
           type: boolean
         deleted_at:
           type: [string, 'null']
+        deleted_on_recheck:
+          type: boolean
+          description: >-
+            Present and true when the deletion was found by a recheck
+            against Telegram (the message was gone from the stretch
+            Telegram returned) rather than seen as it happened; then
+            deleted_at is when the recheck found it. Absent otherwise.
         service_type:
           type: [string, 'null']
           description: >-
@@ -8136,6 +8157,12 @@ components:
           description: >-
             When an album item was deleted; absent while it is not.
             Album items only.
+        deleted_on_recheck:
+          type: boolean
+          description: >-
+            Present and true when an album item's deletion was found by
+            a recheck against Telegram rather than seen as it happened
+            (ChatMessage.deleted_on_recheck). Album items only.
     ChatMessage:
       allOf:
         - $ref: '#/components/schemas/MessageExtra'
@@ -8222,6 +8249,15 @@ components:
           type: [string, 'null']
         deleted_at:
           type: [string, 'null']
+        deleted_on_recheck:
+          type: boolean
+          description: >-
+            Present and true when the deletion was found by a recheck
+            against Telegram (the message was gone from the stretch
+            Telegram returned) rather than seen as it happened; then
+            deleted_at is when the recheck found it. Absent otherwise; an album
+            message has it when all its items were deleted and one of
+            them was found so.
         link_preview:
           oneOf:
             - $ref: '#/components/schemas/LinkPreview'
@@ -8543,6 +8579,11 @@ components:
                 type: string
               deleted_at:
                 type: string
+              deleted_on_recheck:
+                type: boolean
+                description: >-
+                  Present and true when the deletion was found by a
+                  recheck against Telegram (MessageRow.deleted_on_recheck).
               message_id:
                 type: integer
                 format: int64

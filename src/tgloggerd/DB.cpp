@@ -111,6 +111,96 @@ std::vector<std::pair<int64_t, int64_t>> DB::listMessagesToRepair(void)
 	return out;
 }
 
+static const char *message_table(bool is_group)
+{
+	return is_group ? "telegram_group_messages" : "telegram_private_messages";
+}
+
+/*
+ * The recheck's reads name the (chat_id, message_id) unique key: left to
+ * itself the optimizer can take the deleted_at key (a ref on NULL, which
+ * nearly every row is) or the (chat_id, media_album_id) key and scan the
+ * whole chat.
+ */
+static std::string recheck_from(bool is_group)
+{
+	return is_group
+		? " FROM telegram_group_messages FORCE INDEX (uq_group_messages_chat_msg)"
+		: " FROM telegram_private_messages FORCE INDEX (uq_private_messages_chat_msg)";
+}
+
+recheck::Stored DB::listRecheckStored(int64_t chat_id, bool is_group,
+				      const recheck::Span &span)
+{
+	const std::string t = recheck_from(is_group);
+	recheck::Stored s;
+	auto rows = db_.query(
+		"SELECT message_id" + t +
+		" WHERE chat_id = ? AND message_id > ? AND message_id < ?"
+		" AND deleted_at IS NULL",
+		{ chat_id, span.lo, span.hi });
+	s.between.reserve(rows.size());
+	for (const auto &r : rows)
+		if (r[0].has_value())
+			s.between.push_back(std::stoll(*r[0]));
+	s.older_exists = !db_.query(
+		"SELECT 1" + t + " WHERE chat_id = ? AND message_id < ?"
+		" AND deleted_at IS NULL LIMIT 1", { chat_id, span.lo }).empty();
+	return s;
+}
+
+std::vector<int64_t> DB::markDeletedOnRecheck(
+	int64_t chat_id, bool is_group, const std::vector<int64_t> &message_ids)
+{
+	/*
+	 * The flag tells a deletion concluded from a recheck apart from one
+	 * Telegram reported. JSON_SET on a NULL document is NULL, hence the
+	 * empty object; CAST makes it JSON true, not the integer 1.
+	 */
+	const std::string sql = std::string("UPDATE ") + message_table(is_group) +
+		" SET deleted_at = NOW(),"
+		" meta = JSON_SET(IF(JSON_TYPE(meta) = 'OBJECT', meta,"
+		" JSON_OBJECT()), '$.deleted_on_recheck', CAST('true' AS JSON))"
+		" WHERE chat_id = ? AND message_id = ? AND deleted_at IS NULL";
+	std::vector<int64_t> marked;
+	if (message_ids.empty())
+		return marked;
+	db_.transaction([&](mysql::Transaction &tx) {
+		for (int64_t id : message_ids)
+			if (tx.execute(sql, { chat_id, id }) > 0)
+				marked.push_back(id);
+	});
+	return marked;
+}
+
+std::vector<int64_t> DB::restoreRecheckDeleted(
+	int64_t chat_id, bool is_group, const std::vector<int64_t> &message_ids)
+{
+	const std::string sql = std::string("UPDATE ") + message_table(is_group) +
+		" SET deleted_at = NULL,"
+		" meta = JSON_REMOVE(meta, '$.deleted_on_recheck')"
+		" WHERE chat_id = ? AND message_id = ? AND deleted_at IS NOT NULL"
+		" AND JSON_EXTRACT(meta, '$.deleted_on_recheck') ="
+		" CAST('true' AS JSON)";
+	std::vector<int64_t> restored;
+	if (message_ids.empty())
+		return restored;
+	db_.transaction([&](mysql::Transaction &tx) {
+		for (int64_t id : message_ids)
+			if (tx.execute(sql, { chat_id, id }) > 0)
+				restored.push_back(id);
+	});
+	return restored;
+}
+
+bool DB::chatKnown(int64_t chat_id)
+{
+	return !db_.query(chat_id > 0
+		? "SELECT 1 FROM telegram_users WHERE id = ?"
+		: "SELECT 1 FROM `telegram_groups` WHERE id = ?",
+		{ chat_id }).empty();
+}
+
 std::vector<std::tuple<std::string, std::string, uint64_t>>
 DB::countMessagesToRepair(void)
 {

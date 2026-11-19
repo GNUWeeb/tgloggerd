@@ -170,6 +170,9 @@ func newEmojiEnv(t *testing.T, withDaemon bool, budget time.Duration) *emojiEnv 
 	t.Cleanup(e.res.wait)
 	e.deps.Daemon = dc
 	e.deps.emoji = e.res
+	// The fake records every ask; the chat windows' rechecks are not
+	// these tests'.
+	e.deps.Recheck = RecheckConfig{Off: true}
 	e.h = New(e.deps)
 	return e
 }
