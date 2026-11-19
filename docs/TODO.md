@@ -129,7 +129,6 @@ Accounts, roles and federations:
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
 - [`join-chat-federations`](todo/join-chat-federations.md): Let whoever joins a chat file the joined group into its federations.
 - [`video-thumbnails`](todo/video-thumbnails.md): Show a still thumbnail for every video before it is played, wherever the web shows one.
-- [`dashboard-stats`](todo/dashboard-stats.md): Chart messages per minute to per year over a chosen range ending at a date or now, as bars, line, area or running total.
 - [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
 
 ## Operations
