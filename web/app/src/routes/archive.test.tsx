@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The archive's list and detail pages: groups, files, messages, a user,
 // a group, a message, the dashboard, and a missing page.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, json, renderPage, setup } from '../test/page.tsx';
 import type { GroupsProps } from './groups.tsx';
@@ -42,6 +42,20 @@ describe('groups list', () => {
 });
 
 describe('files', () => {
+	// The grid loads its next batch when its end is near the window's
+	// bottom. happy-dom lays nothing out (every box is at 0), so place the
+	// end far below, as a first batch that fills the window does: these
+	// tests count only the page loads they make themselves.
+	beforeEach(() => {
+		const real = Element.prototype.getBoundingClientRect;
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+			return this.classList.contains('a-filegrid-foot') ? new DOMRect(0, 10000, 100, 40) : real.call(this);
+		});
+	});
+	afterEach(() => { vi.restoreAllMocks(); });
+
+	// Renders the list in grid, list and mobile form: in a loaded full run
+	// this takes longer than the default five seconds.
 	it('opens and closes a file preview in place, without reloading the list', async () => {
 		const calls = fakeApi('superadmin');
 		const { page } = renderPage('/files?view=list');
@@ -67,7 +81,7 @@ describe('files', () => {
 		await screen.findByRole('dialog', { name: f.name });
 		expect(new URLSearchParams(location.search).get('file')).toBe(String(f.id));
 		expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(1);
-	});
+	}, 20_000);
 
 	it('shows the server\'s preview on a direct visit to ?file=, and closes it in place', async () => {
 		const calls = fakeApi('superadmin');

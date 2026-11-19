@@ -11,5 +11,9 @@ export default defineConfig({
 		isolate: true,
 		// No test may reach the network, not even after it ends.
 		setupFiles: ['src/test/no-network.ts'],
+		// Page tests render whole pages; on a busy machine (a full run, the
+		// e2e harness, other work on the host) one can take longer than the
+		// default five seconds while it passes in two alone.
+		testTimeout: 15_000,
 	},
 });
