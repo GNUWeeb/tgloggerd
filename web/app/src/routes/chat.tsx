@@ -225,6 +225,15 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const [searching, setSearching] = useState(false);
 	const [flash, setFlash] = useState<number | null>(p.at);
 	const [unseen, setUnseen] = useState(0);
+	// A new page (another chat, or ?at=) replaces the window in the same
+	// render, so the scroll to p.at below finds the new window's target:
+	// set from an effect, the messages came a commit late, after the
+	// scroll had already fallen back to the old window's bottom.
+	const [shown, setShown] = useState(p);
+	if (shown !== p) {
+		setShown(p);
+		setMsgs(p.messages); setOlder(p.has_older); setNewer(p.has_newer); setFlash(p.at); setUnseen(0);
+	}
 	const scroller = useRef<HTMLDivElement>(null);
 	// The window's loads (older, newer, the live tail) belong to it: when
 	// a new page replaces the window they are aborted and their answers
@@ -276,7 +285,6 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		emptyAfter.current = null;
 		return () => ac.abort();
 	}, [p]);
-	useEffect(() => { setMsgs(p.messages); setOlder(p.has_older); setNewer(p.has_newer); setFlash(p.at); setUnseen(0); }, [p]);
 
 	useLayoutEffect(() => {
 		const el = scroller.current;

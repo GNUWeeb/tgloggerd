@@ -297,3 +297,41 @@ test('the message page draws text entities', async ({ page }) => {
 	await expect(text.locator('code.rt-code')).toHaveText('inline code');
 	await expect(text.getByRole('link', { name: '@nobody_here_x' })).toHaveAttribute('href', 'https://t.me/nobody_here_x');
 });
+
+test('a reply\'s quote far outside the window opens the chat at the replied message, as ?at= does', async ({ page }) => {
+	type M = { message_id: number; content_type: string; deleted_at: string | null; reply_to: unknown };
+	const api = async (q: string) => (await (await page.request.get(`/api/page/groups/${G}/chat${q}`)).json()).props.messages as M[];
+	// A message from the oldest window, far before the newest one, and the
+	// newest window's last message made a reply to it.
+	const oldest = await api('?after=0');
+	const target = oldest.filter((m) => m.content_type !== 'service' && !m.deleted_at)[30]!;
+	const newest = await api('');
+	expect(newest.some((m) => m.message_id === target.message_id), 'the target is outside the newest window').toBe(false);
+	const reply = newest.filter((m) => m.content_type !== 'service' && !m.deleted_at).at(-1)!;
+	await page.route((u) => decodeURIComponent(u.pathname) === `/api/page/groups/${G}/chat` && !u.searchParams.has('at'), async (route) => {
+		const res = await route.fetch();
+		const body = await res.json();
+		const m = body.props.messages.find((x: M) => x.message_id === reply.message_id);
+		m.reply_to = { message_id: target.message_id, sender_id: 0, sender_name: 'Far sender', snippet: 'a far message', resolved: true };
+		await route.fulfill({ response: res, json: body });
+	});
+	// Opened in the app, so the page data comes through the route above.
+	await page.goto('/users');
+	await expect(page.getByRole('heading', { name: 'Users', level: 1 })).toBeVisible();
+	await page.evaluate((to) => { history.pushState(null, '', to); dispatchEvent(new PopStateEvent('popstate')); }, `/groups/${G}/chat`);
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	await page.locator(`#m${reply.message_id} .c-reply`).click();
+	await expect(page).toHaveURL(new RegExp(`\\?at=${target.message_id}$`));
+	const t = page.locator(`#m${target.message_id}`);
+	await expect(t).toHaveClass(/flash/);
+	// In the middle of the view, where a direct ?at= load puts it.
+	const offset = () => t.evaluate((el) => {
+		const s = el.closest('.c-scroll')!.getBoundingClientRect();
+		const r = el.getBoundingClientRect();
+		return Math.abs((r.top + r.bottom) / 2 - (s.top + s.bottom) / 2) / s.height;
+	});
+	await expect.poll(offset).toBeLessThan(0.25);
+	// And it stays there once the new window has settled.
+	await page.waitForTimeout(500);
+	expect(await offset()).toBeLessThan(0.25);
+});

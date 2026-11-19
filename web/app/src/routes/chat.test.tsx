@@ -68,6 +68,27 @@ describe('chat', () => {
 		await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\/groups\//).at(-1)?.query.get('at')).toBe('1'));
 	});
 
+	it('scrolls to a far replied-to message once its window is drawn, not before', async () => {
+		// The target is in the oldest window, far before the newest one.
+		const target = fixture<ChatProps>(chatUrl() + '?after=0').props.messages.filter((m) => m.content_type !== 'service')[30]!;
+		const p = fixture<ChatProps>(chatUrl()).props;
+		expect(p.messages.some((m) => m.message_id === target.message_id)).toBe(false);
+		const reply = p.messages.filter((m) => m.content_type !== 'service').at(-1)!;
+		fakeApi('superadmin', { 'GET /api/chats/group/:id/messages': () => ({ messages: [], has_older: true, has_newer: true }) });
+		const scrolled: string[] = [];
+		const orig = HTMLElement.prototype.scrollIntoView;
+		HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) { scrolled.push(this.id); };
+		try {
+			const page = { props: { ...p, messages: p.messages.map((m) => (m.id === reply.id ? { ...m, reply_to: { message_id: target.message_id, sender_id: 0, sender_name: 'Far sender', snippet: 'far', resolved: true } } : m)) } };
+			renderPage(chatUrl(), 'superadmin', page);
+			fireEvent.click(document.querySelector(`#m${reply.message_id} .c-reply`)!);
+			await waitFor(() => expect(document.querySelector(`#m${target.message_id}`)?.className).toContain('flash'));
+			// The view was moved to it: with the old window still drawn the
+			// target was not there to scroll to.
+			expect(scrolled).toContain(`m${target.message_id}`);
+		} finally { HTMLElement.prototype.scrollIntoView = orig; }
+	});
+
 	it('shows a signed-out visitor the public page of an exposed group, read only', () => {
 		const exposed = fixture<GroupsProps>('/groups').props.rows.find((g) => g.exposed)!;
 		renderPage(`/groups/${exposed.id}/chat`, 'public');
