@@ -2,7 +2,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
-import { NO_ENTITIES } from '../test/kinds.ts';
 import type { ChatProps } from './chat.tsx';
 import type { GroupsProps } from './groups.tsx';
 import type { ChatMessage } from '../types.ts';
@@ -89,7 +88,7 @@ describe('chat', () => {
 			const msgs = [...p.messages];
 			msgs[0] = { ...msgs[0]!, content_type: 'service', text: 'joined the group' };
 			msgs[1] = { ...msgs[1]!, content_type: 'text', deleted_at: '2026-11-17T10:00:00Z', text: 'gone message' };
-			msgs[2] = { ...msgs[2]!, content_type: 'text', edits: [{ at: '2026-11-17T09:00:00Z', text: 'before', ...NO_ENTITIES }], edited_at: '2026-11-17T09:05:00Z', deleted_at: null };
+			msgs[2] = { ...msgs[2]!, content_type: 'text', edits: [{ at: '2026-11-17T09:00:00Z', text: 'before', entities: [] }], edited_at: '2026-11-17T09:05:00Z', deleted_at: null };
 			renderPage(chatUrl(), 'superadmin', { viewer: page.viewer, props: { ...p, messages: msgs } });
 			expect(screen.queryByText(/joined the group/)).toBeNull();
 			expect(screen.queryByText('gone message')).toBeNull();

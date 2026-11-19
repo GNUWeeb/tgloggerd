@@ -9,7 +9,7 @@ import { KINDS_GROUP } from '../../standin/kinds.ts';
 import type { ChatProps } from './chat.tsx';
 import type { MessageProps } from './message.tsx';
 import type { ChatMessage } from '../types.ts';
-import type { HasEntities, TextEntity } from '../api/entities.ts';
+import type { TextEntity } from '../api/entities.ts';
 
 beforeEach(setup);
 
@@ -24,8 +24,8 @@ const openChat = (p: Persona = 'superadmin') => {
 const bubble = (m: ChatMessage) => document.getElementById(`m${m.message_id}`)!;
 const formatted = (p: Persona = 'superadmin') => msgs(p).find((m) => m.text.startsWith('Release notes:'))!;
 const blocks = () => msgs().find((m) => m.text.includes('fn main()'))!;
-const editedOne = () => msgs().find((m) => m.edits.some((e) => (e as HasEntities).entities?.length))!;
-const ent = (m: ChatMessage, type: string, i = 0) => (m as HasEntities).entities!.filter((e) => e.type === type)[i]!;
+const editedOne = () => msgs().find((m) => m.edits.some((e) => e.entities.length))!;
+const ent = (m: ChatMessage, type: string, i = 0) => m.entities.filter((e) => e.type === type)[i]!;
 const textOf = (m: { text: string }, e: TextEntity) => m.text.slice(e.offset, e.offset + e.length);
 const hashtagHref = (q: string) => `/group_messages?q=${encodeURIComponent(q)}&f=${encodeURIComponent(JSON.stringify([{ field: 'chat_id', op: '=', value: String(KINDS_GROUP.id) }]))}`;
 
