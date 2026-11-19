@@ -146,8 +146,9 @@ const char *message_content_class_name(std::int32_t id);
  * its formatting entities, the exact class (tdlib_type), for system
  * messages the service type and a human-readable description, and
  * content_extra: for a class without a curated mapping, TDLib's own JSON of
- * the content under the key "tdlib", without local file paths. Media files
- * are not linked here.
+ * the content under the key "tdlib", without local file paths. A rich
+ * message gets its blocks' plain text and keeps TDLib's JSON beside its
+ * curated keys. Media files are not linked here.
  *
  * @msg is the message around @content, when there is one; describing a
  * service message needs it (it reports who acted). updateMessageContent
@@ -160,6 +161,13 @@ void extract_message_content(const td_api::MessageContent &content,
 /* The same, for callers that have the message. */
 void extract_message_content(const td_api::message &message,
 			     models::MessageContent &out);
+
+/*
+ * The plain text of a rich message's page blocks, one line per heading,
+ * paragraph, caption, list item, table row and so on, in reading order;
+ * empty when the blocks show no text. Stored as the message's text.
+ */
+std::string rich_message_text(const td_api::richMessage &m);
 
 /* The message's text or caption with its entities, or nullptr for content
  * that has none. Mirrors extract_message_content's text sources. */
