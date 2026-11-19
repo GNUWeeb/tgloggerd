@@ -102,7 +102,7 @@ service messages keep `content_type = 'service'` and get the
 | TDLib class | Stored | What is lost today | Planned kind |
 |---|---|---|---|
 | messageText | partly | link preview options (disabled, forced url, size, position); entities of the preview description | text |
-| messageRichMessage | not | the whole message (page blocks, its media) | rich |
+| messageRichMessage | fully | stored since msg-rich-store as its blocks' plain text, a curated summary beside TDLib's JSON (section 4.2) and its media (role `rich`, section 4.3); still lost: the layout of a message whose JSON is over 256 KiB, and the part TDLib leaves out of a message it reports as not full (`is_full` false, `getFullRichMessage` is not called) | rich |
 | messageAnimatedEmoji | not | the emoji itself: this is a text message of one emoji that TDLib reports specially | text |
 | messagePhoto | partly | spoiler, caption above media, secret flag, size, live-photo video (`video`) | photo |
 | messageVideo | partly | cover, start timestamp, other qualities, size, duration, MIME, spoiler, caption above | video |
@@ -329,6 +329,20 @@ content whose JSON exceeds 256 KiB keeps only its class and size
 (`tdlib_omitted_bytes`). A later version can turn the JSON into a
 curated object from the row alone.
 
+A rich message is the one class that keeps TDLib's JSON beside curated
+keys (decision
+[2026-11-19-msg-rich-raw-json](decisions/2026-11-19-msg-rich-raw-json.md)):
+`{"blocks": <number of top-level blocks>, "is_rtl": <bool>, "tdlib":
+...}`. The `tdlib` JSON is what the web draws it from, since page
+blocks are some thirty types that TDLib's shape describes best. Its
+`text` is the plain text of the blocks, one line per heading,
+paragraph, caption, list item (after its label), table row (cells
+apart by ` | `), button and so on, in reading order, with custom emoji
+as their alternative text and formulas as their source; it has no
+entities. The text, the curated keys and the media files (section 4.3)
+come from the live object, so a message over the JSON cap, which keeps
+only the class under `tdlib`, still has them.
+
 `content_extra` is part of the edit snapshot: an edit that changes a
 curated key (a live location moving, say) is a version. The `tdlib`
 part does not count when deciding whether an edit changed anything,
@@ -495,21 +509,27 @@ A video note's round video is now the main file, like any other media.
 | `chat_photo` | the new photo of a chat photo change or a suggested profile photo (largest size) |
 | `thumbnail` | the still thumbnail TDLib offers with a video, an animation, a video note or a video (.webm) sticker, when it is an image (JPEG, PNG or WebP; MPEG-4, GIF, TGS and WebM thumbnails are not stored), file_type `thumbnail`: the picture the web shows before the video plays |
 | `poll`, `preview` | reserved: poll media (msg-polls); other thumbnails (a document's, a photo's sizes) and a video's other qualities are not stored, since they repeat the media |
-| `rich` | the photos, videos and other media inside a rich message's page blocks, `position` their order of appearance (msg-rich-store) |
+| `rich` | the media inside a rich message's page blocks, `position` their order of appearance, depth first through collages, slideshows, quotes, lists, collapsible blocks, covers and embedded posts: each photo (largest size), video, animation, audio file, document and voice note, an embedded page's poster, an embedded post's author photo, the photos of related articles; not a chat link's photo (the chat's own) nor the icons inside rich text |
 | `gift` | a gift's sticker, an upgraded gift's model sticker, the animation sticker of a gifted premium, stars, grams or giveaway prize (msg-gifts) |
 | `background` | a chat background's document: the wallpaper or the pattern (msg-chat-backgrounds) |
 | `preview_media` | a link preview's own video, animation or audio, beyond its image in `telegram_link_previews.photo_file_id` (msg-link-preview-media) |
 
 The last four roles come with migration 000045; nothing writes them
-until their items land. The ENUM append keeps every existing value's
-number, so it is instant (`ALGORITHM=INSTANT`, confirmed on a copy
-with rows), and its down file first deletes the rows that use them.
+until their items land (`rich` is written since msg-rich-store). The
+ENUM append keeps every existing value's number, so it is instant
+(`ALGORITHM=INSTANT`, confirmed on a copy with rows), and its down
+file first deletes the rows that use them.
 
 Each file goes through the same path as a main file: linked when it is
 already known, recorded without its bytes where the storage cache rules
 say so (`docs/design/storage-cache.md`), else downloaded. The fetcher
 can fetch one again from the message, which it finds through the
-table (a `MessageExtra` source with the role and position). An edit
+table (a `MessageExtra` source with the role and position). A `rich`
+file is found by its unique id instead (a `RichMedia` source: the
+message is read again with `getMessage` and the medium picked out of
+its blocks, as the photo history sources do with the photo lists),
+since an edit of the page can move a medium to another position; one
+without a unique id keeps the positional source. An edit
 that replaces a file overwrites its (role, position); one that drops a
 file leaves the old row in place. See decision
 [2026-11-18-msg-message-files](decisions/2026-11-18-msg-message-files.md).
@@ -688,6 +708,15 @@ re-read for the detail of section 4.2 (decision
 The local re-map of rows holding only TDLib's JSON, once planned here,
 is dropped (decision
 [2026-11-18-msg-repair-opt-in](decisions/2026-11-18-msg-repair-opt-in.md)).
+
+Rich rows stored before their mapping (`rich`, with a `tdlib_type` but
+only TDLib's JSON in `content_extra`) are re-read by the same pass,
+not re-mapped from the JSON (decision
+[2026-11-19-msg-rich-reread](decisions/2026-11-19-msg-rich-reread.md)).
+Such a row qualifies while it is live and its `content_extra` has no
+`blocks` key; the normal path writes that key along with the text and
+the media files, so a re-read row is not listed again, and one TDLib
+cannot return keeps its JSON. The dry run counts them as `rich`.
 
 ### 4.10 Forwarding to Discord
 
