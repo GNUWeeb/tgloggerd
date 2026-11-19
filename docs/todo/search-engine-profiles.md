@@ -1,31 +1,30 @@
 # search-engine-profiles
 
-Index users' bios and groups' descriptions in the optional search
-engine, beside the messages it indexes already.
+Offer the search engine's options for users' bios and groups'
+descriptions in the web app; the service side is done.
 
 ## Why
 
-The first version of the search engine indexes messages only; bios
-and descriptions were left for later
-(design/decisions/2026-11-18-search-engine.md), so the users' and
-groups' full-text fields still search with MySQL's FULLTEXT.
+The Go service indexes bios and descriptions in the optional search
+engine (webapi/README, "Bios and descriptions") and answers their
+"matches" filters from it, but the React pages of users and groups do
+not offer that filter or the engine's options yet.
 
 ## Scope
 
-- Documents for users (bio) and groups (description), kept in step
-  like the messages: renames and profile changes from the event
-  stream, a backfill and the reconcile.
-- The users and groups searches answer their full-text fields from
-  the engine, with the request scope as a filter inside the query
-  (members see only the users and groups of their granted groups).
-- Capabilities and the lists' engine entry name the new entities.
+- The users and groups pages (UsersProps, GroupsProps): offer
+  `matches` for bio and description where the field lists it, and,
+  when the page data carries `engine`, its options (fuzzy, highlight;
+  no facets) as the message lists do, with `backend` and `highlights`
+  shown alike.
+- The advanced search: the capabilities may now list users and
+  groups (web/docs/search-api.md, "Search engine").
 
 ## Design notes
 
-- Follows the messages' design in webapi/README, "Search engine", and
-  web/docs/search-api.md; a member's user filter (scope.UserFilter)
-  has to become an engine filter, which needs the documents to carry
-  the groups a user appears in, or the search to take ids from MySQL.
+- The API shape is in webapi/openapi.yaml (UsersProps, GroupsProps,
+  SearchEngineEntity); a member gets no users entry, since it sees no
+  bio.
 
 ## Depends on
 
@@ -33,5 +32,6 @@ Nothing.
 
 ## Done when
 
-- With the engine configured, bios and descriptions are found with
-  the engine's options, within the scope; without it nothing changes.
+- With the engine configured, the users and groups pages search bios
+  and descriptions with the engine's options; without it they look
+  as before, but for the new `matches` operator.

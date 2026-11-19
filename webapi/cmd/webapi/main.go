@@ -28,6 +28,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -265,12 +266,14 @@ func run(log *slog.Logger, cfg *config.Config) error {
 }
 
 // startSearchEngine returns the search engine for the searches, nil
-// when it is not configured, and starts its indexer when this instance
-// is the indexer. The indexer reads the message tables through a pool
-// of its own with one connection, so the backfill never takes a
-// connection the pages need, and takes its events from the live hub,
-// or without one from the daemon's stream itself; without either, the
-// reconcile alone keeps the index in step.
+// when it is not configured, and starts its indexers when this instance
+// is the indexer: the messages', the users' and the groups'. They read
+// the tables through a pool of their own with one connection, so a
+// backfill never takes a connection the pages need, and take their
+// events from the live hub; without one, from a hub of their own over
+// the daemon's stream, so the three hold one subscription of the
+// daemon's. Without the daemon's API the reconciles alone keep the
+// indices in step.
 func startSearchEngine(ctx context.Context, log *slog.Logger, cfg *config.Config,
 	hub *live.Hub, dc *daemon.Client) (server.SearchEngine, error) {
 	se := cfg.SearchEngine
@@ -286,9 +289,19 @@ func startSearchEngine(ctx context.Context, log *slog.Logger, cfg *config.Config
 	if err != nil {
 		return nil, fmt.Errorf("WEBAPI_SEARCH_ENGINE_INDEX: %w", err)
 	}
+	ux, err := c.ProfileIndex(se.UsersIndex, searchengine.ProfileUsers)
+	if err != nil {
+		return nil, fmt.Errorf("WEBAPI_SEARCH_ENGINE_USERS_INDEX: %w", err)
+	}
+	gx, err := c.ProfileIndex(se.GroupsIndex, searchengine.ProfileGroups)
+	if err != nil {
+		return nil, fmt.Errorf("WEBAPI_SEARCH_ENGINE_GROUPS_INDEX: %w", err)
+	}
 	engine := searchengine.NewEngine(x, searchengine.EngineOptions{
 		Timeout: se.Timeout,
 		MaxLag:  se.MaxLag,
+		Users:   ux,
+		Groups:  gx,
 		Log:     log.With("component", "search-engine"),
 	})
 	// A cold engine answers its first searches slowly: warm it up
@@ -296,7 +309,8 @@ func startSearchEngine(ctx context.Context, log *slog.Logger, cfg *config.Config
 	engine.StartWarmUp(ctx)
 	if !se.Indexer {
 		log.Info("search engine: another instance indexes (WEBAPI_SEARCH_ENGINE_INDEXER=0)",
-			"url", c.URL(), "index", x.Name())
+			"url", c.URL(), "index", x.Name(), "users_index", ux.Name(),
+			"groups_index", gx.Name())
 		return engine, nil
 	}
 	pc := cfg.RO
@@ -305,27 +319,51 @@ func startSearchEngine(ctx context.Context, log *slog.Logger, cfg *config.Config
 	if err != nil {
 		return nil, err
 	}
-	var src live.Source
-	switch {
-	case hub != nil:
-		src = searchengine.HubSource{Hub: hub}
-	case dc.Enabled():
-		src = live.DaemonSource{Client: dc, Log: log}
-	default:
-		log.Warn("search engine: no event stream (WEB_TGLOGGERD_API); " +
-			"the index follows the archive by its reconcile alone")
+	if hub == nil && dc.Enabled() {
+		// Live updates are off: the indexers' own hub, which stops
+		// with ctx.
+		hub = live.NewHub(live.DaemonSource{Client: dc, Log: log}, live.Options{Log: log})
+		go hub.Run(ctx)
 	}
-	ix := searchengine.NewIndexer(pool, x, src, searchengine.IndexerOptions{
+	var src, psrc live.Source
+	if hub != nil {
+		src = searchengine.HubSource{Hub: hub}
+		psrc = searchengine.HubSource{Hub: hub, Want: searchengine.ProfileEvent}
+	} else {
+		log.Warn("search engine: no event stream (WEB_TGLOGGERD_API); " +
+			"the indices follow the archive by their reconciles alone")
+	}
+	o := searchengine.IndexerOptions{
 		Batch:     se.Batch,
 		Pause:     se.Pause,
 		Reconcile: se.Reconcile,
 		Log:       log.With("component", "search-index"),
-	})
+	}
+	ix := searchengine.NewIndexer(pool, x, src, o)
+	uix, err := searchengine.NewProfileIndexer(pool, ux, psrc, o)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	gix, err := searchengine.NewProfileIndexer(pool, gx, psrc, o)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	var wg sync.WaitGroup
+	for _, run := range []func(context.Context){ix.Run, uix.Run, gix.Run} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			run(ctx)
+		}()
+	}
 	go func() {
-		defer pool.Close()
-		ix.Run(ctx)
+		wg.Wait()
+		pool.Close()
 	}()
-	log.Info("search engine: indexing", "url", c.URL(), "index", x.Name())
+	log.Info("search engine: indexing", "url", c.URL(), "index", x.Name(),
+		"users_index", ux.Name(), "groups_index", gx.Name())
 	return engine, nil
 }
 

@@ -16,9 +16,9 @@ import (
 )
 
 // The search engine's part of a search (webapi/README "Search engine"):
-// the full-text conditions of the message entities answered by an
-// optional engine (internal/searchengine) instead of MySQL's FULLTEXT
-// indexes. The engine answers which rows match, always within the
+// the full-text conditions of the message entities, users and groups
+// answered by an optional engine (internal/searchengine) instead of
+// MySQL's FULLTEXT indexes. The engine answers which rows match, always within the
 // request scope, which is a filter of its query; MySQL reads those rows
 // as before, with every other condition and the scope applied again, so
 // the rows keep their shape and a stale document can only drop a row,
@@ -146,7 +146,8 @@ type engineField struct {
 const engineIntOps = OpEQ | OpNE | OpLT | OpGT | OpLE | OpGE
 
 // engineFields are the entities the engine knows and, by field key, the
-// columns their documents carry; engineSorts the sorts they carry.
+// columns their documents carry; engineSorts the sorts they carry, by
+// entity, with the field key of the entity's default sort.
 var (
 	engineFields = map[*Entity]map[string]engineField{
 		GroupMessages: {
@@ -164,13 +165,32 @@ var (
 			"deleted":      {"deleted", OpIsNull | OpIsNotNull},
 			"is_outgoing":  {"outgoing", OpEQ | OpNE},
 		},
+		// The profile indices: a row id and the bio or description.
+		Users:  {"id": {"row_id", engineIntOps}},
+		Groups: {"id": {"row_id", engineIntOps}},
 	}
-	engineSorts = map[string]string{"date": "date"}
+	messageSorts = engineSort{def: "date", docs: map[string]string{"date": "date"}}
+	profileSorts = engineSort{def: "id", docs: map[string]string{"id": "row_id"}}
+	engineSorts  = map[*Entity]engineSort{
+		GroupMessages: messageSorts, PrivateMessages: messageSorts,
+		Users: profileSorts, Groups: profileSorts,
+	}
 )
+
+// engineSort is the sorts an entity's documents carry: by field key,
+// the document field; def is the key of the entity's default sort.
+type engineSort struct {
+	def  string
+	docs map[string]string
+}
 
 // EngineEntity is whether the engine may answer the entity's full-text
 // fields.
 func EngineEntity(e *Entity) bool { return engineFields[e] != nil }
+
+// EngineFacets is whether the engine counts the entity's hits per chat
+// (the message entities; users and groups are no chat's).
+func EngineFacets(e *Entity) bool { return e == GroupMessages || e == PrivateMessages }
 
 // enginePlan is how the engine can take part in a search.
 type enginePlan struct {
@@ -361,11 +381,12 @@ func (e *Entity) sortOf(sc scope.Scope, req SearchRequest) (field string, desc, 
 	if req.Sort == "" {
 		return "", true, true
 	}
-	key := "date" // the default sort of both message entities (m.date)
+	es := engineSorts[e]
+	key := es.def
 	if f := e.field(req.Sort, req.Internal); f != nil && f.Sortable && e.fieldVisible(sc, f) {
 		key = f.Key
 	}
-	doc, carried := engineSorts[key]
+	doc, carried := es.docs[key]
 	switch strings.ToLower(req.Order) {
 	case "asc":
 		desc = false
@@ -403,10 +424,11 @@ func (e *Entity) engineWhole(ctx context.Context, db *sql.DB, sc scope.Scope, re
 	}
 	limit := min(max(req.Limit, 1), MaxLimit)
 	offset := min(max(req.Offset, 0), MaxOffset)
+	facets := req.Text.Facets && EngineFacets(e)
 	r, err := req.Engine.Query(ctx, EngineQuery{
 		Entity: e.Name, Scope: sc, Match: p.values(), Text: req.Text, Filters: p.filters,
 		Sort: sortField, Desc: desc, From: offset, Size: limit,
-		Highlight: req.Text.Highlight, Facets: req.Text.Facets,
+		Highlight: req.Text.Highlight, Facets: facets,
 	})
 	if err != nil {
 		return nil, engineFailed(err)
@@ -428,7 +450,10 @@ func (e *Entity) engineWhole(ctx context.Context, db *sql.DB, sc scope.Scope, re
 	if req.Text.Highlight {
 		res.Highlights = highlightsOf(res.Rows, r.Highlights)
 	}
-	if req.Text.Facets {
+	if req.Text.Facets && !facets {
+		res.Backend.Ignored = append(res.Backend.Ignored, "facets")
+	}
+	if facets {
 		res.Facets = r.Facets
 		if err := e.facetNames(ctx, db, res.Facets); err != nil {
 			return nil, err

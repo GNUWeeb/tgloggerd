@@ -707,7 +707,9 @@ idempotent:
 
   - Events: the daemon's message.new, .edited and .deleted, from the
     live hub (one more subscriber of the service's one subscription),
-    or from the daemon's stream itself while live updates are off. The
+    or, while live updates are off, from a hub of the indexers' own
+    over the daemon's stream, so the three indices hold one of the
+    daemon's subscriber slots. The
     events of half a second are read again from MySQL by the tables'
     unique (chat_id, message_id) keys in one query and written in one
     bulk request. A row left without text loses its document.
@@ -748,13 +750,52 @@ Only one instance indexes an index; set WEBAPI_SEARCH_ENGINE_INDEXER=0
 on any other. Renames of users and groups need nothing: a document
 holds ids, never names.
 
+## Bios and descriptions
+
+Users' bios and groups' descriptions have an index each beside the
+messages' (WEBAPI_SEARCH_ENGINE_USERS_INDEX, default tgloggerd-users,
+and _GROUPS_INDEX, tgloggerd-groups, each with its -state index;
+internal/searchengine/profiles.go): one document per user with a bio
+(telegram_user_extra_info) or group with a description, its id and the
+text, under the messages' analyzers. Their layout has its own version
+(profileVersion), so either is rebuilt, by deleting it and its -state
+index, without touching the messages index, and the messages index
+without touching them.
+
+Their tables are small and change in place (a new bio rewrites an old
+row; a user whose extra info falls back to its defaults loses the
+row), so they are kept in step by passes instead of a catch-up of new
+ids:
+
+  - A pass reads WEBAPI_SEARCH_ENGINE_BATCH rows with a text in
+    primary key order, reads the index's documents of the same id
+    range, and writes only what differs: a missing or changed
+    document, and the deletion of one whose row has no text or is
+    gone. WEBAPI_SEARCH_ENGINE_PAUSE separates two batches; its place
+    is saved after each, so a restart resumes it.
+  - The first pass over an empty index is its backfill; searches of
+    that entity go to MySQL ("behind") until it ends. It takes about
+    one batch per thousand rows with a text and the pause after each:
+    with the defaults, some 17 seconds for 56 thousand bios on the
+    test setup, mostly the pauses. It never waits on the messages
+    index, whose indexer runs beside it, nor makes it wait.
+  - Then a pass every WEBAPI_SEARCH_ENGINE_RECONCILE seconds (every
+    minute while no event stream delivers, and soon after a resync or
+    dropped events) repairs what the stream missed. One that finds the
+    index in step writes nothing.
+  - Events: user.updated without fields or with "bio" (the full info),
+    and group.updated without fields (a group's row; "photo" and
+    "admins" leave the description alone), read the row again and
+    write or delete its document within the flush's half second.
+
 ## Searching
 
     GET /api/search/capabilities   whether the engine answers, and
                                    its options (searchengine.go)
 
 logdb.Search hands the full-text conditions of group_messages and
-private_messages to the engine (internal/logdb/search_engine.go, the
+private_messages (text), users (bio) and groups (description) to the
+engine (internal/logdb/search_engine.go, the
 queries in internal/searchengine/query.go); web/docs/search-api.md,
 "Search engine", is the contract. The list pages' search text goes
 the same way.
@@ -1327,12 +1368,17 @@ and its own:
                          search on MySQL and the rest of these unread
     WEBAPI_SEARCH_ENGINE_INDEX  the messages index, default
                          tgloggerd-messages (and <name>-state)
+    WEBAPI_SEARCH_ENGINE_USERS_INDEX, WEBAPI_SEARCH_ENGINE_GROUPS_INDEX
+                         the bios' and the descriptions' indices,
+                         default tgloggerd-users and tgloggerd-groups;
+                         the three names must differ
     WEBAPI_SEARCH_ENGINE_INDEXER  "0": another instance indexes
     WEBAPI_SEARCH_ENGINE_BATCH  rows per query of the backfill and the
                          reconcile, default 1000
     WEBAPI_SEARCH_ENGINE_PAUSE  milliseconds between two of them,
                          default 200
-    WEBAPI_SEARCH_ENGINE_RECONCILE  seconds between two reconciles,
+    WEBAPI_SEARCH_ENGINE_RECONCILE  seconds between two reconciles
+                         (for bios and descriptions, passes),
                          default 600 (60 while no event stream
                          delivers)
     WEBAPI_SEARCH_ENGINE_TIMEOUT  milliseconds one engine query may

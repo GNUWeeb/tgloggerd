@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -24,12 +25,22 @@ import (
 type Engine struct {
 	x *Index
 	o EngineOptions
+	// profiles are the profile indices by the entity each answers.
+	profiles map[string]*profileEntry
 
 	mu        sync.Mutex
 	state     State
 	stateAt   time.Time // when state was read
 	downUntil time.Time
 	warming   bool // StartWarmUp's queries are running
+}
+
+// profileEntry is a profile index and its state as last read (under
+// Engine.mu).
+type profileEntry struct {
+	x       *Index
+	state   ProfileState
+	stateAt time.Time
 }
 
 // EngineOptions are the engine's limits; zero fields take defaults.
@@ -46,7 +57,11 @@ type EngineOptions struct {
 	// WarmTimeout bounds one query of the warm-up (StartWarmUp;
 	// default 30 seconds).
 	WarmTimeout time.Duration
-	Log         *slog.Logger
+	// Users and Groups are the profile indices (Client.ProfileIndex)
+	// answering the users' bios and the groups' descriptions; nil
+	// leaves that entity to MySQL.
+	Users, Groups *Index
+	Log           *slog.Logger
 }
 
 // stateTTL is how long the indexer's state is trusted before it is
@@ -70,7 +85,23 @@ func NewEngine(x *Index, o EngineOptions) *Engine {
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
-	return &Engine{x: x, o: o}
+	e := &Engine{x: x, o: o, profiles: map[string]*profileEntry{}}
+	if o.Users != nil {
+		e.profiles[logdb.Users.Name] = &profileEntry{x: o.Users}
+	}
+	if o.Groups != nil {
+		e.profiles[logdb.Groups.Name] = &profileEntry{x: o.Groups}
+	}
+	return e
+}
+
+// Answers is whether the engine has an index for the entity, so the
+// capabilities may name it.
+func (e *Engine) Answers(entity string) bool {
+	if _, ok := scopeOf(entity); ok {
+		return true
+	}
+	return e.profiles[entity] != nil
 }
 
 // Name is the engine's kind, for the search API's capabilities.
@@ -92,6 +123,9 @@ func (e *Engine) failed(parent context.Context, what string, err error) {
 // Ready implements logdb.Engine: the engine answers, and the index has
 // the entity's whole table and was in step within MaxLag.
 func (e *Engine) Ready(ctx context.Context, entity string) (bool, string) {
+	if p := e.profiles[entity]; p != nil {
+		return e.readyProfile(ctx, p)
+	}
 	sp, ok := scopeOf(entity)
 	if !ok {
 		return false, logdb.FallbackUnavailable
@@ -122,8 +156,52 @@ func (e *Engine) Ready(ctx context.Context, entity string) (bool, string) {
 	return true, ""
 }
 
+// readyProfile is Ready for a profile index: its first pass over the
+// table done, and in step within MaxLag.
+func (e *Engine) readyProfile(ctx context.Context, p *profileEntry) (bool, string) {
+	e.mu.Lock()
+	now := time.Now()
+	if e.warming || now.Before(e.downUntil) {
+		e.mu.Unlock()
+		return false, logdb.FallbackUnavailable
+	}
+	st, fresh := p.state, now.Sub(p.stateAt) < stateTTL
+	e.mu.Unlock()
+	if !fresh {
+		cctx, cancel := context.WithTimeout(ctx, e.o.Timeout)
+		s, err := p.x.LoadProfileState(cctx)
+		cancel()
+		if err != nil {
+			e.failed(ctx, "reading the index state", err)
+			return false, logdb.FallbackUnavailable
+		}
+		e.mu.Lock()
+		p.state, p.stateAt, st = s, now, s
+		e.mu.Unlock()
+	}
+	if !st.Done || now.Sub(time.Unix(st.SyncedAt, 0)) > e.o.MaxLag {
+		return false, logdb.FallbackBehind
+	}
+	return true, ""
+}
+
+// indexOf is the index answering the entity.
+func (e *Engine) indexOf(entity string) (*Index, error) {
+	if p := e.profiles[entity]; p != nil {
+		return p.x, nil
+	}
+	if _, ok := scopeOf(entity); ok {
+		return e.x, nil
+	}
+	return nil, fmt.Errorf("search engine: no index for %q", entity)
+}
+
 // Query implements logdb.Engine.
 func (e *Engine) Query(ctx context.Context, q logdb.EngineQuery) (*logdb.EngineResult, error) {
+	x, err := e.indexOf(q.Entity)
+	if err != nil {
+		return nil, err
+	}
 	body, err := searchBody(q)
 	if err != nil {
 		return nil, err
@@ -152,7 +230,7 @@ func (e *Engine) Query(ctx context.Context, q logdb.EngineQuery) (*logdb.EngineR
 			} `json:"chats"`
 		} `json:"aggregations"`
 	}
-	if err := e.x.c.do(cctx, http.MethodPost, "/"+seg(e.x.name)+"/_search", body, &ans); err != nil {
+	if err := x.c.do(cctx, http.MethodPost, "/"+seg(x.name)+"/_search", body, &ans); err != nil {
 		if cctx.Err() != nil && ctx.Err() == nil {
 			err = fmt.Errorf("%w: %v", context.DeadlineExceeded, err)
 		}
@@ -171,7 +249,15 @@ func (e *Engine) Query(ctx context.Context, q logdb.EngineQuery) (*logdb.EngineR
 		r.Highlights = map[int64][]string{}
 	}
 	for _, h := range ans.Hits.Hits {
-		s, row, ok := parseDocID(h.ID)
+		var row int64
+		var s string
+		ok := false
+		if x.kind != "" {
+			n, err := strconv.ParseInt(h.ID, 10, 64)
+			row, s, ok = n, sp, err == nil
+		} else {
+			s, row, ok = parseDocID(h.ID)
+		}
 		if !ok || s != sp {
 			// Cannot be: the scope filter keeps the entity's own.
 			return nil, fmt.Errorf("search engine: unexpected document %q", h.ID)
@@ -181,7 +267,7 @@ func (e *Engine) Query(ctx context.Context, q logdb.EngineQuery) (*logdb.EngineR
 			r.Highlights[row] = h.Highlight.Text
 		}
 	}
-	if q.Facets {
+	if q.Facets && x.kind == "" {
 		r.Facets = []logdb.Facet{}
 		for _, b := range ans.Aggregations.Chats.Buckets {
 			r.Facets = append(r.Facets, logdb.Facet{ChatID: b.Key, Count: b.Count})
@@ -225,11 +311,11 @@ func (e *Engine) StartWarmUp(ctx context.Context) <-chan struct{} {
 }
 
 // warmQueries are the warm-up's searches: relevance and date order,
-// a fuzzy word, highlights and facets, for both entities, as a viewer
-// who sees everything.
+// a fuzzy word, highlights and facets, for both message entities, as a
+// viewer who sees everything.
 func warmQueries() []logdb.EngineQuery {
-	all := scope.For(scope.Viewer{Role: scope.Superadmin})
 	var out []logdb.EngineQuery
+	all := everyone()
 	for _, ent := range []string{logdb.GroupMessages.Name, logdb.PrivateMessages.Name} {
 		out = append(out,
 			logdb.EngineQuery{Entity: ent, Scope: all, Match: []string{"the"}, Size: 50,
@@ -240,7 +326,37 @@ func warmQueries() []logdb.EngineQuery {
 	return out
 }
 
+func everyone() scope.Scope { return scope.For(scope.Viewer{Role: scope.Superadmin}) }
+
+// warmProfile is the warm-up's search of a profile index.
+func warmProfile(entity string) logdb.EngineQuery {
+	return logdb.EngineQuery{Entity: entity, Scope: everyone(), Match: []string{"the"},
+		Size: 50, Highlight: true}
+}
+
 func (e *Engine) warmUp(ctx context.Context) error {
+	for ent, p := range e.profiles {
+		cctx, cancel := context.WithTimeout(ctx, e.o.WarmTimeout)
+		s, err := p.x.LoadProfileState(cctx)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("reading the %s index state: %w", ent, err)
+		}
+		if !s.Done {
+			// Behind, as a search finds; the index may not exist yet.
+			continue
+		}
+		body, err := searchBody(warmProfile(ent))
+		if err != nil {
+			return err
+		}
+		cctx, cancel = context.WithTimeout(ctx, e.o.WarmTimeout)
+		err = p.x.c.do(cctx, http.MethodPost, "/"+seg(p.x.name)+"/_search", body, nil)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("%s search: %w", ent, err)
+		}
+	}
 	cctx, cancel := context.WithTimeout(ctx, e.o.WarmTimeout)
 	s, err := e.x.LoadState(cctx)
 	cancel()

@@ -714,7 +714,7 @@ func (l *listSpec) run(ctx context.Context, pr *pageRequest) (*listRun, error) {
 	// (fuzzy, highlight, facets, engine=mysql) and answer its backend,
 	// highlights and facets (messagesProps).
 	switch {
-	case s.engine != nil && l.relevance:
+	case s.engine != nil && (l.relevance || logdb.EngineEntity(l.entity)):
 		s.withEngineOptions(q, &req)
 	case s.engine != nil:
 		req.Engine = s.engine
@@ -892,6 +892,22 @@ type userRow struct {
 type usersProps struct {
 	listState
 	Rows []userRow `json:"rows"`
+	profileEngine
+}
+
+// profileEngine is the search engine's part of the users' and groups'
+// pages, as messagesProps' without facets: only with an engine
+// configured, for a bio or description "matches" filter.
+type profileEngine struct {
+	Backend    *logdb.Backend `json:"backend,omitempty"`
+	Highlights [][]string     `json:"highlights,omitempty"`
+	Engine     *engineCaps    `json:"engine,omitempty"`
+}
+
+func (s *Server) profileEngineOf(ctx context.Context, sc scope.Scope, l *listSpec,
+	run *listRun) profileEngine {
+	return profileEngine{Backend: run.res.Backend, Highlights: run.res.Highlights,
+		Engine: s.listEngineCaps(ctx, sc, l.entity)}
 }
 
 func loadUsers(ctx context.Context, pr *pageRequest) (any, error) {
@@ -901,7 +917,8 @@ func loadUsers(ctx context.Context, pr *pageRequest) (any, error) {
 		return nil, err
 	}
 	full := logdb.Users.Full(pr.scope)
-	p := usersProps{listState: run.state, Rows: []userRow{}}
+	p := usersProps{listState: run.state, Rows: []userRow{},
+		profileEngine: s.profileEngineOf(ctx, pr.scope, usersList, run)}
 	for _, r := range run.res.Rows {
 		u := listUser{ID: r.Int("id"),
 			Name:     logdb.DisplayName(r.Str("first_name"), r.Str("last_name")),
@@ -963,6 +980,7 @@ type listGroup struct {
 type groupsProps struct {
 	listState
 	Rows []listGroup `json:"rows"`
+	profileEngine
 }
 
 func loadGroups(ctx context.Context, pr *pageRequest) (any, error) {
@@ -971,7 +989,8 @@ func loadGroups(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := groupsProps{listState: run.state, Rows: []listGroup{}}
+	p := groupsProps{listState: run.state, Rows: []listGroup{},
+		profileEngine: s.profileEngineOf(ctx, pr.scope, groupsList, run)}
 	for _, r := range run.res.Rows {
 		p.Rows = append(p.Rows, listGroup{ID: r.Int("id"),
 			Title: logdb.GroupTitle(r.Str("title")), Username: r.Str("username"),
