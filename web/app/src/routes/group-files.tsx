@@ -19,9 +19,18 @@ const KIND_LABEL: Record<'all' | FileKind, string> = {
 	document: 'Documents', sticker: 'Stickers', video_note: 'Video notes',
 };
 
-// Who sent it: a user's page, or for a post as a chat that chat's.
-export function SentBy({ s }: { s: GroupSender | null }) {
-	if (!s) return <span className="a-muted">hidden sender</span>;
+// Who sent it: a user's page, or for a post as a chat that chat's; a
+// sender without an id (a hidden chat, a signature only) is named but
+// not linked.
+export function SentBy({ s }: { s: GroupSender }) {
+	if (s.id === null) {
+		return (
+			<span className="a-usercell a-sentby a-muted">
+				<Avatar id={0} name={s.name} photo={null} size={20} />
+				<span className="a-uname a-ellipsis">{s.name}</span>
+			</span>
+		);
+	}
 	return (
 		<Link to={s.id < 0 ? `/groups/${s.id}` : `/users/${s.id}`} className="a-usercell a-sentby">
 			<Avatar id={s.id} name={s.name} photo={s.photo} size={20} square={s.id < 0} />

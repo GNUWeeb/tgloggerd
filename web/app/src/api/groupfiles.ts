@@ -17,8 +17,10 @@ export type FileKind = (typeof FILE_KINDS)[number];
 
 // Who sent the message: a user, or for a post as a chat that chat (a
 // negative id); null when the viewer may not see them.
+// id is null for a post as a chat the viewer does not see (named
+// "(hidden chat)") and for a sender known only by its signature.
 export interface GroupSender {
-	id: number;
+	id: number | null;
 	name: string;
 	username: string | null;
 	photo: string | null;
@@ -31,7 +33,7 @@ export interface GroupMessageRef {
 	message_id: number;
 	message_row_id: number;
 	date: string;
-	sender: GroupSender | null;
+	sender: GroupSender;
 	chat_link: string;
 }
 
@@ -46,7 +48,8 @@ export interface GroupFilesPage {
 	next_before: number | null;
 }
 
-export type GroupPollRow = GroupMessageRef & { poll: S['PollDetail'] };
+// poll is null when the poll itself was never stored.
+export type GroupPollRow = GroupMessageRef & { poll: S['PollDetail'] | null };
 
 export interface GroupPollsPage {
 	rows: GroupPollRow[];

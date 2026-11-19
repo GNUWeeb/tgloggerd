@@ -22,21 +22,21 @@ describe('group polls tab', () => {
 		const p = fixture<GroupPollsPage>(pollsUrl(FILES_GROUP.id)).props;
 		renderPage(pollsUrl(FILES_GROUP.id));
 		expect(cards()).toHaveLength(p.rows.length);
-		expect(cards().map((c) => c.querySelector('.k-question')!.textContent)).toEqual(p.rows.map((r) => r.poll.question));
+		expect(cards().map((c) => c.querySelector('.k-question')!.textContent)).toEqual(p.rows.map((r) => r.poll!.question));
 		cards().forEach((c, i) => {
 			const r = p.rows[i]!;
 			expect(c.querySelector('.k-poll')).not.toBeNull();
 			expect(within(c).getByRole('link', { name: 'In the chat' }).getAttribute('href')).toBe(r.chat_link);
 			expect(within(c).getByRole('link', { name: 'Message' }).getAttribute('href')).toBe(`/messages/group/${r.message_row_id}`);
 			expect(c.querySelector('time')!.getAttribute('datetime')).toBe(r.date);
-			if (r.sender) expect(within(c).getByRole('link', { name: r.sender.name }).getAttribute('href')).toBe(`/users/${r.sender.id}`);
+			if (r.sender.id !== null) expect(within(c).getByRole('link', { name: r.sender.name }).getAttribute('href')).toBe(`/users/${r.sender.id}`);
 		});
 		// The closed quiz marks its correct option; the long poll says how
 		// many options it leaves out.
-		const quiz = cards()[p.rows.findIndex((r) => r.poll.type === 'quiz')]!;
+		const quiz = cards()[p.rows.findIndex((r) => r.poll!.type === 'quiz')]!;
 		expect(within(quiz).getByText(/Quiz . closed/)).toBeTruthy();
 		expect(within(quiz).getByLabelText('correct answer')).toBeTruthy();
-		const long = cards()[p.rows.findIndex((r) => r.poll.options_total > 20)]!;
+		const long = cards()[p.rows.findIndex((r) => r.poll!.options_total > 20)]!;
 		expect(within(long).getByText(/5 more options not shown/)).toBeTruthy();
 		// One page: nothing more to load.
 		expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
@@ -53,7 +53,7 @@ describe('group polls tab', () => {
 		expect(within(document.querySelector<HTMLElement>('.a-tabs')!).getByRole('link', { name: /^Polls/ }).textContent).toBe(`Polls${p.rows.length - 1}+`);
 		fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
 		await waitFor(() => expect(cards()).toHaveLength(p.rows.length));
-		expect(cards().at(-1)!.querySelector('.k-question')!.textContent).toBe(last!.poll.question);
+		expect(cards().at(-1)!.querySelector('.k-question')!.textContent).toBe(last!.poll!.question);
 		const call = callsTo(calls, 'GET', `/api/groups/${FILES_GROUP.id}/polls`)[0]!;
 		expect(call.query.get('before')).toBe(String(firstPage.next_before));
 		expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(0);
@@ -62,5 +62,17 @@ describe('group polls tab', () => {
 	it('says when a group has no polls', () => {
 		renderPage(pollsUrl(SOME_KINDS_GROUP.id));
 		expect(screen.getByText('No polls in this group.')).toBeTruthy();
+	});
+
+	it('names a sender without an id without linking it, and says when a poll was not stored', () => {
+		const p = fixture<GroupPollsPage>(pollsUrl(FILES_GROUP.id));
+		const r = p.props.rows[0]!;
+		const rows = [{ ...r, sender: { id: null, name: '(hidden chat)', username: null, photo: null }, poll: null }];
+		fakeApi('superadmin');
+		renderPage(pollsUrl(FILES_GROUP.id), 'superadmin', { props: { ...p.props, rows, next_before: null } });
+		const c = cards()[0]!;
+		expect(within(c).getByText('(hidden chat)').closest('a')).toBeNull();
+		expect(within(c).getByText('This poll was not stored.')).toBeTruthy();
+		expect(within(c).getByRole('link', { name: 'Message' }).getAttribute('href')).toBe(`/messages/group/${r.message_row_id}`);
 	});
 });

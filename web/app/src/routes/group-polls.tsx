@@ -26,7 +26,7 @@ export function GroupPolls({ groupId, p, v }: { groupId: number; p: GroupPollsPa
 						<SentBy s={r.sender} />
 						<time className="a-muted sm" dateTime={r.date}>{dateTime(r.date, v)}</time>
 					</div>
-					<KindDetail d={r.poll} text="" v={v} />
+					{r.poll ? <KindDetail d={r.poll} text="" v={v} /> : <p className="a-muted">This poll was not stored.</p>}
 					<MessageLinks r={r} />
 				</li>
 			))}</ul>}
