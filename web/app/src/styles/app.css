@@ -337,8 +337,11 @@
 .app .a-filecard { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel); padding: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
 .app .a-filecard:hover { border-color: var(--border-2); box-shadow: var(--shadow); }
 .app .a-filecard:hover .a-uname { color: var(--accent-text); }
-.app .a-filecard-media { aspect-ratio: 4 / 3; display: grid; position: relative; background: var(--hover); }
-.app .a-filecard-media > .a-thumb { width: 100%; height: 100%; }
+/* The 4:3 box is the card's: its picture is placed over it, so a tall
+   one cannot stretch the box (and with it the grid row). */
+.app .a-filecard-media { aspect-ratio: 4 / 3; flex: none; display: block; position: relative; overflow: hidden; min-height: 0; background: var(--hover); }
+.app .a-filecard-media > .a-thumb { position: absolute; inset: 0; width: 100%; height: 100%; }
+.app .a-thumb.a-fill img { position: absolute; inset: 0; max-width: 100%; max-height: 100%; object-fit: contain; }
 .app .a-filecard-media .a-thumb-sticker { font-size: 64px !important; }
 .app .a-dur { position: absolute; left: 8px; bottom: 8px; background: rgb(0 0 0 / .55); color: #fff; font-size: 11.5px; padding: 1px 6px; border-radius: 6px; font-variant-numeric: tabular-nums; }
 .app .a-filecard-meta { display: flex; flex-direction: column; padding: 8px 10px; min-width: 0; }

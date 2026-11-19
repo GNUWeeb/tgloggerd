@@ -31,7 +31,9 @@ export function Thumb({ type, thumb, stored, ext, size = 36, radius = 8, fill = 
 	if (thumb) {
 		return (
 			<span className={cls} style={style}>
-				<img src={thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+				{/* A filled box keeps its own size and shows the picture whole;
+				    a small square thumbnail is cropped to fill it. */}
+				<img src={thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: fill ? 'contain' : 'cover' }} />
 				{(type === 'video' || type === 'animation') && <span className="a-thumb-play"><Play size={Math.round(size * 0.3)} fill="currentColor" /></span>}
 			</span>
 		);

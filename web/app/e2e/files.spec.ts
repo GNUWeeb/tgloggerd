@@ -79,3 +79,22 @@ test('a preview\'s photo opens bigger, whole, and Esc closes only that', async (
 	await expect(viewer).toHaveCount(0);
 	await expect(dialog).toBeVisible();
 });
+
+test('a very tall picture does not stretch its grid card or its row', async ({ page }) => {
+	// Every picture a long screenshot: 100 x 2000.
+	await page.route(/\/files\/standin-\d+$/, (r) => r.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="2000"><rect width="100" height="2000" fill="teal"/></svg>' }));
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto('/files');
+	const img = page.locator('.a-filecard-media img').first();
+	await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.complete && i.naturalHeight)).toBe(2000);
+	const boxes = await page.locator('.a-filecard-media').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { w: r.width, h: r.height }; }));
+	expect(boxes.length).toBeGreaterThan(1);
+	for (const b of boxes) expect(Math.abs(b.h - b.w * 3 / 4)).toBeLessThan(1.5);
+	// The picture is whole inside its box: contained, not cut.
+	const m = await img.evaluate((i: HTMLImageElement) => {
+		const box = i.closest('.a-filecard-media')!.getBoundingClientRect();
+		const r = i.getBoundingClientRect();
+		return { fit: getComputedStyle(i).objectFit, inside: r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5 && r.left >= box.left - 0.5 && r.right <= box.right + 0.5 };
+	});
+	expect(m).toEqual({ fit: 'contain', inside: true });
+});

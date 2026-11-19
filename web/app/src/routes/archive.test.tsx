@@ -9,6 +9,7 @@ import type { FilesProps } from './files.tsx';
 import type { MessagesProps } from './messages.tsx';
 import type { UserProps } from './user.tsx';
 import type { DashboardProps } from './dashboard.tsx';
+import { readFileSync } from 'node:fs';
 
 beforeEach(setup);
 const lastPageCall = (calls: ReturnType<typeof fakeApi>) => callsTo(calls, 'GET', /^\/api\/page\//).at(-1)!;
@@ -185,6 +186,33 @@ describe('files', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 		await waitFor(() => expect(lastPageCall(calls)?.query.get('f')).toBeTruthy());
 		expect(JSON.parse(lastPageCall(calls).query.get('f')!)).toEqual([{ field: 'sha256', op: '=', value: 'ab'.repeat(32) }]);
+	});
+
+	it('keeps every grid card\'s picture box at 4:3, showing a tall picture whole', async () => {
+		// The app's own stylesheet, so the rules are what is checked.
+		const style = document.createElement('style');
+		style.textContent = readFileSync('src/styles/app.css', 'utf8');
+		document.head.append(style);
+		try {
+			const p = fixture<FilesProps>('/files').props;
+			const tall = { ...p.rows[0]!, id: 4248, name: 'long-screenshot.png', file_type: 'photo' as const, stored: true, url: '/files/tok-long', thumb: '/files/tok-long' };
+			renderPage('/files', 'superadmin', { props: { ...p, rows: [tall, ...p.rows.slice(1)] } });
+			const img = document.querySelector<HTMLImageElement>('.a-filecard img[src="/files/tok-long"]')!;
+			const box = img.closest<HTMLElement>('.a-filecard-media')!;
+			const thumb = img.closest<HTMLElement>('.a-thumb')!;
+			const cs = (e: Element) => getComputedStyle(e);
+			expect(cs(box).aspectRatio.replace(/\s/g, '')).toBe('4/3');
+			expect(cs(box).overflow).toBe('hidden');
+			expect(cs(box).position).toBe('relative');
+			// The picture sits over the box and cannot size it.
+			expect(cs(thumb).position).toBe('absolute');
+			expect(img.style.objectFit).toBe('contain');
+			expect(cs(img).maxHeight).toBe('100%');
+			expect(cs(img).maxWidth).toBe('100%');
+			expect(cs(img).position).toBe('absolute');
+		} finally {
+			style.remove();
+		}
 	});
 
 	it('switches between grid and list', async () => {
