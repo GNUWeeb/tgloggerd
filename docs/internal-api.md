@@ -585,9 +585,25 @@ empty and `reason` says why:
 | `flood_wait` | Telegram rate-limited the account; `retry_after` is the wait in seconds. |
 | `error` | Anything else; `message` is Telegram's error. |
 
+With `q` (percent-encoded, trimmed, a leading `@` dropped, at most 64
+characters; longer or not UTF-8 is a 400; empty is the plain list), the
+answer is the members matching it, same shape and reasons:
+
+- supergroups and channels: `getSupergroupMembers` with the search
+  filter, which matches first and last names and the username;
+- basic groups: the full info's members whose first name, last name,
+  "first last" or a username contains `q` (case-insensitive for ASCII
+  letters);
+- a `q` of only digits (a leading `-` allowed) also looks that user up
+  with `getChatMember` and, when the user is a member, puts them first
+  on the first page (`offset` 0), in addition to the page's `limit`;
+- each member carries `"matched_by": "id"` or `"search"`;
+- `total` is the number of matches (the id match included) when known,
+  else null. A search never updates the stored member count.
+
 `hidden` (a superadmin hid a channel's list) is the web's own reason;
 the daemon never answers it. An answer for the same chat, offset and
-limit is reused for 2 minutes, except `flood_wait` and `error`. A
+limit (and `q`) is reused for 2 minutes, except `flood_wait` and `error`. A
 successful page also stores the group's count. Errors: 400, 404, 503
 and 504 as for `/v1/chats/{chat_id}/refresh`.
 
