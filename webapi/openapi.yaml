@@ -7501,6 +7501,10 @@ components:
           required: [chat, url_masked, types, enabled, sent, last_sent]
           properties:
             chat:
+              description: >-
+                The route's Telegram chat. Its photo is the group's
+                photo or, for a private chat, the user's profile photo:
+                a /files/ URL when the bytes are stored, else null.
               $ref: '#/components/schemas/PickItem'
             url_masked:
               type: string
@@ -7528,6 +7532,10 @@ components:
             channel_name:
               type: string
             chat:
+              description: >-
+                The route's Telegram chat. Its photo is the group's
+                photo or, for a private chat, the user's profile photo:
+                a /files/ URL when the bytes are stored, else null.
               $ref: '#/components/schemas/PickItem'
             discord_bot:
               description: >-

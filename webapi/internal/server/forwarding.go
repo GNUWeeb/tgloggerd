@@ -145,8 +145,12 @@ func (s *Server) ownership(ctx context.Context, v scope.Viewer, id uint64,
 	}
 }
 
-func fwdPick(c logdb.FwdChat) pickItem {
-	p := pickItem{ID: c.ID, Title: c.Title, Kind: c.Kind}
+// fwdPick is a configuration's chat as the pickers show it, with its
+// photo when stored. Every caller has the chat from a query filtered
+// by the request's scope, so the viewer may see the chat and its
+// photo.
+func (s *Server) fwdPick(c logdb.FwdChat) pickItem {
+	p := pickItem{ID: c.ID, Title: c.Title, Kind: c.Kind, Photo: s.storedPhoto(c.Photo)}
 	if c.Kind == "group" {
 		p.Sub = groupTypeLabel(c.Type)
 	}
@@ -166,7 +170,7 @@ type t2dRoute struct {
 
 func (s *Server) t2dJSON(ctx context.Context, v scope.Viewer, h logdb.T2DWebhook,
 	owners map[int64]webdb.OwnerInfo) t2dRoute {
-	return t2dRoute{owned: s.ownership(ctx, v, h.ID, owners), Chat: fwdPick(h.Chat),
+	return t2dRoute{owned: s.ownership(ctx, v, h.ID, owners), Chat: s.fwdPick(h.Chat),
 		URLMasked: maskWebhook(h.URL), Types: h.Types.Keys(logdb.T2DTypeCount),
 		Enabled: h.Enabled, Sent: h.Sent, LastSent: isoPtr(h.LastSent)}
 }
@@ -205,7 +209,7 @@ func (s *Server) d2tJSON(ctx context.Context, v scope.Viewer, d logdb.D2TRoute,
 	out := d2tRoute{owned: s.ownership(ctx, v, d.ID, owners),
 		// A snowflake does not fit a JavaScript number exactly.
 		ChannelID: strconv.FormatUint(d.ChannelID, 10), ChannelName: d.ChannelName,
-		Chat:        fwdPick(d.Chat),
+		Chat:        s.fwdPick(d.Chat),
 		TelegramBot: s.botRefOf(ctx, v, bots[d.TelegramBotID]),
 		Types:       d.Types.Keys(logdb.D2TTypeCount), Enabled: d.Enabled, Sent: d.Sent}
 	if b, ok := bots[d.DiscordBotID]; ok && d.DiscordBotID != 0 {

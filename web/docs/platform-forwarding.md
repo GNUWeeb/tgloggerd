@@ -88,6 +88,11 @@ configurations with their counts of what was sent, and the bots.
   bots were stored, until the deployment's import gives it one; such a
   route forwards nothing. The index counts a route as active while it
   and both its bots are enabled.
+- Photos: a configuration's `chat` carries `photo`, the group's photo
+  or, for a private chat, the user's profile photo, as a `/files/` URL
+  when its bytes are stored, else null. The viewer gets a photo
+  wherever it gets the chat, and the photos come with the rows that
+  name them, in the same query.
 - Every change writes a `web_audit` row: `fwd_t2d_create`,
   `fwd_t2d_update`, `fwd_t2d_delete`, `fwd_d2t_create`,
   `fwd_d2t_update`, `fwd_d2t_delete`, `bot_create`, `bot_update`,

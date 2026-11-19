@@ -1068,7 +1068,7 @@ func (s *Server) groupPicks(ctx context.Context, ids []int64) map[int64]pickItem
 	out := map[int64]pickItem{}
 	for _, g := range ids {
 		if c, ok, err := logdb.ResolveChat(ctx, s.ro, scope.Everything(), g); err == nil && ok {
-			out[g] = fwdPick(c)
+			out[g] = s.fwdPick(c)
 		}
 	}
 	return out

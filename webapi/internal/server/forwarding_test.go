@@ -76,14 +76,14 @@ func TestForwardingPages(t *testing.T) {
 	}
 	if got := js(routes[2]); got != canon(`{"id":1,"owner":{"id":0,"name":"Shared","active":true},`+
 		`"federation":{"id":0,"name":"Default"},"transfer_candidates":[],`+
-		`"chat":{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup","photo":null},`+
-		`"url_masked":"https://discord.com/api/webhooks/1100000000000000001/****",`+
+		`"chat":{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup",`+
+		`"photo":"`+photoOf(gnuWeebPhoto)+`"},"url_masked":"https://discord.com/api/webhooks/1100000000000000001/****",`+
 		`"types":["sticker","text","photo","video","document","other"],"enabled":true,`+
 		`"sent":3,"last_sent":"2026-11-17T11:00:01Z"}`) {
 		t.Errorf("webhook 1 %s", got)
 	}
 	if got := js(routes[1].(map[string]any)["chat"]); got !=
-		canon(`{"id":9299000001,"title":"Dewi Kusuma","kind":"user","photo":null}`) {
+		canon(`{"id":9299000001,"title":"Dewi Kusuma","kind":"user","photo":"`+photoOf(dewiPhoto)+`"}`) {
 		t.Errorf("webhook 2 chat %s", got)
 	}
 	if got := js(routes[0].(map[string]any)["types"]); got != `["text"]` ||
@@ -103,7 +103,8 @@ func TestForwardingPages(t *testing.T) {
 	r1, r2 := routes[1].(map[string]any), routes[0].(map[string]any)
 	if r1["channel_id"] != "710000000000000001" || r1["channel_name"] != "general" ||
 		r1["sent"] != float64(2) ||
-		js(r1["chat"]) != canon(`{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup","photo":null}`) {
+		js(r1["chat"]) != canon(`{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup",`+
+			`"photo":"`+photoOf(gnuWeebPhoto)+`"}`) {
 		t.Errorf("route 1 %s", js(r1))
 	}
 	if got := js(r1["telegram_bot"]); got != canon(`{"id":1,"kind":"telegram","name":"@gw_bridge_bot",`+

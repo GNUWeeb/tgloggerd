@@ -120,22 +120,42 @@ type FwdChat struct {
 	Kind  string // "group" or "user"
 	Title string
 	Type  string // a group's type, "" for a user
+	// Photo is the group's photo or the user's profile photo, ID 0
+	// for none.
+	Photo FileRef
 }
 
-// chatJoins and chatColumns resolve a configuration's chat title live,
-// as the Drogon lists do, instead of a stored copy that goes stale.
+// chatJoins and chatColumns resolve a configuration's chat title and
+// photo live, as the Drogon lists do, instead of a stored copy that
+// goes stale. The photo's file row comes in the same join, so a list
+// costs one query however many chats it names.
 func chatJoins(col string) string {
 	return "LEFT JOIN telegram_groups g ON " + col + " < 0 AND g.id = " + col + " " +
-		"LEFT JOIN telegram_users u ON " + col + " > 0 AND u.id = " + col + " "
+		"LEFT JOIN telegram_users u ON " + col + " > 0 AND u.id = " + col + " " +
+		"LEFT JOIN telegram_files cf ON cf.id = COALESCE(g.photo_file_id, u.profile_photo_file_id) "
 }
 
-const chatColumns = "g.title, g.type, u.first_name, u.last_name"
+var chatColumns = "g.title, g.type, u.first_name, u.last_name, " +
+	"COALESCE(g.photo_file_id, u.profile_photo_file_id, 0), " + fileColumnsOf("cf")
 
-func chatOf(id int64, title, gtype, first, last sql.NullString) FwdChat {
+// chatCols scans chatColumns.
+type chatCols struct {
+	title, gtype, first, last sql.NullString
+	photo                     uint64
+	file                      nullFile
+}
+
+func (c *chatCols) dest() []any {
+	return append([]any{&c.title, &c.gtype, &c.first, &c.last, &c.photo}, c.file.dest()...)
+}
+
+func (c *chatCols) chat(id int64) FwdChat {
 	if id < 0 {
-		return FwdChat{ID: id, Kind: "group", Title: GroupTitle(title.String), Type: gtype.String}
+		return FwdChat{ID: id, Kind: "group", Title: GroupTitle(c.title.String), Type: c.gtype.String,
+			Photo: c.file.ref(c.photo)}
 	}
-	return FwdChat{ID: id, Kind: "user", Title: DisplayName(first.String, last.String)}
+	return FwdChat{ID: id, Kind: "user", Title: DisplayName(c.first.String, c.last.String),
+		Photo: c.file.ref(c.photo)}
 }
 
 // ResolveChat is a chat the logger has seen and the scope sees, for a
@@ -145,15 +165,21 @@ func ResolveChat(ctx context.Context, db *sql.DB, sc scope.Scope, id int64) (Fwd
 	if id == 0 || !sc.SeesChat(id) {
 		return FwdChat{}, false, nil
 	}
-	var title, gtype, first, last sql.NullString
+	var c chatCols
 	var err error
 	if id < 0 {
 		gf, ga := sc.GroupFilter("g.id")
-		err = db.QueryRowContext(ctx, "SELECT g.title, g.type FROM telegram_groups g "+
-			"WHERE g.id = ? AND "+gf, append([]any{id}, ga...)...).Scan(&title, &gtype)
+		err = db.QueryRowContext(ctx, "SELECT g.title, g.type, COALESCE(g.photo_file_id, 0), "+
+			fileColumnsOf("cf")+" FROM telegram_groups g "+
+			"LEFT JOIN telegram_files cf ON cf.id = g.photo_file_id "+
+			"WHERE g.id = ? AND "+gf, append([]any{id}, ga...)...).
+			Scan(append([]any{&c.title, &c.gtype, &c.photo}, c.file.dest()...)...)
 	} else {
-		err = db.QueryRowContext(ctx, "SELECT first_name, last_name FROM telegram_users "+
-			"WHERE id = ?", id).Scan(&first, &last)
+		err = db.QueryRowContext(ctx, "SELECT u.first_name, u.last_name, "+
+			"COALESCE(u.profile_photo_file_id, 0), "+fileColumnsOf("cf")+" FROM telegram_users u "+
+			"LEFT JOIN telegram_files cf ON cf.id = u.profile_photo_file_id "+
+			"WHERE u.id = ?", id).
+			Scan(append([]any{&c.first, &c.last, &c.photo}, c.file.dest()...)...)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return FwdChat{}, false, nil
@@ -161,7 +187,7 @@ func ResolveChat(ctx context.Context, db *sql.DB, sc scope.Scope, id int64) (Fwd
 	if err != nil {
 		return FwdChat{}, false, err
 	}
-	return chatOf(id, title, gtype, first, last), true, nil
+	return c.chat(id), true, nil
 }
 
 // T2DWebhook is a telegram_discord_webhooks row.
@@ -196,19 +222,19 @@ func scanT2D(rows *sql.Rows) ([]T2DWebhook, error) {
 	out := []T2DWebhook{}
 	for rows.Next() {
 		var (
-			w                         T2DWebhook
-			chat                      int64
-			title, gtype, first, last sql.NullString
+			w    T2DWebhook
+			chat int64
+			c    chatCols
 		)
 		dest := []any{&w.ID, &chat, &w.URL, &w.Enabled}
 		for i := 0; i < T2DTypeCount; i++ {
 			dest = append(dest, &w.Types[i])
 		}
-		dest = append(dest, &title, &gtype, &first, &last, &w.Sent, &w.LastSent)
+		dest = append(append(dest, c.dest()...), &w.Sent, &w.LastSent)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
-		w.Chat = chatOf(chat, title, gtype, first, last)
+		w.Chat = c.chat(chat)
 		out = append(out, w)
 	}
 	return out, rows.Err()
@@ -311,20 +337,20 @@ func scanD2T(rows *sql.Rows) ([]D2TRoute, error) {
 	out := []D2TRoute{}
 	for rows.Next() {
 		var (
-			d                         D2TRoute
-			chat                      int64
-			title, gtype, first, last sql.NullString
+			d    D2TRoute
+			chat int64
+			c    chatCols
 		)
 		dest := []any{&d.ID, &d.ChannelID, &d.ChannelName, &chat, &d.Enabled}
 		for i := 0; i < D2TTypeCount; i++ {
 			dest = append(dest, &d.Types[i])
 		}
-		dest = append(dest, &d.TelegramBotID, &d.DiscordBotID,
-			&title, &gtype, &first, &last, &d.Sent)
+		dest = append(append(dest, &d.TelegramBotID, &d.DiscordBotID), c.dest()...)
+		dest = append(dest, &d.Sent)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
 		}
-		d.Chat = chatOf(chat, title, gtype, first, last)
+		d.Chat = c.chat(chat)
 		out = append(out, d)
 	}
 	return out, rows.Err()

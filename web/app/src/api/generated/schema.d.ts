@@ -2965,6 +2965,7 @@ export interface components {
             name: string;
         };
         T2DRoute: components["schemas"]["Owned"] & {
+            /** @description The route's Telegram chat. Its photo is the group's photo or, for a private chat, the user's profile photo: a /files/ URL when the bytes are stored, else null. */
             chat: components["schemas"]["PickItem"];
             /** @description The webhook URL with its secret part cut off. */
             url_masked: string;
@@ -2980,6 +2981,7 @@ export interface components {
         D2TRoute: components["schemas"]["Owned"] & {
             channel_id: string;
             channel_name: string;
+            /** @description The route's Telegram chat. Its photo is the group's photo or, for a private chat, the user's profile photo: a /files/ URL when the bytes are stored, else null. */
             chat: components["schemas"]["PickItem"];
             /** @description The Discord bot that reads the channel, with its state; null for a route made before the Discord bots were stored, until the deployment's import gives it one (it forwards nothing meanwhile). */
             discord_bot: components["schemas"]["BotRef"] | null;

@@ -757,6 +757,16 @@ func (s *Server) photoPtr(id uint64) *string {
 	return &u
 }
 
+// storedPhoto is a picture's URL (photoPtr) when its bytes are in the
+// store, else nil: for the answers that show a photo only when it can
+// be served at once.
+func (s *Server) storedPhoto(f logdb.FileRef) *string {
+	if f.ID == 0 || !f.Exists || !f.OnDisk || s.tokens == nil {
+		return nil
+	}
+	return s.photoPtr(f.ID)
+}
+
 func ptrTo[T any](v T) *T { return &v }
 
 // listUser is a user as lists show one (UserSummary). Only id,
