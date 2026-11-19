@@ -67,7 +67,7 @@ describe('group polls tab', () => {
 	it('names a sender without an id without linking it, and says when a poll was not stored', () => {
 		const p = fixture<GroupPollsPage>(pollsUrl(FILES_GROUP.id));
 		const r = p.props.rows[0]!;
-		const rows = [{ ...r, sender: { id: null, name: '(hidden chat)', username: null, photo: null }, poll: null }];
+		const rows = [{ ...r, sender: { id: null, name: '(hidden chat)', username: '', photo: null }, poll: null }];
 		fakeApi('superadmin');
 		renderPage(pollsUrl(FILES_GROUP.id), 'superadmin', { props: { ...p.props, rows, next_before: null } });
 		const c = cards()[0]!;
