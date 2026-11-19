@@ -12,6 +12,10 @@ import { users, getUser } from '../../mockup/src/data/users.js';
 import { chatStream, privateMessages } from '../../mockup/src/data/messages.js';
 import { RICH_EDIT_TEXT, RICH_PLAIN_TEXT, RICH_TEXT, richDetail, richEditDetail, richPlainDetail } from './rich.ts';
 
+// A synthetic community (TDLib's own id, not a chat's), named when the
+// viewer may see one of its chats, as Go names it.
+const SAMPLE_COMMUNITY = { id: 4200001, name: 'Open Source Hub', photo: '/files/standin-984001' };
+
 // What the viewer may see, as the request scope says.
 export interface View {
 	fetch: boolean;
@@ -373,7 +377,7 @@ function forumServices(): Map<number, Sample> {
 		svc('video_chat_scheduled', 'scheduled a video chat', () => ({ kind: 'video_chat', duration: null, start_date: '2026-12-01T12:00:00Z' })),
 		svc('poll_option_added', 'added an option to a poll', () => ({ kind: 'poll_option', text: 'Rust in the kernel' })),
 		svc('forum_topic_created', `created topic "${TOPICS[1]!.name}"`, () => ({ kind: 'topic', topic: { id: TOPICS[1]!.id, name: TOPICS[1]!.name, icon_color: TOPICS[1]!.icon_color, icon_custom_emoji_id: TOPICS[1]!.icon_custom_emoji_id, icon_custom_emoji: TOPICS[1]!.icon_custom_emoji } })),
-		svc('chat_added_to_community', 'added the group to a community', (v) => { const c = refOf(v, PUBLIC_POLLS_GROUP.id); return c ? { kind: 'community', community: c } : null; }),
+		svc('chat_added_to_community', 'added the group to a community', (v) => (refOf(v, PUBLIC_POLLS_GROUP.id) ? { kind: 'community', community: SAMPLE_COMMUNITY } : null)),
 		svc('chat_upgrade_from', 'the supergroup was created from a group', (v) => ({ kind: 'title', title: 'Linux Study Group', basic_group: refOf(v, KINDS_GROUP.id) })),
 		svc('chat_set_background', 'changed the chat background', () => ({ kind: 'background', only_for_self: true })),
 	];

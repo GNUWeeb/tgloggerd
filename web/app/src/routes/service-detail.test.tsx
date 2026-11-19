@@ -96,9 +96,17 @@ describe('a service line in the chat', () => {
 		expect(within(n).getByRole('link', { name: 'a topic' }).getAttribute('href')).toContain('topic=12');
 	});
 
-	it('links the community', () => {
-		const l = line('chat_added_to_community', 'added the group to a community', { kind: 'community', community: ref(-1007, 'Linux Users') });
-		expect(within(l).getByRole('link', { name: 'Linux Users' }).getAttribute('href')).toBe('/groups/-1007');
+	it('names the community with its photo, and links nothing, as it has no page', () => {
+		const l = line('chat_added_to_community', 'added the group to a community', { kind: 'community', community: { id: 4200001, name: 'Linux Users', photo: '/files/tok-c' } });
+		expect(words(l)).toContain('added the group to a community: Linux Users');
+		expect(within(l).queryByRole('link', { name: 'Linux Users' })).toBeNull();
+		expect(l.querySelector('.c-svccommunity img')!.getAttribute('src')).toBe('/files/tok-c');
+	});
+
+	it('names a community without a photo by its initials', () => {
+		const noPhoto = line('chat_join_from_community', 'joined the group from a community', { kind: 'community', community: { id: 4200002, name: 'Rust Folks', photo: null } });
+		expect(noPhoto.querySelector('.c-svccommunity img')).toBeNull();
+		expect(noPhoto.querySelector('.c-svccommunity')!.textContent).toContain('Rust Folks');
 	});
 
 	it('gives a created group its title, and links the basic group a supergroup came from', () => {
@@ -170,9 +178,10 @@ describe('a service message\'s page', () => {
 		expect(within(text() as HTMLElement).getByRole('link', { name: TOPICS[1]!.name }).getAttribute('href')).toBe(`${chatUrl}?topic=${TOPICS[1]!.id}`);
 	});
 
-	it('links the community and the basic group the supergroup came from', () => {
+	it('names the community and links the basic group the supergroup came from', () => {
 		open(forumSample('chat_added_to_community'));
-		expect(screen.getByRole('link', { name: PUBLIC_POLLS_GROUP.title }).closest('.a-msgtext')).toBeTruthy();
+		expect(text()!.querySelector('.c-svccommunity')!.textContent).toContain('Open Source Hub');
+		expect(screen.queryByRole('link', { name: 'Open Source Hub' })).toBeNull();
 		document.body.innerHTML = '';
 		open(forumSample('chat_upgrade_from'));
 		expect(within(text() as HTMLElement).getByRole('link', { name: 'Linux Study Group' }).getAttribute('href')).toBe(`/groups/${KINDS_GROUP.id}`);
