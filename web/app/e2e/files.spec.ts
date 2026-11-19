@@ -1,5 +1,6 @@
 // The files page's preview.
 import { test, expect } from './fixtures.ts';
+import type { Page } from '@playwright/test';
 
 test('the preview opens and closes in place; a reload and back still work', async ({ page }) => {
 	await page.goto('/users');
@@ -194,7 +195,9 @@ test('the grid fills every row of a batch and scrolls for more', async ({ page }
 	await expect(page).toHaveURL(/\/files$/);
 });
 
-test('closing a preview, by any path and after its bigger view, leaves the page scrolling for more', async ({ page }) => {
+// The files page with a stored photo in its first batch, and the
+// steps the preview tests below take on it.
+async function previewPage(page: Page) {
 	await page.setViewportSize({ width: 1280, height: 800 });
 	await page.goto('/users');
 	await page.click('nav[aria-label="Main"] a:has-text("Files")');
@@ -237,9 +240,17 @@ test('closing a preview, by any path and after its bigger view, leaves the page 
 		['Esc', () => page.keyboard.press('Escape')],
 		['backdrop', backdrop],
 	];
-	for (const viaBigger of ['', 'button', 'esc', 'backdrop'] as const) {
+	return { open, bigger, paths, scrollsForMore };
+}
+
+// Closing a preview, by any path and after its bigger view, leaves the
+// page scrolling for more. One test per way the bigger view closed, so
+// each stays well within the test timeout.
+for (const viaBigger of ['', 'button', 'esc', 'backdrop'] as const) {
+	test(`closing a preview${viaBigger ? ` after its bigger view closed by ${viaBigger}` : ''}, by any path, leaves the page scrolling for more`, async ({ page }) => {
+		const { open, bigger, paths, scrollsForMore } = await previewPage(page);
 		for (const [label, close] of paths) {
-			await test.step(`${label}${viaBigger ? ` after the bigger view closed by ${viaBigger}` : ''}`, async () => {
+			await test.step(label, async () => {
 				await page.evaluate(() => scrollTo(0, 0));
 				const d = await open();
 				if (viaBigger) await bigger(d, viaBigger);
@@ -248,8 +259,11 @@ test('closing a preview, by any path and after its bigger view, leaves the page 
 				await scrollsForMore();
 			});
 		}
-	}
-	// Leaving the page with the preview (and its bigger view) open.
+	});
+}
+
+test('leaving the files page with a preview and its bigger view open unlocks the page', async ({ page }) => {
+	const { open } = await previewPage(page);
 	await page.evaluate(() => scrollTo(0, 0));
 	const d = await open();
 	await d.getByRole('button', { name: 'View bigger' }).click();
