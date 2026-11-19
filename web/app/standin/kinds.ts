@@ -349,13 +349,16 @@ function publicPolls(): Map<number, Sample> {
 }
 
 // The forum group's newest service messages, each an action with its
-// stored detail: a new photo (stored, and one not stored), a pin with
+// stored detail: a new photo (stored, one not stored, an animated one), a pin with
 // the pinned message's snippet and one logged before pins kept it, a
 // video chat's length and start, a poll option, a topic, a community
 // (one a member may not see), the group's old title, a background.
 // Looked up only once the forum's chat is asked about, as above.
 let forumKeys: Map<number, Sample> | null = null;
 const NEW_PHOTO = { stored: true, fetchable: false, url: '/files/standin-986010', thumb: '/files/standin-986010', render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 48000 };
+// An animated group photo: its still and its video, the still as poster.
+const ANIM_STILL = { stored: true, fetchable: false, url: '/files/standin-986011', thumb: '/files/standin-986011', render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 46000 };
+const ANIM_VIDEO = { stored: true, fetchable: false, url: '/files/standin-986012', poster: '/files/standin-986011', render: 'animation', ext: 'mp4', mime: 'video/mp4', w: 640, h: 640, duration: 3, name: '', size: 310000 };
 const LOST_PHOTO = { stored: false, fetchable: false, url: null, thumb: null, render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 51000 };
 // A background logged before the background itself was kept.
 const OLD_BG = { kind: 'background', only_for_self: false, type: null, dark: false, image: null, fill: null, intensity: null, is_inverted: false, is_moving: false, is_blurred: false, theme_name: null };
@@ -381,6 +384,14 @@ function forumServices(): Map<number, Sample> {
 	];
 	const rows = all.filter((m) => m.content_type === 'service').slice(-list.length);
 	rows.forEach((m, i) => forumKeys!.set(m.message_id, list[i]!));
+	// The forum has no more service rows: the other samples take the
+	// newest plain text rows before them (not the pinned one).
+	const extra: Sample[] = [
+		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: ANIM_STILL, animation: ANIM_VIDEO })),
+	];
+	const first = rows[0]?.message_id ?? Infinity;
+	const plain = all.filter((m) => m.content_type === 'text' && m !== pinned && m.message_id < first).slice(-extra.length);
+	plain.forEach((m, i) => forumKeys!.set(m.message_id, extra[i]!));
 	return forumKeys;
 }
 

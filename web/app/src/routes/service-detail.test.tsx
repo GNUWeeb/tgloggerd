@@ -54,6 +54,26 @@ describe('a service line in the chat', () => {
 		expect(within(l).getByRole('link', { name: 'The new photo' })).toBeTruthy();
 	});
 
+	it('plays an animated photo in the viewer, its still as the poster', () => {
+		const anim = { ...PHOTO, url: '/files/a1', thumb: null, render: 'animation' as const, ext: 'mp4', poster: '/files/a1p' };
+		const l = line('chat_change_photo', 'changed the group photo', { kind: 'photo', photo: PHOTO, animation: anim });
+		const a = within(l).getByRole('link', { name: 'The new animated photo' });
+		expect(a.querySelector('img')!.getAttribute('src')).toBe('/files/p1t');
+		expect(a.getAttribute('href')).toBe('/files/a1');
+		fireEvent.click(a);
+		const v = screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('video')!;
+		expect(v.getAttribute('src')).toBe('/files/a1');
+		expect(v.getAttribute('poster')).toBe('/files/a1p');
+		document.body.innerHTML = '';
+		// Without a poster of its own, the still photo is the poster.
+		fireEvent.click(within(line('chat_change_photo', 'changed the group photo', { kind: 'photo', photo: PHOTO, animation: { ...anim, poster: undefined } })).getByRole('link', { name: 'The new animated photo' }));
+		expect(screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('video')!.getAttribute('poster')).toBe('/files/p1');
+		document.body.innerHTML = '';
+		// A video not stored leaves the still photo.
+		fireEvent.click(within(line('chat_change_photo', 'changed the group photo', { kind: 'photo', photo: PHOTO, animation: { ...anim, stored: false, url: null } })).getByRole('link', { name: 'The new photo' }));
+		expect(screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('img')!.getAttribute('src')).toBe('/files/p1');
+	});
+
 	it('quotes the pinned message', () => {
 		const l = line('pin_message', 'pinned a message', { kind: 'pin', snippet: 'Meeting moved to Friday' });
 		expect(l.querySelector('q')!.textContent).toBe('Meeting moved to Friday');
@@ -147,9 +167,19 @@ const text = () => document.querySelector('.a-msgtext')!;
 
 describe('a service message\'s page', () => {
 	it('shows the new photo, which opens the viewer', () => {
-		open(forumSample('chat_change_photo'));
+		open((chatStream(FORUM_GROUP) as Raw[]).find((x) => (sampleOf(x)?.service?.(ALL)?.detail as { photo?: { url: string | null }; animation?: unknown } | null)?.photo?.url && !(sampleOf(x)!.service!(ALL).detail as { animation: unknown }).animation)!);
 		fireEvent.click(within(text() as HTMLElement).getByRole('link', { name: 'The new photo' }));
 		expect(screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('img')!.getAttribute('src')).toBe('/files/standin-986010');
+	});
+
+	it('plays the new animated photo', () => {
+		open((chatStream(FORUM_GROUP) as Raw[]).find((x) => (sampleOf(x)?.service?.(ALL)?.detail as { animation?: unknown } | null)?.animation)!);
+		const a = within(text() as HTMLElement).getByRole('link', { name: 'The new animated photo' });
+		expect((a as HTMLElement).style.width).toBe('96px');
+		fireEvent.click(a);
+		const v = screen.getByRole('dialog', { name: 'Media viewer' }).querySelector('video')!;
+		expect(v.getAttribute('src')).toBe('/files/standin-986012');
+		expect(v.getAttribute('poster')).toBe('/files/standin-986011');
 	});
 
 	it('quotes the pinned message, and leaves a pin logged without it as it was', () => {

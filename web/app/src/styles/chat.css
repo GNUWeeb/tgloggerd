@@ -250,6 +250,9 @@
 .app .c-svcphoto { display: inline-grid; place-items: center; vertical-align: middle; margin: -2px 0; border-radius: 50%; overflow: hidden; padding: 0; border: 0; }
 .app .c-svcphoto img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .app button.c-svcphoto { cursor: pointer; }
+/* An animated photo: a play mark over the still, as on a video. */
+.app .c-svcanim { position: relative; background: var(--c-svc); color: var(--c-svc-fg); }
+.app .c-svcanim .c-svcplay { position: absolute; color: #fff; filter: drop-shadow(0 1px 2px rgb(0 0 0 / .6)); }
 .app .c-svcquote { font-style: italic; }
 .app .c-svctopic { display: inline-flex; align-items: center; gap: 4px; }
 .app .c-editmedia { display: inline-block; margin: 4px 0; }
