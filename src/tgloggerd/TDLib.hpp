@@ -224,6 +224,12 @@ struct RecheckAnswer {
 	recheck::Page	page;
 	/* Seconds from queueing to Telegram's answer. */
 	int64_t		waited_secs = 0;
+	/* The recheck and its page, to ask for the next page with
+	 * TDLib::recheckNextPage; seq ties the page's found and answer
+	 * callbacks together. */
+	recheck::Item	item;
+	int64_t		oldest_td = 0;	/* TDLib id of the oldest returned */
+	uint64_t	seq = 0;
 };
 
 struct ForwardMessage {
@@ -748,8 +754,11 @@ public:
 	 * store. Runs on the loop thread; keep DB work off it.
 	 */
 	void setRecheckFoundHandler(
-		std::function<void(int64_t chat_id, bool is_group,
-				   const std::vector<int64_t> &ids)> cb);
+		std::function<void(const RecheckAnswer &a)> cb);
+
+	/* Ask for the next page of a recheck (@a's item, older than its
+	 * oldest message); any thread. */
+	void recheckNextPage(const RecheckAnswer &a);
 
 	/*
 	 * When enabled, issue a one-time optimizeStorage once the client

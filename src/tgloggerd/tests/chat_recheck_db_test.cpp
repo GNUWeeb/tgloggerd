@@ -201,6 +201,20 @@ int main()
 	      "marking again changes nothing");
 	CHECK(db.markDeletedOnRecheck(kGroup, true, {}).empty(), "no ids: nothing");
 
+	printf("count what is stored, for the paging:\n");
+	CHECK(db.countStoredMessages(kGroup, true, { 12, 13, 15, 99, 1000 }) == 3,
+	      "stored ones counted, deleted ones too; unknown ones not");
+	CHECK(db.countStoredMessages(kGroup, true, {}) == 0, "no ids: 0");
+	CHECK(db.countStoredMessages(kGroup, false, { 12 }) == 0,
+	      "the private table is apart");
+	{
+		auto one = db.listRecheckStored(kGroup, true, { 14, 14 });
+		CHECK(one.between.empty() && one.older_exists,
+		      "a one-id span: nothing between, an older one stored");
+		auto first = db.listRecheckStored(kGroup, true, { 1, 1 });
+		CHECK(!first.older_exists, "nothing older than the first");
+	}
+
 	printf("restore a recheck deletion:\n");
 	auto back = db.restoreRecheckDeleted(kGroup, true, { 12, 15, 16, 99 });
 	CHECK(ids(back) == "12",

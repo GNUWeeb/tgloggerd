@@ -74,7 +74,15 @@ struct Item {
 	bool	background = false;
 	/* When Queue::push took it, for the wait in the recheck's log. */
 	Clock::time_point	queued_at{};
+	/* Which page of the recheck this is, from 1; a later one reads the
+	 * messages older than the previous page's oldest, from_td (a TDLib
+	 * id), and is never refused by the limits: its recheck was let in. */
+	int			page = 1;
+	int64_t			from_td = 0;
 };
+
+/* At most this many pages per recheck. */
+constexpr int kMaxPages = 3;
 
 /*
  * Whether the old-row repair may send this tick. Rechecks come first, and
@@ -161,7 +169,26 @@ struct Page {
 	int64_t			around = 0;
 	size_t			total = 0;
 	std::vector<int64_t>	ids;
+	/* A later page (Item::page > 1): all of it is the older side, and
+	 * kNewestLimit of them were asked for. */
+	bool			cont = false;
 };
+
+/*
+ * Whether an answer is short: fewer older messages than asked for while
+ * an older message is stored, so it is not the chat's start. TDLib's first
+ * answer for a chat it has not opened is often only the newest message or
+ * two. selectDeleted concludes nothing from a short answer.
+ */
+bool isShort(const Page &p, bool older_exists);
+
+/*
+ * Whether a recheck asks TDLib for another page, older than this one:
+ * the answer was short, it is not the last page allowed, and it brought
+ * messages not stored before (a quiet chat stops after one or two reads).
+ * Deletions are concluded from each page alone, never across pages.
+ */
+bool askAgain(int pages_used, bool short_answer, size_t new_messages);
 
 /* The range of stored ids to look at: strictly between lo and hi. */
 struct Span {

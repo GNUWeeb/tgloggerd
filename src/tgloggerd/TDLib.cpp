@@ -995,8 +995,11 @@ struct TDLib::Impl {
 	 */
 	recheck::Queue					recheck_q_;
 	std::function<void(const RecheckAnswer &)>	recheck_handler_;
-	std::function<void(int64_t, bool, const std::vector<int64_t> &)>
-							recheck_found_handler_;
+	std::function<void(const RecheckAnswer &)>	recheck_found_handler_;
+	/* Later pages of rechecks already let in (recheckNextPage), under
+	 * refetch_mtx_; they run before the queue. */
+	std::deque<recheck::Item>			recheck_more_;
+	uint64_t					recheck_seq_ = 0;
 	std::unordered_map<int64_t, int64_t>		chat_last_date_;
 	/* Each chat's last message's server id, for the catch-up's gaps. */
 	std::unordered_map<int64_t, int64_t>		chat_last_id_;
@@ -3190,8 +3193,14 @@ void TDLib::Impl::drain_recheck(void)
 			/* One slot stays free for a recheck asked for:
 			 * a background one starts only when none is in
 			 * flight. */
-			it = recheck_q_.pop(recheck::Clock::now(),
-					    recheck_inflight_ == 0);
+			if (!recheck_more_.empty()) {
+				/* A recheck under way finishes first. */
+				it = recheck_more_.front();
+				recheck_more_.pop_front();
+			} else {
+				it = recheck_q_.pop(recheck::Clock::now(),
+						    recheck_inflight_ == 0);
+			}
 		}
 		if (!it)
 			return;
@@ -3203,7 +3212,9 @@ void TDLib::Impl::drain_recheck(void)
 		 * false: TDLib answers from its own database where it holds
 		 * the stretch and asks Telegram for the gaps.
 		 */
-		const recheck::Shape sh = recheck::shapeOf(it->around);
+		recheck::Shape sh = recheck::shapeOf(it->around);
+		if (it->page > 1)
+			sh = recheck::Shape{ it->from_td, 0, recheck::kNewestLimit };
 		recheck::Item item = *it;
 		send_query(td_api::make_object<td_api::getChatHistory>(
 				   it->chat_id, sh.from, sh.offset, sh.limit,
@@ -3243,6 +3254,9 @@ void TDLib::Impl::on_recheck_page(const recheck::Item &it, Object obj)
 	a.chat_id = it.chat_id;
 	a.is_group = !is_private_chat(it.chat_id);
 	a.page.around = it.around;
+	a.page.cont = it.page > 1;
+	a.item = it;
+	a.seq = ++recheck_seq_;
 	if (it.queued_at != recheck::Clock::time_point{})
 		a.waited_secs = std::chrono::duration_cast<std::chrono::seconds>(
 			recheck::Clock::now() - it.queued_at).count();
@@ -3253,15 +3267,19 @@ void TDLib::Impl::on_recheck_page(const recheck::Item &it, Object obj)
 	 * on the serial worker ahead of the stores below, which would
 	 * otherwise replace meta and drop the flag that tells it apart.
 	 */
-	if (recheck_found_handler_) {
-		std::vector<int64_t> found;
-		for (const auto &m : msgs->messages_)
-			if (m && m->chat_id_ == it.chat_id &&
-			    is_server_msg_id(m->id_))
-				found.push_back(to_server_msg_id(m->id_));
-		if (!found.empty())
-			recheck_found_handler_(it.chat_id, a.is_group, found);
+	for (auto rit = msgs->messages_.rbegin(); rit != msgs->messages_.rend();
+	     ++rit) {
+		if (!*rit || (*rit)->chat_id_ != it.chat_id)
+			continue;
+		a.page.total++;
+		if (!is_server_msg_id((*rit)->id_))
+			continue;
+		a.page.ids.push_back(to_server_msg_id((*rit)->id_));
+		if (a.oldest_td == 0 || (*rit)->id_ < a.oldest_td)
+			a.oldest_td = (*rit)->id_;
 	}
+	if (recheck_found_handler_ && !a.page.ids.empty())
+		recheck_found_handler_(a);
 
 	/*
 	 * Oldest first through the same handlers as a live message, which
@@ -3274,14 +3292,12 @@ void TDLib::Impl::on_recheck_page(const recheck::Item &it, Object obj)
 		if (!*rit || (*rit)->chat_id_ != it.chat_id)
 			continue;
 		td_api::message &m = **rit;
-		a.page.total++;
 		if (!is_server_msg_id(m.id_))
 			continue;
 		if (a.is_group)
 			handle_message_for_group_chat(m, 0);
 		else
 			handle_message_for_private_chat(m, 0);
-		a.page.ids.push_back(to_server_msg_id(m.id_));
 	}
 	if (recheck_handler_)
 		recheck_handler_(a);
@@ -4815,9 +4831,18 @@ recheck::Admit TDLib::recheckChat(int64_t chat_id, int64_t around)
 }
 
 void TDLib::setRecheckFoundHandler(
-	std::function<void(int64_t, bool, const std::vector<int64_t> &)> cb)
+	std::function<void(const RecheckAnswer &)> cb)
 {
 	impl_->recheck_found_handler_ = std::move(cb);
+}
+
+void TDLib::recheckNextPage(const RecheckAnswer &a)
+{
+	recheck::Item it = a.item;
+	it.page++;
+	it.from_td = a.oldest_td;
+	std::lock_guard<std::mutex> lk(impl_->refetch_mtx_);
+	impl_->recheck_more_.push_back(it);
 }
 
 void TDLib::setRecheckHandler(std::function<void(const RecheckAnswer &)> cb)

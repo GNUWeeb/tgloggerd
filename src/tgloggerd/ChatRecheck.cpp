@@ -121,23 +121,35 @@ static Verdict nothing(const char *why)
 	return v;
 }
 
+bool isShort(const Page &p, bool older_exists)
+{
+	/* The older messages asked for: the whole newest page or a later
+	 * page, or N and those below it; the few newer ones around N are
+	 * not judged. */
+	size_t want_older = kNewestLimit;
+	size_t older = p.total;
+	if (!p.cont && p.around != 0) {
+		const Shape sh = shapeOf(p.around);
+		want_older = (size_t)(sh.limit + sh.offset);
+		older = 0;
+		for (int64_t id : p.ids)
+			older += id <= p.around;
+	}
+	return older < want_older && older_exists;
+}
+
+bool askAgain(int pages_used, bool short_answer, size_t new_messages)
+{
+	return short_answer && pages_used < kMaxPages && new_messages > 0;
+}
+
 Verdict selectDeleted(const Page &p, const Stored &s)
 {
 	auto span = spanOf(p);
 	if (!span)
 		return nothing("fewer than two messages returned");
 
-	/* The older messages asked for: the whole newest page, or N and
-	 * those below it; the few newer ones around N are not judged. */
-	const Shape sh = shapeOf(p.around);
-	const size_t want_older = (size_t)(sh.limit + sh.offset);
-	size_t older = p.total;
-	if (p.around != 0) {
-		older = 0;
-		for (int64_t id : p.ids)
-			older += id <= p.around;
-	}
-	if (older < want_older && s.older_exists)
+	if (isShort(p, s.older_exists))
 		return nothing("short answer above stored older messages");
 
 	std::unordered_set<int64_t> got(p.ids.begin(), p.ids.end());
