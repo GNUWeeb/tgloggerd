@@ -58,6 +58,13 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 	 * whole table backwards looking for the file.
 	 */
 	const std::string n = std::to_string(limit);
+	/*
+	 * A medium of a rich message is found again by its unique id, not
+	 * its position, which an edit can change; one without a unique id
+	 * falls back to its position.
+	 */
+	const std::string rich =
+		"mf.role = 'rich' AND f.tg_unique_id IS NOT NULL";
 	auto rows = db_.query(
 		"(SELECT 0, chat_id, message_id, NULL, NULL FROM telegram_group_messages"
 		"  FORCE INDEX (fk_group_messages_file)"
@@ -79,15 +86,19 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 		"  WHERE lp.photo_file_id = ? AND m.deleted_at IS NULL"
 		"  ORDER BY lp.id DESC LIMIT " + n + ")"
 		" UNION ALL "
-		"(SELECT 6, m.chat_id, m.message_id, mf.role, mf.position"
+		"(SELECT IF(" + rich + ", 10, 6), m.chat_id, m.message_id,"
+		"  IF(" + rich + ", f.tg_unique_id, mf.role), mf.position"
 		"  FROM telegram_message_files mf"
 		"  JOIN telegram_group_messages m ON m.id = mf.group_message_id"
+		"  LEFT JOIN telegram_files f ON f.id = mf.file_id"
 		"  WHERE mf.file_id = ? AND m.deleted_at IS NULL"
 		"  ORDER BY mf.id DESC LIMIT " + n + ")"
 		" UNION ALL "
-		"(SELECT 7, m.chat_id, m.message_id, mf.role, mf.position"
+		"(SELECT IF(" + rich + ", 10, 7), m.chat_id, m.message_id,"
+		"  IF(" + rich + ", f.tg_unique_id, mf.role), mf.position"
 		"  FROM telegram_message_files mf"
 		"  JOIN telegram_private_messages m ON m.id = mf.private_message_id"
+		"  LEFT JOIN telegram_files f ON f.id = mf.file_id"
 		"  WHERE mf.file_id = ? AND m.deleted_at IS NULL"
 		"  ORDER BY mf.id DESC LIMIT " + n + ")"
 		" UNION ALL "
@@ -140,6 +151,10 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 			break;
 		case 9:
 			s.kind = Kind::GroupPhotoHistory;
+			s.unique_id = r[3].value_or("");
+			break;
+		case 10:
+			s.kind = Kind::RichMedia;
 			s.unique_id = r[3].value_or("");
 			break;
 		case 6:

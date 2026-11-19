@@ -3906,6 +3906,7 @@ Object TDLib::Impl::resolve_file(const models::FileSource &src,
 	case Kind::Message:
 	case Kind::LinkPreview:
 	case Kind::MessageExtra:
+	case Kind::RichMedia:
 		/* Stored ids are server ids; TDLib wants its own. */
 		q = td_api::make_object<td_api::getMessage>(
 			src.chat_id, src.message_id * kTdMsgIdShift);
@@ -3966,6 +3967,16 @@ Object TDLib::Impl::resolve_file(const models::FileSource &src,
 		for (const auto &x : message_extra_files(*m.content_))
 			if (src.role == x.role && src.position == x.position)
 				f = x.file;
+		break;
+	}
+	case Kind::RichMedia: {
+		/* The medium in the blocks: matched by unique id. */
+		auto &m = static_cast<const td_api::message &>(*obj);
+		if (!m.content_)
+			break;
+		auto files = message_extra_files(*m.content_);
+		if (auto *x = rich_file_with_unique_id(files, src.unique_id))
+			f = x->file;
 		break;
 	}
 	case Kind::GroupPhoto: {

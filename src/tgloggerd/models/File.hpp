@@ -68,14 +68,15 @@ struct FileSource {
 		MessageExtra,	/* a further file of the message: role, position */
 		UserPhotoHistory,	/* one of user chat_id's profile photos */
 		GroupPhotoHistory,	/* one of chat chat_id's photos */
+		RichMedia,	/* a medium in the page blocks of a rich message */
 	};
 	Kind		kind = Kind::Message;
 	int64_t		chat_id = 0;	/* the user id for UserPhoto */
 	int64_t		message_id = 0;	/* server message id, as stored */
 	std::string	role;		/* MessageExtra: telegram_message_files.role */
 	int		position = 0;	/* MessageExtra: order within the role */
-	/* *PhotoHistory: the file's Telegram unique id, which picks the photo
-	 * out of the list the source gives. */
+	/* *PhotoHistory, RichMedia: the file's Telegram unique id, which
+	 * picks the photo or medium out of what the source gives. */
 	std::string	unique_id;
 };
 
