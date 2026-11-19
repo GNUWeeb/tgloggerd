@@ -827,6 +827,12 @@ struct TDLib::Impl {
 	std::function<void(const models::GroupMessage &)> group_msg_handler_;
 	std::function<void(const models::LinkPreview &, bool)> link_preview_handler_;
 	std::function<void(const models::Poll &)>	poll_handler_;
+	std::function<void(int64_t, std::optional<int64_t>, std::optional<bool>)>
+		group_member_info_handler_;
+	/* What was last passed on per chat, so repeats are not. Loop only. */
+	std::unordered_map<int64_t, std::pair<int64_t, int>> group_member_info_last_;
+	void note_group_member_info(int64_t chat_id, int64_t count,
+				    std::optional<bool> can_get_members);
 	std::function<void(int64_t, int64_t, bool, bool)> message_pinned_handler_;
 	/*
 	 * Interaction totals waiting to be written, latest per message
@@ -1446,6 +1452,9 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				supergroups_[sg.id_] = info;
 				update_group_membership(sg.id_, false,
 							info.member);
+				note_group_member_info(-1000000000000LL - sg.id_,
+						       sg.member_count_,
+						       std::nullopt);
 				/*
 				 * A forum: read its topic list once per run, so
 				 * topics created or renamed while the daemon was
@@ -1479,6 +1488,10 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 					u.supergroup_full_info_->description_;
 				if (st.chat_seen)
 					emit_group(u.supergroup_id_);
+				note_group_member_info(
+					-1000000000000LL - u.supergroup_id_,
+					u.supergroup_full_info_->member_count_,
+					u.supergroup_full_info_->can_get_members_);
 			},
 			[this](td_api::updateBasicGroup &u) {
 				if (!u.basic_group_)
@@ -1487,6 +1500,9 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				Membership m = basic_group_membership(bg);
 				basic_groups_[bg.id_] = m;
 				update_group_membership(bg.id_, true, m);
+				/* A basic group's chat id is minus its id. */
+				note_group_member_info(-bg.id_, bg.member_count_,
+						       std::nullopt);
 			},
 			[this](td_api::updateBasicGroupFullInfo &u) {
 				if (!u.basic_group_full_info_)
@@ -1494,6 +1510,12 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				auto &st = group_state_[u.basic_group_id_];
 				st.description =
 					u.basic_group_full_info_->description_;
+				/* A basic group's full info lists its members, to
+				 * every member; an empty list means the account
+				 * cannot see them. */
+				note_group_member_info(-u.basic_group_id_,
+					(int64_t)u.basic_group_full_info_->members_.size(),
+					!u.basic_group_full_info_->members_.empty());
 				if (!st.chat_seen)
 					return;
 				emit_group(u.basic_group_id_);
@@ -2602,6 +2624,29 @@ void TDLib::Impl::drain_interaction(void)
 	interaction_pending_.clear();
 	interaction_writes_ += batch.size();
 	interaction_handler_(std::move(batch));
+}
+
+/*
+ * Pass on a group's member count (0 = not reported) and whether the account
+ * may list its members, unless they are what was last passed on for it.
+ */
+void TDLib::Impl::note_group_member_info(int64_t chat_id, int64_t count,
+					 std::optional<bool> can_get_members)
+{
+	if (!group_member_info_handler_ || chat_id == 0)
+		return;
+	auto &last = group_member_info_last_[chat_id];
+	const int can = can_get_members ? (*can_get_members ? 1 : 0) : -1;
+	if ((count <= 0 || count == last.first) &&
+	    (can < 0 || can == last.second))
+		return;
+	if (count > 0)
+		last.first = count;
+	if (can >= 0)
+		last.second = can;
+	group_member_info_handler_(chat_id,
+		count > 0 ? std::optional<int64_t>(count) : std::nullopt,
+		can_get_members);
 }
 
 /* Store the poll a message shows, as the message has it now. */
@@ -3975,6 +4020,12 @@ void TDLib::setInteractionHandler(
 {
 	impl_->interaction_handler_ = std::move(cb);
 	impl_->interaction_flush_secs_ = flush_secs;
+}
+
+void TDLib::setGroupMemberInfoHandler(
+	std::function<void(int64_t, std::optional<int64_t>, std::optional<bool>)> cb)
+{
+	impl_->group_member_info_handler_ = std::move(cb);
 }
 
 void TDLib::setPollHandler(std::function<void(const models::Poll &)> cb)

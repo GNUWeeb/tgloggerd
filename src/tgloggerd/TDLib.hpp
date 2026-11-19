@@ -297,6 +297,17 @@ public:
 	void setPollHandler(std::function<void(const models::Poll &)> cb);
 
 	/*
+	 * Set the callback for a group's member count and whether the account
+	 * may list its members, whenever Telegram reports them (supergroup
+	 * updates, supergroup and basic group full info). The group is its
+	 * chat id; a member not reported is nullopt. Repeats of the same
+	 * values are not passed on.
+	 */
+	void setGroupMemberInfoHandler(
+		std::function<void(int64_t chat_id, std::optional<int64_t> count,
+				   std::optional<bool> can_get_members)> cb);
+
+	/*
 	 * Set the callback for interaction totals (views, forwards, replies,
 	 * reactions) that changed since a message was stored. Updates are
 	 * coalesced per message and handed over in one batch every

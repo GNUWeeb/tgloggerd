@@ -619,6 +619,20 @@ int TgLoggerd::start(void)
 			});
 		},
 		std::atoi(env("TG_INTERACTION_FLUSH_SECS", "60").c_str()));
+	tdlib_->setGroupMemberInfoHandler(
+		[this](int64_t chat_id, std::optional<int64_t> count,
+		       std::optional<bool> can_get_members) {
+			serial_->post([this, chat_id, count, can_get_members] {
+				try {
+					db_->setGroupMemberInfo(chat_id, count,
+								can_get_members);
+				} catch (const std::exception &e) {
+					pr_error(l_, "Failed to store member count"
+						 " chat_id=%lld: %s",
+						 (long long)chat_id, e.what());
+				}
+			});
+		});
 	tdlib_->setPollHandler([this](const models::Poll &p) {
 		/* Serialised with the message writes, like everything that
 		 * belongs to a message. */
@@ -891,7 +905,7 @@ int TgLoggerd::start(void)
 		api_ = std::make_unique<InternalApi>(l_);
 		registerFileApi(*api_, *db_, fetcher_.get());
 		registerStorageApi(*api_, *db_, *janitor_);
-		registerChatApi(*api_, *tdlib_);
+		registerChatApi(*api_, *tdlib_, *db_);
 		registerContactApi(*api_, *contacts_);
 		registerEventApi(*api_, *events_);
 		registerStatusApi(*api_, [t = tdlib_.get()] {

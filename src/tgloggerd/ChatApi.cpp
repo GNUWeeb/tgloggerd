@@ -5,15 +5,18 @@
 #include "ChatApi.hpp"
 
 #include "ChatRef.hpp"
+#include "DB.hpp"
 #include "TDLib.hpp"
 
 #include <td/telegram/td_api.h>
 
 #include <chrono>
+#include <ctime>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <tuple>
 
 namespace tgloggerd {
 
@@ -434,11 +437,390 @@ InternalApi::Response resolveUser(TDLib &t, const InternalApi::Request &req)
 	return r;
 }
 
+/* A chat id from the path: a nonzero integer; a 400 otherwise. */
+int64_t requireChatId(const InternalApi::Request &req)
+{
+	const std::string &s = req.param("chat_id");
+	size_t used = 0;
+	int64_t id = 0;
+	try {
+		id = std::stoll(s, &used);
+	} catch (const std::exception &) {
+		used = 0;
+	}
+	if (used == 0 || used != s.size() || id == 0)
+		throw InternalApi::Error::badRequest("chat_id must be an integer");
+	return id;
+}
+
+/* The value of parameter @name in a raw query string ("" if absent).
+ * No percent-decoding: the parameters read with it are integers. */
+std::string queryValue(const std::string &query, const std::string &name)
+{
+	size_t i = 0;
+	while (i <= query.size()) {
+		size_t amp = query.find('&', i);
+		if (amp == std::string::npos)
+			amp = query.size();
+		std::string kv = query.substr(i, amp - i);
+		i = amp + 1;
+		size_t eq = kv.find('=');
+		if (kv.substr(0, eq) == name)
+			return eq == std::string::npos ? std::string()
+						       : kv.substr(eq + 1);
+	}
+	return std::string();
+}
+
+/* A query parameter as an integer in [lo, hi], or dflt when absent. */
+int64_t queryInt(const InternalApi::Request &req, const char *name,
+		 int64_t dflt, int64_t lo, int64_t hi)
+{
+	const std::string v = queryValue(req.query, name);
+	if (v.empty())
+		return dflt;
+	size_t used = 0;
+	int64_t n = 0;
+	try {
+		n = std::stoll(v, &used);
+	} catch (const std::exception &) {
+		used = 0;
+	}
+	if (used == 0 || used != v.size() || n < lo || n > hi)
+		throw InternalApi::Error::badRequest(
+			std::string(name) + " must be an integer from " +
+			std::to_string(lo) + " to " + std::to_string(hi));
+	return n;
+}
+
+/* What the account is in a group, from TDLib's (local) group object. */
+struct GroupSide {
+	bool		is_supergroup = false;
+	bool		is_channel = false;
+	int64_t		group_id = 0;	/* supergroup or basic group id */
+	bool		is_member = false;
+	bool		is_admin = false;
+};
+
+/* getChat, then the group behind it. getChat and getSupergroup /
+ * getBasicGroup answer from TDLib's own cache. Throws TdFailure; a chat
+ * that is not a group is a 404. */
+GroupSide groupSide(TDLib &t, int64_t chat_id)
+{
+	auto c = call<td_api::chat>(t, td_api::make_object<td_api::getChat>(chat_id));
+	GroupSide g;
+	const td_api::ChatMemberStatus *status = nullptr;
+	td_api::object_ptr<td_api::supergroup> sg;
+	td_api::object_ptr<td_api::basicGroup> bg;
+	if (c->type_ && c->type_->get_id() == td_api::chatTypeSupergroup::ID) {
+		auto &st = static_cast<const td_api::chatTypeSupergroup &>(*c->type_);
+		g.is_supergroup = true;
+		g.is_channel = st.is_channel_;
+		g.group_id = st.supergroup_id_;
+		sg = call<td_api::supergroup>(
+			t, td_api::make_object<td_api::getSupergroup>(g.group_id));
+		status = sg->status_.get();
+	} else if (c->type_ && c->type_->get_id() == td_api::chatTypeBasicGroup::ID) {
+		g.group_id = static_cast<const td_api::chatTypeBasicGroup &>(
+			*c->type_).basic_group_id_;
+		bg = call<td_api::basicGroup>(
+			t, td_api::make_object<td_api::getBasicGroup>(g.group_id));
+		status = bg->status_.get();
+	} else {
+		throw InternalApi::Error::notFound("not a group or channel");
+	}
+	ChatInfo ci;
+	applyStatus(ci, status);
+	g.is_member = ci.is_member;
+	g.is_admin = status &&
+		(status->get_id() == td_api::chatMemberStatusCreator::ID ||
+		 status->get_id() == td_api::chatMemberStatusAdministrator::ID);
+	return g;
+}
+
+/* Throw 503 or 504 for TDLib not ready or too slow; return for anything
+ * Telegram said, which the caller answers itself. */
+void throwIfApiFailure(const TdFailure &f)
+{
+	ChatOutcome o = classifyChatError(f.code, f.message);
+	if (o.outcome == "unavailable")
+		throw InternalApi::Error::unavailable("TDLib is not ready: " + f.message);
+	if (o.outcome == "timeout")
+		throw InternalApi::Error::timeout("Telegram did not answer in time");
+}
+
+/* At most one Telegram call per chat this often for a refresh. */
+constexpr std::chrono::seconds kRefreshInterval = 60s;
+
+nlohmann::json refreshAnswer(const DB::GroupMemberInfo &row, bool is_channel,
+			     bool is_admin)
+{
+	return {
+		{ "member_count", row.member_count ? nlohmann::json(*row.member_count)
+						   : nlohmann::json(nullptr) },
+		{ "can_get_members", row.can_get_members.value_or(false) },
+		{ "is_channel", is_channel },
+		{ "account_is_admin", is_admin },
+		{ "fetched_at", row.member_count_at ? nlohmann::json(row.member_count_at)
+						    : nlohmann::json(nullptr) },
+	};
+}
+
+/*
+ * POST /v1/chats/{chat_id}/refresh: the group's member count now. One
+ * full-info request to Telegram, at most once a minute per chat; within the
+ * minute, or when Telegram fails, the stored row answers.
+ */
+InternalApi::Response refreshChat(TDLib &t, DB &db, const InternalApi::Request &req)
+{
+	static std::mutex mtx;
+	static std::map<int64_t, std::chrono::steady_clock::time_point> last;
+
+	const int64_t chat_id = requireChatId(req);
+	auto row = db.getGroupMemberInfo(chat_id);
+	if (!row)
+		throw InternalApi::Error::notFound("no such group");
+
+	GroupSide g;
+	try {
+		g = groupSide(t, chat_id);
+	} catch (const TdFailure &f) {
+		throwIfApiFailure(f);
+		/* TDLib does not know the chat now: the stored row. */
+		InternalApi::Response r;
+		r.body = refreshAnswer(*row, row->type == "channel", false);
+		r.body["error"] = f.message;
+		return r;
+	}
+
+	bool ask = false;
+	{
+		const auto now = std::chrono::steady_clock::now();
+		std::lock_guard<std::mutex> lk(mtx);
+		auto it = last.find(chat_id);
+		if (it == last.end() || now - it->second >= kRefreshInterval) {
+			last[chat_id] = now;
+			ask = true;
+		}
+	}
+
+	nlohmann::json err;
+	if (ask) {
+		try {
+			std::optional<int64_t> count;
+			std::optional<bool> can;
+			if (g.is_supergroup) {
+				auto fi = call<td_api::supergroupFullInfo>(
+					t, td_api::make_object<td_api::getSupergroupFullInfo>(
+						   g.group_id));
+				if (fi->member_count_ > 0)
+					count = fi->member_count_;
+				can = fi->can_get_members_;
+			} else {
+				auto fi = call<td_api::basicGroupFullInfo>(
+					t, td_api::make_object<td_api::getBasicGroupFullInfo>(
+						   g.group_id));
+				if (!fi->members_.empty())
+					count = (int64_t)fi->members_.size();
+				can = !fi->members_.empty();
+			}
+			db.setGroupMemberInfo(chat_id, count, can);
+			row = db.getGroupMemberInfo(chat_id);
+		} catch (const TdFailure &f) {
+			throwIfApiFailure(f);
+			err = f.message;
+		}
+	}
+
+	InternalApi::Response r;
+	r.body = refreshAnswer(*row, g.is_channel, g.is_admin);
+	if (!err.is_null())
+		r.body["error"] = err;
+	return r;
+}
+
+/* How long a members answer is reused for the same chat, offset, limit. */
+constexpr std::chrono::seconds kMembersCacheTtl = 120s;
+
+nlohmann::json membersUnavailable(const char *reason, std::optional<int64_t> total)
+{
+	return {
+		{ "available", false },
+		{ "reason", reason },
+		{ "total", total ? nlohmann::json(*total) : nlohmann::json(nullptr) },
+		{ "members", nlohmann::json::array() },
+	};
+}
+
+/* A chat member as the answer lists it, or null for one that is not a
+ * current member or not a user (an anonymous admin's chat, a channel). */
+nlohmann::json memberJson(const td_api::chatMember &m)
+{
+	if (!m.member_id_ || m.member_id_->get_id() != td_api::messageSenderUser::ID ||
+	    !m.status_)
+		return nullptr;
+	const char *status = nullptr;
+	switch (m.status_->get_id()) {
+	case td_api::chatMemberStatusCreator::ID:
+		status = "creator";
+		break;
+	case td_api::chatMemberStatusAdministrator::ID:
+		status = "administrator";
+		break;
+	case td_api::chatMemberStatusMember::ID:
+		status = "member";
+		break;
+	case td_api::chatMemberStatusRestricted::ID:
+		if (static_cast<const td_api::chatMemberStatusRestricted &>(
+			    *m.status_).is_member_)
+			status = "restricted";
+		break;
+	default:
+		break;
+	}
+	if (!status)
+		return nullptr;
+	return {
+		{ "user_id", static_cast<const td_api::messageSenderUser &>(
+				     *m.member_id_).user_id_ },
+		{ "status", status },
+		{ "joined_at", m.joined_chat_date_ > 0 ? nlohmann::json(m.joined_chat_date_)
+						       : nlohmann::json(nullptr) },
+	};
+}
+
+/*
+ * GET /v1/chats/{chat_id}/members: one page of a group's members.
+ * Supergroups and channels: getSupergroupMembers, recent filter (channels
+ * only where the account is an administrator). Basic groups: the full
+ * info's member list, paged here. The users are stored by the daemon's
+ * usual user handling: TDLib sends updateUser for every user before an
+ * answer mentions it.
+ */
+InternalApi::Response groupMembers(TDLib &t, DB &db, const InternalApi::Request &req)
+{
+	static std::mutex mtx;
+	struct Cached {
+		std::chrono::steady_clock::time_point	at;
+		nlohmann::json				body;
+	};
+	static std::map<std::tuple<int64_t, int64_t, int64_t>, Cached> cache;
+
+	const int64_t chat_id = requireChatId(req);
+	const int64_t offset = queryInt(req, "offset", 0, 0, 1000000);
+	const int64_t limit = queryInt(req, "limit", 50, 1, 200);
+	const auto key = std::make_tuple(chat_id, offset, limit);
+	const auto now = std::chrono::steady_clock::now();
+	{
+		std::lock_guard<std::mutex> lk(mtx);
+		auto it = cache.find(key);
+		if (it != cache.end() && now - it->second.at < kMembersCacheTtl) {
+			InternalApi::Response r;
+			r.body = it->second.body;
+			return r;
+		}
+	}
+
+	auto row = db.getGroupMemberInfo(chat_id);
+	if (!row)
+		throw InternalApi::Error::notFound("no such group");
+
+	nlohmann::json body;
+	try {
+		GroupSide g = groupSide(t, chat_id);
+		if (g.is_channel && !g.is_admin) {
+			body = membersUnavailable("not_allowed", row->member_count);
+		} else if (!g.is_member) {
+			body = membersUnavailable("not_member", row->member_count);
+		} else if (g.is_supergroup) {
+			auto cm = call<td_api::chatMembers>(
+				t, td_api::make_object<td_api::getSupergroupMembers>(
+					   g.group_id,
+					   td_api::make_object<td_api::supergroupMembersFilterRecent>(),
+					   (int32_t)offset, (int32_t)limit));
+			nlohmann::json members = nlohmann::json::array();
+			for (const auto &m : cm->members_) {
+				if (!m)
+					continue;
+				nlohmann::json e = memberJson(*m);
+				if (!e.is_null())
+					members.push_back(e);
+			}
+			body = { { "available", true }, { "reason", "" },
+				 { "total", cm->total_count_ }, { "members", members } };
+			if (cm->total_count_ > 0)
+				db.setGroupMemberInfo(chat_id, (int64_t)cm->total_count_, true);
+		} else {
+			auto fi = call<td_api::basicGroupFullInfo>(
+				t, td_api::make_object<td_api::getBasicGroupFullInfo>(g.group_id));
+			nlohmann::json members = nlohmann::json::array();
+			for (size_t i = (size_t)offset;
+			     i < fi->members_.size() && members.size() < (size_t)limit; i++) {
+				if (!fi->members_[i])
+					continue;
+				nlohmann::json e = memberJson(*fi->members_[i]);
+				if (!e.is_null())
+					members.push_back(e);
+			}
+			if (fi->members_.empty()) {
+				body = membersUnavailable("not_allowed", row->member_count);
+			} else {
+				body = { { "available", true }, { "reason", "" },
+					 { "total", (int64_t)fi->members_.size() },
+					 { "members", members } };
+				db.setGroupMemberInfo(chat_id, (int64_t)fi->members_.size(), true);
+			}
+		}
+	} catch (const TdFailure &f) {
+		throwIfApiFailure(f);
+		ChatOutcome o = classifyChatError(f.code, f.message);
+		if (o.outcome == "flood_wait") {
+			body = membersUnavailable("flood_wait", row->member_count);
+			body["retry_after"] = o.retry_after;
+		} else if (f.message.find("CHAT_ADMIN_REQUIRED") != std::string::npos ||
+			   f.message.find("rights") != std::string::npos) {
+			body = membersUnavailable("not_allowed", row->member_count);
+		} else if (o.outcome == "banned") {
+			body = membersUnavailable("not_member", row->member_count);
+		} else {
+			body = membersUnavailable("error", row->member_count);
+			body["message"] = f.message;
+		}
+	}
+
+	{
+		std::lock_guard<std::mutex> lk(mtx);
+		for (auto it = cache.begin(); it != cache.end();)
+			it = now - it->second.at >= kMembersCacheTtl ? cache.erase(it)
+								     : std::next(it);
+		/* A rate limit or a failure is not kept: the next call asks
+		 * again (Go's own cache paces it). */
+		if (body["available"].get<bool>() ||
+		    body["reason"] == "not_allowed" || body["reason"] == "not_member")
+			cache[key] = Cached{ now, body };
+	}
+
+	InternalApi::Response r;
+	r.body = std::move(body);
+	return r;
+}
+
 } /* namespace */
 
-void registerChatApi(InternalApi &api, TDLib &tdlib)
+void registerChatApi(InternalApi &api, TDLib &tdlib, DB &db)
 {
 	TDLib *t = &tdlib;
+	DB *d = &db;
+
+	api.route("POST", "/v1/chats/{chat_id}/refresh",
+		  [t, d](const InternalApi::Request &req) {
+		return refreshChat(*t, *d, req);
+	});
+
+	api.route("GET", "/v1/chats/{chat_id}/members",
+		  [t, d](const InternalApi::Request &req) {
+		return groupMembers(*t, *d, req);
+	});
 
 	api.route("POST", "/v1/users/resolve", [t](const InternalApi::Request &req) {
 		return resolveUser(*t, req);
