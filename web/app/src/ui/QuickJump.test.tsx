@@ -49,7 +49,10 @@ describe('quick jump', () => {
 	});
 
 	it('matches the menu\'s pages by name', async () => {
-		const calls = fakeApi('superadmin', chats);
+		// Only the request for the files page matters here: building and
+		// drawing the stand-in's whole files list took seconds, too long
+		// under load, so its answer never comes.
+		const calls = fakeApi('superadmin', { ...chats, 'GET /api/page/files': () => new Promise<never>(() => {}) });
 		renderPage('/');
 		fireEvent.click(screen.getByRole('button', { name: 'Search everything' }));
 		fireEvent.change(screen.getByRole('combobox'), { target: { value: 'file' } });
