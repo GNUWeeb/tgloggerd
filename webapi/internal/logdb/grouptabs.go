@@ -19,7 +19,8 @@ import (
 // a file, or a poll, newest first by Telegram message id, a page at a
 // time. Each page is one query on the group's messages, walked down the
 // (chat_id, message_id) index, and one batch for the senders it names.
-// The caller has checked that the scope sees the group.
+// The caller has checked that the scope sees the group, or that the
+// group is exposed (logdb.OpenChat).
 
 // TabPageSize is how many messages a page of the tabs holds.
 const TabPageSize = 50
@@ -140,11 +141,11 @@ func tabPage(ctx context.Context, db *sql.DB, sc scope.Scope, chat int64, q stri
 	if p.Users, err = usersByID(ctx, db, sc, users); err != nil {
 		return TabPage{}, err
 	}
-	// Only the chats the scope sees are named (as Refs does); the
-	// others are not even read.
+	// Only the chats the scope sees, and the group itself, are named
+	// (as Refs does); the others are not even read.
 	var want []int64
 	for _, g := range uniq(groups) {
-		if sc.SeesChat(g) {
+		if g == chat || sc.SeesChat(g) {
 			want = append(want, g)
 		}
 	}

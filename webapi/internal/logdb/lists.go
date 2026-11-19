@@ -161,6 +161,21 @@ type FileStill struct {
 // logged before the daemon stored thumbnails has none, so any visible
 // message that has one will do. A file with none is left out.
 func FileStills(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) (map[uint64]FileStill, error) {
+	gf, ga := sc.GroupFilter("m.chat_id")
+	return fileStills(ctx, db, ids, gf, ga, sc.SeesPrivate())
+}
+
+// ChatFileStills are FileStills from the messages of one group alone,
+// for a viewer who sees that group only as it is exposed (its public
+// chat and tabs), whose scope sees no message.
+func ChatFileStills(ctx context.Context, db *sql.DB, chat int64, ids []uint64) (map[uint64]FileStill, error) {
+	return fileStills(ctx, db, ids, "m.chat_id = ?", []any{chat}, false)
+}
+
+// fileStills runs FileStills' queries on the group messages filter
+// allows (with fargs), and on the private messages too if private.
+func fileStills(ctx context.Context, db *sql.DB, ids []uint64, gf string, ga []any,
+	private bool) (map[uint64]FileStill, error) {
 	out := map[uint64]FileStill{}
 	if len(ids) == 0 {
 		return out, nil
@@ -204,11 +219,10 @@ func FileStills(ctx context.Context, db *sql.DB, sc scope.Scope, ids []uint64) (
 		}
 		return nil
 	}
-	gf, ga := sc.GroupFilter("m.chat_id")
 	if err := query("telegram_group_messages", "group_message_id", gf, ga); err != nil {
 		return nil, err
 	}
-	if sc.SeesPrivate() {
+	if private {
 		if err := query("telegram_private_messages", "private_message_id", "1", nil); err != nil {
 			return nil, err
 		}

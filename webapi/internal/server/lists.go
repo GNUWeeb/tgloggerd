@@ -1017,13 +1017,19 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool
 // registry's columns, in one batch (logdb.FileStills).
 func (s *Server) fileStills(ctx context.Context, sc scope.Scope,
 	rows []logdb.Row) (map[uint64]logdb.FileStill, error) {
+	return logdb.FileStills(ctx, s.ro, sc, videoIDs(rows))
+}
+
+// videoIDs are the ids of the videos among rows of the files registry's
+// columns (isVideo).
+func videoIDs(rows []logdb.Row) []uint64 {
 	var videos []uint64
 	for _, r := range rows {
 		if isVideo(r.Str("file_type"), r.Str("file_ext")) {
 			videos = append(videos, r.Uint("id"))
 		}
 	}
-	return logdb.FileStills(ctx, s.ro, sc, videos)
+	return videos
 }
 
 // fileRow is a row of the files registry's columns as FileRow, without

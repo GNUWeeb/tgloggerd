@@ -7,6 +7,8 @@ package server
 
 import (
 	"fmt"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -347,9 +349,9 @@ func TestGroupPolls(t *testing.T) {
 }
 
 // Both tabs, page and API, for every role: 200 for a viewer that sees
-// the group, 404 for one that does not (a member not granted it, an
-// admin it is hidden from), even for an exposed group, and a session
-// asked of a signed-out visitor.
+// the group; for an exposed group also to anyone else, as the public
+// group page; otherwise a session asked of a signed-out visitor and 404
+// for the others (a member not granted it, an admin it is hidden from).
 func TestGroupTabsScope(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t, tabsFixture)
@@ -360,30 +362,123 @@ func TestGroupTabsScope(t *testing.T) {
 	check := func(role string, g int64, want int) {
 		t.Helper()
 		for _, p := range paths(g) {
-			if st, b := e.page(role, p); st != want {
+			st, b := e.page(role, p)
+			if st != want {
 				t.Errorf("%q page %s: %d %v, want %d", role, p, st, b, want)
 			}
-			if st, b, _ := e.call(role, "GET", "/api"+p, nil); st != want {
-				t.Errorf("%q API %s: %d %v, want %d", role, p, st, b, want)
+			if st == 200 && len(tabRows(b["props"].(map[string]any))) == 0 {
+				t.Errorf("%q page %s: no rows", role, p)
+			}
+			st, a, _ := e.call(role, "GET", "/api"+p, nil)
+			if st != want {
+				t.Errorf("%q API %s: %d %v, want %d", role, p, st, a, want)
+			}
+			if st == 200 && len(tabRows(a)) == 0 {
+				t.Errorf("%q API %s: no rows", role, p)
 			}
 		}
+	}
+	// public is whether role gets an exposed group's tabs as the public
+	// group page: its summary only.
+	public := func(role string, g int64) bool {
+		t.Helper()
+		_, b := e.page(role, fmt.Sprintf("/groups/%d/files", g))
+		p := b["props"].(map[string]any)
+		_, admins := p["admins"]
+		return p["public"] == true && !admins && p["group"].(map[string]any)["id"] == float64(g)
 	}
 	for _, role := range []string{"superadmin", "admin", "member"} {
 		check(role, tabsLab, 200)
 	}
-	// Not granted to the member; GNU/Weeb is exposed, its tabs are not.
-	check("member", gnuWeeb, 404)
+	if public("admin", tabsLab) || public("admin", gnuWeeb) || public("member", tabsLab) {
+		t.Errorf("a viewer that sees the group gets the public props")
+	}
+	// GNU/Weeb is exposed: public to the member not granted it and to
+	// a signed-out visitor; Linux Kernel Indonesia and Tabs Lab are not.
+	check("member", gnuWeeb, 200)
+	check("", gnuWeeb, 200)
+	if !public("member", gnuWeeb) || !public("", gnuWeeb) {
+		t.Errorf("an exposed group's tabs are not public")
+	}
 	check("member", kernelChat, 404)
 	check("admin", gnuWeeb, 200)
 	check("", tabsLab, 401)
-	check("", gnuWeeb, 401)
+	check("", kernelChat, 401)
+	check("", -1009999999999, 401)
 	check("admin", -1009999999999, 404)
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, httptest.NewRequest("GET", fmt.Sprintf("/groups/%d/files", tabsLab), nil))
+	if rec.Code != 302 || !strings.HasPrefix(rec.Header().Get("Location"), "/login") {
+		t.Errorf("signed-out document of a hidden tab: %d %v", rec.Code, rec.Header().Get("Location"))
+	}
 
 	e.want(200, "superadmin", "PATCH", "/api/accounts/3", map[string]any{"restrict": map[string]any{
-		"hide_private": false, "hide_groups": []any{tabsLab}, "join_chat": false}})
+		"hide_private": false, "hide_groups": []any{tabsLab, gnuWeeb}, "join_chat": false}})
 	check("admin", tabsLab, 404)
 	check("superadmin", tabsLab, 200)
 	check("member", tabsLab, 200)
+	// Hidden from the admin, GNU/Weeb is still exposed.
+	check("admin", gnuWeeb, 200)
+	if !public("admin", gnuWeeb) {
+		t.Errorf("a hidden exposed group is not public to the admin")
+	}
+}
+
+// A public viewer of an exposed group's tabs gets the senders and file
+// links the public chat gives it for the same messages: a chat it does
+// not see, the group itself included, is not named.
+func TestGroupTabsPublic(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, tabsFixture)
+	if _, err := e.ro.Exec("INSERT INTO telegram_public_groups (group_id, note) VALUES (?, 'tabs')",
+		tabsLab); err != nil {
+		t.Fatal(err)
+	}
+	grantMember(t, e, []int64{kernelChat})
+	for _, role := range []string{"", "member"} {
+		chat := map[float64]map[string]any{}
+		for _, before := range []int{62, 22} {
+			b := e.want(200, role, "GET", fmt.Sprintf("/api/chats/group/%d/messages?before=%d&limit=100",
+				tabsLab, int64(tabsMsgID(before))), nil)
+			for _, m := range b["messages"].([]any) {
+				mm := m.(map[string]any)
+				chat[mm["message_id"].(float64)] = mm
+			}
+		}
+		rows := tabRows(e.want(200, role, "GET", fmt.Sprintf("/api/groups/%d/files", tabsLab), nil))
+		if len(rows) != 50 {
+			t.Fatalf("%q: %d rows", role, len(rows))
+		}
+		for _, r := range rows {
+			m := chat[r["message_id"].(float64)]
+			if m == nil {
+				t.Fatalf("%q: message %v not in the chat", role, r["message_id"])
+			}
+			cs, ts := m["sender"].(map[string]any), r["sender"].(map[string]any)
+			id := cs["id"]
+			if id == 0.0 {
+				id = nil
+			}
+			if ts["name"] != cs["name"] || ts["photo"] != cs["photo"] || ts["id"] != id {
+				t.Errorf("%q message %v: sender %v, the chat's %v", role, r["message_id"], ts, cs)
+			}
+			if md := m["media"].(map[string]any); r["url"] != md["url"] || r["stored"] != md["stored"] {
+				t.Errorf("%q message %v: url %v, the chat's %v", role, r["message_id"], r["url"], md["url"])
+			}
+		}
+		for _, n := range []int{61, 60} {
+			if s := rows[61-n]["sender"].(map[string]any); s["name"] != hiddenChat || s["id"] != nil {
+				t.Errorf("%q: message %d's sender %v", role, n, s)
+			}
+		}
+		if r := rows[0]; r["url"] != photoOf(840061) {
+			t.Errorf("%q: stored photo's url %v", role, r["url"])
+		}
+		polls := tabRows(e.want(200, role, "GET", fmt.Sprintf("/api/groups/%d/polls", tabsLab), nil))
+		if len(polls) != 50 || polls[0]["poll"] == nil {
+			t.Errorf("%q: polls %d", role, len(polls))
+		}
+	}
 }
 
 // A page costs as many statements with many rows as with one: the

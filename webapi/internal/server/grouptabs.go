@@ -7,6 +7,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -21,8 +22,11 @@ import (
 // tabs do, and beside them the newest page of the group's files or
 // polls; GET /api/groups/{id}/files and /api/groups/{id}/polls answer
 // the same lists, for the following pages and for other clients. For a
-// signed-in viewer whose scope sees the group: unlike its overview and
-// chat, an exposed group's tabs are not public.
+// viewer whose scope sees the group; and, like its overview and chat,
+// public for an exposed group: a viewer whose scope does not see it (a
+// signed-out visitor, a member not granted it) gets them as the public
+// chat shows the group, with the public group page's props in place of
+// GroupProps.
 
 // tabSenderJSON is who sent a tab's message (TabSender): a user, or a
 // chat posting in its own name, named only when the viewer sees it.
@@ -101,6 +105,11 @@ type groupFilesProps struct {
 	groupFilesJSON
 }
 
+type groupFilesPublicProps struct {
+	groupPublicProps
+	groupFilesJSON
+}
+
 // groupPollRowJSON is GroupPollRow: a poll message and its poll, as the
 // chat shows it (PollDetail); nil when the poll is not stored.
 type groupPollRowJSON struct {
@@ -116,6 +125,11 @@ type groupPollsJSON struct {
 
 type groupPollsProps struct {
 	groupProps
+	groupPollsJSON
+}
+
+type groupPollsPublicProps struct {
+	groupPublicProps
 	groupPollsJSON
 }
 
@@ -161,8 +175,10 @@ func nextBefore(p logdb.TabPage) *int64 {
 	return ptrTo(p.NextBefore)
 }
 
-// groupFiles is the files tab's list of a group the scope sees.
-func (s *Server) groupFiles(ctx context.Context, sc scope.Scope, signedIn bool, chat int64,
+// groupFiles is the files tab's list of a group the scope sees, or, if
+// public, of an exposed group it does not: its videos' pictures are
+// then those of the group's own messages, the only ones it sees.
+func (s *Server) groupFiles(ctx context.Context, sc scope.Scope, signedIn, public bool, chat int64,
 	t tabQuery) (groupFilesJSON, error) {
 	kinds, err := logdb.GroupFileKinds(ctx, s.ro, chat)
 	if err != nil {
@@ -176,7 +192,12 @@ func (s *Server) groupFiles(ctx context.Context, sc scope.Scope, signedIn bool, 
 	for _, it := range p.Items {
 		rows = append(rows, it.File)
 	}
-	stills, err := s.fileStills(ctx, sc, rows)
+	var stills map[uint64]logdb.FileStill
+	if public {
+		stills, err = logdb.ChatFileStills(ctx, s.ro, chat, videoIDs(rows))
+	} else {
+		stills, err = s.fileStills(ctx, sc, rows)
+	}
 	if err != nil {
 		return groupFilesJSON{}, err
 	}
@@ -199,8 +220,9 @@ func (s *Server) groupFiles(ctx context.Context, sc scope.Scope, signedIn bool, 
 	return out, nil
 }
 
-// groupPolls is the polls tab's list of a group the scope sees, each
-// poll as the chat's detail of it, the polls read in one batch.
+// groupPolls is the polls tab's list of a group the scope sees or that
+// is exposed, each poll as the chat's detail of it, the polls read in
+// one batch.
 func (s *Server) groupPolls(ctx context.Context, sc scope.Scope, signedIn bool, chat int64,
 	t tabQuery) (groupPollsJSON, error) {
 	p, err := logdb.GroupPolls(ctx, s.ro, sc, chat, t.before, logdb.TabPageSize)
@@ -228,18 +250,56 @@ func (s *Server) groupPolls(ctx context.Context, sc scope.Scope, signedIn bool, 
 	return out, nil
 }
 
-// groupHead is the group page's own props (GroupProps), as its other
-// tabs carry them, for a viewer that sees the group; errPageNotFound
-// otherwise. The tab's ?before= is a message id, not the history's
-// cursor, so the overview is read from its newest history.
-func groupHead(ctx context.Context, pr *pageRequest) (groupProps, error) {
-	gp := *pr
-	gp.query = url.Values{}
-	p, err := loadGroup(ctx, &gp)
-	if err != nil {
-		return groupProps{}, err
+// tabHead is what a tab's page carries beside its list: the group
+// page's own props (GroupProps), as its other tabs carry them, for a
+// viewer whose scope sees the group; else, for an exposed group, the
+// public group page's props, as loadGroupPage answers them. Any other
+// group asks a signed-out visitor to sign in and is not found for the
+// others, whether or not it exists.
+type tabHead struct {
+	full *groupProps
+	pub  *groupPublicProps
+}
+
+func (h tabHead) public() bool { return h.pub != nil }
+
+func loadTabHead(ctx context.Context, pr *pageRequest) (tabHead, error) {
+	if pr.sess != nil && pr.scope.SeesGroup(pr.pathID()) {
+		// The tab's ?before= is a message id, not the history's
+		// cursor: the overview is read from its newest history.
+		gp := *pr
+		gp.query = url.Values{}
+		p, err := loadGroup(ctx, &gp)
+		if err != nil {
+			return tabHead{}, err
+		}
+		g := p.(groupProps)
+		return tabHead{full: &g}, nil
 	}
-	return p.(groupProps), nil
+	c, err := logdb.OpenChat(ctx, pr.s.ro, pr.scope, true, pr.pathID())
+	switch {
+	case errors.Is(err, logdb.ErrNotFound) || (err == nil && !c.Exposed):
+		if pr.sess == nil {
+			return tabHead{}, errPageSignIn
+		}
+		return tabHead{}, errPageNotFound
+	case err != nil:
+		return tabHead{}, err
+	}
+	members, err := c.KnownMembers(ctx, pr.s.ro)
+	if err != nil {
+		return tabHead{}, err
+	}
+	names, err := logdb.GroupUsernames(ctx, pr.s.ro, c.ID)
+	if err != nil {
+		return tabHead{}, err
+	}
+	g := c.GroupInfo
+	gs := pr.view().group(g)
+	gs.MsgCount = nil
+	return tabHead{pub: &groupPublicProps{Public: true, Group: groupPublicJSON{groupSummaryJSON: gs,
+		Usernames: usernamesJSON(names), Description: g.Description, Members: members,
+		MsgCount: g.MsgCount, CreatedAt: iso(g.CreatedAt)}}}, nil
 }
 
 // tabQueryOf is the page's tab query; one that does not parse lists
@@ -253,37 +313,58 @@ func (pr *pageRequest) tabQueryOf(files bool) tabQuery {
 }
 
 func loadGroupFiles(ctx context.Context, pr *pageRequest) (any, error) {
-	g, err := groupHead(ctx, pr)
+	h, err := loadTabHead(ctx, pr)
 	if err != nil {
 		return nil, err
 	}
-	f, err := pr.s.groupFiles(ctx, pr.scope, pr.sess != nil, g.Group.ID, pr.tabQueryOf(true))
+	f, err := pr.s.groupFiles(ctx, pr.scope, pr.sess != nil, h.public(), pr.pathID(),
+		pr.tabQueryOf(true))
 	if err != nil {
 		return nil, err
 	}
-	return groupFilesProps{groupProps: g, groupFilesJSON: f}, nil
+	if h.public() {
+		return groupFilesPublicProps{groupPublicProps: *h.pub, groupFilesJSON: f}, nil
+	}
+	return groupFilesProps{groupProps: *h.full, groupFilesJSON: f}, nil
 }
 
 func loadGroupPolls(ctx context.Context, pr *pageRequest) (any, error) {
-	g, err := groupHead(ctx, pr)
+	h, err := loadTabHead(ctx, pr)
 	if err != nil {
 		return nil, err
 	}
-	p, err := pr.s.groupPolls(ctx, pr.scope, pr.sess != nil, g.Group.ID, pr.tabQueryOf(false))
+	p, err := pr.s.groupPolls(ctx, pr.scope, pr.sess != nil, pr.pathID(), pr.tabQueryOf(false))
 	if err != nil {
 		return nil, err
 	}
-	return groupPollsProps{groupProps: g, groupPollsJSON: p}, nil
+	if h.public() {
+		return groupPollsPublicProps{groupPublicProps: *h.pub, groupPollsJSON: p}, nil
+	}
+	return groupPollsProps{groupProps: *h.full, groupPollsJSON: p}, nil
 }
 
 // tabRequest reads a tab API request: the group, which the scope must
-// see (404 otherwise, as for one that does not exist), and its query
-// (400 for one that does not parse).
-func (s *Server) tabRequest(w http.ResponseWriter, r *http.Request, files bool) (int64, tabQuery, bool) {
+// see or which must be exposed (else 401 to a signed-out visitor and
+// 404 to the others, as for one that does not exist), and its query
+// (400 for one that does not parse). public is whether the scope sees
+// the group only as it is exposed.
+func (s *Server) tabRequest(w http.ResponseWriter, r *http.Request, files bool) (tabRequest, bool) {
+	sess, sc, ok := s.optionalSession(w, r)
+	if !ok {
+		return tabRequest{}, false
+	}
+	noStore(w)
+	hidden := func() {
+		if sess == nil {
+			writeError(w, http.StatusUnauthorized, "unauthenticated", nil)
+			return
+		}
+		notFound(w)
+	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		notFound(w)
-		return 0, tabQuery{}, false
+		hidden()
+		return tabRequest{}, false
 	}
 	t, field, ok := parseTabQuery(r.URL.Query(), files)
 	if !ok {
@@ -292,28 +373,36 @@ func (s *Server) tabRequest(w http.ResponseWriter, r *http.Request, files bool) 
 			msg = "kind must be all or one of the file kinds"
 		}
 		badRequest(w, "bad_request", msg)
-		return 0, tabQuery{}, false
+		return tabRequest{}, false
 	}
-	gs, err := logdb.VisibleGroups(r.Context(), s.ro, ScopeFrom(r.Context()), []int64{id})
+	c, err := logdb.OpenChat(r.Context(), s.ro, sc, true, id)
+	if errors.Is(err, logdb.ErrNotFound) {
+		hidden()
+		return tabRequest{}, false
+	}
 	if err != nil {
 		s.internalError(w, "group tab", err)
-		return 0, tabQuery{}, false
+		return tabRequest{}, false
 	}
-	if len(gs) == 0 {
-		notFound(w)
-		return 0, tabQuery{}, false
-	}
-	return id, t, true
+	return tabRequest{sc: sc, signedIn: sess != nil, public: sess == nil || !sc.SeesGroup(id),
+		chat: c.ID, q: t}, true
+}
+
+type tabRequest struct {
+	sc       scope.Scope
+	signedIn bool
+	public   bool
+	chat     int64
+	q        tabQuery
 }
 
 // getGroupFiles answers GET /api/groups/{id}/files.
 func (s *Server) getGroupFiles(w http.ResponseWriter, r *http.Request) {
-	noStore(w)
-	id, t, ok := s.tabRequest(w, r, true)
+	tr, ok := s.tabRequest(w, r, true)
 	if !ok {
 		return
 	}
-	out, err := s.groupFiles(r.Context(), ScopeFrom(r.Context()), true, id, t)
+	out, err := s.groupFiles(r.Context(), tr.sc, tr.signedIn, tr.public, tr.chat, tr.q)
 	if err != nil {
 		s.internalError(w, "group files", err)
 		return
@@ -323,12 +412,11 @@ func (s *Server) getGroupFiles(w http.ResponseWriter, r *http.Request) {
 
 // getGroupPolls answers GET /api/groups/{id}/polls.
 func (s *Server) getGroupPolls(w http.ResponseWriter, r *http.Request) {
-	noStore(w)
-	id, t, ok := s.tabRequest(w, r, false)
+	tr, ok := s.tabRequest(w, r, false)
 	if !ok {
 		return
 	}
-	out, err := s.groupPolls(r.Context(), ScopeFrom(r.Context()), true, id, t)
+	out, err := s.groupPolls(r.Context(), tr.sc, tr.signedIn, tr.chat, tr.q)
 	if err != nil {
 		s.internalError(w, "group polls", err)
 		return

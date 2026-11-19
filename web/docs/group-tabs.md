@@ -3,8 +3,9 @@
 Beside its Overview, Admins and History, a group's page has a Files tab
 (`/groups/{id}/files`, route `group_files`) and a Polls tab
 (`/groups/{id}/polls`, route `group_polls`). Each page's props are the
-group page's own (`GroupProps`), as its other tabs carry them, with the
-first page of its list beside them; `GET /api/groups/{id}/files` and
+group page's own (`GroupProps`), as its other tabs carry them, or for a
+public viewer the public group page's (see below), with the first page
+of its list beside them; `GET /api/groups/{id}/files` and
 `GET /api/groups/{id}/polls` answer the same lists without the group
 page's props, for the following pages and for other clients. The shapes
 are in `webapi/openapi.yaml` (`GroupFilesProps`, `GroupFilesPage`,
@@ -13,11 +14,25 @@ are in `webapi/openapi.yaml` (`GroupFilesProps`, `GroupFilesPage`,
 
 ## Who sees them
 
-A signed-in viewer whose request scope sees the group: a superadmin, an
-admin the group is not hidden from, a member granted it. Anyone else gets
-404, as for a group that does not exist. Unlike an exposed group's
-overview and chat, the tabs are not public: a signed-out visitor is asked
-to sign in, and a member not granted an exposed group gets 404.
+A viewer whose request scope sees the group: a superadmin, an admin the
+group is not hidden from, a member granted it. Its props are then the
+group page's own (`GroupProps`).
+
+Like an exposed group's overview and chat, its tabs are public: a viewer
+whose scope does not see an exposed group (`telegram_public_groups`) -
+signed out, a member not granted it, an admin it is hidden from - gets
+both tabs and their API twins as the public chat shows the group. The
+senders are named by the same rules (a chat the viewer does not see is
+`(hidden chat)`, the group itself included), the file links follow the
+anonymous fetch rule of `/files` tokens, and a video's pictures come from
+the group's own messages. The page's props are then the public group
+page's (`GroupPublicProps`, `public: true`: no admins, history or
+posters) with the tab's list beside them (`GroupFilesPublicProps`,
+`GroupPollsPublicProps`).
+
+A group that is neither seen nor exposed asks a signed-out visitor to
+sign in (401 from the API) and is not found (404) for anyone else,
+whether or not it exists.
 
 ## What they list
 

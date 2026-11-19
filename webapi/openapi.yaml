@@ -670,8 +670,8 @@ paths:
         the viewer may not see answers 404 with the not_found route,
         exactly like something that does not exist; so does a path that
         is no page at all. A signed-out visitor gets 401 for every path
-        but login, the three link pages and the public chats of exposed
-        groups (group_chat).
+        but login, the three link pages and the public pages of exposed
+        groups (group, group_chat, group_files and group_polls).
 
 
         So far the service loads the data of login, dashboard, user,
@@ -683,8 +683,8 @@ paths:
         join_chat, mcp, mcp_groups and mcp_tokens (each only for a
         viewer whose menu has it, not_found otherwise), of the three
         link pages (whose props are empty), and not_found. A signed-out
-        visitor asking for the group_chat of a group that is not
-        exposed is asked to sign in (401 here, the redirect for the
+        visitor asking for the group_chat, group_files or group_polls
+        of a group that is not exposed is asked to sign in (401 here, the redirect for the
         document), whether or not the group exists. A list page reads
         its list state from its query string (q, f the filters as a
         JSON array of Cond, sort, dir, page, per) through the advanced
@@ -3711,11 +3711,18 @@ paths:
         page of the same list in its props; this answers it and the
         following ones (before = next_before). Each page is one query
         on the group's messages, the senders and the videos' pictures
-        in one batch each. For a signed-in viewer whose scope sees the
-        group, as its other tabs; any other, a group hidden from an
-        admin and one not granted to a member included, is 404. Not
-        public, not even for an exposed group.
+        in one batch each. For a viewer whose scope sees the group.
+        Public for an exposed group (telegram_public_groups), as its
+        chat is: a viewer whose scope does not see it (signed out, a
+        member not granted it, an admin it is hidden from) gets the same
+        list as the public chat shows the group, with its senders named
+        and its file links given by the same anonymous rules (a chat
+        the viewer does not see is "(hidden chat)"), and the videos'
+        pictures from the group's own messages. Any other group is 401
+        for a signed-out visitor and 404 for the others, whether or not
+        it exists.
       security:
+        - {}
         - session: []
       parameters:
         - name: id
@@ -3755,8 +3762,10 @@ paths:
         carries the first page in its props; this answers it and the
         following ones (before = next_before). Each page is one query
         on the group's messages, the senders and the polls in one batch
-        each. Who may read it, as getGroupFiles.
+        each. Who may read it, public for an exposed group, as
+        getGroupFiles.
       security:
+        - {}
         - session: []
       parameters:
         - name: id
@@ -4382,7 +4391,9 @@ components:
             route:
               enum: [group_files]
             props:
-              $ref: '#/components/schemas/GroupFilesProps'
+              oneOf:
+                - $ref: '#/components/schemas/GroupFilesProps'
+                - $ref: '#/components/schemas/GroupFilesPublicProps'
     PageGroupPolls:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -4392,7 +4403,9 @@ components:
             route:
               enum: [group_polls]
             props:
-              $ref: '#/components/schemas/GroupPollsProps'
+              oneOf:
+                - $ref: '#/components/schemas/GroupPollsProps'
+                - $ref: '#/components/schemas/GroupPollsPublicProps'
     PageFiles:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -6853,6 +6866,15 @@ components:
       allOf:
         - $ref: '#/components/schemas/GroupProps'
         - $ref: '#/components/schemas/GroupFilesPage'
+    GroupFilesPublicProps:
+      description: >-
+        The Files tab of an exposed group for a viewer whose scope does
+        not see the group (getGroupFiles): the public group page's
+        props (GroupPublicProps, public true), with no admins, history
+        or posters, and the first page of its files beside them.
+      allOf:
+        - $ref: '#/components/schemas/GroupPublicProps'
+        - $ref: '#/components/schemas/GroupFilesPage'
     GroupFilesPage:
       type: object
       required: [kinds, kind, rows, next_before]
@@ -6985,6 +7007,13 @@ components:
         before, as getGroupPolls answers it.
       allOf:
         - $ref: '#/components/schemas/GroupProps'
+        - $ref: '#/components/schemas/GroupPollsPage'
+    GroupPollsPublicProps:
+      description: >-
+        The Polls tab of an exposed group for a viewer whose scope does
+        not see the group, as GroupFilesPublicProps.
+      allOf:
+        - $ref: '#/components/schemas/GroupPublicProps'
         - $ref: '#/components/schemas/GroupPollsPage'
     GroupPollsPage:
       type: object
