@@ -193,9 +193,18 @@ struct ExtraFile {
  * cover, a live photo's video, each paid media item, a game's photo and
  * animation, an invoice's photo and paid media, the photo of a chat photo
  * change or suggestion, the still thumbnail of a video, an animation, a
- * video note or a video sticker, the media in a rich message's blocks.
+ * video note or a video sticker, the media in a rich message's blocks,
+ * a link preview's own medium (link_preview_media_files).
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
+
+/*
+ * A link preview's own video, animation or audio, role "preview_media"
+ * at position 0: the medium of a video, animation or audio preview, or
+ * the cached medium of an embedded player. Its image is not listed; it
+ * goes to telegram_link_previews.photo_file_id.
+ */
+std::vector<ExtraFile> link_preview_media_files(const td_api::linkPreview &lp);
 
 /*
  * The curated telegram_link_previews.extra of @lp: the fields of its type

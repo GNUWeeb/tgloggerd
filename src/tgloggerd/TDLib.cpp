@@ -2226,6 +2226,23 @@ void TDLib::Impl::handle_update_message_content(int64_t chat_id,
 				 !is_private_chat(chat_id));
 
 	/*
+	 * The preview's own video, animation or audio comes with it. A new
+	 * message has it from maybe_download_message_file (it is one of the
+	 * message's further files); a preview that resolves late, or changes
+	 * with an edit, has it from here, overwriting its (role, position).
+	 */
+	if (const td_api::linkPreview *lp = message_link_preview(*content);
+	    lp && message_file_handler_)
+		for (const auto &x : link_preview_media_files(*lp)) {
+			PendingMsgFile ref{ chat_id, to_server_msg_id(message_id),
+					    !is_private_chat(chat_id),
+					    x.category, x.file_name };
+			ref.role = x.role;
+			ref.position = x.position;
+			ingest_message_file(std::move(ref), *x.file);
+		}
+
+	/*
 	 * ...and this is where a version of the message is actually recorded,
 	 * from the content in hand.
 	 *

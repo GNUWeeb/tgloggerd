@@ -6,7 +6,9 @@
  * link_preview_test -- how a link preview's type is stored, over
  * hand-built TDLib objects: no TDLib client. It checks the curated
  * telegram_link_previews.extra of each preview type
- * (link_preview_extra_json) and the target of a Telegram message link.
+ * (link_preview_extra_json), the target of a Telegram message link, and
+ * the preview's own medium among the message's further files (role
+ * "preview_media").
  */
 #include <tgloggerd/MessageExtract.hpp>
 
@@ -15,6 +17,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 using namespace tgloggerd;
@@ -96,6 +99,16 @@ static json extra(const td_api::linkPreview &lp)
 {
 	auto s = link_preview_extra_json(lp);
 	return s ? json::parse(*s) : json();
+}
+
+/* Whether @lp's media is exactly file @id as @category. */
+static bool one_medium(const td_api::linkPreview &lp, int32_t id,
+		       const char *category, const char *name)
+{
+	auto x = link_preview_media_files(lp);
+	return x.size() == 1 && x[0].file && x[0].file->id_ == id &&
+	       !strcmp(x[0].category, category) && x[0].file_name == name &&
+	       !strcmp(x[0].role, "preview_media") && x[0].position == 0;
 }
 
 static void test_extra()
@@ -270,10 +283,82 @@ static void test_message_links()
 	}
 }
 
+static void test_media()
+{
+	printf("the preview's own medium\n");
+	{
+		auto t = td_api::make_object<td_api::linkPreviewTypeVideo>();
+		t->video_ = video(21);
+		CHECK(one_medium(*preview(std::move(t)), 21, "video", "clip.mp4"),
+		      "a video preview's video");
+	}
+	{
+		auto t = td_api::make_object<td_api::linkPreviewTypeEmbeddedVideoPlayer>();
+		t->video_ = video(22);
+		CHECK(one_medium(*preview(std::move(t)), 22, "video", "clip.mp4"),
+		      "an embedded video player's cached video");
+	}
+	CHECK(link_preview_media_files(*preview(
+		      td_api::make_object<td_api::linkPreviewTypeEmbeddedVideoPlayer>()))
+		      .empty(),
+	      "an embedded video player without a cached video has none");
+	{
+		auto t = td_api::make_object<td_api::linkPreviewTypeAnimation>();
+		t->animation_ = animation(23);
+		CHECK(one_medium(*preview(std::move(t)), 23, "animation",
+				 "loop.mp4"),
+		      "an animation preview's animation");
+	}
+	{
+		auto t = td_api::make_object<td_api::linkPreviewTypeEmbeddedAnimationPlayer>();
+		t->animation_ = animation(24);
+		CHECK(one_medium(*preview(std::move(t)), 24, "animation",
+				 "loop.mp4"),
+		      "an embedded animation player's cached animation");
+	}
+	{
+		auto t = td_api::make_object<td_api::linkPreviewTypeAudio>();
+		t->audio_ = audio(25);
+		CHECK(one_medium(*preview(std::move(t)), 25, "audio", "song.mp3"),
+		      "an audio preview's audio");
+	}
+	{
+		auto t = td_api::make_object<td_api::linkPreviewTypeEmbeddedAudioPlayer>();
+		t->audio_ = audio(26);
+		CHECK(one_medium(*preview(std::move(t)), 26, "audio", "song.mp3"),
+		      "an embedded audio player's cached audio");
+	}
+	{
+		auto t = td_api::make_object<td_api::linkPreviewTypeDocument>();
+		t->document_ = td_api::make_object<td_api::document>();
+		t->document_->document_ = file(27);
+		CHECK(link_preview_media_files(*preview(std::move(t))).empty(),
+		      "a document preview's document is not kept");
+	}
+	{
+		/* Through the message: what the ingest and the fetcher's
+		 * MessageExtra source both list. */
+		auto t = td_api::make_object<td_api::linkPreviewTypeVideo>();
+		t->video_ = video(28);
+		auto c = td_api::make_object<td_api::messageText>();
+		c->text_ = td_api::make_object<td_api::formattedText>();
+		c->link_preview_ = preview(std::move(t));
+		auto x = message_extra_files(*c);
+		CHECK(x.size() == 1 && x[0].file->id_ == 28 &&
+			      !strcmp(x[0].role, "preview_media") &&
+			      x[0].position == 0,
+		      "a text message lists its preview's video");
+		c->link_preview_ = nullptr;
+		CHECK(message_extra_files(*c).empty(),
+		      "a text message without a preview lists nothing");
+	}
+}
+
 int main()
 {
 	test_extra();
 	test_message_links();
+	test_media();
 	if (g_failures) {
 		printf("\n%d check(s) FAILED\n", g_failures);
 		return 1;

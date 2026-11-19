@@ -2694,10 +2694,11 @@ const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
  * item, a game's photo and animation, an invoice's photo and paid media,
  * the photo of a chat photo change or suggestion, the still
  * thumbnail of a video, an animation, a video note or a video sticker
- * (the picture shown before it plays), and the media in a rich
- * message's page blocks (rich_message_files). Other thumbnails and a video's
- * other qualities are not listed: the first only repeat the media, the
- * second are the same video again.
+ * (the picture shown before it plays), the media in a rich message's
+ * page blocks (rich_message_files), and a text message's link preview's
+ * own video, animation or audio (link_preview_media_files). Other
+ * thumbnails and a video's other qualities are not listed: the first
+ * only repeat the media, the second are the same video again.
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content)
 {
@@ -2827,6 +2828,77 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 		auto &c = static_cast<const td_api::messageRichMessage &>(content);
 		if (c.message_)
 			out = rich_message_files(*c.message_);
+		break;
+	}
+	case td_api::messageText::ID: {
+		auto &c = static_cast<const td_api::messageText &>(content);
+		if (c.link_preview_)
+			out = link_preview_media_files(*c.link_preview_);
+		break;
+	}
+	default:
+		break;
+	}
+	return out;
+}
+
+std::vector<ExtraFile> link_preview_media_files(const td_api::linkPreview &lp)
+{
+	std::vector<ExtraFile> out;
+	auto add = [&out](const td_api::file *f, const char *category,
+			  const std::string &name) {
+		if (f)
+			out.push_back(ExtraFile{ f, category, name,
+						 "preview_media", 0 });
+	};
+	const td_api::LinkPreviewType *t = lp.type_.get();
+	if (!t)
+		return out;
+
+	switch (t->get_id()) {
+	case td_api::linkPreviewTypeVideo::ID: {
+		auto &v = static_cast<const td_api::linkPreviewTypeVideo &>(*t);
+		if (v.video_)
+			add(v.video_->video_.get(), "video",
+			    v.video_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeEmbeddedVideoPlayer::ID: {
+		auto &v = static_cast<
+			const td_api::linkPreviewTypeEmbeddedVideoPlayer &>(*t);
+		if (v.video_)
+			add(v.video_->video_.get(), "video",
+			    v.video_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeAnimation::ID: {
+		auto &a = static_cast<const td_api::linkPreviewTypeAnimation &>(*t);
+		if (a.animation_)
+			add(a.animation_->animation_.get(), "animation",
+			    a.animation_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeEmbeddedAnimationPlayer::ID: {
+		auto &a = static_cast<
+			const td_api::linkPreviewTypeEmbeddedAnimationPlayer &>(*t);
+		if (a.animation_)
+			add(a.animation_->animation_.get(), "animation",
+			    a.animation_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeAudio::ID: {
+		auto &a = static_cast<const td_api::linkPreviewTypeAudio &>(*t);
+		if (a.audio_)
+			add(a.audio_->audio_.get(), "audio",
+			    a.audio_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeEmbeddedAudioPlayer::ID: {
+		auto &a = static_cast<
+			const td_api::linkPreviewTypeEmbeddedAudioPlayer &>(*t);
+		if (a.audio_)
+			add(a.audio_->audio_.get(), "audio",
+			    a.audio_->file_name_);
 		break;
 	}
 	default:
