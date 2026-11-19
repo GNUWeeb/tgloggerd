@@ -128,7 +128,7 @@ service messages keep `content_type = 'service'` and get the
 | messageGame | not | game title, description, short name, photo or animation, text | game |
 | messagePoll | not | question, options, type (regular, quiz), flags, results, close date, description, media | poll |
 | messageChecklist | not | title, tasks, who did which task | checklist |
-| messageWidget | not | the widget's HTML, size, caption | widget |
+| messageWidget | fully | stored since msg-widgets as its caption (`text`) and a curated summary beside TDLib's JSON, which holds the HTML (section 4.2); the HTML is shown as escaped source, never rendered (decision [2026-11-20-msg-widgets-html](decisions/2026-11-20-msg-widgets-html.md)) | widget |
 | messageStory | not | which story was shared (poster chat, story id) | story |
 | messageInvoice | not | product title, description, photo, currency, amount, paid media | invoice |
 | messageGiveaway | not | parameters, prize, winner count | giveaway |
@@ -350,6 +350,14 @@ as their alternative text and formulas as their source; it has no
 entities. The text, the curated keys and the media files (section 4.3)
 come from the live object, so a message over the JSON cap, which keeps
 only the class under `tdlib`, still has them.
+
+A widget keeps TDLib's JSON the same way, since its HTML is what the
+message page shows: `{"width", "height", "has_caption", "widget_id",
+"tdlib": ...}`. `width` 0 is the whole width of the bubble and `height`
+0 a height that is not fixed; `widget_id` (a string) is there only for
+a shared widget. Its caption is the message's `text`. The HTML is shown
+as escaped source and never rendered (decision
+[2026-11-20-msg-widgets-html](decisions/2026-11-20-msg-widgets-html.md)).
 
 TDLib can deliver a rich message without all of its blocks
 (`richMessage.is_full` false). It is stored as it came, then the daemon
