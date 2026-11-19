@@ -381,6 +381,33 @@ func (s Scope) SeesAllForwarding() bool {
 	return s.is(Superadmin, Admin)
 }
 
+// ManagesMCPToken is whether the viewer lists, renames and revokes an
+// MCP token owned by owner, nil for a token without an owner record
+// (decisions/2026-11-20-mcp-tokens-to-superadmin.md): with mcp_tokens,
+// a superadmin every token, an admin its own and those of the members
+// it manages (SeesAccount), a member its own. A token without an owner
+// counts as the superadmins'. It is also whom the viewer may mint a
+// token for, given an account that may hold one.
+func (s Scope) ManagesMCPToken(owner *Account) bool {
+	switch {
+	case !s.Can(MCPTokens):
+		return false
+	case s.is(Superadmin):
+		return true
+	case owner == nil:
+		return false
+	case owner.ID == s.v.ID:
+		return true
+	}
+	return s.SeesAccount(*owner)
+}
+
+// TransfersMCPTokens is whether the viewer gives MCP tokens to another
+// owner: superadmins only.
+func (s Scope) TransfersMCPTokens() bool {
+	return s.is(Superadmin)
+}
+
 // The menu's page keys (decisions/2026-11-18-web-accounts-details.md),
 // in menu order.
 var pageKeys = []string{
@@ -405,7 +432,9 @@ func (s Scope) Page(key string) bool {
 	case "join_chat":
 		return s.Can(JoinChat)
 	case "mcp":
-		return s.Can(ManageMCP)
+		// The MCP pages: the tokens for whoever holds mcp_tokens, the
+		// exposed groups only with mcp as well.
+		return s.Can(ManageMCP) || s.Can(MCPTokens)
 	case "accounts":
 		return s.ManagesAccounts()
 	case "federations":

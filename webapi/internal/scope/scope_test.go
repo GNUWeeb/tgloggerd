@@ -329,3 +329,45 @@ func TestMemberGrants(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPTokens(t *testing.T) {
+	sa := For(Viewer{ID: 1, Role: Superadmin})
+	ad := For(Viewer{ID: 3, Role: Admin, AdminOf: []uint64{0}})
+	mt := For(Viewer{ID: 5, Role: Member, Abilities: []Ability{MCPTokens}})
+	plain := For(Viewer{ID: 6, Role: Member})
+	other := &Account{ID: 2, Role: Superadmin}
+	admin := &Account{ID: 4, Role: Admin}
+	inDefault := &Account{ID: 6, Role: Member, Federations: []uint64{0}}
+	elsewhere := &Account{ID: 7, Role: Member, Federations: []uint64{9}}
+	cases := []struct {
+		name  string
+		sc    Scope
+		owner *Account
+		want  bool
+	}{
+		{"superadmin, another's", sa, other, true},
+		{"superadmin, no owner", sa, nil, true},
+		{"admin, its own", ad, &Account{ID: 3, Role: Admin}, true},
+		{"admin, its member's", ad, inDefault, true},
+		{"admin, another member's", ad, elsewhere, false},
+		{"admin, another admin's", ad, admin, false},
+		{"admin, a superadmin's", ad, other, false},
+		{"admin, no owner", ad, nil, false},
+		{"member, its own", mt, &Account{ID: 5, Role: Member}, true},
+		{"member, another's", mt, inDefault, false},
+		{"member, no owner", mt, nil, false},
+		{"member without mcp_tokens, its own", plain, inDefault, false},
+		{"anonymous", Anonymous(), nil, false},
+	}
+	for _, c := range cases {
+		if got := c.sc.ManagesMCPToken(c.owner); got != c.want {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
+	if !sa.TransfersMCPTokens() || ad.TransfersMCPTokens() || mt.TransfersMCPTokens() {
+		t.Error("only superadmins transfer tokens")
+	}
+	if !mt.Page("mcp") || plain.Page("mcp") || !ad.Page("mcp") {
+		t.Error("the mcp page")
+	}
+}

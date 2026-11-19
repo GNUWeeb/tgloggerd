@@ -822,10 +822,11 @@ describe each, with what differs from the Drogon pages.
     /api/bots[/{id}|/{id}/transfer]                 their bots
     POST /api/join-chat/preview, /api/join-chat/join
     POST /api/users/{id}/lookup-name
-    /api/mcp/groups[/{group_id}], /api/mcp/tokens[/{id}/revoke]
+    /api/mcp/groups[/{group_id}], /api/mcp/tokens[/{id}|/{id}/revoke|/{id}/transfer]
 
   - Each needs an ability of the request scope (Scope.Can): forward,
-    join_chat, lookup_name, mcp. Without it the operation and its page
+    join_chat, lookup_name, mcp (mcp_tokens for the tokens, each also
+    checked by Scope.ManagesMCPToken). Without it the operation and its page
     do not exist (404); so does a configuration or group the scope
     hides, through the same queries as the lists (logdb.ChatFilter,
     GroupFilter). Every write takes the session's CSRF token.

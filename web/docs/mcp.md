@@ -73,7 +73,8 @@ without disturbing clients that authenticate properly.
 
 Shown once and stored only as a SHA-256, so a database dump grants nobody access. Lose one
 and you revoke it and mint another. Revoking stamps `revoked_at` rather than deleting, so
-the audit trail survives; deactivating an account disables its tokens too.
+the audit trail survives; deactivating an account disables the tokens it minted too,
+whoever owns them now.
 
 This route carries no session filters. Every other route redirects to `/login` when the
 cookie is missing, which is useless to a machine client — it would receive a 302 where it
@@ -575,11 +576,39 @@ The Go service serves the administration as JSON operations
     POST   /api/mcp/groups               {"group_id": -100..., "note": "..."}; 201
     DELETE /api/mcp/groups/{group_id}
     PATCH  /api/mcp/groups/{group_id}    {"note": "..."}; 204
-    POST   /api/mcp/tokens               {"name": "..."}; 201 {id, token}
+    POST   /api/mcp/tokens               {"name": "...", "owner_id": n}; 201 {id, token}
+    PATCH  /api/mcp/tokens/{id}          {"name": "..."}; 204
     POST   /api/mcp/tokens/{id}/revoke
+    POST   /api/mcp/tokens/{id}/transfer {"owner_id": n}; 204
 
-- Who: viewers with the `mcp` ability (superadmins and admins today);
-  to anyone else they do not exist (404).
+- Who, for the groups: viewers with the `mcp` ability (superadmins
+  and admins); to anyone else they do not exist (404).
+- Who, for the tokens
+  ([decision](../../docs/design/decisions/2026-11-20-mcp-tokens-to-superadmin.md)):
+  viewers with `mcp_tokens`, which superadmins and admins hold by role
+  and a member when an admin managing it or a superadmin gives it
+  ([accounts.md](accounts.md)). A token is listed, renamed and revoked
+  by its owner, by an admin when the owner is a member it manages
+  (filed in a federation it administers), and by every superadmin; a
+  token without an owner record counts as the superadmins'. Any other
+  token is 404 like an unknown one, and the list, the index's count
+  and its last use cover only the viewer's tokens. A member given
+  `mcp_tokens` has the MCP menu entry with the index and the tokens,
+  not the groups. Members do not get tokens without the ability
+  because `telegram_get_users` is not limited to the exposed groups:
+  it answers any user's profile, which is more than a member's grants
+  show it.
+- Minting: `owner_id` (the viewer when left out) must be an active
+  account that may hold tokens (a superadmin, an admin, or a member
+  with `mcp_tokens`) whose tokens the viewer manages, so an admin mints
+  for itself or its members and a member for itself only; any other is
+  400. The viewer is always the minter (`web_user_id`), the account
+  the token's requests are attributed to: disabling the minter
+  disables the token, whoever owns it. The token, its owner record and
+  the `owner_set` audit row are written in one transaction.
+- Transfer: superadmins only, to such an account (400 otherwise; 404
+  for everyone else). The token keeps working and keeps its minter.
+  Taking `mcp_tokens` away from a member does not revoke its tokens.
 - Only groups the viewer may see are exposed, listed, counted or
   withdrawn; a hidden group is 404 like an unknown one
   (web-accounts.md section 4). Exposing a group twice is 409
@@ -590,18 +619,26 @@ The Go service serves the administration as JSON operations
   other (`docker/mysql/web-grants.sql`).
 - A token is minted as here, `tgmcp_` and 32 random bytes in hex,
   answered once and stored as its SHA-256; its name is 1 to 64
-  characters. Revoking stamps `revoked_at`; revoking twice is a no-op.
+  characters (renaming cuts and refuses an empty name alike). Revoking
+  stamps `revoked_at`; revoking twice is a no-op.
 - Every change writes a `web_audit` row: `mcp_expose`,
-  `mcp_unexpose`, `mcp_note`, `mcp_token_create`, `mcp_token_revoke`
-  (with the group or the token's id and name, never the token;
-  `mcp_note` with `old -> new`, each note cut to its share of the
-  255 characters when both do not fit). An unchanged note writes no
-  row.
-- An exposed group and a token are owned by the account that exposed
-  or created it (`web_resource_relations`, see *Ownership* in
-  [accounts.md](accounts.md)); withdrawing a group drops its owner, a
-  revoked token keeps its own. The tokens list names the owner, or,
-  for a token without an owner record, the account it was made by.
+  `mcp_unexpose`, `mcp_note`, `mcp_token_create` (with `for <owner
+  id>` when minted for another account), `mcp_token_rename`,
+  `mcp_token_revoke`, `mcp_token_transfer` (`from <id> to <id>`, 0 for
+  no owner record), beside the ownership rows `owner_set` and
+  `owner_transfer` (with the group or the token's id and name, never
+  the token; `mcp_note` and `mcp_token_rename` with `old -> new`, each
+  cut to its share of the 255 characters when both do not fit). An
+  unchanged note or name, and a transfer to the owner a token has,
+  write no row.
+- An exposed group is owned by the account that exposed it, a token
+  by the account it was minted for (`web_resource_relations`, see
+  *Ownership* in [accounts.md](accounts.md)); withdrawing a group
+  drops its owner, a revoked token keeps its own. Every token that
+  existed before per-role management was given to `superadmin` by web
+  migration 000015. The tokens list names each token's owner (or
+  "Shared", id 0, without an owner record) and minter, with `owners`,
+  who the viewer may mint for or transfer to, and `can_transfer`.
   Ownership does not change what a token reads: that is the exposure
   list alone.
 

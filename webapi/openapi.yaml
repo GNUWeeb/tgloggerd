@@ -3423,7 +3423,6 @@ paths:
 
   /api/mcp/tokens/{id}:
     patch:
-      x-tgd-status: planned
       operationId: renameMcpToken
       tags: [mcp]
       summary: Rename an MCP bearer token
@@ -3492,7 +3491,6 @@ paths:
 
   /api/mcp/tokens/{id}/transfer:
     post:
-      x-tgd-status: planned
       operationId: transferMcpToken
       tags: [mcp]
       summary: Give an MCP bearer token to another owner

@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -27,7 +28,7 @@ func TestMcpPages(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t)
 
-	st, b := e.page("admin", "/mcp-admin")
+	st, b := e.page("superadmin", "/mcp-admin")
 	if st != 200 || b["route"] != "mcp" {
 		t.Fatalf("index %d %v", st, b)
 	}
@@ -57,13 +58,28 @@ func TestMcpPages(t *testing.T) {
 		t.Errorf("groups %s", js(gs))
 	}
 
-	_, b = e.page("admin", "/mcp-admin/tokens")
-	if js(b["props"]) != canon(`{"tokens": [
-		{"id": 2, "name": "old laptop", "owner": "ops", "created": "2026-03-01T08:00:00Z",
+	// The fixture's tokens have no owner record: they are the
+	// superadmins', shown as shared, and an admin sees neither.
+	_, b = e.page("superadmin", "/mcp-admin/tokens")
+	shared := `{"id": 0, "name": "Shared", "active": true}`
+	if js(b["props"].(map[string]any)["tokens"]) != canon(`[
+		{"id": 2, "name": "old laptop", "owner": `+shared+`,
+		 "minted_by": {"id": 2, "name": "ops", "role": "superadmin", "active": true},
+		 "created": "2026-03-01T08:00:00Z",
 		 "last_used": "2026-04-01T08:00:00Z", "revoked": "2026-05-01T08:00:00Z"},
-		{"id": 1, "name": "claude-desktop", "owner": "admin", "created": "2026-10-01T08:00:00Z",
-		 "last_used": "2026-11-17T15:00:00Z", "revoked": null}]}`) {
+		{"id": 1, "name": "claude-desktop", "owner": `+shared+`,
+		 "minted_by": {"id": 1, "name": "admin", "role": "superadmin", "active": true},
+		 "created": "2026-10-01T08:00:00Z",
+		 "last_used": "2026-11-17T15:00:00Z", "revoked": null}]`) {
 		t.Errorf("tokens %s", js(b["props"]))
+	}
+	_, b = e.page("admin", "/mcp-admin/tokens")
+	if tk := b["props"].(map[string]any)["tokens"]; js(tk) != "[]" {
+		t.Errorf("admin's tokens %s", js(tk))
+	}
+	_, b = e.page("admin", "/mcp-admin")
+	if m := b["props"].(map[string]any); m["active_tokens"] != float64(0) || m["last_used"] != nil {
+		t.Errorf("admin's index %v", m)
 	}
 
 	for _, p := range []string{"/mcp-admin", "/mcp-admin/groups", "/mcp-admin/tokens"} {
@@ -304,8 +320,8 @@ func TestMcpTokens(t *testing.T) {
 	e.want(404, "admin", "POST", "/api/mcp/tokens/999/revoke", nil)
 
 	want := []string{
-		fmt.Sprintf("3 mcp_token_create token %d ci runner", id),
 		fmt.Sprintf("3 owner_set mcp_token %d", id),
+		fmt.Sprintf("3 mcp_token_create token %d ci runner", id),
 		fmt.Sprintf("3 mcp_token_revoke token %d ci runner", id),
 	}
 	got := e.audits()
@@ -340,5 +356,239 @@ func TestMcpTokens(t *testing.T) {
 	b = e.want(201, "admin", "POST", "/api/mcp/tokens", map[string]any{"name": strings.Repeat("e", 70)})
 	if n := e.appOne("SELECT CHAR_LENGTH(name) FROM web_mcp_tokens WHERE id = ?", b["id"]); n != "64" {
 		t.Errorf("name of %s characters", n)
+	}
+}
+
+// Who manages which MCP token (decisions/2026-11-20-mcp-tokens-to-
+// superadmin.md): the owner, an admin for the members it manages, every
+// superadmin; members need mcp_tokens, and only superadmins transfer.
+// In adminEnv, "member" (researcher, 5) and mod_kernel (6) hold
+// mcp_tokens; mod_kernel is moved out of Default into a federation the
+// "admin" (gw_admin, 3) does not administer. The fixture's tokens 1
+// and 2 have no owner record, so they are the superadmins'.
+func TestMcpTokenRoles(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t)
+	for _, q := range []string{
+		"INSERT INTO web_member_abilities (web_user_id, ability) VALUES (5, 'mcp_tokens'), (6, 'mcp_tokens')",
+		"INSERT INTO web_federations (id, name) VALUES (50, 'Elsewhere')",
+		"DELETE FROM web_federation_members WHERE federation_id = 0 AND web_user_id = 6",
+		"INSERT INTO web_federation_members (federation_id, web_user_id) VALUES (50, 6)",
+	} {
+		if _, err := e.app.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mint := func(role, name string, owner uint64) uint64 {
+		t.Helper()
+		body := map[string]any{"name": name}
+		if owner != 0 {
+			body["owner_id"] = owner
+		}
+		b := e.want(201, role, "POST", "/api/mcp/tokens", body)
+		return uint64(b["id"].(float64))
+	}
+	a := mint("member", "member's own", 0)
+	b := mint("admin", "admin's own", 0)
+	c := mint("admin", "for the member", 5)
+	d := mint("superadmin", "for mod_kernel", 6)
+	owner := func(id uint64) string {
+		t.Helper()
+		return e.appOne("SELECT CONCAT(user_id, '/', (SELECT web_user_id FROM web_mcp_tokens WHERE id = ?)) "+
+			"FROM web_resource_relations WHERE resource_type = 'mcp_token' AND resource_id = ? "+
+			"AND relation = 'owner'", id, id)
+	}
+	for id, want := range map[uint64]string{a: "5/5", b: "3/3", c: "5/3", d: "6/1"} {
+		if got := owner(id); got != want {
+			t.Errorf("token %d owner/minter %s, want %s", id, got, want)
+		}
+	}
+
+	// Owners a viewer may not mint for.
+	for _, x := range []struct {
+		role  string
+		owner uint64
+	}{
+		{"admin", 6},  // a member it does not manage
+		{"admin", 1},  // a superadmin
+		{"admin", 4},  // another admin
+		{"admin", 7},  // its member, but disabled
+		{"member", 3}, // anyone else
+		{"superadmin", 7},
+		{"superadmin", 999},
+	} {
+		if st, bd, _ := e.call(x.role, "POST", "/api/mcp/tokens",
+			map[string]any{"name": "x", "owner_id": x.owner}); st != 400 || bd["error"] != "bad_request" {
+			t.Errorf("%s minting for %d: %d %v", x.role, x.owner, st, bd)
+		}
+	}
+
+	type person struct {
+		ID   uint64 `json:"id"`
+		Name string `json:"name"`
+	}
+	type props struct {
+		Tokens []struct {
+			ID       uint64 `json:"id"`
+			Owner    person `json:"owner"`
+			MintedBy person `json:"minted_by"`
+		} `json:"tokens"`
+		Owners      []person `json:"owners"`
+		CanTransfer bool     `json:"can_transfer"`
+	}
+	list := func(role string) props {
+		t.Helper()
+		st, pg := e.page(role, "/mcp-admin/tokens")
+		if st != 200 {
+			t.Fatalf("%s tokens page %d %v", role, st, pg)
+		}
+		var p props
+		raw, _ := json.Marshal(pg["props"])
+		if err := json.Unmarshal(raw, &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	ids := func(p props) string {
+		var out []string
+		for _, tk := range p.Tokens {
+			out = append(out, fmt.Sprint(tk.ID))
+		}
+		return strings.Join(out, " ")
+	}
+	names := func(ps []person) string {
+		var out []string
+		for _, x := range ps {
+			out = append(out, x.Name)
+		}
+		return strings.Join(out, " ")
+	}
+	for _, x := range []struct {
+		role, tokens, owners string
+		transfer             bool
+	}{
+		{"member", fmt.Sprint(c, " ", a), "researcher", false},
+		{"admin", fmt.Sprint(c, " ", b, " ", a), "gw_admin researcher", false},
+		{"superadmin", fmt.Sprint(d, " ", c, " ", b, " ", a, " 2 1"),
+			"admin gw_admin mod_kernel ops researcher sec_lead", true},
+	} {
+		p := list(x.role)
+		if ids(p) != x.tokens || names(p.Owners) != x.owners || p.CanTransfer != x.transfer {
+			t.Errorf("%s: tokens %s owners %s transfer %v", x.role, ids(p), names(p.Owners), p.CanTransfer)
+		}
+	}
+	p := list("superadmin")
+	for _, tk := range p.Tokens {
+		var want string
+		switch tk.ID {
+		case c:
+			want = "5 researcher 3 gw_admin"
+		case 1:
+			want = "0 Shared 1 admin"
+		case 2:
+			want = "0 Shared 2 ops"
+		default:
+			continue
+		}
+		if got := fmt.Sprint(tk.Owner.ID, " ", tk.Owner.Name, " ", tk.MintedBy.ID, " ", tk.MintedBy.Name); got != want {
+			t.Errorf("token %d: %s, want %s", tk.ID, got, want)
+		}
+	}
+	// The index counts the viewer's tokens only.
+	_, ix := e.page("member", "/mcp-admin")
+	if m := ix["props"].(map[string]any); m["active_tokens"] != float64(2) || m["last_used"] != nil {
+		t.Errorf("member's index %v", m)
+	}
+
+	// Routes on tokens the viewer does not manage are 404.
+	for _, x := range []struct {
+		role, method, path string
+		body               map[string]any
+	}{
+		{"member", "POST", fmt.Sprintf("/api/mcp/tokens/%d/revoke", b), nil},
+		{"member", "PATCH", fmt.Sprintf("/api/mcp/tokens/%d", d), map[string]any{"name": "x"}},
+		{"member", "POST", "/api/mcp/tokens/1/revoke", nil},
+		{"member", "POST", fmt.Sprintf("/api/mcp/tokens/%d/transfer", a), map[string]any{"owner_id": 3}},
+		{"admin", "POST", fmt.Sprintf("/api/mcp/tokens/%d/revoke", d), nil},
+		{"admin", "PATCH", "/api/mcp/tokens/1", map[string]any{"name": "x"}},
+		{"admin", "POST", fmt.Sprintf("/api/mcp/tokens/%d/transfer", b), map[string]any{"owner_id": 5}},
+		{"superadmin", "PATCH", "/api/mcp/tokens/999", map[string]any{"name": "x"}},
+		{"superadmin", "POST", "/api/mcp/tokens/999/transfer", map[string]any{"owner_id": 3}},
+	} {
+		if st, bd, _ := e.call(x.role, x.method, x.path, x.body); st != 404 {
+			t.Errorf("%s %s %s: %d %v", x.role, x.method, x.path, st, bd)
+		}
+	}
+	if n := e.appOne("SELECT COUNT(*) FROM web_mcp_tokens WHERE revoked_at IS NOT NULL OR name = 'x'"); n != "1" {
+		t.Errorf("%s tokens changed by refused requests (the fixture's revoked one is 1)", n)
+	}
+
+	// What each may do.
+	e.want(204, "admin", "PATCH", fmt.Sprintf("/api/mcp/tokens/%d", a), map[string]any{"name": " renamed "})
+	e.want(204, "admin", "PATCH", fmt.Sprintf("/api/mcp/tokens/%d", a), map[string]any{"name": "renamed"})
+	if st, _, _ := e.call("admin", "PATCH", fmt.Sprintf("/api/mcp/tokens/%d", a), map[string]any{"name": " "}); st != 400 {
+		t.Errorf("empty name %d", st)
+	}
+	e.want(204, "admin", "POST", fmt.Sprintf("/api/mcp/tokens/%d/revoke", c), nil)
+	e.want(204, "member", "POST", fmt.Sprintf("/api/mcp/tokens/%d/revoke", a), nil)
+	e.want(204, "superadmin", "PATCH", fmt.Sprintf("/api/mcp/tokens/%d", d), map[string]any{"name": "kernel ci"})
+	e.want(204, "superadmin", "POST", fmt.Sprintf("/api/mcp/tokens/%d/transfer", d), map[string]any{"owner_id": 3})
+	e.want(204, "superadmin", "POST", fmt.Sprintf("/api/mcp/tokens/%d/transfer", d), map[string]any{"owner_id": 3})
+	e.want(204, "superadmin", "POST", "/api/mcp/tokens/1/transfer", map[string]any{"owner_id": 2})
+	for _, body := range []map[string]any{{"owner_id": 7}, {"owner_id": 999}, {}} {
+		if st, _, _ := e.call("superadmin", "POST", fmt.Sprintf("/api/mcp/tokens/%d/transfer", b), body); st != 400 {
+			t.Errorf("transfer %v: %d", body, st)
+		}
+	}
+	if got := owner(d) + " " + owner(1); got != "3/1 2/1" {
+		t.Errorf("after the transfers %s", got)
+	}
+	if p := list("admin"); ids(p) != fmt.Sprint(d, " ", c, " ", b, " ", a) {
+		t.Errorf("admin after the transfer: %s", ids(p))
+	}
+	want := []string{
+		fmt.Sprintf("5 owner_set mcp_token %d", a),
+		fmt.Sprintf("5 mcp_token_create token %d member's own", a),
+		fmt.Sprintf("3 owner_set mcp_token %d", b),
+		fmt.Sprintf("3 mcp_token_create token %d admin's own", b),
+		fmt.Sprintf("3 owner_set mcp_token %d", c),
+		fmt.Sprintf("3 mcp_token_create token %d for 5 for the member", c),
+		fmt.Sprintf("1 owner_set mcp_token %d", d),
+		fmt.Sprintf("1 mcp_token_create token %d for 6 for mod_kernel", d),
+		fmt.Sprintf("3 mcp_token_rename token %d member's own -> renamed", a),
+		fmt.Sprintf("3 mcp_token_revoke token %d for the member", c),
+		fmt.Sprintf("5 mcp_token_revoke token %d renamed", a),
+		fmt.Sprintf("1 mcp_token_rename token %d for mod_kernel -> kernel ci", d),
+		fmt.Sprintf("1 owner_transfer mcp_token %d from 6 to 3", d),
+		fmt.Sprintf("1 mcp_token_transfer token %d from 6 to 3", d),
+		"1 owner_set mcp_token 1",
+		"1 mcp_token_transfer token 1 from 0 to 2",
+	}
+	if got := e.audits(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("audit\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	// The member with mcp_tokens has the tokens, not the groups.
+	if st, _ := e.page("member", "/mcp-admin/groups"); st != 404 {
+		t.Errorf("member's groups page %d", st)
+	}
+	if st, _, _ := e.call("member", "POST", "/api/mcp/groups", map[string]any{"group_id": -1001000000002}); st != 404 {
+		t.Errorf("member exposing a group %d", st)
+	}
+	// Without mcp_tokens, nothing: not even its own tokens.
+	if _, err := e.app.Exec("DELETE FROM web_member_abilities WHERE web_user_id = 5"); err != nil {
+		t.Fatal(err)
+	}
+	for _, pth := range []string{"/mcp-admin", "/mcp-admin/tokens"} {
+		if st, _ := e.page("member", pth); st != 404 {
+			t.Errorf("member without mcp_tokens %s: %d", pth, st)
+		}
+	}
+	if st, _, _ := e.call("member", "PATCH", fmt.Sprintf("/api/mcp/tokens/%d", a), map[string]any{"name": "y"}); st != 404 {
+		t.Errorf("member without mcp_tokens renaming its token: %d", st)
+	}
+	// Its tokens stay with it; the admin still manages them.
+	if p := list("admin"); !strings.Contains(" "+ids(p)+" ", fmt.Sprint(" ", a, " ")) {
+		t.Errorf("admin lost the member's token: %s", ids(p))
 	}
 }
