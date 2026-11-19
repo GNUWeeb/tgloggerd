@@ -1,10 +1,10 @@
 // The group page's Members tab: Telegram's member list, a page at a
 // time, or why it is not available.
-import { useEffect, useState } from 'react';
-import { Crown, Eye, EyeOff, LoaderCircle, ShieldCheck, TriangleAlert, Ban, Users as UsersIcon } from 'lucide-react';
-import { Link, useNav } from '../nav.tsx';
+import { useEffect, useRef, useState } from 'react';
+import { Crown, Eye, EyeOff, Hash, LoaderCircle, Search, ShieldCheck, TriangleAlert, Ban, Users as UsersIcon, X } from 'lucide-react';
+import { Link, setQuery, useNav } from '../nav.tsx';
 import { ApiError } from '../api/client.ts';
-import { MEMBERS_PAGE, fetchMembers, reasonText, setHideMemberList, type GroupMember, type MembersPage } from '../api/members.ts';
+import { MEMBERS_PAGE, MEMBERS_Q_MAX, fetchMembers, reasonText, setHideMemberList, type GroupMember, type MembersPage } from '../api/members.ts';
 import { Avatar, Btn, Empty, Pill } from '../ui/primitives.tsx';
 import { UserCell } from '../ui/bits.tsx';
 import { track } from '../ui/busy.ts';
@@ -22,6 +22,43 @@ function StatusChip({ s }: { s: GroupMember['status'] }) {
 	if (s === 'administrator') return <Pill tone="info"><ShieldCheck size={11} />admin</Pill>;
 	if (s === 'restricted') return <Pill tone="danger"><Ban size={11} />restricted</Pill>;
 	return null;
+}
+
+// A member a search found by its exact id (a q of digits).
+// The members of a page that count toward its offset: all but a
+// search's id match, which the first page holds in addition to limit.
+const paged = (ms: GroupMember[]) => ms.filter((m) => m.matched_by !== 'id').length;
+const ById = ({ m }: { m: GroupMember }) => (m.matched_by === 'id' ? <Pill tone="info"><Hash size={11} />matched by ID</Pill> : null);
+
+// The search box's text, kept in the page's URL as ?q=: typing waits
+// for a pause, then fetches the page data for the new search in place
+// of the current entry, so Back does not step through keystrokes. A
+// change of the URL from outside (Back, a link) puts its q in the box.
+function useMemberSearch() {
+	const { page, navigate } = useNav();
+	const q = new URL(page.url, 'http://x').searchParams.get('q') ?? '';
+	const [text, setText] = useState(q);
+	const sent = useRef(q);
+	const url = useRef(page.url);
+	url.current = page.url;
+	useEffect(() => {
+		if (q !== sent.current) { sent.current = q; setText(q); }
+	}, [q]);
+	const go = (t: string) => {
+		sent.current = t;
+		navigate(setQuery(url.current, { q: t.trim() ? t : undefined, offset: undefined }), { replace: true, scroll: false });
+	};
+	useEffect(() => {
+		if (text === sent.current) return;
+		const t = setTimeout(() => go(text), 300);
+		return () => clearTimeout(t);
+	}, [text]);
+	const clear = () => {
+		setText('');
+		if (sent.current.trim() || q.trim()) go('');
+		else sent.current = '';
+	};
+	return { q, text, setText, clear };
 }
 
 // A superadmin's switch for a channel's list: hidden, only superadmins
@@ -50,12 +87,16 @@ export function Members({ groupId, count, p, v }: { groupId: number; count: numb
 	const offset = p.offset ?? 0;
 	const limit = p.limit ?? MEMBERS_PAGE;
 	const [list, setList] = useState(p.members);
-	// The size of the last page fetched: a short one is the end.
-	const [last, setLast] = useState(p.members.length);
+	// The size of the last page fetched, without a search's id match
+	// (which comes in addition to limit): a short one is the end.
+	const [last, setLast] = useState(paged(p.members));
 	const [busy, setBusy] = useState(false);
 	const [err, setErr] = useState('');
-	useEffect(() => { setList(p.members); setLast(p.members.length); setErr(''); }, [p]);
+	useEffect(() => { setList(p.members); setLast(paged(p.members)); setErr(''); }, [p]);
 	const total = p.total ?? count;
+	const search = useMemberSearch();
+	// The search the page data answers (the box may be ahead of it).
+	const q = search.q.trim();
 
 	if (!p.available) {
 		return (
@@ -69,20 +110,34 @@ export function Members({ groupId, count, p, v }: { groupId: number; count: numb
 		);
 	}
 
-	const more = last >= limit && (p.total == null || offset + list.length < p.total);
+	// The next page starts after the members paged so far; total counts
+	// the id match too.
+	const next = offset + paged(list);
+	const more = last >= limit && (p.total == null || next + (list.length - paged(list)) < p.total);
 	const loadMore = async () => {
 		setBusy(true); setErr('');
 		try {
-			const next = await track(fetchMembers(groupId, offset + list.length, limit));
-			setList((cur) => [...cur, ...next.members]);
-			setLast(next.members.length);
+			const page = await track(fetchMembers(groupId, next, limit, q));
+			setList((cur) => { const seen = new Set(cur.map((m) => m.user.id)); return [...cur, ...page.members.filter((m) => !seen.has(m.user.id))]; });
+			setLast(paged(page.members));
 		} catch (x) { setErr(x instanceof ApiError ? x.message : 'The server could not be reached.'); }
 		setBusy(false);
 	};
 	const rows = list.map((m) => ({ ...m, user: named(m) }));
 	return (
 		<>
-			{offset > 0 && <p className="a-muted sm">From member {fmt(offset + 1)}. <Link to={`/groups/${groupId}/members`} className="a-link">Back to the first</Link></p>}
+			<div className="a-search a-membersearch" role="search">
+				<Search size={15} />
+				<input
+					type="search" name="member-search" value={search.text} maxLength={MEMBERS_Q_MAX}
+					placeholder="Search members by name, @username or ID" aria-label="Search members by name, @username or ID"
+					onChange={(e) => search.setText(e.target.value)}
+					onKeyDown={(e) => { if (e.key === 'Escape' && search.text) { e.preventDefault(); search.clear(); } }}
+					autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+				/>
+				{search.text && <button type="button" className="a-search-x" aria-label="Clear search" onClick={search.clear}><X size={13} /></button>}
+			</div>
+			{offset > 0 && <p className="a-muted sm">From {q ? 'match' : 'member'} {fmt(offset + 1)}. <Link to={setQuery(`/groups/${groupId}/members`, { q: q || undefined })} className="a-link">Back to the first</Link></p>}
 			{rows.length ? (
 				<div className="a-card a-tablecard">
 					<div className="a-tablescroll">
@@ -91,7 +146,7 @@ export function Members({ groupId, count, p, v }: { groupId: number; count: numb
 							<tbody>{rows.map((m) => (
 								<tr key={m.user.id}>
 									<td><UserCell u={m.user} /></td>
-									<td><StatusChip s={m.status} /></td>
+									<td><span className="a-chips"><StatusChip s={m.status} /><ById m={m} /></span></td>
 									<td className="a-hide-md" title={m.joined_at ?? undefined}>{m.joined_at ? ago(m.joined_at, v) : <span className="a-muted">-</span>}</td>
 								</tr>
 							))}</tbody>
@@ -106,16 +161,22 @@ export function Members({ groupId, count, p, v }: { groupId: number; count: numb
 									<span className="a-handle">{m.user.username ? `@${m.user.username}` : m.joined_at ? `joined ${ago(m.joined_at, v)}` : ''}</span>
 								</span>
 								<StatusChip s={m.status} />
+								<ById m={m} />
 							</Link>
 						</li>
 					))}</ul>
 				</div>
-			) : <Empty>{offset > 0 ? 'No members this far into the list.' : 'Telegram gave no members for this group.'}</Empty>}
+			) : q && offset === 0 ? (
+				<Empty>
+					<p>No member matches <b>{q}</b>.</p>
+					<button type="button" className="a-btn a-btn-ghost" onClick={search.clear}>Clear search</button>
+				</Empty>
+			) : <Empty>{offset > 0 ? `No ${q ? 'matches' : 'members'} this far into the list.` : 'Telegram gave no members for this group.'}</Empty>}
 			<div className="a-loadmore">
 				{err && <span className="a-banner warn" role="alert"><TriangleAlert size={14} /><span>{err}</span></span>}
 				{more
 					? <button type="button" className="a-btn a-btn-ghost" disabled={busy} onClick={() => void loadMore()}>{busy && <LoaderCircle size={14} className="a-spin" />}{busy ? 'Loading...' : 'Load more'}</button>
-					: rows.length > 0 && <span className="a-muted">{total != null && total > offset + rows.length ? `${fmt(offset + rows.length)} of ${fmt(total)} members: Telegram lists no more` : 'End of the list'}</span>}
+					: rows.length > 0 && <span className="a-muted">{q ? `${fmt(offset + rows.length)} ${offset + rows.length === 1 ? 'match' : 'matches'}` : total != null && total > offset + rows.length ? `${fmt(offset + rows.length)} of ${fmt(total)} members: Telegram lists no more` : 'End of the list'}</span>}
 			</div>
 		</>
 	);

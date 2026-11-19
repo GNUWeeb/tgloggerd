@@ -35,6 +35,10 @@ export interface GroupMember {
 	// When the member joined, if Telegram says. A date-time, as the
 	// service sends dates (a guess: the contract does not name the format).
 	joined_at: string | null;
+	// With a search (q): how the member was found, by its exact id
+	// (a q of digits) or by the name and username search. Absent or
+	// null without one.
+	matched_by?: 'id' | 'search' | null;
 }
 
 export interface MembersPage {
@@ -51,6 +55,8 @@ export interface MembersPage {
 }
 
 export const MEMBERS_PAGE = 50;
+// The longest search the service takes (?q=, a leading @ ignored).
+export const MEMBERS_Q_MAX = 64;
 
 // The group page's own fields for the list.
 export interface MemberListFlags {
@@ -71,13 +77,15 @@ type Answer<R> = {
 type Path<Q> = { query?: Q; header?: never; path: { id: number }; cookie?: never };
 type Item = { parameters: { query?: never; header?: never; path?: never; cookie?: never }; put?: never; post?: never; delete?: never; options?: never; head?: never; trace?: never };
 interface LocalPaths {
-	'/api/groups/{id}/members': Item & { patch?: never; get: { parameters: Path<{ offset?: number; limit?: number }>; requestBody?: never; responses: Answer<MembersPage> } };
+	'/api/groups/{id}/members': Item & { patch?: never; get: { parameters: Path<{ offset?: number; limit?: number; q?: string }>; requestBody?: never; responses: Answer<MembersPage> } };
 	'/api/groups/{id}': Item & { get?: never; patch: { parameters: Path<never>; requestBody: { content: { 'application/json': { hide_member_list: boolean } } }; responses: Answer<unknown> } };
 }
 const local = api as unknown as Client<LocalPaths>;
 
-export function fetchMembers(id: number, offset = 0, limit = MEMBERS_PAGE): Promise<MembersPage> {
-	return ok(local.GET('/api/groups/{id}/members', { params: { path: { id }, query: { offset, limit } } }));
+// q searches the members (by name, @username or id); an empty one
+// lists them all.
+export function fetchMembers(id: number, offset = 0, limit = MEMBERS_PAGE, q = ''): Promise<MembersPage> {
+	return ok(local.GET('/api/groups/{id}/members', { params: { path: { id }, query: { offset, limit, ...(q ? { q } : {}) } } }));
 }
 
 export function setHideMemberList(id: number, hide: boolean): Promise<unknown> {
