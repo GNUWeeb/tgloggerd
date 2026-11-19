@@ -22,8 +22,10 @@ const KIND_LABEL: Record<'all' | FileKind, string> = {
 // Who sent it: a user's page, or for a post as a chat that chat's; a
 // sender without an id (a hidden chat, a signature only) is named but
 // not linked, and so is every sender on a public tab (plain), whose
-// visitor cannot open user pages.
-export function SentBy({ s, plain = false }: { s: GroupSender; plain?: boolean }) {
+// visitor cannot open user pages. A message with no sender at all
+// (allowed, though Go does not send it) draws nothing.
+export function SentBy({ s, plain = false }: { s: GroupSender | null; plain?: boolean }) {
+	if (!s) return null;
 	if (s.id === null || plain) {
 		return (
 			<span className={`a-usercell a-sentby ${s.id === null ? 'a-muted' : ''}`}>
@@ -83,7 +85,7 @@ function Preview({ f, v, pub, onClose }: { f: GroupFileRow; v: Viewer; pub: bool
 				[null, 'Size', `${bytes(f.size)} (${fmt(f.size)} bytes)`],
 				f.duration ? [null, 'Duration', duration(f.duration)] : null,
 				[null, 'Stored', f.stored ? 'yes' : f.url ? 'no, can be fetched from Telegram' : 'no'],
-				[null, 'Sender', <SentBy s={f.sender} plain={pub} />],
+				f.sender ? [null, 'Sender', <SentBy s={f.sender} plain={pub} />] : null,
 				[null, 'Sent', dateTime(f.date, v)],
 			]} />
 	);

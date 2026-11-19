@@ -16,9 +16,9 @@ export const FILE_KINDS = ['photo', 'video', 'animation', 'audio', 'voice', 'doc
 export type FileKind = (typeof FILE_KINDS)[number];
 
 // Who sent the message: a user, or for a post as a chat that chat (a
-// negative id); null when the viewer may not see them.
-// id is null for a post as a chat the viewer does not see (named
-// "(hidden chat)") and for a sender known only by its signature.
+// negative id). id is null for a post as a chat the viewer does not
+// see (named "(hidden chat)") and for a sender known only by its
+// signature.
 export interface GroupSender {
 	id: number | null;
 	name: string;
@@ -28,12 +28,13 @@ export interface GroupSender {
 
 // Where a file or poll was sent: the message in the group's chat
 // (chat_link, "/groups/{id}/chat?at=<message_id>") and its message page
-// (/messages/group/{message_row_id}).
+// (/messages/group/{message_row_id}). sender may be null by the
+// contract, though Go names every group message's sender.
 export interface GroupMessageRef {
 	message_id: number;
 	message_row_id: number;
 	date: string;
-	sender: GroupSender;
+	sender: GroupSender | null;
 	chat_link: string;
 }
 
