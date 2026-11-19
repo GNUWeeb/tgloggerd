@@ -515,7 +515,8 @@ A video note's round video is now the main file, like any other media.
 | `preview_media` | a link preview's own video, animation or audio, beyond its image in `telegram_link_previews.photo_file_id` (msg-link-preview-media) |
 
 The last four roles come with migration 000045; nothing writes them
-until their items land (`rich` is written since msg-rich-store). The
+until their items land (`rich` is written since msg-rich-store,
+`preview_media` since msg-link-preview-media). The
 ENUM append keeps every existing value's number, so it is instant
 (`ALGORITHM=INSTANT`, confirmed on a copy with rows), and its down
 file first deletes the rows that use them.
@@ -688,6 +689,42 @@ player's URL and size, the target of a message or story preview), as a
 curated object like `content_extra`, NULL when the type has none. The
 preview's own video, animation or audio is a `preview_media` file of
 the message (section 4.3). Both are written by msg-link-preview-media.
+
+The keys of `extra`, by `type`; a key whose value would be empty, zero
+or false is left out, and an object left empty is stored as NULL:
+
+| Type | Keys |
+|---|---|
+| `article`, `photo`, `app`, `web_app` | `width`, `height` (the image's largest size), `has_stickers`, `minithumbnail` |
+| `embedded_video_player`, `embedded_animation_player`, `embedded_audio_player` | `embed_url`, `embed_width`, `embed_height` (the player's expected size), `duration`; `media`, the cached medium's own keys as for `video`, `animation` or `audio` (without `file_name`, `start_timestamp` and `cover`) when TDLib has it |
+| `video` | `width`, `height`, `duration`, `mime`, `has_stickers`, `streaming`, `minithumbnail`, `file_name`, `start_timestamp`, `cover` (true when the video has a cover; the cover itself is not stored) |
+| `animation` | `width`, `height`, `duration`, `mime`, `minithumbnail`, `file_name` |
+| `audio` | `duration`, `mime`, `audio_title`, `performer`, `file_name` |
+| `document` | `mime`, `file_name` |
+| `sticker` | `emoji`, `sticker_id`, `set_id` (strings), `format`, `width`, `height` |
+| `chat` | `chat_type` (`basic_group`, `supergroup` or `channel`), `creates_join_request` |
+| `user` | `is_bot` |
+| `video_chat` | `is_live_stream`, `joins_as_speaker` |
+| `message` | `chat_id` (TDLib's chat id, for a `t.me/c/` link) or `username` (a public link), and `message_id` (the server id); none when the URL is not a message link |
+| `story` | `poster_chat_id`, `story_id` |
+| `external_video` | `media_url`, `mime`, `width`, `height`, `duration` |
+| `external_audio` | `media_url`, `mime`, `duration` |
+
+The other types (`channel_boost`, `supergroup_boost`, `invoice`,
+`group_call`, `unsupported`) have no `extra`. `audio_title` is not
+`title`, which is the card's own column. TDLib gives a `message`
+preview no target, so it is read from the URL: `t.me`, `telegram.me`
+and `telegram.dog` links (`/<username>/<id>`, `/c/<channel>/<id>`, with
+or without a topic id between) and `tg://resolve?domain=&post=` and
+`tg://privatepost?channel=&post=`. A `t.me/c/` link's chat id is
+TDLib's, `-100` followed by the channel id.
+
+The `preview_media` file is the medium of a `video`, `animation` or
+`audio` preview, or the cached medium of an embedded player, at
+position 0; a document's or a sticker's own file is not stored. An edit
+that changes the preview overwrites `extra` and the medium's row, like
+the card's other fields; one that drops the medium keeps the old row,
+as it keeps the old image.
 
 ### 4.9 Repairing old rows
 
