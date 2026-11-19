@@ -162,3 +162,34 @@ test('a video\'s preview shows its poster, loads none of it, and plays it on a c
 	await page.keyboard.press('Escape');
 	await expect(dialog).toHaveCount(0);
 });
+
+test('the grid fills every row of a batch and scrolls for more', async ({ page }) => {
+	const cols = () => page.locator('.a-filegrid').evaluate((g) => getComputedStyle(g).gridTemplateColumns.split(' ').length);
+	// Its columns divide every batch, at any width.
+	for (const width of [600, 900, 1100, 1600]) {
+		await page.setViewportSize({ width, height: 900 });
+		await page.goto('/files');
+		expect([2, 3, 4, 6, 8]).toContain(await cols());
+	}
+	// A width at which a free grid fitted 7 columns.
+	await page.setViewportSize({ width: 1360, height: 900 });
+	await page.goto('/files');
+	const n = await cols();
+	expect([2, 3, 4, 6, 8]).toContain(n);
+	await expect(page.locator('.a-pager')).toHaveCount(0);
+	const cards = page.locator('.a-filecard');
+	const first = await cards.count();
+	expect([24, 48, 96]).toContain(first);
+	// Every row of the batch is full: the last card ends the last column.
+	const tops = await cards.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+	const rows = new Map<number, number>();
+	for (const t of tops) rows.set(t, (rows.get(t) ?? 0) + 1);
+	expect([...rows.values()].every((c) => c === n)).toBe(true);
+	// Scrolling to the end loads the next batch into the same grid.
+	const pages: string[] = [];
+	page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/api/page/')) pages.push(r.url()); });
+	await page.mouse.wheel(0, 100000);
+	await expect.poll(() => cards.count()).toBeGreaterThan(first);
+	expect(new URL(pages[0]!).searchParams.get('page')).toBe('2');
+	await expect(page).toHaveURL(/\/files$/);
+});
