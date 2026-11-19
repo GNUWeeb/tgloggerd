@@ -140,7 +140,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 	const member = v.account?.role === 'member';
 	const cols: Col<FileRow>[] = [
 		{ key: 'id', label: 'ID', sort: true, align: 'right', cls: 'a-hide-md', render: (f) => <span className="num">{f.id}</span> },
-		{ key: 'name', label: 'File', sort: true, cls: 'c-name', render: (f) => <FileNameCell f={f} onOpen={() => show(f)} /> },
+		{ key: 'name', label: 'File', sort: true, cls: 'c-name', render: (f) => <FileNameCell f={f} sub={f.chat?.title ?? NO_MESSAGE} onOpen={() => show(f)} /> },
 		{ key: 'file_type', label: 'Type', sort: true, render: (f) => <span className="a-typecell"><TypeIcon type={f.file_type} />{f.file_type}</span> },
 		{ key: 'ext', label: 'Ext', sort: true, cls: 'a-hide-md', render: (f) => <span className="mono">{f.ext}</span> },
 		{ key: 'size', label: 'Size', sort: true, align: 'right', render: (f) => <span className="num">{bytes(f.size)}</span> },
@@ -163,7 +163,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 			{grid ? (
 				// No pages in the grid: it loads more as it is scrolled.
 				<div className="a-card a-tablecard a-filegrid-card">
-					<div className="a-filegrid">{g.rows.map((f) => <FileCard key={f.id} f={f} v={v} onOpen={() => show(f)} />)}</div>
+					<div className="a-filegrid">{g.rows.map((f) => <FileCard key={f.id} f={f} at={f.created_at} v={v} onOpen={() => show(f)} />)}</div>
 					{!L.rows.length && <div className="a-empty">{emptyText(L, member, 'files', 'No files match these filters.')}</div>}
 					<GridFoot g={g} auto={v.chat?.auto_load !== false} shown={g.rows.length} />
 				</div>
