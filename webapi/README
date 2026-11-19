@@ -796,6 +796,16 @@ describe each, with what differs from the Drogon pages.
   - The daemon is reached through internal/daemon (POST
     /v1/chats/resolve, /v1/chats/join, /v1/users/{id}/lookup-name);
     without WEB_TGLOGGERD_API those answer 502 daemon.
+  - A Telegram bot's own user is resolved in the background
+    (internal/server/botresolve.go, BotResolver): for a bot whose
+    identity is known and whose telegram_users row is missing, the
+    daemon is asked to resolve the username (POST /v1/users/resolve),
+    which stores the user. A pass runs every few minutes, and every
+    few seconds for a while after a bot is created or given a new
+    token, until discordd reports its identity. A bot that failed
+    waits hours, or the flood wait Telegram asked for, before it is
+    asked about again; the attempts live in memory. Never in a
+    request's path; without WEB_TGLOGGERD_API nothing runs.
   - The forwarding tables and telegram_public_groups are the logger's;
     the service writes them through the read-only pool, whose account
     is granted DML on exactly those (web/docs/platform-forwarding.md

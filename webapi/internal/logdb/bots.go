@@ -351,3 +351,34 @@ func ImportDiscordBot(ctx context.Context, db *sql.DB, name, token string) (uint
 	}
 	return id, created, n, tx.Commit()
 }
+
+// UnresolvedBot is a Telegram bot whose identity is known but whose
+// user the archive does not have.
+type UnresolvedBot struct {
+	ID       uint64
+	UserID   int64
+	Username string
+}
+
+// UnresolvedTelegramBots is every Telegram bot that has logged in (a
+// user id and a username) and whose telegram_users row is missing, by
+// id. Discord bots are never among them: their ids are no Telegram
+// users.
+func UnresolvedTelegramBots(ctx context.Context, db *sql.DB) ([]UnresolvedBot, error) {
+	rows, err := db.QueryContext(ctx, "SELECT b.id, b.bot_user_id, b.username FROM telegram_bots b "+
+		"LEFT JOIN telegram_users u ON u.id = b.bot_user_id "+
+		"WHERE b.bot_user_id <> 0 AND b.username <> '' AND u.id IS NULL ORDER BY b.id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UnresolvedBot
+	for rows.Next() {
+		var b UnresolvedBot
+		if err := rows.Scan(&b.ID, &b.UserID, &b.Username); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}

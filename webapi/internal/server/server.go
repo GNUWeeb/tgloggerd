@@ -86,6 +86,9 @@ type Deps struct {
 	// SearchEngine answers the message searches' full-text conditions
 	// (internal/searchengine); nil leaves them on MySQL, as before.
 	SearchEngine SearchEngine
+	// Bots resolves the Telegram bots' own users (BotResolver), nudged
+	// when a bot is created or given a new token; nil nudges nothing.
+	Bots *BotResolver
 
 	// pages replaces the page table, state the database's account
 	// state behind a session, clock the time, prefs the accounts'
@@ -154,6 +157,8 @@ type Server struct {
 	forgotAcct    *auth.RateLimiter
 	// engine is Deps.SearchEngine.
 	engine SearchEngine
+	// bots is Deps.Bots.
+	bots *BotResolver
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -187,6 +192,7 @@ func New(d Deps) http.Handler {
 	s.mail, s.mailCfg = d.Mail, d.MailCfg
 	s.forgotLimiter, s.forgotAcct = d.ForgotLimiter, d.ForgotAcctLimiter
 	s.engine = d.SearchEngine
+	s.bots = d.Bots
 	if s.mailCfg.InviteTTL <= 0 {
 		s.mailCfg.InviteTTL = DefaultInviteTTL
 	}

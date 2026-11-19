@@ -403,6 +403,7 @@ func (s *Server) createBot(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auditAdmin(r, v.ID, "bot_create", fmt.Sprintf("bot %d kind %s name %q", id, kind, name))
 	s.recordOwner(r, botResource(id), v.ID)
+	s.bots.Nudge(id)
 	s.botAnswer(w, r, sc, v, http.StatusCreated, id)
 }
 
@@ -458,6 +459,10 @@ func (s *Server) updateBot(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(changed) > 0 {
 		s.auditAdmin(r, v.ID, "bot_update", fmt.Sprintf("bot %d %s", b.ID, strings.Join(changed, " ")))
+	}
+	if c.Token != nil {
+		// A new token may be another bot's: its identity comes again.
+		s.bots.Nudge(b.ID)
 	}
 	s.botAnswer(w, r, sc, v, http.StatusOK, b.ID)
 }
