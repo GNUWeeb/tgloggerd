@@ -13,6 +13,8 @@ No widget appears in the archive so far, so this is low priority.
 
 - Daemon (TDLib session): curated `{width, height, widget_id,
   has_caption}` alongside `tdlib`, no migration.
+  Done: the keys and their meaning are in message-types.md section
+  4.2; `widget_id` is a string, present only for a shared widget.
 - How the HTML is shown, decided by the owner on 2026-11-20 (decision
   file 2026-11-20-msg-widgets-html): never rendered. The message page
   shows the widget's box at its size with a note, and the HTML as
