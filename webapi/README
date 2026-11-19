@@ -579,11 +579,13 @@ audited as member_list_hide and member_list_show. GroupProps carries
 hide_member_list and can_hide_member_list (a superadmin, on a
 channel).
 
-GET /api/groups/{id}/members?offset=&limit= lists a page of the
-group's members through the daemon (GET /v1/chats/{id}/members), for
-viewers who see the group and users in full; everyone else gets 404
-and the count only. Members are named from telegram_users in one query
-per page; the first page is kept for 2 minutes per group and limit.
+GET /api/groups/{id}/members?offset=&limit=&q= lists a page of the
+group's members through the daemon (GET /v1/chats/{id}/members), or
+with q those matching a search by name, username or user id (each
+member's matched_by says how), for viewers who see the group and users
+in full; everyone else gets 404 and the count only. Members are named
+from telegram_users in one query per page; each page is kept for 2
+minutes per group, q, offset and limit.
 The page /groups/{id}/members (group_members) carries the group's page
 and the same answer. web/docs/group-members.md describes it all. /messages/{group|private}?chat_id=
 redirects to the message list filtered by that chat.

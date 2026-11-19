@@ -23,6 +23,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -428,11 +429,14 @@ func (c *Client) RefreshChat(ctx context.Context, chatID int64) (ref Refresh, r 
 
 // Member is one member of a group as GET /v1/chats/{id}/members
 // lists it: a user, its status (creator, administrator, member or
-// restricted) and when it joined (Unix time), if Telegram says.
+// restricted) and when it joined (Unix time), if Telegram says. In a
+// search, MatchedBy says how it matched: "id" (the query was its user
+// id) or "search" (Telegram's member search); empty in a plain list.
 type Member struct {
-	UserID   int64  `json:"user_id"`
-	Status   string `json:"status"`
-	JoinedAt *int64 `json:"joined_at"`
+	UserID    int64  `json:"user_id"`
+	Status    string `json:"status"`
+	JoinedAt  *int64 `json:"joined_at"`
+	MatchedBy string `json:"matched_by"`
 }
 
 // Members is one page of a group's members. When Available is false,
@@ -448,12 +452,18 @@ type Members struct {
 	Members    []Member `json:"members"`
 }
 
-// ChatMembers is GET /v1/chats/{id}/members?offset=&limit= (limit 1 to
-// 200, offset 0 to 1000000). ok is false when the client is off or the
-// daemon did not answer a page (r says why).
-func (c *Client) ChatMembers(ctx context.Context, chatID int64, offset, limit int) (m Members, r Reply, ok bool) {
-	r = c.Call(ctx, http.MethodGet, "/v1/chats/"+strconv.FormatInt(chatID, 10)+
-		"/members?offset="+strconv.Itoa(offset)+"&limit="+strconv.Itoa(limit), nil, chatTimeout)
+// ChatMembers is GET /v1/chats/{id}/members?offset=&limit=&q= (limit
+// 1 to 200, offset 0 to 1000000): the members whose name or username
+// matches q, the user whose id q is first, or every member when q is
+// empty. ok is false when the client is off or the daemon did not
+// answer a page (r says why).
+func (c *Client) ChatMembers(ctx context.Context, chatID int64, q string, offset, limit int) (m Members, r Reply, ok bool) {
+	path := "/v1/chats/" + strconv.FormatInt(chatID, 10) +
+		"/members?offset=" + strconv.Itoa(offset) + "&limit=" + strconv.Itoa(limit)
+	if q != "" {
+		path += "&q=" + url.QueryEscape(q)
+	}
+	r = c.Call(ctx, http.MethodGet, path, nil, chatTimeout)
 	if !r.OK() || r.Body == nil || json.Unmarshal(r.Body, &m) != nil {
 		return Members{}, r, false
 	}

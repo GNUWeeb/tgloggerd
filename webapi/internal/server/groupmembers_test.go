@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -397,9 +398,9 @@ func TestGroupMembersHiddenGroup(t *testing.T) {
 	}
 }
 
-// The first page of a group's members is kept for two minutes per
-// group and limit; other pages are asked every time.
-func TestGroupMembersFirstPageCache(t *testing.T) {
+// A page of a group's members is kept for two minutes per group,
+// offset and limit.
+func TestGroupMembersPageCache(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t, groupMembersFixture)
 	e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmFresh), 200, "",
@@ -417,11 +418,14 @@ func TestGroupMembersFirstPageCache(t *testing.T) {
 	e.want(200, "admin", "GET", path+"?limit=10", nil)
 	e.want(200, "admin", "GET", path+"?offset=50", nil)
 	e.want(200, "admin", "GET", path+"?offset=50", nil)
-	// The group_members page uses the same first page.
-	if st, b := e.page("admin", fmt.Sprintf("/groups/%d/members", gmFresh)); st != 200 {
-		t.Fatalf("page: %d %v", st, b)
+	e.want(200, "admin", "GET", path+"?offset=50&limit=10", nil)
+	// The group_members page uses the same pages.
+	for _, q := range []string{"", "?offset=50"} {
+		if st, b := e.page("admin", fmt.Sprintf("/groups/%d/members%s", gmFresh, q)); st != 200 {
+			t.Fatalf("page%s: %d %v", q, st, b)
+		}
 	}
-	want := []string{"offset=0&limit=50", "offset=0&limit=10", "offset=50&limit=50", "offset=50&limit=50"}
+	want := []string{"offset=0&limit=50", "offset=0&limit=10", "offset=50&limit=50", "offset=50&limit=10"}
 	if c := memberCalls(e, gmFresh); strings.Join(c, " ") != strings.Join(want, " ") {
 		t.Errorf("daemon calls %v", c)
 	}
@@ -580,5 +584,184 @@ func TestGroupMembersBatched(t *testing.T) {
 	few, many := cost(2, 0), cost(40, 50)
 	if few == 0 || few != many {
 		t.Errorf("statements on telegram_users: %d for 2 members, %d for 40", few, many)
+	}
+}
+
+// A search: ?q= is trimmed, a leading @ dropped, and passed to the
+// daemon as is (digits and a leading - included); an empty one or a
+// lone @ is the plain list, one over 64 characters or not UTF-8 is 400
+// on the API. The members say how they matched, and the total is the
+// daemon's count of matches, never the group's member count.
+func TestGroupMembersSearch(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	path := fmt.Sprintf("/api/groups/%d/members", gmFresh)
+	e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmFresh), 200, "",
+		`{"available":true,"reason":"","total":3,"members":[`+
+			`{"user_id":9299000001,"status":"member","joined_at":null,"matched_by":"id"},`+
+			`{"user_id":9299000003,"status":"creator","joined_at":null,"matched_by":"search"}]}`)
+
+	b := e.want(200, "admin", "GET", path+"?q=%40Dewi+K&limit=20", nil)
+	ms := b["members"].([]any)
+	if b["available"] != true || num(b["total"]) != 3 || num(b["limit"]) != 20 || len(ms) != 2 {
+		t.Fatalf("search: %v", b)
+	}
+	m0, m1 := ms[0].(map[string]any), ms[1].(map[string]any)
+	if m0["matched_by"] != "id" || m0["user"].(map[string]any)["name"] != "Dewi Kusuma" ||
+		m1["matched_by"] != "search" || m1["status"] != "creator" {
+		t.Errorf("search members: %v", ms)
+	}
+	long := strings.Repeat("é", memberQueryMax)
+	e.want(200, "admin", "GET", path+"?q=-1009299000001", nil)
+	e.want(200, "admin", "GET", path+"?q="+urlQuery(" "+long+" "), nil)
+	for _, q := range []string{"", "?q=", "?q=+", "?q=%40", "?q=%40+"} {
+		b := e.want(200, "admin", "GET", path+q, nil)
+		if num(b["total"]) != 3 {
+			t.Errorf("%q: %v", q, b)
+		}
+		// The plain list has no matched_by, whatever the daemon says.
+		for _, m := range b["members"].([]any) {
+			if _, ok := m.(map[string]any)["matched_by"]; ok {
+				t.Errorf("%q: matched_by in the plain list: %v", q, m)
+			}
+		}
+	}
+	for _, q := range []string{"?q=" + urlQuery(long+"x"), "?q=%ff", "?q=ab%c3"} {
+		if b := e.want(400, "admin", "GET", path+q, nil); b["error"] != "bad_request" {
+			t.Errorf("%q: %v", q, b)
+		}
+	}
+	// The page takes q too, and ignores a bad one.
+	if st, b := e.page("admin", fmt.Sprintf("/groups/%d/members?q=sari", gmFresh)); st != 200 ||
+		b["props"].(map[string]any)["members"].([]any)[0].(map[string]any)["matched_by"] != "id" {
+		t.Errorf("page search: %d %v", st, b)
+	}
+	if st, b := e.page("admin", fmt.Sprintf("/groups/%d/members?q=%%ff&offset=50", gmFresh)); st != 200 ||
+		num(b["props"].(map[string]any)["offset"]) != 50 {
+		t.Errorf("page with a bad q: %d %v", st, b)
+	}
+	want := []string{"offset=0&limit=20&q=Dewi+K", "offset=0&limit=50&q=-1009299000001",
+		"offset=0&limit=50&q=" + urlQuery(long), "offset=0&limit=50", "offset=0&limit=50&q=sari",
+		"offset=50&limit=50"}
+	if c := memberCalls(e, gmFresh); strings.Join(c, " ") != strings.Join(want, " ") {
+		t.Errorf("daemon calls\n%s\nwant\n%s", strings.Join(c, "\n"), strings.Join(want, "\n"))
+	}
+
+	// A total the daemon does not know is null, not the group's count;
+	// so is one of a search the daemon did not answer.
+	e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmFresh), 200, "",
+		`{"available":true,"reason":"","total":null,"members":[]}`)
+	if b := e.want(200, "admin", "GET", path+"?q=nobody", nil); b["total"] != nil ||
+		len(b["members"].([]any)) != 0 {
+		t.Errorf("no match: %v", b)
+	}
+	e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmFresh), 504, "", `{"error":"timeout"}`)
+	if b := e.want(200, "admin", "GET", path+"?q=late", nil); b["reason"] != "unavailable" ||
+		b["total"] != nil {
+		t.Errorf("daemon timeout: %v", b)
+	}
+
+	// The same viewers as the list: a member and a signed-out visitor
+	// get 404, even for a bad q.
+	for _, role := range []string{"member", ""} {
+		for _, q := range []string{"?q=dewi", "?q=%ff"} {
+			if st, b, _ := e.call(role, "GET", path+q, nil); st != 404 {
+				t.Errorf("%q%s: %d %v", role, q, st, b)
+			}
+		}
+	}
+	if st, _ := e.page("member", fmt.Sprintf("/groups/%d/members?q=dewi", gmFresh)); st != 404 {
+		t.Errorf("member page: %d", st)
+	}
+}
+
+// urlQuery escapes s for a query string.
+func urlQuery(s string) string { return url.QueryEscape(s) }
+
+// A search is kept for two minutes per group, query, offset and limit,
+// apart from the plain list; a rate limit or a failure is asked again.
+func TestGroupMembersSearchCache(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	daemonPath := fmt.Sprintf("/v1/chats/%d/members", gmFresh)
+	e.daemon.answer(daemonPath, 200, "", `{"available":true,"reason":"","total":1,`+
+		`"members":[{"user_id":9299000001,"status":"member","joined_at":null,"matched_by":"search"}]}`)
+	now := time.Now()
+	var later atomic.Int64
+	e.with(func(d *Deps) {
+		d.clock = func() time.Time { return now.Add(time.Duration(later.Load())) }
+	})
+	path := fmt.Sprintf("/api/groups/%d/members", gmFresh)
+	for range 2 {
+		for _, q := range []string{"?q=dewi", "?q=%40dewi", "?q=+dewi+", "", "?q=dewi&offset=50",
+			"?q=dewi&limit=10", "?q=sari"} {
+			e.want(200, "admin", "GET", path+q, nil)
+		}
+		e.page("admin", fmt.Sprintf("/groups/%d/members?q=dewi", gmFresh))
+	}
+	want := []string{"offset=0&limit=50&q=dewi", "offset=0&limit=50", "offset=50&limit=50&q=dewi",
+		"offset=0&limit=10&q=dewi", "offset=0&limit=50&q=sari"}
+	if c := memberCalls(e, gmFresh); strings.Join(c, " ") != strings.Join(want, " ") {
+		t.Errorf("daemon calls %v", c)
+	}
+	later.Store(int64(memberPageTTL))
+	e.want(200, "admin", "GET", path+"?q=dewi", nil)
+	if c := memberCalls(e, gmFresh); len(c) != 6 || c[5] != "offset=0&limit=50&q=dewi" {
+		t.Errorf("after two minutes: %v", c)
+	}
+
+	for _, body := range []string{
+		`{"available":false,"reason":"flood_wait","retry_after":5,"total":null,"members":[]}`,
+		`{"available":false,"reason":"error","message":"INTERNAL","total":null,"members":[]}`,
+	} {
+		e.daemon.answer(daemonPath, 200, "", body)
+		before := len(memberCalls(e, gmFresh))
+		for range 2 {
+			if b := e.want(200, "admin", "GET", path+"?q=wait", nil); b["available"] != false {
+				t.Errorf("%s: %v", body, b)
+			}
+		}
+		if n := len(memberCalls(e, gmFresh)) - before; n != 2 {
+			t.Errorf("%s: asked %d times, want 2", body, n)
+		}
+	}
+	// not_allowed is kept like a list.
+	e.daemon.answer(daemonPath, 200, "", `{"available":false,"reason":"not_allowed","total":null,"members":[]}`)
+	before := len(memberCalls(e, gmFresh))
+	for range 2 {
+		if b := e.want(200, "admin", "GET", path+"?q=nope", nil); b["reason"] != "not_allowed" ||
+			b["total"] != nil {
+			t.Errorf("not allowed: %v", b)
+		}
+	}
+	if n := len(memberCalls(e, gmFresh)) - before; n != 1 {
+		t.Errorf("not allowed: asked %d times, want 1", n)
+	}
+}
+
+// A hidden channel list is hidden in a search too, without asking the
+// daemon; a superadmin searches it.
+func TestGroupMembersSearchHidden(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmChannel), 200, "",
+		`{"available":true,"reason":"","total":1,"members":[{"user_id":9299000002,"status":"member","joined_at":null,"matched_by":"search"}]}`)
+	e.want(200, "superadmin", "PATCH", fmt.Sprintf("/api/groups/%d", gmChannel),
+		map[string]any{"hide_member_list": true})
+	path := fmt.Sprintf("/api/groups/%d/members?q=dewi", gmChannel)
+	if b := e.want(200, "admin", "GET", path, nil); b["available"] != false || b["reason"] != "hidden" ||
+		b["total"] != nil || len(b["members"].([]any)) != 0 {
+		t.Errorf("admin: %v", b)
+	}
+	if c := memberCalls(e, gmChannel); len(c) != 0 {
+		t.Errorf("asked the daemon for the admin: %v", c)
+	}
+	b := e.want(200, "superadmin", "GET", path, nil)
+	if ms := b["members"].([]any); b["available"] != true || len(ms) != 1 ||
+		ms[0].(map[string]any)["matched_by"] != "search" {
+		t.Errorf("superadmin: %v", b)
+	}
+	if b := e.want(200, "admin", "GET", path, nil); b["reason"] != "hidden" {
+		t.Errorf("admin after the superadmin: %v", b)
 	}
 }
