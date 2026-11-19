@@ -438,6 +438,43 @@ const BACKGROUNDS = [
 	bg({ type: 'fill', fill: { type: 'gradient', colors: [0xffd67e, 0xe17076], rotation_angle: 90 } }),
 	bg({ type: 'chat_theme', theme_name: '\u{1F384}' }),
 ];
+// What the later link preview types carry beside their card, as Go
+// sends them (docs/todo/msg-link-preview-types.md), by type: a
+// background (a pattern over a gradient), a sticker set's stickers
+// (one of each format and one not recorded), a gift collection's
+// icons, a gift auction's gift with its dates, an upgraded gift, a
+// story and a live story with their poster, a theme, and a text
+// composition style's custom emoji. The others carry nothing more.
+export function linkPreviewExtras(type: string, n: number, v: View): object {
+	switch (type) {
+		case 'background': {
+			const { kind: _k, only_for_self: _o, dark: _d, ...pattern } = BACKGROUNDS[1] as typeof OLD_BG;
+			return { background: pattern };
+		}
+		case 'sticker_set': return { stickers: [giftSticker(989001, 'webp', '😀'), giftSticker(989002, 'tgs', '😂'), giftSticker(989003, 'webm', '😎'), null] };
+		case 'gift_collection': return { stickers: [giftSticker(989011, 'tgs', '🧸'), giftSticker(989012, 'tgs', '🌹')] };
+		case 'gift_auction': return { gift: { sticker: giftSticker(989021, 'tgs', '🎁'), symbol_sticker: null, star_count: 2500, upgraded: null, auction: { start_date: '2026-12-01T10:00:00Z', end_date: '2026-12-03T10:00:00Z', gifts_per_round: 50 } } };
+		case 'upgraded_gift': {
+			const [a, b] = posters();
+			const [x] = strangers();
+			return { gift: { sticker: giftSticker(988002, 'tgs', '🐸'), symbol_sticker: giftSticker(988003, 'tgs', '👑'), star_count: null, upgraded: upgradedGift(v, b!, x!, a!), auction: null } };
+		}
+		case 'story': case 'live_story': {
+			const who = posters().find((id) => handleOf(id))!;
+			return { story: { poster: refOf(v, who), story_id: 40 + (n % 50), username: v.user(who) ? handleOf(who) || null : null } };
+		}
+		case 'theme': return {
+			theme: {
+				base_theme: 'night', accent_color: 0x3e88f7,
+				background: { type: 'fill', image: null, fill: { type: 'gradient', colors: [0x1d2733, 0x2b3a4c], rotation_angle: 0 }, intensity: null, is_inverted: false, is_moving: false, is_blurred: false, theme_name: null, name: 'Midnight', dark: true },
+				outgoing_message_fill: { type: 'solid', colors: [0x2b5278], rotation_angle: 0 }, animate_outgoing_message_fill: false, outgoing_message_accent_color: 0x8cc2ff,
+			},
+		};
+		case 'text_composition_style': return { custom_emoji_id: CUSTOM_EMOJI.webp.id, custom_emoji: CUSTOM_EMOJI.webp.e };
+		default: return {};
+	}
+}
+
 function forumServices(): Map<number, Sample> {
 	if (forumKeys) return forumKeys;
 	forumKeys = new Map();

@@ -30,6 +30,23 @@ describe('the stand-in\'s link previews', () => {
 		expect(of('embedded_video_player').some((x) => x.embed?.url)).toBe(true);
 		expect(of('message').some((x) => x.target)).toBe(true);
 		expect(of('unsupported').length).toBeGreaterThan(0);
+		// One of each type named since, with what it carries.
+		expect(of('document').some((x) => x.media?.render === 'file')).toBe(true);
+		expect(of('sticker').some((x) => x.media?.format)).toBe(true);
+		expect(of('video_note').some((x) => x.media?.round)).toBe(true);
+		expect(of('voice_note').some((x) => x.media?.render === 'audio' && x.media.wave?.length)).toBe(true);
+		expect(of('album').some((x) => x.album && x.album.items.some((i) => i === null) && x.album.items.some((i) => i?.render === 'video'))).toBe(true);
+		expect(of('background').some((x) => x.background?.image)).toBe(true);
+		expect(of('sticker_set').some((x) => (x.stickers?.length ?? 0) > 1 && x.stickers!.length <= 5)).toBe(true);
+		expect(of('gift_collection').some((x) => x.stickers?.length)).toBe(true);
+		expect(of('gift_auction').some((x) => x.gift?.auction && x.gift.star_count)).toBe(true);
+		expect(of('upgraded_gift').some((x) => x.gift?.upgraded)).toBe(true);
+		expect(of('story').some((x) => x.story?.poster && x.story.username)).toBe(true);
+		expect(of('live_story').some((x) => x.story)).toBe(true);
+		expect(of('story_album').some((x) => x.media?.w && x.media.h)).toBe(true);
+		expect(of('theme').some((x) => x.theme?.background)).toBe(true);
+		expect(of('text_composition_style').some((x) => x.custom_emoji_id && x.custom_emoji)).toBe(true);
+		for (const t of ['direct_messages_chat', 'premium_gift_code', 'request_managed_bot', 'shareable_chat_folder']) expect(of(t).length, t).toBeGreaterThan(0);
 		// A preview's own medium never carries a minithumb.
 		expect(all.every((x) => !x.media?.minithumb)).toBe(true);
 	});
@@ -316,10 +333,10 @@ describe('a link preview of a later type', () => {
 });
 
 describe('a link preview on the message page', () => {
-	// The first sample message whose preview passes a test.
+	// The first sample message with a page whose preview passes a test.
 	const find = (ok: (lp: LP) => boolean) => fixture<GroupsProps>('/groups').props.rows
 		.flatMap((g) => fixture<ChatProps>(`/groups/${g.id}/chat`).props.messages)
-		.find((m) => m.link_preview && ok(m.link_preview))!;
+		.find((m) => m.link_preview && ok(m.link_preview) && fixture<MessageProps>(`/messages/group/${m.id}`).status === 200)!;
 
 	it('plays a video preview with the chat\'s video box', () => {
 		const m = find((lp) => lp.type === 'video' && !!lp.media?.url);
@@ -327,6 +344,13 @@ describe('a link preview on the message page', () => {
 		const card = document.querySelector('.c-lp')!;
 		expect(card.querySelector('a.c-videowrap video')!.getAttribute('poster')).toBe(m.link_preview!.media!.poster);
 		expect(card.querySelector('.c-lp-meta')!.textContent).toContain('Video');
+	});
+
+	it('draws a later type\'s fields, as the chat does', () => {
+		const m = find((lp) => !!lp.gift);
+		renderPage(`/messages/group/${m.id}`);
+		expect(document.querySelector('.c-lp .c-lp-gift .c-gift')).not.toBeNull();
+		expect(document.querySelector('.c-lp .c-lp-meta')!.textContent).toMatch(/^(Gift auction|Upgraded gift)$/);
 	});
 
 	it('links a Telegram message preview to the archived message', () => {
