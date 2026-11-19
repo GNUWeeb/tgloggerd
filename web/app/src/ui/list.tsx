@@ -80,9 +80,11 @@ function FilterAdd({ fields, onAdd, waiting = [], chatLabel = 'chat id' }: { fie
 	const [op, setOp] = useState<Op>(opsOf(f)[0] as Op);
 	const boolOf = (x: FieldDef) => (x.search ? '1' : 'yes');
 	const [value, setValue] = useState(f.type === 'bool' ? boolOf(f) : '');
+	// The values picked for `in` (one of).
+	const [some, setSome] = useState<string[]>([]);
 	const change = (k: string) => {
 		const nf = fields.find((x) => x.key === k) ?? first;
-		setField(k); setOp(opsOf(nf)[0] as Op);
+		setField(k); setOp(opsOf(nf)[0] as Op); setSome([]);
 		setValue(nf.type === 'bool' ? boolOf(nf) : nf.type === 'enum' ? (nf.values?.[0] ?? '') : '');
 	};
 	const own = fields.filter((x) => !x.search);
@@ -92,7 +94,7 @@ function FilterAdd({ fields, onAdd, waiting = [], chatLabel = 'chat id' }: { fie
 		<div className="a-pop-wrap">
 			<button type="button" className="a-btn a-btn-ghost" onClick={() => setOpen((o) => !o)} aria-expanded={open}><Plus size={14} />Filter</button>
 			{open && (
-				<form className="a-pop" onSubmit={(e) => { e.preventDefault(); onAdd({ field, op, value: needsValue(op) ? value : '' }); setOpen(false); }}>
+				<form className="a-pop" onSubmit={(e) => { e.preventDefault(); if (op === 'in' && !some.length) return; onAdd({ field, op, value: op === 'in' ? some : needsValue(op) ? value : '' }); setOpen(false); }}>
 					<label>Field<select value={field} onChange={(e) => change(e.target.value)}>
 						{more.length ? <><optgroup label="This list">{own.map(opt)}</optgroup><optgroup label="Advanced search">{more.map(opt)}</optgroup></> : fields.map(opt)}
 					</select></label>
@@ -100,7 +102,8 @@ function FilterAdd({ fields, onAdd, waiting = [], chatLabel = 'chat id' }: { fie
 					<label>Condition<select value={op} onChange={(e) => setOp(e.target.value as Op)}>{opsOf(f).map((o) => <option key={o}>{o}</option>)}</select></label>
 					{needsValue(op) && (
 						<label>Value
-							{f.type === 'bool' ? <select value={value} onChange={(e) => setValue(e.target.value)}>{f.search ? <><option value="1">yes</option><option value="0">no</option></> : <><option>yes</option><option>no</option></>}</select>
+							{op === 'in' ? <select multiple value={some} onChange={(e) => setSome([...e.target.selectedOptions].map((o) => o.value))}>{f.values?.map((v) => <option key={v} value={v}>{f.labels?.[v] ?? v}</option>)}</select>
+								: f.type === 'bool' ? <select value={value} onChange={(e) => setValue(e.target.value)}>{f.search ? <><option value="1">yes</option><option value="0">no</option></> : <><option>yes</option><option>no</option></>}</select>
 								: f.type === 'enum' ? <select value={value} onChange={(e) => setValue(e.target.value)}>{f.values?.map((v) => <option key={v} value={v}>{f.labels?.[v] ?? v}</option>)}</select>
 									: <input autoFocus value={value} onChange={(e) => setValue(e.target.value)} placeholder={f.type === 'date' ? (f.search ? 'YYYY-MM-DD HH:MM:SS' : 'YYYY-MM-DD') : ''} />}
 							{OP_HINT[op] && <span className="a-muted sm">{OP_HINT[op]}</span>}

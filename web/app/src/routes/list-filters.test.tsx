@@ -97,6 +97,25 @@ describe('the service and TDLib type filters', () => {
 		pick('tdlib_type');
 		expect([...valueSelect().options].map((o) => o.textContent)).toContain('messageStakeDice');
 	});
+
+	it('pick several values for one of, once the search offers in', async () => {
+		const calls = fakeApi('superadmin');
+		const p = fixture<MessagesProps>(inChat).props;
+		const fields = p.fields!.map((f) => (f.key === 'service_type' ? { ...f, operators: [...f.operators, 'in'] } : f)) as typeof p.fields;
+		renderPage(inChat, 'superadmin', { props: { ...p, fields } });
+		pick('service_type');
+		fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: 'in' } });
+		const list = screen.getByRole('listbox') as HTMLSelectElement;
+		for (const o of list.options) o.selected = o.value === 'chat_add_members' || o.value === 'pin_message';
+		fireEvent.change(list);
+		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+		await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(1));
+		const conds = lastConds(calls);
+		expect(conds.at(-1)).toEqual({ field: 'service_type', op: 'in', value: ['chat_add_members', 'pin_message'] });
+		const rows = fixture<MessagesProps>(withConds('/group_messages', conds)).props.rows as Row[];
+		expect(rows.length).toBeGreaterThan(added.filter((r) => r.chat.id === chat).length);
+		expect(rows.every((r) => ['chat_add_members', 'pin_message'].includes(r.service_type!))).toBe(true);
+	});
 });
 
 describe('the files list', () => {
