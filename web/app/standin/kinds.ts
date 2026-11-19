@@ -40,10 +40,29 @@ export const FORUM_GROUP = groups[2]!;
 // messages of its chat are polls.
 export const PUBLIC_POLLS_GROUP = groups[9]!;
 
-export const TOPICS = [
+// Custom emoji as Go resolves them for a page (telegram_custom_emoji):
+// one of each format, one repainted in the text colour, and one
+// without a file. Their files are the stand-in's own pictures and
+// Lottie circles.
+type CustomEmoji = { emoji: string; format: 'webp' | 'tgs' | 'webm' | null; url: string | null; needs_repainting: boolean };
+type Effect = { emoji: string; format: 'webp' | 'tgs' | 'webm' | null; url: string | null };
+export const CUSTOM_EMOJI: Record<'webp' | 'tgs' | 'webm' | 'repaint' | 'nofile', { id: string; e: CustomEmoji }> = {
+	webp: { id: '5368324170671202286', e: { emoji: '🎉', format: 'webp', url: '/files/standin-987001', needs_repainting: false } },
+	tgs: { id: '5368324170671202287', e: { emoji: '🔥', format: 'tgs', url: '/files/standin-987002.tgs', needs_repainting: false } },
+	webm: { id: '5368324170671202288', e: { emoji: '⭐', format: 'webm', url: '/files/standin-987003', needs_repainting: false } },
+	repaint: { id: '5368324170671202289', e: { emoji: '✅', format: 'webp', url: '/files/standin-987004', needs_repainting: true } },
+	nofile: { id: '5368324170671202290', e: { emoji: '🙂', format: null, url: null, needs_repainting: false } },
+};
+// An id the archive does not know yet: Go sends null beside it.
+export const UNKNOWN_EMOJI_ID = '5368324170671202299';
+
+type Topic = { id: number; name: string; icon_color: number; icon_custom_emoji_id: string | null; icon_custom_emoji: CustomEmoji | null; closed: boolean; hidden: boolean };
+// The forum's topics: one with a custom icon, one whose icon is not
+// known yet (drawn with its colour), one with only a colour.
+export const TOPICS: Topic[] = [
 	{ id: 1, name: 'General', icon_color: 0x6fb9f0, icon_custom_emoji_id: null, icon_custom_emoji: null, closed: false, hidden: false },
-	{ id: 12, name: 'Help and questions', icon_color: 0xffd67e, icon_custom_emoji_id: null, icon_custom_emoji: null, closed: false, hidden: false },
-	{ id: 25, name: 'Off-topic', icon_color: 0xcb86db, icon_custom_emoji_id: null, icon_custom_emoji: null, closed: true, hidden: false },
+	{ id: 12, name: 'Help and questions', icon_color: 0xffd67e, icon_custom_emoji_id: CUSTOM_EMOJI.tgs.id, icon_custom_emoji: CUSTOM_EMOJI.tgs.e, closed: false, hidden: false },
+	{ id: 25, name: 'Off-topic', icon_color: 0xcb86db, icon_custom_emoji_id: UNKNOWN_EMOJI_ID, icon_custom_emoji: null, closed: true, hidden: false },
 ];
 export const topicsOf = (chat: { id: number; kind: string }) => (chat.kind === 'group' && chat.id === FORUM_GROUP.id ? TOPICS : []);
 export const topicOf = (m: { chat: { id: number; kind: string }; message_id: number }): number | null => {
@@ -83,9 +102,6 @@ type ServicePart = { text: string; user?: number; chat?: number };
 // detail is the action's stored detail, absent when there is none.
 type Service = { type: string; text: string; parts?: ServicePart[]; refs: { users: Ref[]; chats: Ref[]; message_id: number | null }; detail?: unknown };
 type Kinds = { pinned: boolean; views: number | null; forwards: number | null; replies: number | null; reactions: { emoji?: string; custom_emoji_id?: string; custom_emoji?: CustomEmoji | null; paid?: boolean; count: number }[]; effect_id: string | null; effect: Effect | null };
-// A custom emoji and a message effect as Go resolves them for a page.
-type CustomEmoji = { emoji: string; format: 'webp' | 'tgs' | 'webm' | null; url: string | null; needs_repainting: boolean };
-type Effect = { emoji: string; format: 'webp' | 'tgs' | 'webm' | null; url: string | null };
 
 // Entities over a text: each part is found in the text (after the
 // previous one's start) and given its UTF-16 offset and length, as the
@@ -109,7 +125,18 @@ const seen = (v: View, id: number) => (v.user(id) ? id : null);
 // escaped comma, and a second number and an address beyond the one
 // number the card shows. Synthetic numbers and example.org only.
 const CONTACT_VCARD = 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Contact\r\nTEL;TYPE=CELL:+6281200000101\r\nTEL;TYPE=WORK:+62 21 0000 0202\r\nEMAIL;TYPE=INTERNET:contact.sample@exam\r\n ple.org\r\nORG:Sample Works\\, Ltd;Field Team\r\nEND:VCARD\r\n';
-const REACTIONS = [{ emoji: '👍', count: 12 }, { emoji: '🔥', count: 5 }, { custom_emoji_id: '5368324170671202286', custom_emoji: null, count: 3 }, { paid: true, count: 2 }];
+const REACTIONS = [{ emoji: '👍', count: 12 }, { emoji: '🔥', count: 5 }, { custom_emoji_id: UNKNOWN_EMOJI_ID, custom_emoji: null, count: 3 }, { paid: true, count: 2 }];
+// A text in custom emoji of every kind, as entities carry them.
+const EMOJI_TEXT = 'Custom emoji: 🎉 a picture, 🔥 an animation, ⭐ a video, ✅ in the text colour, 🙂 without a file, ❓ not known yet.';
+const emojiPart = (k: keyof typeof CUSTOM_EMOJI): Part => [CUSTOM_EMOJI[k].e.emoji, 'custom_emoji', { custom_emoji_id: CUSTOM_EMOJI[k].id, custom_emoji: CUSTOM_EMOJI[k].e }];
+// A message effect with its small picture (telegram_message_effects).
+const EFFECT = { id: '5104841245755180586', effect: { emoji: '🔥', format: 'webp' as const, url: '/files/standin-987010' } };
+// Custom emoji in a text and in reactions, and a message effect.
+export const EMOJI_SAMPLE: Sample = {
+	content_type: 'text', text: EMOJI_TEXT,
+	entities: () => entitiesIn(EMOJI_TEXT, [emojiPart('webp'), emojiPart('tgs'), emojiPart('webm'), emojiPart('repaint'), emojiPart('nofile'), ['❓', 'custom_emoji', { custom_emoji_id: UNKNOWN_EMOJI_ID, custom_emoji: null }]]),
+	kinds: { reactions: [{ custom_emoji_id: CUSTOM_EMOJI.tgs.id, custom_emoji: CUSTOM_EMOJI.tgs.e, count: 7 }, { custom_emoji_id: CUSTOM_EMOJI.webp.id, custom_emoji: CUSTOM_EMOJI.webp.e, count: 3 }, { emoji: '👍', count: 2 }], effect_id: EFFECT.id, effect: EFFECT.effect },
+};
 const poll = (question: string, type: 'regular' | 'quiz', opts: string[], extra = {}) => () => {
 	const votes = opts.map((_, i) => (opts.length - i) * 7 + (i % 3));
 	const total = votes.reduce((a, b) => a + b, 0);
@@ -181,7 +208,7 @@ function samples(): Sample[] {
 			[nameOf(b!), 'mention_name', { user_id: seen(v, b!) }], [nameOf(y!), 'mention_name', { user_id: seen(v, y!) }],
 			['#release', 'hashtag'], ['$TGD', 'cashtag'], ['/status@tgd_bot', 'bot_command'], ['team@example.org', 'email'], ['+62 812 0000 0199', 'phone_number'],
 			['Bold with italic inside', 'bold'], ['italic', 'italic'], ['underlined', 'underline'], ['struck', 'strikethrough'], ['a hidden ending', 'spoiler'],
-			['inline code', 'code'], ['🎉', 'custom_emoji', { custom_emoji_id: '5368324170671202286', custom_emoji: null }], ['1:05', 'media_timestamp'],
+			['inline code', 'code'], ['🎉', 'custom_emoji', { custom_emoji_id: UNKNOWN_EMOJI_ID, custom_emoji: null }], ['1:05', 'media_timestamp'],
 			['4242 4242 4242 4242', 'bank_card_number'], ['a future kind', 'unknown'], ['a sneaky link', 'text_url', { url: 'javascript:alert(1)' }],
 		]).concat([{ offset: formatted.length - 'bold to the end'.length, length: 500, type: 'bold' }]) },
 		{ content_type: 'text', text: codeText, entities: () => entitiesIn(codeText, [
@@ -191,7 +218,7 @@ function samples(): Sample[] {
 		{ content_type: 'text', text: editedText, entities: () => entitiesIn(editedText, [['Friday', 'bold'], ['the usual place', 'text_url', { url: 'https://example.org/place' }]]),
 			edited_at: '2026-11-16T08:05:00Z', edits: () => [{ at: '2026-11-16T08:00:00Z', text: 'The meetup is on Thursday, see #meetup.', content_type: 'text', detail: null, entities: entitiesIn('The meetup is on Thursday, see #meetup.', [['Thursday', 'italic'], ['#meetup', 'hashtag']]) }] },
 		{ content_type: 'video_note', media: { round: true } },
-		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.2088, lon: 106.8456, accuracy: null, live: null }), kinds: { reactions: [{ emoji: '📍', count: 2 }] } },
+		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.2088, lon: 106.8456, accuracy: null, live: null }), kinds: { reactions: [{ emoji: '📍', count: 2 }], effect_id: '5104841245755180587', effect: null } },
 		// A live location with its 17 earlier positions, one a minute.
 		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.9175, lon: 107.6191, accuracy: 12, live: { period: 3600, heading: 90, proximity_radius: 0, updates: 17 } }),
 			edited_at: '2026-11-16T07:17:00Z', edits: () => Array.from({ length: 17 }, (_, i) => ({
@@ -275,6 +302,10 @@ function table(): Map<string, Sample> {
 		byKey!.set(`group${KINDS_GROUP.id}:${m.message_id}`, s);
 	});
 	const older = all.slice(0, start).filter((m: { content_type: string }) => m.content_type === 'service').reverse();
+	// The custom emoji sample takes the newest text message before the
+	// samples, so no other sample moves.
+	const plain = all.slice(0, start).reverse().find((m: { content_type: string }) => m.content_type === 'text');
+	if (plain) byKey.set(`group${KINDS_GROUP.id}:${plain.message_id}`, EMOJI_SAMPLE);
 	namingSamples().forEach((s, i) => {
 		const m = older[i];
 		if (m) byKey!.set(`group${KINDS_GROUP.id}:${m.message_id}`, s);
