@@ -12,12 +12,10 @@ again, which also changes who exposed it and when.
 
 ## Scope
 
-- Go (webapi): `PATCH /api/mcp/groups/{id}` with `{note}`, under the
-  same permission as exposing a group, clipped to the note's limit,
-  audited as `mcp_note` with the old and new note; it changes neither
-  who exposed the group nor when. OpenAPI and web/docs/mcp.md follow.
 - React (frontend): an edit action on each row of /mcp-admin/groups
-  that opens the note in a small form, saved in place.
+  that opens the note in a small form, saved in place through
+  `PATCH /api/mcp/groups/{group_id}` (operation setMcpGroupNote in
+  webapi/openapi.yaml; already served by the Go service).
 
 ## Depends on
 
@@ -27,5 +25,4 @@ Nothing.
 
 - A note edited on /mcp-admin/groups is saved and shown, the group
   keeps its exposer and date, and the audit log records the change.
-- Go tests cover the edit, the clip, an unknown group and a viewer
-  without the permission; React tests cover the form.
+- React tests cover the form.
