@@ -221,6 +221,16 @@ func TestFwdTypesMigrationCopiesFlags(t *testing.T) {
 	}
 	up, down := migrationFile(t, "up"), migrationFile(t, "down")
 
+	// A later migration adds Discord route flags after these; undo it
+	// first, so this one's down and up run on the schema they expect.
+	if later, _ := filepath.Glob("../../../migrations/*_discord_forward_more_kinds.down.sql"); len(later) == 1 {
+		b, err := os.ReadFile(later[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(string(b))
+	}
+
 	// Back to the schema before it, with routes as they were then.
 	exec(down)
 	exec("INSERT INTO telegram_discord_webhooks (id, telegram_chat_id, telegram_chat_type, " +
