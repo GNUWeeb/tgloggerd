@@ -470,7 +470,7 @@ std::string DiscordD::Impl::render(const gwdiscord::Message &m,
 
 	/* Media goes across as a link line each; the flags pick the lines. */
 	for (const auto &a : m.attachments) {
-		if (!(types & attachment_type(a)))
+		if (!(types & attachment_type(m, a)))
 			continue;
 		if (!body.empty() && body.back() != '\n')
 			body += "\n";
