@@ -8,7 +8,6 @@ import { MEMBER_SAMPLES as M, membersApi } from '../../standin/members.ts';
 import { compact, fmt } from '../format.ts';
 import type { GroupMembersProps, GroupProps } from './group.tsx';
 import type { GroupsProps } from './groups.tsx';
-import type { MessagesProps } from './messages.tsx';
 
 beforeEach(setup);
 const sub = () => document.querySelector('.c-head .c-sub')!.textContent;
@@ -149,50 +148,18 @@ describe('Members tab', () => {
 	});
 });
 
-describe('member list prefetch', () => {
-	const asked = (calls: ReturnType<typeof fakeApi>) => callsTo(calls, 'GET', /^\/api\/groups\/-?\d+\/members$/);
+// The member list is an expensive Telegram call for the logging
+// account: it is asked for only by the Members tab, never by opening
+// the chat.
+describe('opening a group chat', () => {
+	const asked = (calls: ReturnType<typeof fakeApi>) => calls.filter((c) => c.path.includes('/members'));
 
-	it.each(['superadmin', 'admin'] as const)('asks for a group\'s first page once when its chat opens, as %s', async (who) => {
+	it.each(['superadmin', 'admin'] as const)('asks for no member list, as %s', async (who) => {
 		const calls = fakeApi(who, { 'GET /api/groups/:id/members': answer(M.LONG) });
-		// An old #msg- link: the chat moves to ?at= at once, a new page of
-		// the same chat, which asks no more.
-		renderPage(`/groups/${M.LONG}/chat#msg-1`, who);
-		await waitFor(() => expect(callsTo(calls, 'GET', `/api/page/groups/${M.LONG}/chat`)).toHaveLength(1));
-		await waitFor(() => expect(asked(calls)).toHaveLength(1));
-		expect(asked(calls)[0]!.path).toBe(`/api/groups/${M.LONG}/members`);
-		expect(asked(calls)[0]!.query.get('offset')).toBe('0');
-		expect(asked(calls)[0]!.query.get('limit')).toBe('50');
-		await new Promise((r) => setTimeout(r, 50));
-		expect(asked(calls)).toHaveLength(1);
-	});
-
-	it('ignores a failed answer', async () => {
-		const calls = fakeApi('superadmin', { 'GET /api/groups/:id/members': () => json(503, { error: 'unavailable' }) });
-		renderPage(`/groups/${M.LONG}/chat`);
-		await waitFor(() => expect(asked(calls)).toHaveLength(1));
-		await new Promise((r) => setTimeout(r, 20));
-		expect(screen.queryByRole('alert')).toBeNull();
+		renderPage(`/groups/${M.LONG}/chat`, who);
+		await new Promise((r) => setTimeout(r, 100));
+		expect(asked(calls)).toHaveLength(0);
 		expect(document.querySelector('.c-head h1')).toBeTruthy();
-	});
-
-	it('asks nothing for a member, a signed-out visitor or a private chat', async () => {
-		const id = fixture<GroupsProps>('/groups', 'member').props.rows[0]!.id;
-		let calls = fakeApi('member');
-		let r = renderPage(`/groups/${id}/chat`, 'member');
-		await new Promise((res) => setTimeout(res, 50));
-		expect(asked(calls)).toHaveLength(0);
-		r.unmount();
-		const exposed = fixture<GroupsProps>('/groups').props.rows.find((g) => g.exposed)!.id;
-		calls = fakeApi('public');
-		r = renderPage(`/groups/${exposed}/chat`, 'public');
-		await new Promise((res) => setTimeout(res, 50));
-		expect(asked(calls)).toHaveLength(0);
-		r.unmount();
-		const user = fixture<MessagesProps>('/private_messages').props.rows[0]!.chat.id;
-		calls = fakeApi('superadmin');
-		renderPage(`/users/${user}/chat`);
-		await new Promise((res) => setTimeout(res, 50));
-		expect(calls.filter((c) => c.path.includes('/members'))).toHaveLength(0);
 	});
 });
 

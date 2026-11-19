@@ -12,7 +12,6 @@ import { FetchButton, needsFetch, useFetched } from '../ui/fetchfile.tsx';
 import { LinkPreview } from './chat-preview.tsx';
 import { Counts, EffectMark, KindDetail, KindFallback, Reactions, TopicStrip, TopicTag, richPage, textInside } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
-import { fetchMembers, seesMembers } from '../api/members.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
 import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
@@ -268,14 +267,6 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		const h = /^#msg-(\d+)$/.exec(location.hash);
 		if (h) navigate(setQuery(page.url, { at: Number(h[1]), date: undefined, after: undefined, after_ts: undefined }), { replace: true, scroll: false });
 	}, []);
-
-	// Ask for the group's member list in the background, once per chat
-	// opened, so the service has it at hand when the group page's
-	// Members tab is opened next. Nobody waits for it: not tracked, not
-	// aborted, answer and errors ignored.
-	useEffect(() => {
-		if (isGroup && seesMembers(v)) fetchMembers(chatId).catch(() => {});
-	}, [isGroup, chatId]);
 
 	// A new page (another chat, or ?at=) replaces the window.
 	useEffect(() => {
