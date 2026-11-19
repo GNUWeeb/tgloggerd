@@ -126,7 +126,10 @@ a list can label the row; it is null on every other row.
 The logger's own description of an action (the text column) names
 nobody: "added 2 members to the group". Where the action names people,
 the service rebuilds the text for the viewer with the names it may see
-and a count of the others, never their names:
+and a count of the others, never their names. Where its detail says
+more than the description (a period, a distance, a checklist's tasks,
+a giveaway's prize), the rebuilt text says it too, with or without
+names:
 
 | Action | Text |
 |---|---|
@@ -136,6 +139,21 @@ and a count of the others, never their names:
 | invite_video_chat_participants | invited ... to the video chat |
 | giveaway_winners | announced the winners of the giveaway in <chat>: ... |
 | chat_shared | shared <chat> with the bot |
+| chat_set_message_auto_delete_time | set messages to auto-delete after 1 day[, the default setting of <user>] (the period in the largest whole unit: seconds to years) |
+| proximity_alert_triggered | came within 120 metres of <user or chat>; "reported that <traveler> came within ..." when the traveler is not the sender |
+| users_shared | shared Bima Pratama and 1 other user with the bot |
+| gifted_premium, gifted_stars | gifted a Telegram Premium subscription for 3 months / gifted 500 Telegram Stars [from <gifter>] [to <receiver>] |
+| gift | sent a gift [from <sender>] [to <receiver>] |
+| managed_bot_created | created the bot <bot> |
+| checklist_tasks_done | marked "Task 2" and "Task 3" as done and "Task 1" as not done (the texts from the checklist message when the archive has it, else "2 tasks") |
+| checklist_tasks_added | added "Write notes" to the checklist |
+| suggest_birthdate | suggested a birthdate: 14 March 1995 |
+| giveaway_created | created a giveaway of 500 Telegram Stars |
+| giveaway_completed | the giveaway of Telegram Premium for 6 months and Stickers was completed with 3 winners and 1 unclaimed prize (a sentence, without an actor; the prize from the giveaway message when the archive has it) |
+
+A gift's giver is named only when it is not the message's sender,
+whom the line follows. A line quotes at most three tasks and counts the
+others.
 
 When nothing visible can be named, and for rows logged before
 migration 000034, the stored description is sent as it is. A member

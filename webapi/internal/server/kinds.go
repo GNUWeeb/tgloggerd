@@ -198,6 +198,10 @@ type kinds struct {
 	polls   map[int64]*logdb.Poll
 	users   map[int64]logdb.User  // the visible ones
 	groups  map[int64]logdb.Group // the visible ones, and the chat itself
+	// targets are the messages of the chat that service actions are
+	// about and whose detail their text quotes (servicetext.go: a
+	// checklist, a giveaway), by message id.
+	targets map[int64]*kindExtra
 	// mentions are the people the text entities name
 	// (textentities.go).
 	mentions textMentions
@@ -257,6 +261,9 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 		}
 	}
 	var err error
+	if k.targets, err = s.loadServiceTargets(ctx, chat, ms, k.service); err != nil {
+		return k, err
+	}
 	if k.polls, err = logdb.PollsByID(ctx, s.ro, polls); err != nil {
 		return k, err
 	}

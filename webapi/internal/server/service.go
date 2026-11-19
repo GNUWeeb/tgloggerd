@@ -294,6 +294,11 @@ func (v view) serviceParts(k kinds, m logdb.Message, x *serviceExtra) []serviceP
 				return line(plain("shared "), n, plain(" with the bot"))
 			}
 		}
+	case "chat_set_message_auto_delete_time", "proximity_alert_triggered", "users_shared",
+		"gifted_premium", "gifted_stars", "gift", "managed_bot_created",
+		"checklist_tasks_done", "checklist_tasks_added", "suggest_birthdate",
+		"giveaway_created", "giveaway_completed":
+		return v.serviceTextParts(k, m, x)
 	}
 	return nil
 }
