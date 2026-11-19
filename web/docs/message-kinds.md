@@ -50,7 +50,9 @@ of messages.
   is the message text.
 - `contact`: the names, and the phone number and vCard only for
   viewers that see users in full (superadmins and admins), as users'
-  phones; a member gets null for both.
+  phones; a member gets null for both. The chat reads the vCard for
+  its other numbers, e-mail addresses and organisation, and offers it
+  as a `.vcf` download.
 - `rich`, `widget`, `expired`, `unsupported`: the kind alone; the chat
   shows a one-line placeholder.
 

@@ -101,6 +101,10 @@ const handleOf = (id: number) => (getUser(id) as { username?: string } | undefin
 // or nothing (a mention by @username), as Go answers.
 const seen = (v: View, id: number) => (v.user(id) ? id : null);
 
+// A contact's vCard as a phone writes it: CRLF, a folded line, an
+// escaped comma, and a second number and an address beyond the one
+// number the card shows. Synthetic numbers and example.org only.
+const CONTACT_VCARD = 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Contact\r\nTEL;TYPE=CELL:+6281200000101\r\nTEL;TYPE=WORK:+62 21 0000 0202\r\nEMAIL;TYPE=INTERNET:contact.sample@exam\r\n ple.org\r\nORG:Sample Works\\, Ltd;Field Team\r\nEND:VCARD\r\n';
 const REACTIONS = [{ emoji: '👍', count: 12 }, { emoji: '🔥', count: 5 }, { custom_emoji_id: '5368324170671202286', count: 3 }, { paid: true, count: 2 }];
 const poll = (question: string, type: 'regular' | 'quiz', opts: string[], extra = {}) => () => {
 	const votes = opts.map((_, i) => (opts.length - i) * 7 + (i % 3));
@@ -186,7 +190,7 @@ function samples(): Sample[] {
 		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.2088, lon: 106.8456, accuracy: null, live: null }), kinds: { reactions: [{ emoji: '📍', count: 2 }] } },
 		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.9175, lon: 107.6191, accuracy: 12, live: { period: 3600, heading: 90, proximity_radius: 0, updates: 17 } }) },
 		{ content_type: 'venue', detail: () => ({ kind: 'venue', lat: -6.1754, lon: 106.8272, title: 'Monas', address: 'Gambir, Central Jakarta', provider: 'foursquare', venue_id: '4b0588f0f964a520a6d822e3', venue_type: 'arts_entertainment/monument' }) },
-		{ content_type: 'contact', detail: (v) => ({ kind: 'contact', first_name: nameOf(a!).split(' ')[0] ?? 'Dewi', last_name: nameOf(a!).split(' ').slice(1).join(' '), phone: v.full ? '+62 812 0000 0101' : null, vcard: v.full ? 'BEGIN:VCARD\nVERSION:3.0\nTEL:+6281200000101\nEND:VCARD' : null, user: withPhoto(refOf(v, a!)) }) },
+		{ content_type: 'contact', detail: (v) => ({ kind: 'contact', first_name: nameOf(a!).split(' ')[0] ?? 'Dewi', last_name: nameOf(a!).split(' ').slice(1).join(' '), phone: v.full ? '+62 812 0000 0101' : null, vcard: v.full ? CONTACT_VCARD : null, user: withPhoto(refOf(v, a!)) }) },
 		{ content_type: 'dice', detail: () => ({ kind: 'dice', emoji: '🎲', value: 4, stake: false }) },
 		{ content_type: 'dice', detail: () => ({ kind: 'dice', emoji: '', value: 6, stake: true }) },
 		{ content_type: 'game', text: 'Beat my score!', detail: () => ({ kind: 'game', title: 'Lumberjack', description: 'Chop the tree, dodge the branches.', short_name: 'lumberjack', photo: GAME_COVER }) },

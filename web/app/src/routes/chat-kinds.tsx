@@ -13,6 +13,7 @@ import { compact, dateTime, fmt } from '../format.ts';
 import { TypeIcon, duration, type ContentType } from '../ui/media.tsx';
 import { contentLabel } from '../ui/labels.ts';
 import { PaidMedia } from './chat-paid.tsx';
+import { VcardExtra } from './chat-vcard.tsx';
 import { Animation, Picture, type Media } from './chat-media.tsx';
 import type { Viewer } from '../page.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
@@ -182,6 +183,7 @@ export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; t
 					<div className="a-minw">
 						<Head icon={Contact}>{d.user ? <Link to={refHref(d.user)} className="a-rowlink">{name}</Link> : name}</Head>
 						{d.phone && <div className="mono">{d.phone}</div>}
+						<VcardExtra vcard={d.vcard} phone={d.phone} name={name} />
 					</div>
 				</div>
 			);
