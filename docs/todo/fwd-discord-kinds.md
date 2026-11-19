@@ -26,6 +26,8 @@ left these to this item.
 - Migration: the four flags on `discord_telegram_routes`, `voice`
   copying `fwd_audio`, the other three copying `fwd_text`, so no route
   changes what it forwards.
+  Done: gwdiscord, discordd and the migration (000050); what each part
+  follows and is sent as is in message-types.md section 4.10.
 - Go and React: the new types in the direction's `type_options`, the
   form and the list, as fwd-more-types set them up.
 
