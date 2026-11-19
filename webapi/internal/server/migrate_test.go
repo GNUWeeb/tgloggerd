@@ -403,3 +403,66 @@ func TestMigrationAddsMemberGrants(t *testing.T) {
 		t.Fatalf("%d tables left after the down migration, %v", left, err)
 	}
 }
+
+// Web migration 000018 adds the configurations' federations, empty:
+// every configuration stays in Default until one is filed elsewhere.
+// A row needs its federation and goes with it. Its down migration
+// drops the table again, and up applies once more after it.
+func TestMigrationAddsResourceFederations(t *testing.T) {
+	t.Parallel()
+	db := emptyAppDB(t)
+	migrateAppDB(t, db, "000014")
+	if _, err := db.Exec("INSERT INTO web_federations (id, name) VALUES (1, 'Kernel')"); err != nil {
+		t.Fatal(err)
+	}
+	up, err := os.ReadFile("../../../web/migrations/000018_create_resource_federations.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, err := os.ReadFile("../../../web/migrations/000018_create_resource_federations.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for round := 0; round < 2; round++ {
+		if _, err := db.Exec(string(up)); err != nil {
+			t.Fatalf("up %d: %v", round, err)
+		}
+		var n int
+		if err := db.QueryRow("SELECT COUNT(*) FROM web_resource_federations").Scan(&n); err != nil || n != 0 {
+			t.Fatalf("%d rows after up, %v", n, err)
+		}
+		ins := func(id int64, fed uint64) error {
+			_, err := db.Exec("INSERT INTO web_resource_federations (resource_type, resource_id, "+
+				"federation_id) VALUES ('t2d_webhook', ?, ?)", id, fed)
+			return err
+		}
+		if err := ins(1, 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := ins(1, 1); err == nil {
+			t.Error("two federations for one configuration")
+		}
+		if err := ins(2, 9); err == nil {
+			t.Error("a federation that does not exist")
+		}
+		if round == 0 {
+			if _, err := db.Exec("DELETE FROM web_federations WHERE id = 1"); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.QueryRow("SELECT COUNT(*) FROM web_resource_federations").Scan(&n); err != nil || n != 0 {
+				t.Errorf("%d rows after deleting the federation, %v", n, err)
+			}
+			if _, err := db.Exec("INSERT INTO web_federations (id, name) VALUES (1, 'Kernel')"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := db.Exec(string(down)); err != nil {
+			t.Fatalf("down %d: %v", round, err)
+		}
+		if err := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables " +
+			"WHERE table_schema = DATABASE() AND table_name = 'web_resource_federations'").Scan(&n); err != nil ||
+			n != 0 {
+			t.Fatalf("%d tables left after the down migration, %v", n, err)
+		}
+	}
+}
