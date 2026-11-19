@@ -10,36 +10,25 @@ per-user configurations (docs/design/web-accounts.md section 6).
 
 ## Scope
 
-- Owner and federation for Telegram to Discord webhooks, Discord to
-  Telegram routes and Telegram bots. Owners are recorded already
-  (webapi/internal/webdb/ownership.go: set on creation, answered in
-  the lists, TransferOwner and OwnedBy ready), and a member with
-  `forward` already sees and changes only the configurations it owns,
-  in its granted groups (webapi/internal/server/forwarding.go,
-  fwdVisible); what is left is the federation and the transfer
-  operations.
-- A member with `forward` creates configurations for its granted
-  groups only and sees only its own; bot tokens never reveal or reuse
-  another owner's bot.
-- Admins see all configurations except those touching a group hidden
-  from them (404), and transfer ownership within their federations;
-  superadmins see and transfer all.
-- A disabled owner's configurations keep running, flagged "owner
-  disabled".
-- A configuration's federation is asked for at creation only when more
-  than one of the owner's federations holds its group. Transfer
-  candidates: for an admin, the federation's admins and its members
-  holding `forward`; for a superadmin, any active account.
-- Existing configurations go into the Default federation; their
-  owner, the superadmin, is given by `webapi assign-owner` at
-  deployment (web/docs/accounts.md, Ownership).
-- `web/docs/platform-forwarding.md` updated.
+The Go service serves all of it (web/docs/platform-forwarding.md):
+owners, federations chosen at creation (`GET
+/api/forwarding/federations`, web migration 000018), the transfer
+operations with their candidates, and the "owner disabled" flag
+(`owner.active`). What is left is the React app
+(web/app/src/routes/forwarding.tsx):
+
+- Ask for the federation only when `GET
+  /api/forwarding/federations?chat_id=` answers more than one for the
+  picked chat, offering those choices, instead of showing the select
+  whenever the page's `federations` has two or more.
+- Serve the transfer dialog (`ROUTE_TRANSFER_SERVED`): offer
+  `transfer_candidates`, and show 409 `bot_not_owned` on a route given
+  to a member that does not own its bots.
 
 ## Design notes
 
-- The daemons keep reading the same tables; only the web changes,
-  unless an owner or federation column in the logger DB proves
-  simpler (decide when building, additive migration).
+- The daemons keep reading the same tables; the federation lives in
+  the web's database (`web_resource_federations`).
 
 ## Depends on
 
