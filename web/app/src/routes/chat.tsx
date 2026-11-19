@@ -265,18 +265,48 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		} finally { busy.current = false; }
 	}, [msgs, older, scope, chatId, topic]);
 
+	// The messages after the window, when it does not end at the newest
+	// (opened at the oldest, at a message, a date or a time, or left
+	// behind by the live tail): fetched from the last message's id, the
+	// cursor, never a row id, which later backfills leave out of order.
+	// Appended below, they leave the reader where it was. Once the newest
+	// is reached, the view follows the live tail (following, below).
+	const loadNewer = useCallback(async () => {
+		const last = msgs[msgs.length - 1];
+		if (!last || !newer || busy.current) return;
+		busy.current = true;
+		try {
+			const w = await track(fetchChatWindow(scope, chatId, { after: last.message_id }, 60, undefined, topic));
+			const have = new Set(msgsRef.current.map((c) => c.id));
+			msgsRef.current = [...msgsRef.current, ...w.messages.filter((x) => !have.has(x.id))];
+			setMsgs(msgsRef.current);
+			setNewer(w.has_newer);
+		} catch { /* not reached: the next scroll asks again */ } finally { busy.current = false; }
+	}, [msgs, newer, scope, chatId, topic]);
+
 	useEffect(() => {
 		const el = scroller.current;
 		if (!el) return;
 		const on = () => {
-			const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+			const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+			const bottom = fromBottom < 80;
 			setAtBottom(bottom);
 			if (bottom) setUnseen(0);
-			if (el.scrollTop < 300 && prefs(v).autoLoad) void loadOlder();
+			if (!prefs(v).autoLoad) return;
+			// Both ends may be near in a short window; the busy guard runs one
+			// at a time, and the next scroll asks again.
+			if (el.scrollTop < 300) void loadOlder();
+			if (fromBottom < 300) void loadNewer();
 		};
 		el.addEventListener('scroll', on, { passive: true });
 		return () => el.removeEventListener('scroll', on);
-	}, [loadOlder]);
+	}, [loadOlder, loadNewer]);
+
+	// A window too short to scroll gives no scroll event: load on.
+	useEffect(() => {
+		const el = scroller.current;
+		if (el && newer && prefs(v).autoLoad && el.scrollHeight - el.clientHeight < 300) void loadNewer();
+	}, [msgs, newer, loadNewer]);
 
 	// The live tail (web-live-client.md section 4). New messages are
 	// fetched from the cursor and appended: at the bottom the view
@@ -392,6 +422,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 				<div className="c-feed">
 					{older ? (prefs(v).autoLoad ? <div className="c-loading">Loading older messages...</div> : <div className="c-loading"><button type="button" className="a-link" onClick={() => void loadOlder()}>Load older messages</button></div>) : <div className="c-start">Beginning of the archived history</div>}
 					<Feed msgs={msgs} v={v} isGroup={isGroup} flash={flash} onReply={onReply} tag={tagOf} />
+					{newer && (prefs(v).autoLoad ? <div className="c-loading">Loading newer messages...</div> : <div className="c-loading"><button type="button" className="a-link" onClick={() => void loadNewer()}>Load newer messages</button></div>)}
 				</div>
 			</div>
 			{(!atBottom || newer) && <button type="button" className="c-tobottom" aria-label={unseen ? `Jump to latest, ${unseen} new` : 'Jump to latest'} onClick={toLatest}><ChevronDown size={22} />{unseen > 0 && <span className="c-unseen">{unseen > 99 ? '99+' : unseen}</span>}</button>}

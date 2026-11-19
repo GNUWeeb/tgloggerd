@@ -142,3 +142,23 @@ test('a forum chat shows one topic at a time', async ({ page }) => {
 	expect((await page.request.get(`/api/chats/private/${pm}/messages`)).status()).toBe(200);
 	expect((await page.request.get(`/api/chats/private/${pm}/messages?topic=12`)).status()).toBe(400);
 });
+
+test('a chat opened at its oldest messages loads on downwards to the newest', async ({ page, request }) => {
+	const G = -1001337794619;
+	const newest = (await (await request.get(`/api/chats/group/${G}/messages?limit=1`, { headers: { cookie: 'tgd_as=superadmin' } })).json()).messages[0].message_id as number;
+	await page.goto(`/groups/${G}/chat?after=0`);
+	const bubbles = page.locator('.c-feed [id^="m"]');
+	await expect(bubbles.first()).toBeVisible();
+	const first = await bubbles.count();
+	const scroller = page.locator('.c-scroll');
+	// Scroll to the bottom until the newest message is there; each time
+	// the window grows below.
+	for (let i = 0; i < 12 && !(await page.locator(`#m${newest}`).count()); i++) {
+		await scroller.evaluate((e) => { e.scrollTop = e.scrollHeight; });
+		await page.waitForTimeout(250);
+	}
+	await expect(page.locator(`#m${newest}`)).toBeAttached();
+	expect(await bubbles.count()).toBeGreaterThan(first + 60);
+	await expect(page.getByText('Loading newer messages...')).toHaveCount(0);
+	await expect(page.getByText('Beginning of the archived history')).toBeAttached();
+});
