@@ -1,15 +1,18 @@
 // A group's Telegram members: the count in the chat's head, the list
-// prefetched by the chat and shown on the group page's Members tab, and
-// a superadmin hiding a channel's list.
+// on the group page's Members tab (asked for there only, never by the
+// chat), and a superadmin hiding a channel's list.
 import { test, expect } from './fixtures.ts';
 import { MEMBER_SAMPLES as M, membersApi } from '../standin/members.ts';
 
-test('a group chat prefetches its members, and the Members tab pages them', async ({ page }) => {
+test('a group chat asks for no member list, and the Members tab pages them', async ({ page }) => {
 	const id = M.LONG;
-	const prefetch = page.waitForRequest((r) => r.url().includes(`/api/groups/${id}/members`));
+	const asked: string[] = [];
+	page.on('request', (r) => { if (r.url().includes(`/api/groups/${id}/members`)) asked.push(r.url()); });
 	await page.goto(`/groups/${id}/chat`);
-	await prefetch;
 	await expect(page.locator('.c-head .c-sub')).toHaveText(/^supergroup \. [\d,]+ members \. [\d,]+ members seen \. [\d,]+ messages$/);
+	// The prefetch went out at once after the page drew; give it time.
+	await page.waitForTimeout(1000);
+	expect(asked).toEqual([]);
 	await page.locator('.c-head a.c-head-link').click();
 	await page.getByRole('link', { name: /^Members/ }).click();
 	await expect(page).toHaveURL(new RegExp(`/groups/${id}/members$`));
