@@ -7,7 +7,7 @@ import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
 import { MessageMedia, kindOf } from './chat-media.tsx';
-import { Counts, KindDetail, Reactions, TEXT_INSIDE } from './chat-kinds.tsx';
+import { Counts, KindDetail, Reactions, TEXT_INSIDE, topicColor } from './chat-kinds.tsx';
 import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
 import { entitiesOf } from '../api/entities.ts';
@@ -18,9 +18,10 @@ import type { S } from '../api/schema.ts';
 
 export type MessageProps = S['MessageProps'];
 
-// The link preview, as the chat gives it. Until openapi.yaml has it on
-// MessageFull it is typed here; drop this once it does.
-type PageMessage = MessageFull & { link_preview?: ChatMessage['link_preview'] };
+// The link preview and the forum topic, as the chat gives them. Until
+// openapi.yaml has them on MessageFull they are typed here; drop this
+// once it does.
+type PageMessage = MessageFull & { link_preview?: ChatMessage['link_preview']; topic?: S['ChatTopic'] | null };
 
 const ORIGIN = { user: 'a user', hidden_user: 'a user who hides their account', chat: 'a group', channel: 'a channel' } as const;
 
@@ -143,7 +144,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						m.forwarded ? [null, 'Forwarded from', fromLink] : null,
 						m.author_signature ? [null, 'Signature', m.author_signature] : null,
 						svcType ? [null, 'Service action', svcType, true] : null,
-						m.topic_id !== null && m.scope === 'group' ? [null, 'Forum topic', <Link to={`/groups/${m.chat.id}/chat?topic=${m.topic_id}`} className="a-rowlink">topic {m.topic_id}</Link>] : null,
+						m.topic_id !== null && m.scope === 'group' ? [null, 'Forum topic', <Link to={`/groups/${m.chat.id}/chat?topic=${m.topic_id}`} className="a-rowlink">{m.topic ? <><span className="k-topicdot a-topicdot" style={{ background: topicColor(m.topic) }} />{m.topic.name}</> : `topic ${m.topic_id}`}</Link>] : null,
 						m.views !== null ? [null, 'Views', fmt(m.views)] : null,
 						m.forwards !== null ? [null, 'Forwards', fmt(m.forwards)] : null,
 						m.replies !== null ? [null, 'Replies', fmt(m.replies)] : null,

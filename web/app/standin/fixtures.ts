@@ -595,6 +595,8 @@ export function load(url: string, persona: Persona): Loaded {
 					edits: c.edits, edited_at: c.edited_at, media,
 					// The link preview, as the chat gives it.
 					link_preview: c.link_preview,
+					// The forum topic itself, not only its id: its name and colour.
+					topic: topicsOf(x.chat).find((t) => t.id === c.topic_id) ?? null,
 				},
 			},
 		};

@@ -4,7 +4,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
-import { FORUM_GROUP, KINDS_GROUP, sampleOf } from '../../standin/kinds.ts';
+import { FORUM_GROUP, KINDS_GROUP, TOPICS, sampleOf } from '../../standin/kinds.ts';
 import { chatStream } from '../../../mockup/src/data/messages.js';
 import type { MessageProps } from './message.tsx';
 
@@ -55,6 +55,6 @@ describe('the message page of a kind', () => {
 		const raw = (chatStream(FORUM_GROUP) as Raw[]).at(-1)!;
 		const m = open(raw.id);
 		expect(m.topic_id).not.toBeNull();
-		expect(screen.getByRole('link', { name: `topic ${m.topic_id}` }).getAttribute('href')).toBe(`/groups/${FORUM_GROUP.id}/chat?topic=${m.topic_id}`);
+		expect(screen.getByRole('link', { name: TOPICS.find((t) => t.id === m.topic_id)!.name }).getAttribute('href')).toBe(`/groups/${FORUM_GROUP.id}/chat?topic=${m.topic_id}`);
 	});
 });
