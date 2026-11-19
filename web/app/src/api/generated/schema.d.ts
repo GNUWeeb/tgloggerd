@@ -2054,9 +2054,30 @@ export interface components {
         Edit: {
             at: string;
             text: string;
+            /** @description The version's formatting; [] for plain text. */
+            entities: components["schemas"]["TextEntity"][];
             content_type?: components["schemas"]["ContentType"];
             /** @description The version's media, when it had a file. */
             media?: components["schemas"]["ChatMedia"];
+        };
+        /** @description One piece of Telegram's formatting of a text, as the daemon stores it (web/docs/message-kinds.md, "Text formatting"). offset and length are in UTF-16 code units of the text, as Telegram counts them (a JavaScript string's indices). type is the TDLib entity type in snake_case: url, text_url, mention, mention_name, hashtag, cashtag, bot_command, email, phone_number, bank_card_number, bold, italic, underline, strikethrough, spoiler, code, pre, pre_code, block_quote, expandable_block_quote, custom_emoji, media_timestamp; types the daemon does not know are stored as unknown, and any other value is passed through, so a client shows the text of an entity it does not know as plain text. Entities may nest (bold inside a link) and touch; they do not cross. */
+        TextEntity: {
+            offset: number;
+            length: number;
+            type: string;
+            /** @description A text_url's target, as stored (not checked). */
+            url?: string;
+            /**
+             * Format: int64
+             * @description mention_name: the user mentioned, null when the viewer may not see that user. mention (@username): the user holding that username now, present only when the archive knows one and the viewer may see that user. Absent for other types.
+             */
+            user_id?: number | null;
+            /** @description A pre_code block's language; may be empty. */
+            language?: string;
+            /** @description A custom_emoji's id, as a string (it does not fit a double). */
+            custom_emoji_id?: string;
+            /** @description A media_timestamp's offset into the message's media, in seconds, when stored; the daemon does not store it yet, so a client reads it from the entity's text (h:mm:ss). */
+            media_timestamp?: number;
         };
         /** @description Where a forwarded message came from (the fwd_info row). name is the sender's or chat's name as `forward` shows it; the ids are present when recorded, for links to /users/{user_id} and /groups/{chat_id}. */
         ForwardOrigin: {
@@ -2253,6 +2274,8 @@ export interface components {
              */
             kind: "poll";
             question: string;
+            /** @description The question's formatting; [] for plain text. */
+            question_entities: components["schemas"]["TextEntity"][];
             /** @enum {string} */
             type: "regular" | "quiz";
             anonymous: boolean;
@@ -2265,6 +2288,8 @@ export interface components {
             close_date: string | null;
             /** @description A quiz's explanation, if any. */
             explanation: string | null;
+            /** @description The explanation's formatting; [] for plain text and without an explanation. */
+            explanation_entities: components["schemas"]["TextEntity"][];
             /** @description The first 20 options, in order. */
             options: {
                 text: string;
@@ -2286,6 +2311,8 @@ export interface components {
             tasks: {
                 id: number;
                 text: string;
+                /** @description The task's formatting; [] for plain text. */
+                entities: components["schemas"]["TextEntity"][];
                 done: boolean;
                 /** @description Who marked it done, when the viewer may see them. */
                 done_by: components["schemas"]["ChatRef"] | null;
@@ -2407,6 +2434,8 @@ export interface components {
             /** @description The other items of the message's album, in message order, as ChatMessage.album gives them beside the first (each with its own message_id, kind and deleted_at); empty when the message is not in an album. */
             album?: components["schemas"]["ChatMedia"][];
             text: string;
+            /** @description The text's formatting; [] for plain text and for a service message. */
+            entities: components["schemas"]["TextEntity"][];
             reply_to: {
                 scope: components["schemas"]["MessageScope"];
                 /** Format: int64 */
@@ -2461,6 +2490,8 @@ export interface components {
             sender: components["schemas"]["UserSummary"] | null;
             content_type: components["schemas"]["ContentType"];
             text: string;
+            /** @description The text's (or caption's) formatting; [] for plain text and for a service message. An album's are its caption's. */
+            entities: components["schemas"]["TextEntity"][];
             media: components["schemas"]["ChatMedia"] | null;
             album: components["schemas"]["ChatMedia"][];
             reply_to: {

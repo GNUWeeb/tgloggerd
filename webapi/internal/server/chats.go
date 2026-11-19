@@ -231,10 +231,11 @@ type chatReplyJSON struct {
 }
 
 type editJSON struct {
-	At          string         `json:"at"`
-	Text        string         `json:"text"`
-	ContentType string         `json:"content_type,omitempty"`
-	Media       *chatMediaJSON `json:"media,omitempty"`
+	At          string           `json:"at"`
+	Text        string           `json:"text"`
+	Entities    []textEntityJSON `json:"entities"`
+	ContentType string           `json:"content_type,omitempty"`
+	Media       *chatMediaJSON   `json:"media,omitempty"`
 }
 
 // forwardJSON is a forwarded message's origin (ForwardOrigin), with
@@ -264,6 +265,7 @@ type chatMessageJSON struct {
 	Sender      *userSummaryJSON `json:"sender"`
 	ContentType string           `json:"content_type"`
 	Text        string           `json:"text"`
+	Entities    []textEntityJSON `json:"entities"`
 	Media       *chatMediaJSON   `json:"media"`
 	Album       []chatMediaJSON  `json:"album"`
 	ReplyTo     *chatReplyJSON   `json:"reply_to"`
@@ -539,11 +541,12 @@ func (v view) reply(n names, chatID int64, m logdb.Message) *chatReplyJSON {
 	return j
 }
 
-func (v view) edits(m logdb.Message) []editJSON {
+func (v view) edits(k kinds, m logdb.Message) []editJSON {
 	out := []editJSON{}
 	for _, e := range m.Edits {
-		out = append(out, editJSON{At: iso(e.At), Text: e.Text, ContentType: chatType(e.ContentType),
-			Media: v.media(e.ContentType, e.File, e.Extra)})
+		out = append(out, editJSON{At: iso(e.At), Text: e.Text,
+			Entities:    v.messageEntities(k, m, e.Text, e.Entities),
+			ContentType: chatType(e.ContentType), Media: v.media(e.ContentType, e.File, e.Extra)})
 	}
 	return out
 }
@@ -552,8 +555,9 @@ func (v view) chatMessage(n names, k kinds, group bool, chatID int64, m logdb.Me
 	j := chatMessageJSON{
 		ID: m.RowID, MessageID: m.MessageID, Date: iso(m.Date), Scope: scopeName(group),
 		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Text: v.text(k, m),
-		Media: v.media(m.ContentType, m.File, m.Extra), Album: []chatMediaJSON{},
-		ReplyTo: v.reply(n, chatID, m), Forward: v.forwardName(n, m), Edits: v.edits(m),
+		Entities: v.messageEntities(k, m, m.Text, m.Entities),
+		Media:    v.media(m.ContentType, m.File, m.Extra), Album: []chatMediaJSON{},
+		ReplyTo: v.reply(n, chatID, m), Forward: v.forwardName(n, m), Edits: v.edits(k, m),
 		DeletedAt: isoPtr(m.DeletedAt), messageExtraJSON: v.messageExtra(n, m),
 		messageKindsJSON: v.messageKinds(k, m),
 	}
@@ -601,7 +605,8 @@ func (v view) chatMessages(n names, kd kinds, group bool, chatID int64, ms []log
 					}
 				}
 				if j.Text == "" && item.Text != "" {
-					j.Text, j.Edits, j.EditedAt = item.Text, item.Edits, item.EditedAt
+					j.Text, j.Entities, j.Edits, j.EditedAt = item.Text, item.Entities, item.Edits,
+						item.EditedAt
 				}
 				if j.ReplyTo == nil {
 					j.ReplyTo = item.ReplyTo

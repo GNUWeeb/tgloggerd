@@ -5566,17 +5566,74 @@ components:
       description: >-
         A version of a message before an edit, from `at` until the next
         version (or the message as it is).
-      required: [at, text]
+      required: [at, text, entities]
       properties:
         at:
           type: string
         text:
           type: string
+        entities:
+          type: array
+          description: The version's formatting; [] for plain text.
+          items:
+            $ref: '#/components/schemas/TextEntity'
         content_type:
           $ref: '#/components/schemas/ContentType'
         media:
           description: The version's media, when it had a file.
           $ref: '#/components/schemas/ChatMedia'
+    TextEntity:
+      type: object
+      description: >-
+        One piece of Telegram's formatting of a text, as the daemon
+        stores it (web/docs/message-kinds.md, "Text formatting").
+        offset and length are in UTF-16 code units of the text, as
+        Telegram counts them (a JavaScript string's indices). type is
+        the TDLib entity type in snake_case: url, text_url, mention,
+        mention_name, hashtag, cashtag, bot_command, email,
+        phone_number, bank_card_number, bold, italic, underline,
+        strikethrough, spoiler, code, pre, pre_code, block_quote,
+        expandable_block_quote, custom_emoji, media_timestamp; types
+        the daemon does not know are stored as unknown, and any
+        other value is passed through, so a client shows the text of
+        an entity it does not know as plain text. Entities may nest
+        (bold inside a link) and touch; they do not cross.
+      required: [offset, length, type]
+      properties:
+        offset:
+          type: integer
+          minimum: 0
+        length:
+          type: integer
+          minimum: 0
+        type:
+          type: string
+        url:
+          type: string
+          description: A text_url's target, as stored (not checked).
+        user_id:
+          type: [integer, 'null']
+          format: int64
+          description: >-
+            mention_name: the user mentioned, null when the viewer may
+            not see that user. mention (@username): the user holding
+            that username now, present only when the archive knows
+            one and the viewer may see that user. Absent for other
+            types.
+        language:
+          type: string
+          description: A pre_code block's language; may be empty.
+        custom_emoji_id:
+          type: string
+          description: >-
+            A custom_emoji's id, as a string (it does not fit a
+            double).
+        media_timestamp:
+          type: integer
+          description: >-
+            A media_timestamp's offset into the message's media, in
+            seconds, when stored; the daemon does not store it yet,
+            so a client reads it from the entity's text (h:mm:ss).
     ForwardOrigin:
       type: object
       description: >-
@@ -5991,12 +6048,17 @@ components:
         A poll or quiz with its latest results (telegram_polls and its
         options; removed options are left out). The message text is
         the poll's description.
-      required: [kind, question, type, anonymous, multiple, closed, total_voters, close_date, explanation, options, options_total]
+      required: [kind, question, question_entities, type, anonymous, multiple, closed, total_voters, close_date, explanation, explanation_entities, options, options_total]
       properties:
         kind:
           const: poll
         question:
           type: string
+        question_entities:
+          type: array
+          description: The question's formatting; [] for plain text.
+          items:
+            $ref: '#/components/schemas/TextEntity'
         type:
           type: string
           enum: [regular, quiz]
@@ -6018,6 +6080,13 @@ components:
         explanation:
           type: [string, 'null']
           description: A quiz's explanation, if any.
+        explanation_entities:
+          type: array
+          description: >-
+            The explanation's formatting; [] for plain text and
+            without an explanation.
+          items:
+            $ref: '#/components/schemas/TextEntity'
         options:
           type: array
           description: The first 20 options, in order.
@@ -6048,12 +6117,17 @@ components:
           description: The first 20 tasks, in order.
           items:
             type: object
-            required: [id, text, done, done_by, done_at]
+            required: [id, text, entities, done, done_by, done_at]
             properties:
               id:
                 type: integer
               text:
                 type: string
+              entities:
+                type: array
+                description: The task's formatting; [] for plain text.
+                items:
+                  $ref: '#/components/schemas/TextEntity'
               done:
                 type: boolean
               done_by:
@@ -6237,7 +6311,7 @@ components:
         - $ref: '#/components/schemas/MessageExtra'
         - $ref: '#/components/schemas/MessageKinds'
         - type: object
-          required: [text, reply_to, edits, edited_at, media]
+          required: [text, entities, reply_to, edits, edited_at, media]
           properties:
             album:
               type: array
@@ -6250,6 +6324,13 @@ components:
                 $ref: '#/components/schemas/ChatMedia'
             text:
               type: string
+            entities:
+              type: array
+              description: >-
+                The text's formatting; [] for plain text and for a
+                service message.
+              items:
+                $ref: '#/components/schemas/TextEntity'
             reply_to:
               oneOf:
                 - type: object
@@ -6350,7 +6431,7 @@ components:
         - $ref: '#/components/schemas/ChatMessageBase'
     ChatMessageBase:
       type: object
-      required: [id, message_id, date, scope, sender, content_type, text, media, album, reply_to, forward, edits, edited_at, deleted_at, link_preview]
+      required: [id, message_id, date, scope, sender, content_type, text, entities, media, album, reply_to, forward, edits, edited_at, deleted_at, link_preview]
       properties:
         id:
           type: integer
@@ -6371,6 +6452,13 @@ components:
           $ref: '#/components/schemas/ContentType'
         text:
           type: string
+        entities:
+          type: array
+          description: >-
+            The text's (or caption's) formatting; [] for plain text
+            and for a service message. An album's are its caption's.
+          items:
+            $ref: '#/components/schemas/TextEntity'
         media:
           oneOf:
             - $ref: '#/components/schemas/ChatMedia'
