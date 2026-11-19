@@ -60,7 +60,9 @@
 		radial-gradient(circle at 85% 15%, var(--c-pattern) 0 1.5px, transparent 2.5px);
 	background-size: 90px 90px, 130px 130px, 70px 70px;
 }
-.app .c-feed { max-width: 760px; margin: 0 auto; padding: 8px 12px 16px; display: flex; flex-direction: column; }
+/* The message column: on a wide screen half the side margins a 760px
+   column would leave, so the chat uses more of the width. */
+.app .c-feed { max-width: calc(50% + 380px); margin: 0 auto; padding: 8px 12px 16px; display: flex; flex-direction: column; }
 .app .c-start, .app .c-loading { align-self: center; margin: 10px 0; padding: 4px 12px; border-radius: 14px; background: var(--c-svc); color: var(--c-svc-fg); font-size: 13px; }
 .app .c-day { position: sticky; top: 8px; z-index: 2; align-self: center; margin: 10px 0 6px; }
 .app .c-day span { display: inline-block; padding: 4px 12px; border-radius: 14px; background: var(--c-svc); color: var(--c-svc-fg); font-size: 13.5px; font-weight: 500; backdrop-filter: blur(8px); }

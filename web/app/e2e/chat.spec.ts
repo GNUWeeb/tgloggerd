@@ -115,6 +115,15 @@ test('an album\'s photos sit in cells of one size, each drawn whole', async ({ p
 	for (const b of boxes) expect(b).toEqual({ w: boxes[0]!.w, h: boxes[0]!.w, fit: 'contain' });
 });
 
+test('on a wide screen the chat column leaves half the side margins of a 760px one', async ({ page }) => {
+	await page.setViewportSize({ width: 1600, height: 900 });
+	await page.goto(`/groups/${G}/chat`);
+	const [outer, feed] = await page.locator('.c-feed').evaluate((f) => [f.parentElement!.clientWidth, f.getBoundingClientRect().width]);
+	expect(outer).toBeGreaterThan(1000);
+	// Each margin is half of what a 760px column would leave.
+	expect(Math.abs((outer - feed) / 2 - (outer - 760) / 4)).toBeLessThan(2);
+});
+
 test('a photo opens full size in the viewer above the chat; Esc closes it', async ({ page }) => {
 	await page.goto(`/groups/${G}/chat?at=555422`);
 	await expect(page.locator('.a-livestate')).toBeVisible();
