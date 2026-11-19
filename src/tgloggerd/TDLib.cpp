@@ -825,6 +825,8 @@ struct TDLib::Impl {
 	TDLib::State					state_ = TDLib::State::Waiting;
 	int64_t						state_since_ =
 		static_cast<int64_t>(std::time(nullptr));
+	/* user_id_ for status(), which other threads call. */
+	int64_t						status_user_id_ = 0;
 
 	/* The thread that runs TDLib::loop(), to refuse request() on it. */
 	std::atomic<std::thread::id>			loop_thread_{};
@@ -1707,6 +1709,9 @@ void TDLib::Impl::on_authorization_state_update(void)
 						auto u = td::move_tl_object_as<
 							td_api::user>(obj);
 						user_id_ = u->id_;
+						std::lock_guard<std::mutex> lk(
+							requests_mtx_);
+						status_user_id_ = u->id_;
 					});
 				/*
 				 * Have TDLib report every contact (an updateUser
@@ -4234,7 +4239,8 @@ bool TDLib::isStopped(void) const
 TDLib::Status TDLib::status(void) const
 {
 	std::lock_guard<std::mutex> lk(impl_->requests_mtx_);
-	return { impl_->state_, impl_->state_since_ };
+	return { impl_->state_, impl_->state_since_,
+		 impl_->status_user_id_ };
 }
 
 void TDLib::close(void)

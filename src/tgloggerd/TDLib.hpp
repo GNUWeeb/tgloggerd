@@ -529,6 +529,11 @@ public:
 		State	state;
 		/* Unix seconds of the last change of state (or of startup). */
 		int64_t	since;
+		/*
+		 * The logged-in account's own Telegram user id, from getMe once
+		 * the client is authorized; 0 until then.
+		 */
+		int64_t	account_user_id = 0;
 	};
 
 	/* Any thread; cheap (no TDLib call). */

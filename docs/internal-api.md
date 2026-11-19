@@ -123,7 +123,8 @@ reads a value the client keeps up to date and never calls TDLib, so it
 answers at once in every state, also while the client is not
 authorized.
 
-    200 {"tdlib": "ready", "since": 1763400000}
+    200 {"tdlib": "ready", "since": 1763400000,
+         "account": {"user_id": 7000000001}}
 
 - `tdlib`: `ready` while the client is authorized and not closing,
   exactly when the operations that need Telegram are sent; `waiting`
@@ -132,6 +133,10 @@ authorized.
   change back.
 - `since`: when `tdlib` last changed, or, before the first change, when
   the daemon started.
+- `account`: the logged-in account: `user_id` is its own Telegram user
+  id (from `getMe` once the client is authorized). Null until then,
+  that is before login and in the moment between authorization and
+  TDLib's answer; it stays set once known.
 
 Tests: `status_api_test` (in `CMakeLists.txt`) serves this route over a
 real listener on loopback with a stand-in for the client's state.

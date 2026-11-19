@@ -126,28 +126,42 @@ int main(void)
 	struct Case {
 		TDLib::State	state;
 		int64_t		since;
+		int64_t		user_id;
 		const char	*name;
 	} cases[] = {
-		{ TDLib::State::Waiting, 1700000000, "waiting" },
-		{ TDLib::State::Ready, 1700000123, "ready" },
-		{ TDLib::State::Closing, 1700000456, "closing" },
+		{ TDLib::State::Waiting, 1700000000, 0, "waiting" },
+		{ TDLib::State::Ready, 1700000100, 0, "ready" },
+		{ TDLib::State::Ready, 1700000123, 7000000001, "ready" },
+		{ TDLib::State::Closing, 1700000456, 7000000001, "closing" },
 	};
 	for (const Case &c : cases) {
 		{
 			std::lock_guard<std::mutex> lk(mtx);
-			cur = { c.state, c.since };
+			cur = { c.state, c.since, c.user_id };
 		}
 		printf("GET /v1/status while %s\n", c.name);
 		r = get(port, "/v1/status", bearer);
 		CHECK(r.status == 200, "answers 200");
 		nlohmann::json j = nlohmann::json::parse(r.body, nullptr, false);
-		CHECK(j.is_object() && j.size() == 2, "an object of two fields");
+		CHECK(j.is_object() && j.size() == 3, "an object of three fields");
 		CHECK(j.is_object() && j.value("tdlib", "") == c.name,
 		      "tdlib names the state");
 		CHECK(j.is_object() && j.contains("since") &&
 		      j["since"].is_number_integer() &&
 		      j["since"].get<int64_t>() == c.since,
 		      "since is the change time");
+		if (c.user_id == 0) {
+			CHECK(j.is_object() && j.contains("account") &&
+			      j["account"].is_null(),
+			      "account is null before getMe answers");
+		} else {
+			CHECK(j.is_object() && j.contains("account") &&
+			      j["account"].is_object() &&
+			      j["account"].size() == 1 &&
+			      j["account"].value("user_id", (int64_t)0) ==
+				      c.user_id,
+			      "account.user_id is the account's id");
+		}
 	}
 
 	api.stop();

@@ -17,7 +17,10 @@ void registerStatusApi(InternalApi &api,
 		r.body = {
 			{ "tdlib", TDLib::stateName(st.state) },
 			{ "since", st.since },
+			{ "account", nullptr },
 		};
+		if (st.account_user_id != 0)
+			r.body["account"] = { { "user_id", st.account_user_id } };
 		return r;
 	});
 }
