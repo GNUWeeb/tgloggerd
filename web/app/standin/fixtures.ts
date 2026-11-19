@@ -799,23 +799,34 @@ function usernameEvent(e, i: number) {
 // at; a removal carries none, as in Go.
 const photoId = (owner, i: number) => Number(String(Math.abs(owner.id)).slice(-5)) * 100 + i;
 const photoSet = (i: number) => i % 3 !== 2;
+// Every photo has a link, as Go gives them: one in seven is no longer
+// stored, and its link (fetched from Telegram on the fly) fails, so the
+// pages show their placeholder for it.
+const photoUrl = (id: number, i: number) => (i % 7 !== 6 ? `/files/standin-${id}` : `/files/standin-gone-${id}`);
 function photoEvent(owner, e, i: number) {
 	if (e.kind !== 'photo') return { photo: null };
-	return photoSet(i) ? { photo: `/files/standin-${photoId(owner, i)}`, photo_id: photoId(owner, i) } : { photo: null, removed: true };
+	return photoSet(i) ? { photo: photoUrl(photoId(owner, i), i), photo_id: photoId(owner, i) } : { photo: null, removed: true };
 }
 const userHistory = (usr) => getUserHistory(usr).map((e, i) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, ...photoEvent(usr, e, i), ...usernameEvent(e, i) }));
 const groupHistory = (g) => getGroupHistory(g).map((e, i) => ({ kind: e.kind, at: iso(e.at), detail: e.detail, action: e.action, ...photoEvent(g, e, i), user: e.user ? userSummary(e.user, false) : undefined, ...usernameEvent(e, i) }));
 
-// The photos an owner set (UserPhotos), newest first, one in seven
-// without a file to serve, and which is the current one (the newest,
-// unless a removal came after it).
+// The photos an owner set (UserPhotos): the current photo first, then
+// the others newest first, as Go answers them. One owner in three has a
+// current photo its history lacks (set after the newest change the
+// archive recorded), which still comes first.
+const currentMissing = (owner) => Math.abs(owner.id) % 3 === 0;
 function photosOf(owner, history) {
 	const events = history.map((e, i) => ({ e, i })).filter((x) => x.e.kind === 'photo');
 	const items = events.filter((x) => photoSet(x.i)).map((x) => {
 		const id = photoId(owner, x.i);
-		const kept = x.i % 7 !== 6;
-		return { id, at: iso(x.e.at), url: kept ? `/files/standin-${id}` : null, file_id: kept ? id : null };
+		return { id, at: iso(x.e.at), url: photoUrl(id, x.i), file_id: id };
 	});
+	if (currentMissing(owner)) {
+		const id = photoId(owner, 99);
+		const last = events[0] ? Date.parse(iso(events[0].e.at)) : Date.parse('2026-11-01T00:00:00Z');
+		const at = new Date(last + 3600e3).toISOString().replace(/\.\d+Z$/, 'Z');
+		return { items: [{ id, at, url: `/files/standin-${id}`, file_id: id }, ...items], current_id: id };
+	}
 	const newest = events[0];
 	return { items, current_id: newest && photoSet(newest.i) ? photoId(owner, newest.i) : null };
 }
