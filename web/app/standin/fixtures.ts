@@ -19,7 +19,8 @@ export { membersApi, patchGroup } from './members.ts';
 import { groupFiles, groupPolls } from './groupfiles.ts';
 export { engineOf, setEngine } from './engine.ts';
 import { queryRows } from '../../mockup/src/data/seed.js';
-import type { PageData, Viewer } from '../src/page.ts';
+import type { PageData } from '../src/page.ts';
+import type { Logger, ViewerWithLogger } from '../src/ui/logger.ts';
 
 const NOW = '2026-11-17T16:00:00Z';
 const iso = (s: string) => s.replace(' ', 'T') + 'Z';
@@ -42,8 +43,11 @@ function scopeOf(persona: Persona) {
 	return buildScope(accounts.find((a) => a.id === PERSONAS[persona]));
 }
 
-export function viewerOf(persona: Persona): Viewer {
-	if (persona === 'public') return { signed_in: false, now: NOW };
+// The logging Telegram account, sent to every viewer (synthetic).
+export const LOGGER: Logger = { id: 5100000001, name: 'Archive Logger', username: 'archive_logger', photo: null };
+
+export function viewerOf(persona: Persona): ViewerWithLogger {
+	if (persona === 'public') return { signed_in: false, now: NOW, logger: LOGGER };
 	const s = scopeOf(persona);
 	const pr = settingsState(persona).prefs;
 	return {
@@ -61,6 +65,7 @@ export function viewerOf(persona: Persona): Viewer {
 		now: NOW,
 		nav: PAGE_KEYS.filter((k) => allowed(s, k)),
 		pinned: settingsState(persona).pinned.map((g) => ({ id: g.id, title: g.title, photo: photoOf(g.id) })),
+		logger: LOGGER,
 	};
 }
 

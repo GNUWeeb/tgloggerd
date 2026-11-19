@@ -4,6 +4,7 @@ import { Link } from '../nav.tsx';
 import { Avatar, Btn, Card, KV, Pill } from '../ui/primitives.tsx';
 import { Thumb, TypeIcon, duration } from '../ui/media.tsx';
 import { contentLabel, serviceLabel, typeLabel } from '../ui/labels.ts';
+import { loggerName, loggerOf } from '../ui/logger.ts';
 import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
@@ -35,8 +36,10 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 	const svcAbout = m.service?.refs.message_id ?? null;
 	// Posted as a chat (a channel, an anonymous admin): link that chat.
 	const asChat = m.sender_chat;
+	// No sender: the logging account ("You" when signed in).
+	const logger = v.signed_in ? null : loggerOf(v);
 	const senderLink = asChat ? <Link to={`/groups/${asChat.id}`} className="a-rowlink"><b>{asChat.title}</b></Link>
-		: m.sender ? (m.sender.id !== 0 ? <Link to={`/users/${m.sender.id}`} className="a-rowlink"><b>{m.sender.name}</b></Link> : <b className="a-muted">{m.sender.name}</b>) : <b>You (logging account)</b>;
+		: m.sender ? (m.sender.id !== 0 ? <Link to={`/users/${m.sender.id}`} className="a-rowlink"><b>{m.sender.name}</b></Link> : <b className="a-muted">{m.sender.name}</b>) : <b>{v.signed_in ? 'You (logging account)' : loggerName(v)}</b>;
 	const f = m.forward_from;
 	const fromLink = f?.user_id !== undefined ? <Link to={`/users/${f.user_id}`} className="a-rowlink">{f.name}</Link>
 		: f?.chat_id !== undefined ? <Link to={`/groups/${f.chat_id}`} className="a-rowlink">{f.name}</Link> : <>{f?.name ?? m.forwarded}</>;
@@ -66,7 +69,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 				<div className="a-stack">
 					<Card>
 						<div className="a-msgcard-head">
-							{asChat ? <Avatar id={asChat.id} name={asChat.title} photo={asChat.photo} size={36} square /> : m.sender ? <Avatar id={m.sender.id} name={m.sender.name} photo={m.sender.photo} size={36} /> : <Avatar id={0} name="You" size={36} />}
+							{asChat ? <Avatar id={asChat.id} name={asChat.title} photo={asChat.photo} size={36} square /> : m.sender ? <Avatar id={m.sender.id} name={m.sender.name} photo={m.sender.photo} size={36} /> : <Avatar id={logger?.id ?? 0} name={loggerName(v)} photo={logger?.photo ?? null} size={36} />}
 							<div className="a-grow">
 								{senderLink}
 								<div className="a-muted sm">{dateTime(m.date, v)}</div>
