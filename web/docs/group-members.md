@@ -49,9 +49,10 @@ Telegram lists them ("recent"):
   daemon stores the users it lists; a member not stored yet is named by
   its id (`#<id>`, type `unknown`).
 - `status` is `creator`, `administrator`, `member` or `restricted`.
-- The first page (offset 0) is kept in memory for 2 minutes per group
+- Each page is kept in memory for 2 minutes per group, search, offset
   and limit, so the chat page's background prefetch makes the Members
-  tab instant.
+  tab instant; a `flood_wait` or `error` answer is not kept, so the next
+  request asks again.
 
 When there is no list, `available` is false, `members` is empty,
 `total` is the stored count (or null), and `reason` says why:
@@ -67,10 +68,34 @@ When there is no list, `available` is false, `members` is empty,
 
 A client shows any other reason as "not available".
 
+## Searching the members
+
+`?q=` searches the members, with `offset` and `limit` as for the list
+and the same answer: the same viewers, reasons (a hidden list stays
+hidden) and cache. The query is trimmed and a leading `@` dropped; at
+most 64 characters (longer, or not UTF-8, is 400); empty, or a lone `@`,
+is the plain list. The daemon asks Telegram:
+
+- supergroups and channels: Telegram's member search, which matches
+  first and last names and the username;
+- basic groups: their stored members whose name or username contains
+  the query;
+- a query of only digits (a leading `-` allowed) also returns that user
+  first when a member.
+
+Each member carries `matched_by`: `id` (the query was its user id) or
+`search`; the plain list has no `matched_by`. `total` is the number of
+matches (the id match included) when the daemon knows it, else null,
+never the group's member count. The id match comes on the first page
+(offset 0) in addition to `limit`, and later pages leave it out, so a
+page holds up to `limit` + 1 members: the next page starts at `offset`
+plus the number of `search` members.
+
 The page `/groups/{id}/members` (route `group_members`) carries the
 group's page as its other tabs do, plus the same answer for its
-`?offset=`; the same viewers get it, the others not_found (a signed-out
-visitor is asked to sign in).
+`?offset=` (and `?limit=` and `?q=`; out of range is the first page, a
+bad `q` no search); the same viewers get it, the others not_found (a
+signed-out visitor is asked to sign in).
 
 ## Hiding a channel's list
 

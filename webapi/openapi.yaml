@@ -3742,12 +3742,22 @@ paths:
         visitor and a group the viewer does not see get 404, and the
         member count of the group's pages only. The members are named
         from telegram_users, where the daemon stores them; one not
-        stored yet is named by its id (type unknown). The first page
-        (offset 0) is kept for 2 minutes per group and limit, so a
-        prefetch makes the tab instant; the group_members page carries
-        the same answer. When the list is not available, available is
-        false, members is empty, total is the stored member count, and
-        reason says why (GroupMembersPage).
+        stored yet is named by its id (type unknown). With q, the
+        members matching it instead: Telegram's member search by first
+        and last name and username (a basic group's stored members
+        filtered the same way), and for a q of only digits (a leading
+        - allowed) that user first when a member; each member says how
+        it matched (matched_by) and total is the number of matches, or
+        null. The id match comes on the first page (offset 0) in
+        addition to limit, and later pages leave it out, so a page holds
+        up to limit + 1 members: the next page's offset is offset plus
+        the members matched_by search. Each page (per group, q, offset
+        and limit) is kept for 2 minutes, so a prefetch makes the tab
+        instant, except a flood_wait or error answer; the group_members
+        page carries the same answer. When the list is not available,
+        available is false, members is empty, total is the stored
+        member count (null in a search), and reason says why
+        (GroupMembersPage).
       security:
         - session: []
       parameters:
@@ -3774,6 +3784,15 @@ paths:
             minimum: 1
             maximum: 200
             default: 50
+        - name: q
+          in: query
+          description: >-
+            A member search: part of a name or username, or a user id.
+            Trimmed, a leading @ dropped; at most 64 characters (400
+            when longer or not UTF-8). Empty, or a lone @, is the plain
+            list.
+          schema:
+            type: string
       responses:
         '200':
           description: The page of members, or why there is none.
@@ -6912,6 +6931,13 @@ components:
           type: [string, 'null']
           format: date-time
           description: When the member joined; null when Telegram does not say.
+        matched_by:
+          type: string
+          enum: [id, search]
+          description: >-
+            Only in a search (getGroupMembers' q): id when q is this
+            member's user id, search when Telegram's member search
+            found it.
     GroupMembersPage:
       type: object
       required: [available, reason, total, members, offset, limit]
@@ -6940,7 +6966,8 @@ components:
           description: >-
             Telegram's member count: the daemon's with the list, else
             the stored one (GroupSummary.member_count); null when none
-            is known.
+            is known. In a search, the number of matches (the id match
+            included) when the daemon knows it, else null.
         members:
           type: array
           items:
@@ -6953,8 +6980,9 @@ components:
       description: >-
         The group_members route (/groups/{id}/members): the group's
         page as its other tabs have it, and the page of members its
-        ?offset= (and ?limit=, as getGroupMembers takes them; out of
-        range reads as the first page) names. For a viewer who sees the
+        ?offset= (and ?limit= and the search ?q=, as getGroupMembers
+        takes them; out of range reads as the first page, a bad q as
+        no search) names. For a viewer who sees the
         group and users in full; anyone else gets not_found, and a
         signed-out visitor is asked to sign in.
       allOf:

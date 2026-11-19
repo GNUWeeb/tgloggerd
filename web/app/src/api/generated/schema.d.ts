@@ -1260,7 +1260,7 @@ export interface paths {
         };
         /**
          * A page of a group's members
-         * @description The group's members as Telegram lists them to the logging account (the daemon's GET /v1/chats/{id}/members, Telegram's "recent" order), for the group page's Members tab and its background prefetch. For a viewer who sees the group and users in full (superadmins and admins); a member, a signed-out visitor and a group the viewer does not see get 404, and the member count of the group's pages only. The members are named from telegram_users, where the daemon stores them; one not stored yet is named by its id (type unknown). The first page (offset 0) is kept for 2 minutes per group and limit, so a prefetch makes the tab instant; the group_members page carries the same answer. When the list is not available, available is false, members is empty, total is the stored member count, and reason says why (GroupMembersPage).
+         * @description The group's members as Telegram lists them to the logging account (the daemon's GET /v1/chats/{id}/members, Telegram's "recent" order), for the group page's Members tab and its background prefetch. For a viewer who sees the group and users in full (superadmins and admins); a member, a signed-out visitor and a group the viewer does not see get 404, and the member count of the group's pages only. The members are named from telegram_users, where the daemon stores them; one not stored yet is named by its id (type unknown). With q, the members matching it instead: Telegram's member search by first and last name and username (a basic group's stored members filtered the same way), and for a q of only digits (a leading - allowed) that user first when a member; each member says how it matched (matched_by) and total is the number of matches, or null. The id match comes on the first page (offset 0) in addition to limit, and later pages leave it out, so a page holds up to limit + 1 members: the next page's offset is offset plus the members matched_by search. Each page (per group, q, offset and limit) is kept for 2 minutes, so a prefetch makes the tab instant, except a flood_wait or error answer; the group_members page carries the same answer. When the list is not available, available is false, members is empty, total is the stored member count (null in a search), and reason says why (GroupMembersPage).
          */
         get: operations["getGroupMembers"];
         put?: never;
@@ -2692,6 +2692,11 @@ export interface components {
              * @description When the member joined; null when Telegram does not say.
              */
             joined_at: string | null;
+            /**
+             * @description Only in a search (getGroupMembers' q): id when q is this member's user id, search when Telegram's member search found it.
+             * @enum {string}
+             */
+            matched_by?: "id" | "search";
         };
         GroupMembersPage: {
             available: boolean;
@@ -2704,14 +2709,14 @@ export interface components {
             retry_after?: number;
             /**
              * Format: int64
-             * @description Telegram's member count: the daemon's with the list, else the stored one (GroupSummary.member_count); null when none is known.
+             * @description Telegram's member count: the daemon's with the list, else the stored one (GroupSummary.member_count); null when none is known. In a search, the number of matches (the id match included) when the daemon knows it, else null.
              */
             total: number | null;
             members: components["schemas"]["GroupMember"][];
             offset: number;
             limit: number;
         };
-        /** @description The group_members route (/groups/{id}/members): the group's page as its other tabs have it, and the page of members its ?offset= (and ?limit=, as getGroupMembers takes them; out of range reads as the first page) names. For a viewer who sees the group and users in full; anyone else gets not_found, and a signed-out visitor is asked to sign in. */
+        /** @description The group_members route (/groups/{id}/members): the group's page as its other tabs have it, and the page of members its ?offset= (and ?limit= and the search ?q=, as getGroupMembers takes them; out of range reads as the first page, a bad q as no search) names. For a viewer who sees the group and users in full; anyone else gets not_found, and a signed-out visitor is asked to sign in. */
         GroupMembersProps: components["schemas"]["GroupProps"] & components["schemas"]["GroupMembersPage"];
         /** @description The files list (route files). Its filters (Cond field, ops): id, size and hits (=, !=, >, <); file_type (=, != one of FileRow's file_type values, unknown included); name, ext and tg_file_id (contains, =, empty); stored (is yes or no); sha256 (=, != a digest of 64 hex digits, either case); created_at, updated_at and accessed_at (>, < a day, YYYY-MM-DD). Its sorts: id, name, file_type, ext, size, hits, created_at (the default) and accessed_at. The search text matches the name, and the id when it is a number. */
         FilesProps: components["schemas"]["ListState"] & {
@@ -6056,6 +6061,8 @@ export interface operations {
                 offset?: number;
                 /** @description Members per page, 1 to 200. */
                 limit?: number;
+                /** @description A member search: part of a name or username, or a user id. Trimmed, a leading @ dropped; at most 64 characters (400 when longer or not UTF-8). Empty, or a lone @, is the plain list. */
+                q?: string;
             };
             header?: never;
             path: {

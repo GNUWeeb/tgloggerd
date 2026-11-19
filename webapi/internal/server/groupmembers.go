@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"tgloggerd/webapi/internal/daemon"
 	"tgloggerd/webapi/internal/logdb"
@@ -176,18 +178,25 @@ const (
 	memberPageDefault = 50
 	memberPageMax     = 200
 	memberOffsetMax   = 1000000
-	// memberPageTTL is how long a group's first page of members is
-	// kept, so the page's background prefetch makes the Members tab
-	// instant. The daemon keeps its own answers as long.
+	// memberPageTTL is how long a page of a group's members (or of a
+	// search in them) is kept, so the page's background prefetch makes
+	// the Members tab instant and paging back and forth in a search
+	// does not ask Telegram again. The daemon keeps its own answers as
+	// long.
 	memberPageTTL = 2 * time.Minute
+	// memberQueryMax is the longest member search, in characters, as
+	// the daemon takes it.
+	memberQueryMax = 64
 	// memberPagesMax bounds the cache; a full cache drops what has
 	// expired, then everything.
 	memberPagesMax = 1000
 )
 
 type memberPageKey struct {
-	group int64
-	limit int
+	group  int64
+	q      string
+	offset int
+	limit  int
 }
 
 type memberPageEntry struct {
@@ -195,9 +204,9 @@ type memberPageEntry struct {
 	m  daemon.Members
 }
 
-// cachedFirstPage is a group's first page of members as the daemon
-// answered it within memberPageTTL.
-func (m *memberState) cachedFirstPage(k memberPageKey, now time.Time) (daemon.Members, bool) {
+// cachedPage is a page of a group's members as the daemon answered it
+// within memberPageTTL.
+func (m *memberState) cachedPage(k memberPageKey, now time.Time) (daemon.Members, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.pages[k]
@@ -207,7 +216,7 @@ func (m *memberState) cachedFirstPage(k memberPageKey, now time.Time) (daemon.Me
 	return e.m, true
 }
 
-func (m *memberState) keepFirstPage(k memberPageKey, now time.Time, page daemon.Members) {
+func (m *memberState) keepPage(k memberPageKey, now time.Time, page daemon.Members) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.pages == nil {
@@ -226,11 +235,13 @@ func (m *memberState) keepFirstPage(k memberPageKey, now time.Time, page daemon.
 	m.pages[k] = memberPageEntry{at: now, m: page}
 }
 
-// memberJSON is one member of a group's list (GroupMember).
+// memberJSON is one member of a group's list (GroupMember); MatchedBy
+// only in a search.
 type memberJSON struct {
-	User     userSummaryJSON `json:"user"`
-	Status   string          `json:"status"`
-	JoinedAt *string         `json:"joined_at"`
+	User      userSummaryJSON `json:"user"`
+	Status    string          `json:"status"`
+	JoinedAt  *string         `json:"joined_at"`
+	MatchedBy string          `json:"matched_by,omitempty"`
 }
 
 // membersPageJSON is a page of a group's members (GroupMembersPage).
@@ -251,16 +262,18 @@ func seesMemberList(sc scope.Scope) bool {
 	return sc.SeesAllUsers()
 }
 
-// memberPage is one page of group g's members for a viewer who sees g
-// and seesMemberList. The daemon lists them from Telegram; a list a
+// memberPage is one page of group g's members, or of those matching
+// the search q (memberQuery's), for a viewer who sees g and
+// seesMemberList. The daemon lists them from Telegram; a list a
 // superadmin hid answers reason hidden to everyone but superadmins, and
 // a daemon that is off or does not answer, reason unavailable. The
 // members are named from telegram_users in one query; one not stored
-// yet is named by its id.
+// yet is named by its id. A search's total is the daemon's count of
+// matches, never the group's member count.
 func (s *Server) memberPage(ctx context.Context, sc scope.Scope, g logdb.Group,
-	offset, limit int) (membersPageJSON, error) {
+	q string, offset, limit int) (membersPageJSON, error) {
 	out := membersPageJSON{Members: []memberJSON{}, Offset: offset, Limit: limit}
-	if g.MemberCount != nil {
+	if g.MemberCount != nil && q == "" {
 		n := int64(*g.MemberCount)
 		out.Total = &n
 	}
@@ -273,21 +286,20 @@ func (s *Server) memberPage(ctx context.Context, sc scope.Scope, g logdb.Group,
 		return out, nil
 	}
 
-	k := memberPageKey{group: g.ID, limit: limit}
-	page, ok := daemon.Members{}, false
-	if offset == 0 {
-		page, ok = s.members.cachedFirstPage(k, s.clock())
-	}
+	k := memberPageKey{group: g.ID, q: q, offset: offset, limit: limit}
+	page, ok := s.members.cachedPage(k, s.clock())
 	if !ok {
 		var r daemon.Reply
-		page, r, ok = s.daemon.ChatMembers(ctx, g.ID, "", offset, limit)
+		page, r, ok = s.daemon.ChatMembers(ctx, g.ID, q, offset, limit)
 		if !ok {
 			s.log.Info("member list unavailable", "chat", g.ID, "err", r.Error)
 			out.Reason = "unavailable"
 			return out, nil
 		}
-		if offset == 0 {
-			s.members.keepFirstPage(k, s.clock(), page)
+		// A rate limit or a failure is asked again next time, as the
+		// daemon does: its wait may be shorter than the cache's.
+		if page.Available || (page.Reason != "flood_wait" && page.Reason != "error") {
+			s.members.keepPage(k, s.clock(), page)
 		}
 	}
 	if page.Total != nil {
@@ -320,6 +332,9 @@ func (s *Server) memberPage(ctx context.Context, sc scope.Scope, g logdb.Group,
 	v := s.viewFor(sc, true)
 	for _, m := range page.Members {
 		j := memberJSON{User: v.userOf(users, m.UserID), Status: m.Status}
+		if q != "" {
+			j.MatchedBy = m.MatchedBy
+		}
 		if m.JoinedAt != nil {
 			j.JoinedAt = isoPtr(*m.JoinedAt)
 		}
@@ -350,10 +365,24 @@ func memberPageArgs(q url.Values) (offset, limit int, ok bool) {
 	return offset, limit, true
 }
 
-// getGroupMembers answers GET /api/groups/{id}/members?offset=&limit=:
-// a page of the group's members for a viewer who sees the group and
-// users in full; for anyone else, signed out included, the group's
-// list does not exist (404), and its count is on the group's pages.
+// memberQuery reads ?q=, a member search: trimmed, a leading @
+// dropped (a username), at most memberQueryMax characters of UTF-8.
+// An empty one, or a lone @, is the plain list (""). ok is false for
+// one that is too long or not UTF-8.
+func memberQuery(v url.Values) (q string, ok bool) {
+	q = strings.TrimSpace(v.Get("q"))
+	q = strings.TrimSpace(strings.TrimPrefix(q, "@"))
+	if !utf8.ValidString(q) || utf8.RuneCountInString(q) > memberQueryMax {
+		return "", false
+	}
+	return q, true
+}
+
+// getGroupMembers answers GET /api/groups/{id}/members?offset=&limit=
+// &q=: a page of the group's members, or of those matching the search
+// q, for a viewer who sees the group and users in full; for anyone
+// else, signed out included, the group's list does not exist (404),
+// and its count is on the group's pages.
 func (s *Server) getGroupMembers(w http.ResponseWriter, r *http.Request) {
 	sess, sc, ok := s.optionalSession(w, r)
 	if !ok {
@@ -371,6 +400,11 @@ func (s *Server) getGroupMembers(w http.ResponseWriter, r *http.Request) {
 			" and limit 1 to "+strconv.Itoa(memberPageMax)+".")
 		return
 	}
+	q, ok := memberQuery(r.URL.Query())
+	if !ok {
+		badRequest(w, "bad_request", "q is at most "+strconv.Itoa(memberQueryMax)+" characters.")
+		return
+	}
 	ctx := r.Context()
 	gs, err := logdb.VisibleGroups(ctx, s.ro, sc, []int64{id})
 	if err != nil {
@@ -381,7 +415,7 @@ func (s *Server) getGroupMembers(w http.ResponseWriter, r *http.Request) {
 		notFound(w)
 		return
 	}
-	p, err := s.memberPage(ctx, sc, gs[0], offset, limit)
+	p, err := s.memberPage(ctx, sc, gs[0], q, offset, limit)
 	if err != nil {
 		s.internalError(w, "members", err)
 		return
@@ -399,7 +433,8 @@ type groupMembersProps struct {
 
 // loadGroupMembers is the group_members route, /groups/{id}/members:
 // for a viewer who sees the group and seesMemberList, the group's page
-// and the page of members its ?offset= names (?limit= as the API's);
+// and the page of members its ?offset= names (?limit= and the search
+// ?q= as the API's; out of range, the first page and no search);
 // anyone else gets not_found.
 func loadGroupMembers(ctx context.Context, pr *pageRequest) (any, error) {
 	if !seesMemberList(pr.scope) {
@@ -409,11 +444,15 @@ func loadGroupMembers(ctx context.Context, pr *pageRequest) (any, error) {
 	if !ok {
 		offset, limit = 0, memberPageDefault
 	}
+	q, ok := memberQuery(pr.query)
+	if !ok {
+		q = ""
+	}
 	gp, g, err := groupPage(ctx, pr)
 	if err != nil {
 		return nil, err
 	}
-	mp, err := pr.s.memberPage(ctx, pr.scope, g, offset, limit)
+	mp, err := pr.s.memberPage(ctx, pr.scope, g, q, offset, limit)
 	if err != nil {
 		return nil, err
 	}
