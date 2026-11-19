@@ -109,19 +109,19 @@ func TestForwardingPages(t *testing.T) {
 	}
 	if got := js(r1["telegram_bot"]); got != canon(`{"id":1,"kind":"telegram","name":"@gw_bridge_bot",`+
 		`"identity":{"user_id":"7000000001","username":"gw_bridge_bot"},"status":"connecting","enabled":true,`+
-		`"photo":null}`) {
+		`"photo":null,"profile":null}`) {
 		t.Errorf("route 1 telegram bot %s", got)
 	}
 	if got := js(r1["discord_bot"]); got != canon(`{"id":1000000001,"kind":"discord","name":"Main reader",`+
 		`"identity":{"user_id":"1000000000000000001","username":"gw_reader"},"status":"connected","enabled":true,`+
-		`"photo":null}`) {
+		`"photo":null,"profile":null}`) {
 		t.Errorf("route 1 discord bot %s", got)
 	}
 	// Route 2: its Telegram bot is switched off, and it names no
 	// Discord bot yet; the page can tell both.
 	if r2["channel_name"] != "" || r2["discord_bot"] != nil ||
 		js(r2["telegram_bot"]) != canon(`{"id":2,"kind":"telegram","name":"Bot 2","identity":null,`+
-			`"status":"disabled","enabled":false,"photo":null}`) ||
+			`"status":"disabled","enabled":false,"photo":null,"profile":null}`) ||
 		js(r2["types"]) != `["sticker","text","document"]` {
 		t.Errorf("route 2 %s", js(r2))
 	}

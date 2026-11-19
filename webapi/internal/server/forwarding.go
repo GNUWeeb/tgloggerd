@@ -204,16 +204,18 @@ func (s *Server) botsByID(ctx context.Context) (map[uint64]logdb.BotRow, error) 
 	return m, nil
 }
 
+// d2tJSON is route d as the page shows it; profiles is the visible
+// bot users (botProfiles).
 func (s *Server) d2tJSON(ctx context.Context, v scope.Viewer, d logdb.D2TRoute,
-	owners map[int64]webdb.OwnerInfo, bots map[uint64]logdb.BotRow) d2tRoute {
+	owners map[int64]webdb.OwnerInfo, bots map[uint64]logdb.BotRow, profiles map[int64]bool) d2tRoute {
 	out := d2tRoute{owned: s.ownership(ctx, v, d.ID, owners),
 		// A snowflake does not fit a JavaScript number exactly.
 		ChannelID: strconv.FormatUint(d.ChannelID, 10), ChannelName: d.ChannelName,
 		Chat:        s.fwdPick(d.Chat),
-		TelegramBot: s.botRefOf(ctx, v, bots[d.TelegramBotID]),
+		TelegramBot: s.botRefOf(ctx, v, bots[d.TelegramBotID], profiles),
 		Types:       d.Types.Keys(logdb.D2TTypeCount), Enabled: d.Enabled, Sent: d.Sent}
 	if b, ok := bots[d.DiscordBotID]; ok && d.DiscordBotID != 0 {
-		ref := s.botRefOf(ctx, v, b)
+		ref := s.botRefOf(ctx, v, b, profiles)
 		out.DiscordBot = &ref
 	}
 	return out
@@ -895,9 +897,18 @@ func loadD2T(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The routes' Telegram bots' users, in one query.
+	var used []logdb.BotRow
+	for _, r := range rs {
+		used = append(used, bots[r.TelegramBotID])
+	}
+	profiles, err := s.botProfiles(ctx, pr.scope, used...)
+	if err != nil {
+		return nil, err
+	}
 	p := d2tProps{Routes: []d2tRoute{}, Federations: feds}
 	for _, r := range rs {
-		p.Routes = append(p.Routes, s.d2tJSON(ctx, v, r, owners, bots))
+		p.Routes = append(p.Routes, s.d2tJSON(ctx, v, r, owners, bots, profiles))
 	}
 	return p, nil
 }

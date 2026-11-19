@@ -97,6 +97,25 @@ configurations with their counts of what was sent, and the bots.
   otherwise, and always null for a Discord bot (no third-party URLs).
   The viewer gets a photo wherever it gets the chat or the bot, and the
   photos come with the rows that name them, in the same query.
+- Profiles: a bot (`BotRef`, so `Bot` and a route's `telegram_bot`
+  too) carries `profile`, the Telegram bot's own user id
+  (`identity.user_id`), so the page can link it to `/users/{id}`: set
+  when the archive has that user and the viewer may open the user's
+  page (the same visibility as the user pages), else null, and always
+  null for a Discord bot. The profiles of a page's bots are asked for
+  in one query.
+- A bot writes into no logged chat, so the archive seldom has its
+  user. The Go service resolves it in the background: for every
+  Telegram bot whose identity is known and whose user row is missing,
+  it asks the daemon to resolve the username (`POST
+  /v1/users/resolve`, docs/internal-api.md), which stores the user
+  with its full info and profile photo. A pass runs every few minutes
+  and, after a bot is created or given a new token, every few seconds
+  for a while, until discordd has reported its identity. Never in a
+  page request. A bot that was not found, is not a user or failed is
+  asked about again hours later, after a flood wait once Telegram's
+  wait is over (no bot is asked in between); the attempts live in the
+  service's memory. Without `WEB_TGLOGGERD_API` nothing is resolved.
 - Every change writes a `web_audit` row: `fwd_t2d_create`,
   `fwd_t2d_update`, `fwd_t2d_delete`, `fwd_d2t_create`,
   `fwd_d2t_update`, `fwd_d2t_delete`, `bot_create`, `bot_update`,

@@ -117,6 +117,9 @@ type BotRow struct {
 	UserID   string
 	Username string
 	Routes   int // Discord to Telegram routes using it
+	// HasUser is whether the archive has the telegram_users row of a
+	// Telegram bot's user id; never for a Discord bot.
+	HasUser bool
 	// Photo is a Telegram bot's own profile photo: that of the
 	// telegram_users row of its user id, when the archive has one.
 	// None for a Discord bot.
@@ -130,10 +133,10 @@ func botQuery(kind, where string) string {
 	}
 	// The photo comes in the same query, so a list of bots costs one
 	// query per kind however many there are.
-	photo := "0, NULL, NULL, NULL, NULL, NULL, NULL"
+	photo := "0, 0, NULL, NULL, NULL, NULL, NULL, NULL"
 	join := ""
 	if kind == KindTelegram {
-		photo = "COALESCE(bu.profile_photo_file_id, 0), " + fileColumnsOf("bf")
+		photo = "bu.id IS NOT NULL, COALESCE(bu.profile_photo_file_id, 0), " + fileColumnsOf("bf")
 		join = " LEFT JOIN telegram_users bu ON b.bot_user_id <> 0 AND bu.id = b.bot_user_id" +
 			" LEFT JOIN telegram_files bf ON bf.id = bu.profile_photo_file_id"
 	}
@@ -154,7 +157,7 @@ func scanBots(rows *sql.Rows, kind string) ([]BotRow, error) {
 			f     nullFile
 		)
 		if err := rows.Scan(append([]any{&b.ID, &b.Name, &b.Enabled, &b.Status, &b.StatusDetail, &at,
-			&b.UserID, &b.Username, &b.Routes, &photo}, f.dest()...)...); err != nil {
+			&b.UserID, &b.Username, &b.Routes, &b.HasUser, &photo}, f.dest()...)...); err != nil {
 			return nil, err
 		}
 		b.Photo = f.ref(photo)

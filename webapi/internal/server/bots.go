@@ -50,6 +50,10 @@ type botRef struct {
 	// its user and the photo is stored; never one for a Discord bot,
 	// whose picture would be a third party's URL.
 	Photo *string `json:"photo"`
+	// Profile is a Telegram bot's user id when the archive has that
+	// user and the viewer may open its user page (botProfiles); null
+	// for a Discord bot.
+	Profile *int64 `json:"profile"`
 }
 
 // botJSON is a bot on the bots page (Bot).
@@ -82,7 +86,36 @@ func botStatus(b logdb.BotRow) string {
 	return b.Status
 }
 
-func (s *Server) botRefOf(ctx context.Context, v scope.Viewer, b logdb.BotRow) botRef {
+// botUserID is a Telegram bot's own user id, when it has logged in
+// and the archive has that user.
+func botUserID(b logdb.BotRow) (int64, bool) {
+	if b.Kind != logdb.KindTelegram || !b.HasUser {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(b.UserID, 10, 64)
+	return id, err == nil && id > 0
+}
+
+// botProfiles is which of the bots' own users the viewer may open the
+// user page of (logdb.VisibleUserIDs), in one query for all of them;
+// none is asked about for a Discord bot or a user the archive lacks.
+func (s *Server) botProfiles(ctx context.Context, sc scope.Scope, bots ...logdb.BotRow) (map[int64]bool, error) {
+	var ids []int64
+	for _, b := range bots {
+		if id, ok := botUserID(b); ok {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return map[int64]bool{}, nil
+	}
+	return logdb.VisibleUserIDs(ctx, s.ro, sc, ids)
+}
+
+// botRefOf is b as pickers and routes show it; profiles is the
+// visible bot users (botProfiles).
+func (s *Server) botRefOf(ctx context.Context, v scope.Viewer, b logdb.BotRow,
+	profiles map[int64]bool) botRef {
 	name := b.Name
 	switch {
 	case name != "":
@@ -94,6 +127,9 @@ func (s *Server) botRefOf(ctx context.Context, v scope.Viewer, b logdb.BotRow) b
 	ref := botRef{ID: b.ID, Kind: b.Kind, Name: name, Status: botStatus(b), Enabled: b.Enabled}
 	if b.Kind == logdb.KindTelegram && b.UserID != "" {
 		ref.Photo = s.storedPhoto(b.Photo)
+	}
+	if id, ok := botUserID(b); ok && profiles[id] {
+		ref.Profile = &id
 	}
 	if b.UserID != "" {
 		ref.Identity = &botIdentity{UserID: b.UserID}
@@ -260,9 +296,13 @@ func (s *Server) botsJSON(ctx context.Context, sc scope.Scope, v scope.Viewer,
 	if err != nil {
 		return nil, err
 	}
+	profiles, err := s.botProfiles(ctx, sc, bots...)
+	if err != nil {
+		return nil, err
+	}
 	out := []botJSON{}
 	for _, b := range bots {
-		j := botJSON{botRef: s.botRefOf(ctx, v, b), TransferCandidates: []fwdPerson{},
+		j := botJSON{botRef: s.botRefOf(ctx, v, b, profiles), TransferCandidates: []fwdPerson{},
 			Routes: b.Routes,
 			Owner:  fwdPerson{ID: 0, Name: s.textFor(ctx, v, "fwd.shared"), Active: true}}
 		if o, ok := owners[botResource(b.ID)]; ok {
@@ -334,9 +374,14 @@ func (s *Server) listBots(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "bots", err)
 		return
 	}
+	profiles, err := s.botProfiles(r.Context(), sc, bots...)
+	if err != nil {
+		s.internalError(w, "bot profiles", err)
+		return
+	}
 	refs := []botRef{}
 	for _, b := range bots {
-		refs = append(refs, s.botRefOf(r.Context(), v, b))
+		refs = append(refs, s.botRefOf(r.Context(), v, b, profiles))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"bots": refs})
 }
