@@ -128,7 +128,7 @@ export function GroupFiles({ groupId, url, p, v, pub = false }: { groupId: numbe
 				</div>
 			</div>
 			{grid ? (
-				h.entries.length > 0 && <div className="a-card a-tablecard">
+				h.entries.length > 0 && <div className="a-card a-tablecard a-filegrid-card">
 					<div className="a-filegrid">{h.entries.map((f, i) => (
 						<div key={keyOf(f, i)} className="a-groupfile">
 							<FileCard f={f} at={f.date} v={v} onOpen={() => setOpen(f)} />

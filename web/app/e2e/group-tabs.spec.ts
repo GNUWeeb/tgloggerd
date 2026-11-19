@@ -41,6 +41,19 @@ test('the Files tab lists, pages, previews and filters a group\'s files', async 
 	await expect(page).toHaveURL(new RegExp(`/groups/${id}/chat\\?at=\\d+$`));
 });
 
+test('the Files tab\'s grid has as many columns as the files page at the same width', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const columns = () => page.locator('.a-filegrid').first().evaluate((g) => getComputedStyle(g).gridTemplateColumns.split(' ').length);
+	await page.goto('/files');
+	await expect(page.locator('.a-filecard').first()).toBeVisible();
+	const files = await columns();
+	expect(files).toBeGreaterThan(2);
+	const id = await sampleGroup(page);
+	await page.goto(`/groups/${id}/files`);
+	await expect(page.locator('.a-groupfile').first()).toBeVisible();
+	expect(await columns()).toBe(files);
+});
+
 test('the Polls tab shows a group\'s polls with links to their messages', async ({ page }) => {
 	const id = await sampleGroup(page);
 	await page.goto(`/groups/${id}`);
