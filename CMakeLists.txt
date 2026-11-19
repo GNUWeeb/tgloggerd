@@ -68,6 +68,8 @@ add_executable(tgloggerd
 	src/tgloggerd/models/Poll.cpp
 	src/tgloggerd/models/ForumTopic.hpp
 	src/tgloggerd/models/ForumTopic.cpp
+	src/tgloggerd/models/Emoji.hpp
+	src/tgloggerd/models/Emoji.cpp
 	src/tgloggerd/models/Backfill.cpp
 	src/tgloggerd/helpers/common.c
 	src/tgloggerd/helpers/common.h
@@ -79,6 +81,8 @@ add_executable(tgloggerd
 	src/tgloggerd/PhotoApi.hpp
 	src/tgloggerd/MessageExtract.cpp
 	src/tgloggerd/MessageExtract.hpp
+	src/tgloggerd/EmojiExtract.cpp
+	src/tgloggerd/EmojiExtract.hpp
 	src/tgloggerd/TDLib.cpp
 	src/tgloggerd/TDLib.hpp
 	src/tgloggerd/FileToken.cpp

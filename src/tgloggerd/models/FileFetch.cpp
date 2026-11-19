@@ -122,9 +122,28 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 		"  FROM telegram_group_hist_photo h"
 		"  JOIN telegram_files f ON f.id = h.file_id"
 		"  WHERE h.file_id = ? AND f.tg_unique_id IS NOT NULL"
+		"  LIMIT " + n + ")"
+		/*
+		 * A custom emoji's sticker is found by asking for the custom
+		 * emoji again, and a message effect's file by asking for the
+		 * effect and picking the file by its unique id. Every file
+		 * column of both tables has an index (its foreign key's); the
+		 * effects table holds one row per effect Telegram offers, a
+		 * few dozen, so the OR over its four columns costs nothing.
+		 */
+		" UNION ALL "
+		"(SELECT 11, custom_emoji_id, 0, NULL, NULL FROM telegram_custom_emoji"
+		"  WHERE file_id = ? LIMIT " + n + ")"
+		" UNION ALL "
+		"(SELECT 12, e.effect_id, 0, f.tg_unique_id, NULL"
+		"  FROM telegram_message_effects e"
+		"  JOIN telegram_files f ON f.id = ?"
+		"  WHERE f.tg_unique_id IS NOT NULL AND"
+		"   (e.static_icon_file_id = f.id OR e.select_animation_file_id = f.id"
+		"    OR e.effect_animation_file_id = f.id OR e.sticker_file_id = f.id)"
 		"  LIMIT " + n + ")",
 		{ files_id, files_id, files_id, files_id, files_id, files_id,
-		  files_id, files_id, files_id, files_id });
+		  files_id, files_id, files_id, files_id, files_id, files_id });
 
 	std::vector<models::FileSource> out;
 	for (const auto &r : rows) {
@@ -155,6 +174,15 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 			break;
 		case 10:
 			s.kind = Kind::RichMedia;
+			s.unique_id = r[3].value_or("");
+			break;
+		case 11:
+			s.kind = Kind::CustomEmoji;
+			s.object_id = std::stoll(*r[1]);
+			break;
+		case 12:
+			s.kind = Kind::MessageEffect;
+			s.object_id = std::stoll(*r[1]);
 			s.unique_id = r[3].value_or("");
 			break;
 		case 6:

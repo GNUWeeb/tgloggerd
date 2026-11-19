@@ -177,8 +177,12 @@ Resolving a row to a TDLib file:
    and take the file from it: the newest message referencing it
    (`getMessage`, then the same extraction as ingest,
    `message_content_file` or `link_preview_image`), the group photo
-   (`getChat`) or the user photo (`getUser`). TDLib's file database is
-   off, so a fresh source is the reliable way to a valid reference.
+   (`getChat`) or the user photo (`getUser`), a photo of the user's or
+   group's photo list (by its unique id), the custom emoji whose
+   sticker it is (`getCustomEmojiStickers`) or the message effect
+   holding it (`getMessageEffect`, by its unique id). TDLib's file
+   database is off, so a fresh source is the reliable way to a valid
+   reference.
 
 The row-to-TDLib-file mapping is cached in memory.
 

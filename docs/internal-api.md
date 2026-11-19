@@ -256,8 +256,9 @@ How it works, and its limits:
 
 - The file is found by its remote id; when that no longer downloads
   (an expired file reference), something referencing it is fetched
-  from Telegram again: the newest live message carrying it, or the
-  group or user whose current photo it is.
+  from Telegram again: the newest live message carrying it, the group
+  or user whose current photo it is, the photo list holding it, or the
+  custom emoji or message effect whose file it is.
 - Downloads of one file run one at a time; a request waits for the one
   in flight (within its own time limit). A file ingest is downloading
   is waited for, not requested again with another range.
