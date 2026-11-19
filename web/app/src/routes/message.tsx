@@ -6,6 +6,7 @@ import { Thumb, TypeIcon, duration } from '../ui/media.tsx';
 import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
+import { MessageMedia, kindOf } from './chat-media.tsx';
 import { Counts, KindDetail, Reactions, TEXT_INSIDE } from './chat-kinds.tsx';
 import type { PageData } from '../page.ts';
 import type { MessageFull } from '../types.ts';
@@ -21,7 +22,9 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 	const v = page.viewer;
 	const chatHref = m.chat.kind === 'group' ? `/groups/${m.chat.id}` : `/users/${m.chat.id}`;
 	const list = m.scope === 'group' ? ['Group messages', '/group_messages'] as const : ['Private messages', '/private_messages'] as const;
-	const big = m.media && (m.content_type === 'photo' || m.content_type === 'video');
+	// The media as the chat draws it, by kind; only media no kind fits
+	// (an unknown type without a render) falls back to a plain file row.
+	const drawn = m.media && kindOf(m.content_type, m.media) !== null;
 	// A service message's action, and the message it is about (a pin).
 	const svcType = m.service?.type ?? m.service_type;
 	const svcAbout = m.service?.refs.message_id ?? null;
@@ -73,7 +76,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						{m.forwarded && <p className="a-muted sm a-fwdline"><Forward size={13} />Forwarded from <b>{fromLink}</b></p>}
 						{m.media && (
 							<div className="a-msgmedia">
-								{big ? <Thumb type={m.content_type} thumb={m.media.thumb} stored={m.media.stored} size={260} radius={10} />
+								{drawn ? <MessageMedia msg={{ content_type: m.content_type, media: m.media, album: [] }} onClick={v.chat?.media === 'click'} />
 									: <div className="a-filerow"><Thumb type={m.content_type} thumb={m.media.thumb} stored={m.media.stored} size={44} /><div><b>{m.media.name || m.content_type}</b><div className="a-muted sm">{bytes(m.media.size)}{m.media.duration ? ' . ' + duration(m.media.duration) : ''}</div></div></div>}
 							</div>
 						)}

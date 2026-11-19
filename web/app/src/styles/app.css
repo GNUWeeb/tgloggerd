@@ -364,7 +364,8 @@
 .app .a-replybox > span { display: flex; flex-direction: column; min-width: 0; color: var(--fg); }
 .app .a-fwdline { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }
 .app .a-msgmedia { margin-bottom: 10px; }
-.app .a-msgmedia > .a-thumb { max-width: 100%; }
+/* The chat's media (chat-media.tsx), a little larger on a message's own page. */
+.app .a-msgmedia .c-media.single { width: 420px; max-width: 100%; }
 .app .a-filerow { display: flex; gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: 10px; }
 .app .a-msgtext { white-space: pre-wrap; font: inherit; font-size: 14.5px; margin: 0; overflow-wrap: anywhere; }
 .app .a-list-row.a-plain { width: 100%; }

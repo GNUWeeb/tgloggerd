@@ -264,8 +264,9 @@ export function kindOf(ct: string, m: Media): MediaKind | null {
 
 // A message's media and album: one item as itself; an album of photos
 // and videos as a grid, any other items (documents, audio) one below
-// the other. Each item has its own kind and deletion.
-export function MessageMedia({ msg, onClick }: { msg: ChatMessage; onClick: boolean }) {
+// the other. Each item has its own kind and deletion. It needs only the
+// content type, media and album, so the message page uses it too.
+export function MessageMedia({ msg, onClick }: { msg: Pick<ChatMessage, 'content_type' | 'media' | 'album'>; onClick: boolean }) {
 	const ct = msg.content_type;
 	const base = msg.media ? kindOf(ct, msg.media) : null;
 	if (!msg.media || !base) return null;
