@@ -984,6 +984,8 @@ struct TDLib::Impl {
 	size_t						repair_sent_ = 0;
 	time_t						relink_tick_ = 0;
 	int						relink_in_tick_ = 0;
+	/* What the repair sent this second (recheck::kRepairPerSecond). */
+	int						repair_in_tick_ = 0;
 
 	/*
 	 * Chat rechecks (TDLib::recheckChat): the queue under refetch_mtx_,
@@ -3074,6 +3076,7 @@ void TDLib::Impl::drain_relink(void)
 		relink_tick_ = now;
 		relink_in_tick_ = 0;
 		recheck_in_tick_ = 0;
+		repair_in_tick_ = 0;
 	}
 	while (relink_in_tick_ < kRelinkPerSecond) {
 		std::pair<int64_t, int64_t> m;
@@ -3117,9 +3120,10 @@ void TDLib::Impl::drain_relink(void)
 	 * Old-row repair, after the relink queue and from what is left of the
 	 * same budget. A re-fetched message is stored again through the
 	 * normal path, which classifies it; one TDLib can no longer return
-	 * keeps what it has.
+	 * keeps what it has. At most recheck::kRepairPerSecond a second.
 	 */
-	while (relink_in_tick_ < kRelinkPerSecond) {
+	while (recheck::repairAllowance(kRelinkPerSecond, relink_in_tick_,
+					repair_in_tick_) > 0) {
 		std::pair<int64_t, int64_t> m;
 		{
 			std::lock_guard<std::mutex> lk(refetch_mtx_);
@@ -3130,6 +3134,7 @@ void TDLib::Impl::drain_relink(void)
 		}
 		refetch_edited_message(m.first, m.second << 20, false);
 		relink_in_tick_++;
+		repair_in_tick_++;
 		if (++repair_sent_ % 1000 == 0 || repair_sent_ == repair_total_)
 			pr_info(l_, "repair: re-fetched %zu of %zu old message(s)"
 				" without their kind or detail", repair_sent_,

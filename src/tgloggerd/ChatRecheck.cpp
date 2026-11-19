@@ -88,6 +88,12 @@ bool repairMayRun(size_t rechecks_queued, int rechecks_inflight,
 	return since_repair_sent >= kRepairMaxPause;
 }
 
+int repairAllowance(int budget, int tick_used, int repair_used)
+{
+	return std::max(0, std::min(budget - tick_used,
+				    kRepairPerSecond - repair_used));
+}
+
 Shape shapeOf(int64_t around)
 {
 	if (around == 0)

@@ -826,7 +826,9 @@ without their detail, are re-read with `getMessage` and stored again
 through the normal path, which classifies them. The pass is opt-in: it
 runs at startup when `TG_REPAIR_MESSAGES_ON_START` is set, and `dry`
 only logs how many rows it would re-read, per table and kind. It shares
-the relink re-fetch's pace (10 `getMessage` a second for both).
+the relink re-fetch's budget (10 `getMessage` a second for both), of
+which the repair takes at most 5, and it waits while chat rechecks
+are pending (`recheck::repairMayRun`).
 
 A row qualifies while it is live, has no `tdlib_type`, and is
 `unknown` or `service`. A re-read row gets its `tdlib_type`, so a pass

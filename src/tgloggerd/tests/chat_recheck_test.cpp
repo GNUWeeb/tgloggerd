@@ -345,6 +345,13 @@ static void testRepairYields(void)
 	CHECK(!repairMayRun(200, 2, 59s), "a catch-up under way: it waits");
 	CHECK(repairMayRun(200, 2, 60s),
 	      "but after a minute without sending it gets a tick");
+
+	printf("the repair's share of the budget\n");
+	CHECK(repairAllowance(10, 0, 0) == 5, "at most 5 a second of 10");
+	CHECK(repairAllowance(10, 3, 2) == 3, "5 minus what it sent");
+	CHECK(repairAllowance(10, 8, 0) == 2, "no more than the budget leaves");
+	CHECK(repairAllowance(10, 10, 0) == 0, "nothing once the tick is full");
+	CHECK(repairAllowance(10, 5, 5) == 0, "nothing once it sent 5");
 }
 
 static void testQueuedAt(void)

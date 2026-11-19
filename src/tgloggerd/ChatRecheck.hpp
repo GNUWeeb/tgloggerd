@@ -88,6 +88,18 @@ struct Item {
  */
 constexpr std::chrono::seconds kRepairMaxPause{ 60 };
 
+/*
+ * At most this many old-row repair re-fetches a second, within the budget
+ * the relink, the rechecks and the repair share: half of it, so the
+ * account's other requests stay clear of Telegram's flood limits.
+ */
+constexpr int kRepairPerSecond = 5;
+
+/* How many more re-fetches the repair may send in this second, given the
+ * shared budget @budget, what the tick used so far (@tick_used) and what
+ * the repair itself sent in it (@repair_used). */
+int repairAllowance(int budget, int tick_used, int repair_used);
+
 bool repairMayRun(size_t rechecks_queued, int rechecks_inflight,
 		  Clock::duration since_repair_sent);
 
