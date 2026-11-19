@@ -266,6 +266,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 			// Only the keys named change; null resets one to the site default.
 			const bad = fx.badPref(body);
 			if (bad) { send(res, 400, { error: 'bad_request', message: `${bad} does not take that value.`, field: bad }); return; }
+			const range = fx.badRange(st.prefs, body);
+			if (range) { send(res, 400, { error: 'bad_request', message: 'The dashboard chart\'s range does not fit its period.', field: range }); return; }
 			for (const [k, v] of Object.entries(body)) { if (v === null) delete st.prefs[k]; else st.prefs[k] = v; }
 			send(res, 200, { prefs: st.prefs }); return;
 		}
@@ -302,6 +304,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 	if (url.pathname === '/api/dashboard/kpis' && req.method === 'GET') {
 		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
 		send(res, 200, { kpis: fx.dashboardKpis(who) }); return;
+	}
+	if (url.pathname === '/api/dashboard/series' && req.method === 'GET') {
+		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+		const [status, body] = fx.dashboardSeries(who, url.searchParams);
+		send(res, status, body); return;
 	}
 	if (url.pathname === '/api/events' && req.method === 'GET') { await openStream(req, res, url, who); return; }
 	if (url.pathname === '/api/_standin/emit' && req.method === 'POST') {

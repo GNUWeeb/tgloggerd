@@ -101,7 +101,7 @@ describe('dashboard counts, live', () => {
 		expect(todayOf('Group messages')).toBe(`+${fmt(today + 2)} today`);
 		// The counts follow by themselves: no page refetch, no count call.
 		await act(() => new Promise((r) => setTimeout(r, 50)));
-		expect(callsTo(calls, 'GET', /^\/api\/(page|dashboard)/)).toHaveLength(0);
+		expect(callsTo(calls, 'GET', /^\/api\/(page|dashboard\/kpis)/)).toHaveLength(0);
 	});
 
 	it('takes the server\'s counts every minute, over the ticked ones', async () => {

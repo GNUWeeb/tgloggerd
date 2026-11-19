@@ -1,0 +1,181 @@
+// @vitest-environment happy-dom
+// The dashboard's message chart: its period and range controls, the
+// clamp to the period's limit, the account's remembered choice, the
+// first series from the page data, and the bars with their tooltip.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { callsTo, fakeApi, fixture, json, renderPage, setup, type Call } from '../test/page.tsx';
+import { clampRange } from './dashboard-chart.tsx';
+import type { DashboardProps } from './dashboard.tsx';
+import { LIMIT, type Period } from '../periods.ts';
+
+const NOW = Date.parse('2026-11-17T16:00:00Z') / 1000;
+
+beforeEach(() => {
+	setup();
+	// The server's now and this browser's agree, to the second.
+	vi.useFakeTimers({ toFake: ['Date'] });
+	vi.setSystemTime(NOW * 1000);
+});
+afterEach(() => vi.useRealTimers());
+
+const series = (calls: Call[]) => callsTo(calls, 'GET', '/api/dashboard/series');
+const lastQuery = (calls: Call[]) => Object.fromEntries(series(calls).at(-1)!.query);
+const patches = (calls: Call[]) => callsTo(calls, 'PATCH', '/api/account/preferences').map((c) => c.body as Record<string, unknown>);
+const control = (name: string) => screen.getByLabelText(name) as HTMLInputElement;
+const chart = () => screen.findByRole('img', { name: /^Messages per/ });
+// The page data with other chart preferences in the viewer, and the
+// first series the server would send with them, if given.
+const viewer = (extra: Record<string, unknown>, first?: unknown) => {
+	const page = fixture<DashboardProps>('/');
+	return { viewer: { ...page.viewer, ...extra }, props: { ...page.props, ...(first ? { series: first } : {}) } };
+};
+const firstOf = (points: number[], period = 'hour', d = 3600) => ({
+	period, start: NOW - (points.length - 1) * d, end: NOW + d, live: true, tz: 'UTC', limit: LIMIT[period as Period],
+	points: points.map((n, i) => ({ at: NOW - (points.length - 1 - i) * d, n })),
+});
+
+describe('dashboard chart', () => {
+	it('shows the last 48 hours per hour, ending now, as bars, from the page data', async () => {
+		const calls = fakeApi('superadmin');
+		renderPage('/');
+		const img = await chart();
+		// Drawn from the page data's first series: nothing to fetch.
+		await new Promise((r) => setTimeout(r, 20));
+		expect(series(calls)).toHaveLength(0);
+		expect(screen.getByRole('heading', { name: 'Messages per hour' })).toBeTruthy();
+		expect((control('Period') as unknown as HTMLSelectElement).value).toBe('hour');
+		expect(control('Now').checked).toBe(true);
+		expect(control('End').disabled).toBe(true);
+		// The stand-in's first series: 49 hours, a bar for each with messages.
+		const body = fixture<DashboardProps>('/').props.series;
+		expect(body.points).toHaveLength(49);
+		const total = body.points.reduce((s, p) => s + p.n, 0);
+		expect(img.getAttribute('aria-label')).toMatch(new RegExp(`to now: ${total.toLocaleString('en-US')} messages$`));
+		expect(img.querySelectorAll('.a-sc-bar')).toHaveLength(body.points.filter((p) => p.n > 0).length);
+		// No legend: the title names the one series.
+		expect(document.querySelector('.a-sc-legend')).toBeNull();
+	});
+
+	it('picks in the precision the period needs', async () => {
+		fakeApi('superadmin');
+		renderPage('/');
+		await chart();
+		const want: [string, string, string | null][] = [['minute', 'datetime-local', '60'], ['hour', 'datetime-local', '3600'], ['4h', 'datetime-local', '3600'], ['day', 'date', null], ['week', 'date', null], ['month', 'month', null], ['quarter', 'month', null], ['year', 'number', '1']];
+		for (const [p, type, step] of want) {
+			fireEvent.change(control('Period'), { target: { value: p } });
+			expect(control('Start').type, p).toBe(type);
+			expect(control('Start').getAttribute('step'), p).toBe(step);
+			expect(control('End').type, p).toBe(type);
+		}
+		// Jakarta is UTC+7: 17 Nov 16:00 UTC is 23:00 there.
+		expect(control('Start').value).toBe('2026');
+		fireEvent.change(control('Period'), { target: { value: 'month' } });
+		expect(control('End').value).toBe('2026-11');
+		fireEvent.change(control('Period'), { target: { value: 'hour' } });
+		expect(control('End').value).toBe('2026-11-17T23:00');
+	});
+
+	it('moves the start when a period change takes the range over its limit', async () => {
+		const calls = fakeApi('superadmin', { 'PATCH /api/account/preferences': () => ({ prefs: {} }) });
+		renderPage('/');
+		await chart();
+		fireEvent.change(control('Period'), { target: { value: 'minute' } });
+		await waitFor(() => expect(lastQuery(calls)).toEqual({ period: 'minute', start: String(NOW - 86400), end: 'now' }));
+		expect(patches(calls).at(-1)).toEqual({ dashboard_period: 'minute', dashboard_last: 86400, dashboard_start: null, dashboard_end: null });
+		expect(screen.getByRole('heading', { name: 'Messages per minute' })).toBeTruthy();
+	});
+
+	it('moves the start when a picked start is further back than the limit', async () => {
+		const calls = fakeApi('superadmin');
+		renderPage('/', 'superadmin', viewer({ dashboard_period: 'minute', dashboard_last: 3600 }, firstOf([1, 2], 'minute', 60)));
+		await chart();
+		expect(control('Start').value).toBe('2026-11-17T22:00');
+		// Two days back, in Jakarta time: more than a minute chart's 24 hours.
+		fireEvent.change(control('Start'), { target: { value: '2026-11-15T23:00' } });
+		await waitFor(() => expect(lastQuery(calls).start).toBe(String(NOW - 86400)));
+		// A start after the end moves to a period before it.
+		fireEvent.change(control('Start'), { target: { value: '2026-11-18T05:00' } });
+		await waitFor(() => expect(lastQuery(calls).start).toBe(String(NOW - 60)));
+	});
+
+	it('fixes the end when Now is unticked, and takes a picked end', async () => {
+		const calls = fakeApi('superadmin', { 'PATCH /api/account/preferences': () => ({ prefs: {} }) });
+		renderPage('/');
+		await chart();
+		fireEvent.click(control('Now'));
+		expect(control('End').disabled).toBe(false);
+		// The end of the hour holding now: 17 Nov 23:00-24:00 in Jakarta.
+		await waitFor(() => expect(lastQuery(calls)).toEqual({ period: 'hour', start: String(NOW - 48 * 3600), end: String(NOW + 3600) }));
+		expect(patches(calls).at(-1)).toEqual({ dashboard_period: 'hour', dashboard_start: NOW - 48 * 3600, dashboard_end: NOW + 3600, dashboard_last: null });
+		fireEvent.change(control('End'), { target: { value: '2026-11-17T10:00' } });
+		await waitFor(() => expect(lastQuery(calls).end).toBe(String(Date.parse('2026-11-17T04:00:00Z') / 1000)));
+		fireEvent.click(control('Now'));
+		await waitFor(() => expect(lastQuery(calls).end).toBe('now'));
+	});
+
+	it('starts from the account\'s remembered choice', async () => {
+		const calls = fakeApi('superadmin');
+		// 28 Oct to 16 Nov 23:00, Jakarta time.
+		const start = NOW - 20 * 86400, end = NOW - 86400;
+		renderPage('/', 'superadmin', viewer({ dashboard_period: 'day', dashboard_start: start, dashboard_end: end, dashboard_last: undefined }, { ...firstOf([4, 5, 6], 'day', 86400), live: false }));
+		await chart();
+		expect((control('Period') as unknown as HTMLSelectElement).value).toBe('day');
+		expect(control('Now').checked).toBe(false);
+		expect(control('Start').value).toBe('2026-10-28');
+		expect(control('End').value).toBe('2026-11-16');
+		expect(screen.getByRole('heading', { name: 'Messages per day' })).toBeTruthy();
+		expect(series(calls)).toHaveLength(0);
+		// A change asks for the new range, from the remembered one.
+		fireEvent.change(control('Period'), { target: { value: 'week' } });
+		await waitFor(() => expect(lastQuery(calls)).toEqual({ period: 'week', start: String(start), end: String(end) }));
+	});
+
+	it('says so when the choice cannot be saved, and keeps it', async () => {
+		const calls = fakeApi('superadmin', { 'PATCH /api/account/preferences': () => json(500, { error: 'internal' }) });
+		renderPage('/');
+		await chart();
+		fireEvent.change(control('Period'), { target: { value: 'day' } });
+		await screen.findByText(/Not saved; shown on this page only/);
+		expect(lastQuery(calls).period).toBe('day');
+	});
+
+	it('shows the server\'s refusal', async () => {
+		fakeApi('superadmin', { 'GET /api/dashboard/series': () => json(400, { error: 'bad_request', message: 'The range is longer than this period allows.' }) });
+		renderPage('/');
+		await chart();
+		fireEvent.change(control('Period'), { target: { value: 'day' } });
+		expect((await screen.findByRole('alert')).textContent).toBe('The range is longer than this period allows.');
+	});
+
+	it('gives a period\'s start and count on hover, anywhere over its column', async () => {
+		fakeApi('superadmin');
+		renderPage('/', 'superadmin', viewer({}, firstOf([0, 3, 12, 0, 5])));
+		const img = await chart();
+		expect(img.querySelectorAll('.a-sc-bar')).toHaveLength(3);
+		const hit = img.querySelector('.a-sc-hit')!;
+		const w = Number(hit.getAttribute('width'));
+		// High over the third column, well above its bar.
+		fireEvent.pointerMove(hit, { clientX: w * 0.5, clientY: 2 });
+		const tip = screen.getByRole('status');
+		expect(tip.textContent).toContain('12 messages');
+		expect(tip.textContent).toMatch(/Tue,? 17 Nov,? 14:00/);
+		expect(img.querySelector('.a-sc-cross')).not.toBeNull();
+		fireEvent.pointerLeave(hit);
+		expect(screen.queryByRole('status')).toBeNull();
+		// And from the keyboard.
+		fireEvent.keyDown(img, { key: 'End' });
+		expect(screen.getByRole('status').textContent).toContain('5 messages');
+		fireEvent.keyDown(img, { key: 'ArrowLeft' });
+		expect(screen.getByRole('status').textContent).toContain('0 messages');
+	});
+});
+
+describe('clampRange', () => {
+	it('keeps a range within the limit by moving its start', () => {
+		expect(clampRange({ live: false, start: 0, end: 100000 }, 'minute', 86400, NOW)).toEqual({ live: false, start: 100000 - 86400, end: 100000 });
+		expect(clampRange({ live: true, start: NOW - 3 * 86400 }, 'minute', 86400, NOW)).toEqual({ live: true, start: NOW - 86400 });
+		expect(clampRange({ live: true, start: 0 }, 'year', null, NOW)).toEqual({ live: true, start: 0 });
+		expect(clampRange({ live: false, start: 500, end: 400 }, 'hour', 45 * 86400, NOW)).toEqual({ live: false, start: 0, end: 400 });
+	});
+});

@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { setEngine, viewOf, adminApi, federationGroups, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { setEngine, viewOf, adminApi, dashboardSeries, federationGroups, badPref, groupPhotos, userPhotos, badRange, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 import { FORUM_GROUP, KINDS_GROUP, TOPICS, sampleOf } from '../../standin/kinds.ts';
 import { chatStream, privateMessages } from '../../../mockup/src/data/messages.js';
@@ -212,20 +212,55 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		expect((back as { restrict: { hide_groups: unknown[] } | null }).restrict?.hide_groups ?? []).toEqual([]);
 	});
 
-	it('the first per-day bar\'s date, in the viewer\'s timezone', () => {
-		// The stand-in's now is 17 Nov 16:00 UTC: 23:00 in Jakarta (the
-		// site's zone), already 18 Nov 05:00 in Auckland.
-		expect(perDayStart('superadmin', 30)).toBe('2026-10-19');
+	it.each(['superadmin', 'member'] as Persona[])('the dashboard series of every period, as %s', (p) => {
+		const now = Date.parse('2026-11-17T16:00:00Z') / 1000;
+		const ranges: Record<string, number> = { minute: 86400, hour: 48 * 3600, '4h': 180 * 86400, day: 400 * 86400, week: 3000 * 86400, month: now, quarter: now, year: now };
+		for (const [period, len] of Object.entries(ranges)) {
+			for (const end of ['now', String(now - 3600)]) {
+				const [status, body] = dashboardSeries(p, new URLSearchParams({ period, start: String(Math.max(0, (end === 'now' ? now : now - 3600) - len)), end }));
+				ok(status, body, '/api/dashboard/series');
+			}
+		}
+	});
+
+	it('the dashboard chart\'s range a PATCH takes, with the stored preferences', () => {
+		const day = 86400;
+		expect(badRange({}, { dashboard_period: 'minute', dashboard_last: day })).toBeNull();
+		expect(badRange({}, { dashboard_period: 'minute', dashboard_last: day + 1 })).toBe('dashboard_last');
+		expect(badRange({ dashboard_period: 'minute' }, { dashboard_last: day + 1 })).toBe('dashboard_last');
+		expect(badRange({}, { dashboard_start: 100 })).toBe('dashboard_end');
+		expect(badRange({}, { dashboard_end: 100 })).toBe('dashboard_start');
+		expect(badRange({ dashboard_start: 10 }, { dashboard_end: 100 })).toBeNull();
+		expect(badRange({}, { dashboard_start: 100, dashboard_end: 100 })).toBe('dashboard_start');
+		expect(badRange({ dashboard_start: 0, dashboard_end: 2 * day }, { dashboard_period: 'minute' })).toBe('dashboard_start');
+		expect(badRange({ dashboard_start: 0, dashboard_end: 2 * day }, { dashboard_start: null, dashboard_end: null })).toBeNull();
+		// Month and longer have no limit.
+		expect(badRange({}, { dashboard_period: 'year', dashboard_start: 0, dashboard_end: 4e9 })).toBeNull();
+		expect(badPref({ dashboard_end: 253402300800 })).toBe('dashboard_end');
+		expect(badPref({ dashboard_last: 0 })).toBe('dashboard_last');
+	});
+
+	it('the dashboard\'s first series follows the viewer\'s chart preferences', () => {
 		const prefs = settingsState('superadmin').prefs;
-		const was = prefs.timezone;
-		prefs.timezone = 'Pacific/Auckland';
+		const was = { ...prefs };
 		try {
-			expect(perDayStart('superadmin', 30)).toBe('2026-10-20');
-			const p = pageData('/', 'superadmin').props as { per_day: number[]; per_day_start: string };
-			expect(p.per_day).toHaveLength(30);
-			expect(p.per_day_start).toBe('2026-10-20');
+			let p = pageData('/', 'superadmin') as { viewer: Record<string, unknown>; props: { series: { period: string; live: boolean; points: unknown[] } } };
+			expect(p.viewer).toMatchObject({ dashboard_period: 'hour', dashboard_last: 172800 });
+			expect(p.viewer.dashboard_start).toBeUndefined();
+			expect(p.props.series).toMatchObject({ period: 'hour', live: true });
+			expect(p.props.series.points).toHaveLength(49);
+			Object.assign(prefs, { dashboard_period: 'minute' });
+			p = pageData('/', 'superadmin') as typeof p;
+			expect(p.viewer).toMatchObject({ dashboard_period: 'minute', dashboard_last: 86400 });
+			const now = Date.parse('2026-11-17T16:00:00Z') / 1000;
+			Object.assign(prefs, { dashboard_period: 'day', dashboard_start: now - 10 * 86400, dashboard_end: now });
+			p = pageData('/', 'superadmin') as typeof p;
+			expect(p.viewer).toMatchObject({ dashboard_period: 'day', dashboard_start: now - 10 * 86400, dashboard_end: now });
+			expect(p.viewer.dashboard_last).toBeUndefined();
+			expect(p.props.series).toMatchObject({ period: 'day', live: false });
 		} finally {
-			if (was === undefined) delete prefs.timezone; else prefs.timezone = was;
+			for (const k of Object.keys(prefs)) delete prefs[k];
+			Object.assign(prefs, was);
 		}
 	});
 

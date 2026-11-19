@@ -5,7 +5,7 @@
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
 import App from '../App.tsx';
-import { pageData, type Persona } from '../../standin/fixtures.ts';
+import { dashboardSeries, pageData, type Persona } from '../../standin/fixtures.ts';
 import type { PageData } from '../page.ts';
 
 export interface Call { method: string; path: string; query: URLSearchParams; body: unknown; headers: Headers }
@@ -16,8 +16,9 @@ export const json = (status: number, body?: unknown) => new Response(body === un
 // Calls the page made, in order; and `fake`, which answers them. A
 // handler is keyed "METHOD /path" with :name for one path segment and
 // returns a Response, or a value sent as 200 JSON (undefined: 204).
-// Page data (GET /api/page/...) comes from the fixtures unless a test
-// answers it; anything else unanswered is a 404.
+// Page data (GET /api/page/...) and the dashboard's chart series come
+// from the fixtures unless a test answers them; anything else
+// unanswered is a 404.
 export function fakeApi(persona: Persona, handlers: Record<string, Handler> = {}) {
 	const calls: Call[] = [];
 	const routes = Object.entries(handlers).map(([k, h]) => {
@@ -39,6 +40,10 @@ export function fakeApi(persona: Persona, handlers: Record<string, Handler> = {}
 		if (req.method === 'GET' && path.startsWith('/api/page/')) {
 			const p = pageData(path.slice('/api/page'.length) + u.search, persona);
 			return json(p.status, p);
+		}
+		if (req.method === 'GET' && path === '/api/dashboard/series') {
+			const [status, body] = dashboardSeries(persona, u.searchParams);
+			return json(status, body);
 		}
 		return json(404, { error: 'not_found' });
 	});

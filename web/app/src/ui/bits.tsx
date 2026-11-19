@@ -50,8 +50,7 @@ export function Bar({ value, max }: { value: number; max: number }) {
 	return <span className="a-bar"><span style={{ width: `${(value / Math.max(1, max)) * 100}%` }} /></span>;
 }
 
-// A small line of daily counts, for the profile pages' stat cards. The
-// dashboard's labelled per-day bars are DayBars (ui/daybars.tsx).
+// A small line of daily counts, for the profile pages' stat cards.
 export function Sparkline({ data, height = 44 }: { data: number[]; height?: number }) {
 	const width = 220;
 	const max = Math.max(1, ...data);

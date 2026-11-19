@@ -63,26 +63,36 @@ test('the theme chosen in the top bar is kept across a reload', async ({ page })
 	await expect(page.getByRole('button', { name: 'Theme: light' })).toBeVisible();
 });
 
-test('the dashboard\'s per-day bars give the day and count on hover', async ({ page }) => {
+test('the dashboard\'s chart draws its bars and gives a period\'s start and count on hover', async ({ page, request }) => {
+	// Drawn by the server render already, from the page data's series.
+	const html = await (await request.get('/', { headers: { cookie: 'tgd_as=superadmin' } })).text();
+	expect(html).toContain('class="a-sc-bar');
+	expect(html).not.toContain('Loading the chart');
 	await page.goto('/');
 	await expect(page.locator('.a-livestate')).toBeVisible();
-	const today = page.getByRole('img', { name: /^Today, / });
-	await today.hover();
-	const tip = page.locator('.a-daybars-tip');
+	const chart = page.getByRole('img', { name: /^Messages per hour, .* to now: [\d,]+ messages$/ });
+	await expect(chart).toBeVisible();
+	expect(await chart.locator('.a-sc-bar').count()).toBeGreaterThan(10);
+	// Near the right edge, above the bars: the plot is the hover target.
+	const box = (await chart.boundingBox())!;
+	await page.mouse.move(box.x + box.width - 12, box.y + 20);
+	const tip = page.locator('.a-sc-tip');
 	await expect(tip).toBeVisible();
-	await expect(tip).toContainText('Today');
 	await expect(tip).toContainText('messages');
+	await expect(tip).toContainText(/17 Nov,? 23:00/);
+	await expect(chart.locator('.a-sc-cross')).toHaveCount(1);
 	// Inside the card, not cut off at its right edge.
-	const card = await page.locator('.a-bigchart').boundingBox();
-	const box = await tip.boundingBox();
-	expect(box!.x + box!.width).toBeLessThanOrEqual(card!.x + card!.width + 1);
-	await expect(page.locator('.a-daybars-axis')).toContainText('Today');
+	const card = (await page.locator('.a-bigchart').boundingBox())!;
+	const t = (await tip.boundingBox())!;
+	expect(t.x + t.width).toBeLessThanOrEqual(card.x + card.width + 1);
+	await page.mouse.move(box.x - 40, box.y - 40);
+	await expect(tip).toBeHidden();
 });
 
 test('the dashboard fits the window: nothing hidden makes the page taller', async ({ page }) => {
 	await page.setViewportSize({ width: 1920, height: 1080 });
 	await page.goto('/');
-	await expect(page.getByRole('img', { name: /^Today, / })).toBeVisible();
+	await expect(page.getByRole('img', { name: /^Messages per/ })).toBeVisible();
 	// The shell fills the window and scrolls inside; the page itself
 	// never does.
 	expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
@@ -92,7 +102,7 @@ test('pages end with the same margin as their sides, not a wide band', async ({ 
 	// A window shorter than the dashboard, so the page scrolls to its end.
 	await page.setViewportSize({ width: 1920, height: 700 });
 	await page.goto('/');
-	await expect(page.getByRole('img', { name: /^Today, / })).toBeVisible();
+	await expect(page.getByRole('img', { name: /^Messages per/ })).toBeVisible();
 	const gap = await page.evaluate(() => {
 		const last = [...document.querySelectorAll('.a-content > *')].pop()!.getBoundingClientRect();
 		return document.documentElement.scrollHeight - (last.bottom + scrollY);

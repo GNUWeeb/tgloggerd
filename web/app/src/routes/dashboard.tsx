@@ -4,7 +4,7 @@ import Shell from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
 import { Avatar, Card, PageHead } from '../ui/primitives.tsx';
 import { Bar } from '../ui/bits.tsx';
-import { DayBars } from '../ui/daybars.tsx';
+import { MessagesChart } from './dashboard-chart.tsx';
 import { ago, compact, fmt } from '../format.ts';
 import { savePrefs } from '../api/prefs.ts';
 import { dashboardKpis, type KPI } from '../api/dashboard.ts';
@@ -112,9 +112,7 @@ function Dashboard({ page }: { page: PageData<DashboardProps> }) {
 				})}
 			</div>
 			<div className={`a-dash ${p.status ? '' : 'member'}`}>
-				<Card title="Messages logged per day" action={<span className="a-muted sm" title="Each day runs from midnight to midnight in your timezone">last 30 days</span>} className="a-dash-wide">
-					<div className="a-bigchart"><DayBars data={p.per_day} now={v.now} start={p.per_day_start} height={140} /></div>
-				</Card>
+				<MessagesChart viewer={v} first={p.series} />
 				{p.status && (
 					<Card title="Logger status" className="a-status">
 						<ul className="a-statuslist">

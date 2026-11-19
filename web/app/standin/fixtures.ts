@@ -17,6 +17,8 @@ import { engineAnswer } from './engine.ts';
 import { MAX_Q, memberCount, memberFlags, membersPage } from './members.ts';
 export { membersApi, patchGroup } from './members.ts';
 import { groupFiles, groupPolls } from './groupfiles.ts';
+import { seriesApi } from './series.ts';
+import { LIMIT, isPeriod } from '../src/periods.ts';
 import { D2T_OPTIONS, T2D_OPTIONS, checkTypes, migrated } from './fwdtypes.ts';
 export { engineOf, setEngine } from './engine.ts';
 import { queryRows } from '../../mockup/src/data/seed.js';
@@ -68,6 +70,7 @@ export function viewerOf(persona: Persona): Viewer {
 		rows_per_page: pr.rows_per_page ?? undefined,
 		sidebar: pr.sidebar ?? 'open',
 		dashboard_numbers: pr.dashboard_numbers ?? 'exact',
+		...chartView(pr),
 		// The chat switches in effect, as Go gives them: the account's, else on.
 		chat: {
 			auto_load: pr.chat_auto_load ?? true, live: pr.chat_live ?? true, media: pr.chat_media ?? 'auto',
@@ -94,6 +97,17 @@ export function dashboardKpis(persona: Persona) {
 		: [['users', TOTALS.users, 412], ['groups', TOTALS.groups, 3], ['group_messages', TOTALS.group_messages, 38211], ['private_messages', TOTALS.private_messages, 1290], ['files', TOTALS.files, 2406]];
 	const bump = (k: string) => (k === 'group_messages' ? liveNew.group : k === 'private_messages' ? liveNew.private : 0);
 	return rows.filter(([k]) => allowed(s, k)).map(([key, total, today]) => ({ key, total: total + bump(key), today: today + bump(key) }));
+}
+
+// The dashboard's chart (GET /api/dashboard/series): the messages the
+// viewer may see, counted per period in its timezone, the live ones
+// emitted since the fixtures loaded included. The stand-in's clock
+// stands at NOW, as its page data does.
+export function dashboardSeries(persona: Persona, q: URLSearchParams) {
+	const s = scopeOf(persona);
+	const tz = settingsState(persona).prefs.timezone || SITE_TIMEZONE;
+	const dates = [...groupMessages().filter((m) => s.group(m.chat)), ...(canSeePrivate(persona) ? privateMessages() : [])].map((m) => parseStamp(m.date) / 1000);
+	return seriesApi(q, tz, dates, Date.parse(NOW) / 1000);
 }
 
 function userSummary(u, full: boolean) {
@@ -527,14 +541,7 @@ function searchList(st, registry: string, rows: Record<string, unknown>[], keep:
 	return { st: applied, r: exact ? r : { ...r, total: Math.round(r.total / 100) * 100 || r.total }, all, extra: { total_exact: exact, fields: fieldsOf(fields), ...(error ? { error } : {}) } };
 }
 
-// The first per-day bar's date, as Go gives it: the calendar day 29 days
-// before the viewer's today, in its timezone (its own, else the site's).
 export const SITE_TIMEZONE = 'Asia/Jakarta';
-export function perDayStart(persona: Persona, days: number): string {
-	const tz = (persona !== 'public' && settingsState(persona).prefs.timezone) || SITE_TIMEZONE;
-	const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(NOW));
-	return new Date(Date.parse(today + 'T00:00:00Z') - (days - 1) * 86400000).toISOString().slice(0, 10);
-}
 
 // Path -> route and props, with the viewer's scope applied: hidden things
 // answer exactly like missing ones.
@@ -566,8 +573,7 @@ export function load(url: string, persona: Persona): Loaded {
 		return {
 			route: 'dashboard', status: 200, props: {
 				kpis: dashboardKpis(persona),
-				per_day: getActivity(31337, 38000 * 900 / 30),
-				per_day_start: perDayStart(persona, 30),
+				series: firstSeries(persona),
 				busiest: vis.sort((a, b) => b.msg_count - a.msg_count).slice(0, 6).map((g) => ({ ...groupSummary(g), msg_count: g.msg_count })),
 				deleted: groupMessages().filter((x) => x.deleted_at && s.group(x.chat)).slice(0, 5).map((x) => ({
 					id: x.id, scope: 'group', chat: groupSummary(x.chat), sender: userSummary(senderOf(x), false),
@@ -832,7 +838,53 @@ const PREF_VALUES: Record<string, (v: unknown) => boolean> = {
 	chat_auto_load: (v) => typeof v === 'boolean', chat_live: (v) => typeof v === 'boolean', chat_show_deleted: (v) => typeof v === 'boolean',
 	chat_show_edited: (v) => typeof v === 'boolean', chat_show_service: (v) => typeof v === 'boolean',
 	dashboard_numbers: (v) => ['exact', 'compact'].includes(v as string),
+	// The dashboard chart's: the period, the drawing, a fixed range's
+	// start and end, or the last so many seconds to now.
+	dashboard_period: (v) => isPeriod(v), dashboard_variant: (v) => ['bars', 'line', 'area', 'total'].includes(v as string), dashboard_start: (v) => unix(v, 0), dashboard_end: (v) => unix(v, 0), dashboard_last: (v) => unix(v, 1),
 };
+// A unix time (or a length) up to the end of the year 9999.
+function unix(v: unknown, min: number): boolean {
+	return Number.isInteger(v) && (v as number) >= min && (v as number) <= 253402300799;
+}
+
+// The dashboard chart's range checked as a whole, as Go does, with the
+// stored preferences for the keys a PATCH leaves out: start and end both
+// set or both null, the start first, and the fixed range or the length
+// to now within the period's limit. The key at fault, or null.
+export function badRange(stored: Record<string, unknown>, body: Record<string, unknown>): string | null {
+	const p = { ...stored, ...body };
+	const start = p.dashboard_start ?? null, end = p.dashboard_end ?? null, last = p.dashboard_last ?? null;
+	const limit = LIMIT[isPeriod(p.dashboard_period) ? p.dashboard_period : 'hour'];
+	if (start === null && end !== null) return 'dashboard_start';
+	if (start !== null && end === null) return 'dashboard_end';
+	if (start !== null && end !== null) {
+		if ((start as number) >= (end as number)) return 'dashboard_start';
+		if (limit !== null && (end as number) - (start as number) > limit) return 'dashboard_start';
+	}
+	if (last !== null && limit !== null && (last as number) > limit) return 'dashboard_last';
+	return null;
+}
+
+// The chart's preferences in effect, as the viewer carries them: the
+// period always, then a fixed range, or the length of one
+// ending now (48 hours unless chosen, at most the period's limit).
+export function chartView(pr: Record<string, unknown>) {
+	const period = isPeriod(pr.dashboard_period) ? pr.dashboard_period : 'hour';
+	const limit = LIMIT[period];
+	const fixed = typeof pr.dashboard_start === 'number' && typeof pr.dashboard_end === 'number';
+	const last = typeof pr.dashboard_last === 'number' ? pr.dashboard_last : 48 * 3600;
+	return fixed
+		? { dashboard_period: period, dashboard_start: pr.dashboard_start as number, dashboard_end: pr.dashboard_end as number }
+		: { dashboard_period: period, dashboard_last: limit === null ? last : Math.min(last, limit) };
+}
+
+// The chart's first series, for the viewer's preferences in effect.
+function firstSeries(persona: Persona) {
+	const v = chartView(settingsState(persona).prefs);
+	const now = Date.parse(NOW) / 1000;
+	const q = new URLSearchParams({ period: v.dashboard_period, ...(v.dashboard_end === undefined ? { start: String(now - v.dashboard_last!), end: 'now' } : { start: String(v.dashboard_start), end: String(v.dashboard_end) }) });
+	return dashboardSeries(persona, q)[1];
+}
 export function badPref(body: Record<string, unknown>): string | null {
 	for (const [k, v] of Object.entries(body)) {
 		const ok = PREF_VALUES[k];
