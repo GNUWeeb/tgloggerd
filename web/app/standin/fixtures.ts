@@ -1636,6 +1636,18 @@ export function liveChange(kind: string, b: { chat_id?: number; message_id?: num
 		const chat = chatById(Number(b.chat_id));
 		if (!chat) return null;
 		const all = chatStream(chat);
+		// A message_id below the newest, free in the chat: a message the
+		// daemon stored late (a recheck found it missing), put in its place.
+		const gap = Number(b.message_id);
+		if (b.message_id !== undefined && gap < all[all.length - 1].message_id) {
+			const i = all.findIndex((x) => x.message_id >= gap);
+			if (i <= 0 || all[i].message_id === gap) return null;
+			const before = all[i - 1];
+			const m = { ...before, id: before.id + 500000, message_id: gap, date: stamp((parseStamp(before.date) + parseStamp(all[i].date)) / 2), text: 'Found on recheck by the stand-in', entities: [], content_type: 'text', media: null, album: [], reply_to: null, forward: null, edits: null, edited_at: null, deleted_at: null, link_preview: null };
+			all.splice(i, 0, m);
+			if (chat.kind === 'user') liveNew.private++; else liveNew.group++;
+			return { kind, chat_id: chat.id, message_id: gap };
+		}
 		const prev = all[all.length - 1];
 		const n = all.length;
 		const date = stamp(parseStamp(prev.date) + 30000);
