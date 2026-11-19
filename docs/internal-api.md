@@ -591,6 +591,52 @@ limit is reused for 2 minutes, except `flood_wait` and `error`. A
 successful page also stores the group's count. Errors: 400, 404, 503
 and 504 as for `/v1/chats/{chat_id}/refresh`.
 
+### GET /v1/users/{user_id}/photos
+
+A user's profile photos as Telegram has them (`getUserProfilePhotos`),
+newest first. `offset` (default 0) and `limit` (1 to 100, default 100)
+are query parameters.
+
+    200 {
+      "outcome": "ok",
+      "message": "",
+      "total": 3,
+      "photos": [
+        {"photo_id": "5123456789012345678", "date": 1700000000,
+         "file_id": 123456, "is_current": true, "animated": false}
+      ]
+    }
+
+For each photo the daemon records, never twice:
+
+- its largest size in `telegram_files` (`file_id`), metadata only: the
+  bytes are fetched like any unstored file, when someone views it
+  (`POST /v1/files/{id}/fetch`), and the current photo is downloaded by
+  the daemon's own profile photo handling as before;
+- a `telegram_user_hist_profile_photo` row dated with the photo's own
+  date, unless the history has a row for that file already.
+
+`photo_id` is TDLib's photo id as a string; `is_current` marks the
+user's current photo. A history photo whose bytes are not stored can be
+fetched: the fetcher finds it in the user's photo list by its unique id.
+
+`outcome` is `ok`, `flood_wait` (with `retry_after`) or `error` (with
+Telegram's `message`); `photos` is empty and `total` null unless `ok`.
+An `ok` answer is reused for the same user, offset and limit for 10
+minutes. Errors: 400 for a bad id or query; 404 for a user not in
+`telegram_users`; 503 when TDLib is not authorized; 504 when Telegram
+did not answer within 15 seconds.
+
+### GET /v1/chats/{chat_id}/photos
+
+The same for a group or channel: its photo changes as Telegram keeps
+them (`searchChatMessages` with the chat photo filter, newest first,
+dated with the photo's date or the change message's), headed by its
+current photo when no change message shows it (then `photo_id` and
+`date` are null). Each photo is recorded in `telegram_files` and
+`telegram_group_hist_photo` as above. 404 for a chat not in
+`telegram_groups`; otherwise as `/v1/users/{user_id}/photos`.
+
 ### POST /v1/users/{id}/lookup-name
 
 "Look up real name": reads the own name of a user who is a contact of the

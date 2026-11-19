@@ -426,6 +426,19 @@ public:
 	};
 	std::optional<GroupMemberInfo> getGroupMemberInfo(int64_t group_id);
 
+	/**
+	 * Add a photo to a user's (@is_group false) or group's photo history
+	 * unless it has a row for that file already. @date (Unix time) is
+	 * the photo's own date when Telegram gives one, else 0 for "now".
+	 * Returns whether a row was added.
+	 */
+	bool ensurePhotoHistory(int64_t owner_id, bool is_group,
+				uint64_t file_id, int64_t date);
+
+	/* Whether the user or the group has a row. */
+	bool userExists(int64_t user_id);
+	bool groupExists(int64_t group_id);
+
 	/*
 	 * Replace a group's stored administrator set with a freshly fetched
 	 * one, recording added/removed/privilege-change events in
@@ -635,6 +648,9 @@ private:
 	 * duplicated. The table and column arguments are compile-time
 	 * literals, never user input.
 	 */
+	bool ensurePhotoHistory(mysql::Transaction &tx, bool is_group,
+				int64_t owner_id, uint64_t file_id,
+				int64_t date);
 	bool snapshotMessageEditIfChanged(mysql::Transaction &tx,
 					  const char *edits_table,
 					  const char *fk_column,

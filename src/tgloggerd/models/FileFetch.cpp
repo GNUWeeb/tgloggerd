@@ -95,9 +95,25 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 		"  LIMIT " + n + ")"
 		" UNION ALL "
 		"(SELECT 5, id, 0, NULL, NULL FROM telegram_users"
-		"  WHERE profile_photo_file_id = ? LIMIT " + n + ")",
+		"  WHERE profile_photo_file_id = ? LIMIT " + n + ")"
+		/*
+		 * A photo that is no longer current is found in the user's
+		 * or the group's photo list on Telegram, by its unique id.
+		 */
+		" UNION ALL "
+		"(SELECT 8, h.user_id, 0, f.tg_unique_id, NULL"
+		"  FROM telegram_user_hist_profile_photo h"
+		"  JOIN telegram_files f ON f.id = h.file_id"
+		"  WHERE h.file_id = ? AND f.tg_unique_id IS NOT NULL"
+		"  LIMIT " + n + ")"
+		" UNION ALL "
+		"(SELECT 9, h.group_id, 0, f.tg_unique_id, NULL"
+		"  FROM telegram_group_hist_photo h"
+		"  JOIN telegram_files f ON f.id = h.file_id"
+		"  WHERE h.file_id = ? AND f.tg_unique_id IS NOT NULL"
+		"  LIMIT " + n + ")",
 		{ files_id, files_id, files_id, files_id, files_id, files_id,
-		  files_id, files_id });
+		  files_id, files_id, files_id, files_id });
 
 	std::vector<models::FileSource> out;
 	for (const auto &r : rows) {
@@ -117,6 +133,14 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 			break;
 		case 4:
 			s.kind = Kind::GroupPhoto;
+			break;
+		case 8:
+			s.kind = Kind::UserPhotoHistory;
+			s.unique_id = r[3].value_or("");
+			break;
+		case 9:
+			s.kind = Kind::GroupPhotoHistory;
+			s.unique_id = r[3].value_or("");
 			break;
 		case 6:
 		case 7:

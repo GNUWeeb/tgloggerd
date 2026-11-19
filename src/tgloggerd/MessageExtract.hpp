@@ -264,6 +264,10 @@ reactions_json(const std::vector<td_api::object_ptr<td_api::messageReaction>> &r
 /* The largest size of a photo, or nullptr. */
 const td_api::file *photo_best_size(const td_api::photo *p);
 
+/* The largest of a list of photo sizes, or nullptr. */
+const td_api::file *chat_photo_best_size_of(
+	const std::vector<td_api::object_ptr<td_api::photoSize>> &sizes);
+
 /* The largest size of a chat photo, or nullptr. */
 const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p);
 
