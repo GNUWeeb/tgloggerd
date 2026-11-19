@@ -22,6 +22,10 @@ without one, so the web has nothing to show until each video loads.
   after the rich files so their positions do not move.
 - Go and React: show it as the poster of the rich block's video, in
   the msg-rich-render components.
+  Done (Go): a rich block's video or animation media carries the
+  stored thumbnail at its position as `poster` and `thumb`
+  (web/docs/message-kinds.md, "Rich messages"); the React block
+  components are left.
 
 ## Depends on
 
