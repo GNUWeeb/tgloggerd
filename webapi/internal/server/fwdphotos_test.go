@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -118,9 +119,19 @@ func TestBotPhotos(t *testing.T) {
 	if len(bots) != len(want) {
 		t.Fatalf("bots %v", bots)
 	}
+	// The ids are JSON numbers: formatted as integers, so a Discord
+	// bot's id is "1000000001", not "1.000000001e+09", and a key the
+	// test does not expect fails instead of comparing nil with nil.
+	key := func(m map[string]any) string {
+		id := strconv.FormatInt(int64(m["id"].(float64)), 10)
+		if _, ok := want[id]; !ok {
+			t.Errorf("unexpected bot %s", id)
+		}
+		return id
+	}
 	for _, b := range bots {
 		m := b.(map[string]any)
-		id := fmt.Sprint(m["id"])
+		id := key(m)
 		if v, ok := m["photo"]; !ok || v != want[id] {
 			t.Errorf("bots page: bot %s photo %v (present %t), want %v", id, v, ok, want[id])
 		}
@@ -128,7 +139,7 @@ func TestBotPhotos(t *testing.T) {
 	_, l, _ := e.call("admin", "GET", "/api/bots", nil)
 	for _, b := range l["bots"].([]any) {
 		m := b.(map[string]any)
-		if id := fmt.Sprint(m["id"]); m["photo"] != want[id] {
+		if id := key(m); m["photo"] != want[id] {
 			t.Errorf("GET /api/bots: bot %s photo %v, want %v", id, m["photo"], want[id])
 		}
 	}
