@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { setEngine, viewOf, adminApi, federationGroups, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 import { FORUM_GROUP, KINDS_GROUP, TOPICS, sampleOf } from '../../standin/kinds.ts';
-import { chatStream } from '../../../mockup/src/data/messages.js';
+import { chatStream, privateMessages } from '../../../mockup/src/data/messages.js';
 
 const spec = loadSpec();
 const ref = (name: string): Schema => ({ $ref: `#/components/schemas/${name}` });
@@ -99,6 +99,11 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 	it('a chat window of every kind, and of one forum topic', () => {
 		const kinds = chatFor('group', String(KINDS_GROUP.id), 'superadmin');
 		for (const persona of ['superadmin', 'member'] as Persona[]) ok(200, chatWindow(kinds, {}, 60, viewOf(persona, KINDS_GROUP.id)), '/api/chats/{scope}/{id}/messages');
+		// The first private chat has a call, a service row and a rich
+		// message without its layout.
+		const pm = chatWindow(chatFor('user', String(privateMessages()[0]!.chat.id), 'superadmin'), {}) as { messages: { content_type: string }[] };
+		expect(pm.messages.some((m) => m.content_type === 'rich')).toBe(true);
+		ok(200, pm, '/api/chats/{scope}/{id}/messages');
 		const forum = chatFor('group', String(FORUM_GROUP.id), 'superadmin');
 		const w = chatWindow(forum, { topic: TOPICS[1]!.id }) as { messages: { topic_id: number | null }[] };
 		expect(w.messages.length).toBeGreaterThan(0);
