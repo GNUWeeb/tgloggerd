@@ -19,6 +19,13 @@ const popup = () => waitFor(() => dialog().querySelector('.a-picker-pop') as HTM
 // The table row of an exposed group (its title also shows elsewhere).
 const rowOf = (title: string) => screen.getAllByText(title).map((x) => x.closest('tbody tr')).find(Boolean) as HTMLElement;
 const fill = (root: HTMLElement, sel: string, value: string) => fireEvent.change(root.querySelector(sel)!, { target: { value } });
+// A new route's chat in one federation: no pick, Save once it loads.
+const oneFed = { 'GET /api/forwarding/federations': () => ({ federations: [{ id: 0, name: 'Default' }] }) };
+const saveWhenReady = async () => {
+	const save = within(dialog()).getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+	await waitFor(() => expect(save.disabled).toBe(false));
+	fireEvent.click(save);
+};
 
 describe('accounts', () => {
 	it('lets an admin create a member only with a federation granted, and sends the grant', async () => {
@@ -399,6 +406,7 @@ describe('federations', () => {
 describe('forwarding', () => {
 	it('adds a webhook for a searched chat', async () => {
 		const calls = fakeApi('superadmin', {
+			...oneFed,
 			'GET /api/chats/search': () => ({ items: [pick(-100777, 'Rust Programming')], next_cursor: null }),
 			'POST /api/forwarding/telegram-discord': () => json(201, { id: 50 }),
 		});
@@ -407,13 +415,14 @@ describe('forwarding', () => {
 		fireEvent.click(dialog().querySelector('.a-picker-btn')!);
 		fireEvent.click(await within(await popup()).findByRole('button', { name: /Rust Programming/ }));
 		fill(dialog(), '#webhook-url', 'https://discord.com/api/webhooks/1/abc');
-		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		await saveWhenReady();
 		await waitFor(() => expect(callsTo(calls, 'POST', '/api/forwarding/telegram-discord')).toHaveLength(1));
 		expect(callsTo(calls, 'POST', '/api/forwarding/telegram-discord')[0]!.body).toMatchObject({ chat_id: -100777, chat_kind: 'group', webhook_url: 'https://discord.com/api/webhooks/1/abc', enabled: true });
 	});
 
 	it('shows why a webhook URL is refused', async () => {
 		fakeApi('superadmin', {
+			...oneFed,
 			'GET /api/chats/search': () => ({ items: [pick(-100777, 'Rust Programming')], next_cursor: null }),
 			'POST /api/forwarding/telegram-discord': () => json(400, { error: 'bad_webhook', message: 'That is not a Discord webhook URL.' }),
 		});
@@ -422,7 +431,7 @@ describe('forwarding', () => {
 		fireEvent.click(dialog().querySelector('.a-picker-btn')!);
 		fireEvent.click(await within(await popup()).findByRole('button', { name: /Rust Programming/ }));
 		fill(dialog(), '#webhook-url', 'https://evil.example/x');
-		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		await saveWhenReady();
 		await within(dialog()).findByText('That is not a Discord webhook URL.');
 	});
 
@@ -499,7 +508,7 @@ describe('Discord to Telegram', () => {
 
 	it('adds a route read by a Discord bot and sent by a Telegram bot, into a private chat too', async () => {
 		const calls = fakeApi('superadmin', {
-			...bots,
+			...bots, ...oneFed,
 			'GET /api/chats/search': () => ({ items: [pick(4242, 'Dewi Kusuma', 'user')], next_cursor: null }),
 			'POST /api/forwarding/discord-telegram': () => json(201, { id: 9 }),
 		});
@@ -515,7 +524,7 @@ describe('Discord to Telegram', () => {
 		const telegram = within(dialog()).getByRole('combobox', { name: 'Telegram bot' });
 		expect([...(telegram as HTMLSelectElement).options].map((o) => o.textContent)).toEqual(['Choose a bot...', 'Logger relay - connected', 'Research bot - disabled']);
 		fireEvent.change(telegram, { target: { value: '1' } });
-		fireEvent.click(save);
+		await saveWhenReady();
 		await waitFor(() => expect(callsTo(calls, 'POST', '/api/forwarding/discord-telegram')).toHaveLength(1));
 		const body = callsTo(calls, 'POST', '/api/forwarding/discord-telegram')[0]!.body as Record<string, unknown>;
 		expect(body).toMatchObject({ discord_channel_id: '1093447120571433021', chat_id: 4242, discord_bot_id: 2, telegram_bot_id: 1, enabled: true });
