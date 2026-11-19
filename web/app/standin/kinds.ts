@@ -69,7 +69,12 @@ const PAID_ITEMS = [
 
 type Entity = { offset: number; length: number; type: string; url?: string; user_id?: number | null; language?: string; custom_emoji_id?: string };
 type Edit = { at: string; text: string; content_type: string; entities: Entity[] };
-type Sample = { content_type: string; text?: string; entities?: (v: View) => Entity[]; edits?: (v: View) => Edit[]; edited_at?: string; detail?: (v: View) => unknown; service?: (v: View) => { type: string; text: string; refs: { users: Ref[]; chats: Ref[]; message_id: number | null } }; media?: { round?: boolean }; tdlib_type?: string; kinds?: Partial<Kinds> };
+type Sample = { content_type: string; text?: string; entities?: (v: View) => Entity[]; edits?: (v: View) => Edit[]; edited_at?: string; detail?: (v: View) => unknown; service?: (v: View) => Service; media?: { round?: boolean }; tdlib_type?: string; kinds?: Partial<Kinds> };
+// A service message's action as Go sends it. parts spell the text, a
+// name pointing at its index in refs.users (LOCAL until openapi.yaml
+// has ServiceInfo.parts; src/ui/serviceparts.tsx reads them).
+type ServicePart = { text: string; user?: number; chat?: number };
+type Service = { type: string; text: string; parts?: ServicePart[]; refs: { users: Ref[]; chats: Ref[]; message_id: number | null } };
 type Kinds = { pinned: boolean; views: number | null; forwards: number | null; replies: number | null; reactions: { emoji?: string; custom_emoji_id?: string; paid?: boolean; count: number }[] };
 
 // Entities over a text: each part is found in the text (after the
@@ -100,6 +105,31 @@ const poll = (question: string, type: 'regular' | 'quiz', opts: string[], extra 
 		options_total: opts.length, question_entities: [], explanation_entities: [], ...extra,
 	};
 };
+
+// A service text that names people, as Go rebuilds it: the ones the
+// viewer may see by name, then a count of the others ("added Dewi
+// Kusuma and 2 other members to the group"); the stored text, which
+// names nobody, when none is visible.
+function naming(v: View, type: string, ids: number[], verb: string, noun: string, tail: string, stored: string): Service {
+	const shown = refs(v, ids);
+	if (!shown.length) return { type, text: stored, parts: [{ text: stored }], refs: { users: [], chats: [], message_id: null } };
+	const hidden = ids.length - shown.length;
+	const items: ServicePart[] = shown.map((r, i) => ({ text: r.title, user: i }));
+	if (hidden) items.push({ text: `${hidden} other ${noun}${hidden > 1 ? 's' : ''}` });
+	const parts: ServicePart[] = [{ text: `${verb} ` }];
+	const plain = (text: string) => {
+		const last = parts[parts.length - 1]!;
+		if (last.user === undefined) last.text += text;
+		else parts.push({ text });
+	};
+	items.forEach((p, i) => {
+		if (i) plain(i === items.length - 1 ? ' and ' : ', ');
+		if (p.user === undefined) plain(p.text);
+		else parts.push(p);
+	});
+	plain(` ${tail}`);
+	return { type, text: parts.map((p) => p.text).join(''), parts, refs: { users: shown, chats: [], message_id: null } };
+}
 
 // The samples, oldest first; the poll's message id is filled in later
 // for the pin's service message.
@@ -165,15 +195,23 @@ function samples(): Sample[] {
 		{ content_type: 'expired', detail: () => ({ kind: 'expired' }) },
 		{ content_type: 'unsupported', detail: () => ({ kind: 'unsupported' }) },
 		{ content_type: 'unknown', tdlib_type: 'messageFancyNewThing' },
-		{ content_type: 'service', service: (v) => {
-			const ids = [b!, x!, y!];
-			const shown = refs(v, ids);
-			const others = ids.length - shown.length;
-			const names = shown.map((r) => r.title);
-			const list = names.length ? `${names.join(', ')}${others ? ` and ${others} other member${others > 1 ? 's' : ''}` : ''}` : `${ids.length} members`;
-			return { type: 'chat_add_members', text: `added ${list} to the group`, refs: { users: shown, chats: [], message_id: null } };
-		} },
+		// Members added: one a member sees and two it does not.
+		{ content_type: 'service', service: (v) => naming(v, 'chat_add_members', [b!, x!, y!], 'added', 'member', 'to the group', 'added 3 members to the group') },
 		{ content_type: 'service', service: () => ({ type: 'pin_message', text: 'pinned a message', refs: { users: [], chats: [], message_id: null } }) },
+	];
+}
+
+// More service messages that name people, newest first: a member added
+// whom a member never sees, a member removed, participants invited.
+// They take the place of the sample group's older service messages, so
+// no other message changes.
+function namingSamples(): Sample[] {
+	const [a, b] = posters();
+	const [x, y] = strangers();
+	return [
+		{ content_type: 'service', service: (v) => naming(v, 'chat_add_members', [x!], 'added', 'member', 'to the group', 'added a member to the group') },
+		{ content_type: 'service', service: (v) => naming(v, 'chat_delete_member', [b!], 'removed', 'member', 'from the group', 'removed a member from the group') },
+		{ content_type: 'service', service: (v) => naming(v, 'invite_video_chat_participants', [a!, y!], 'invited', 'participant', 'to the video chat', 'invited participants to the video chat') },
 	];
 }
 
@@ -194,6 +232,11 @@ function table(): Map<string, Sample> {
 			s.service = (v) => ({ ...make(v), refs: { ...make(v).refs, message_id: pollId } });
 		}
 		byKey!.set(`group${KINDS_GROUP.id}:${m.message_id}`, s);
+	});
+	const older = all.slice(0, start).filter((m: { content_type: string }) => m.content_type === 'service').reverse();
+	namingSamples().forEach((s, i) => {
+		const m = older[i];
+		if (m) byKey!.set(`group${KINDS_GROUP.id}:${m.message_id}`, s);
 	});
 	// A missed private call, in the first private chat.
 	const pm = privateMessages()[0]?.chat;
@@ -239,7 +282,7 @@ export function kindsOf(m: { chat: { id: number; kind: string }; message_id: num
 		detail: s?.detail ? s.detail(v) : null,
 		// Every service message says its action; the stand-in's own ones
 		// name nobody.
-		service: svc ? { type: svc.type, refs: svc.refs } : null,
+		service: svc ? { type: svc.type, refs: svc.refs, ...(svc.parts ? { parts: svc.parts } : {}) } : null,
 		topic_id: topicOf(m), pinned: false, views: null as number | null, forwards: null as number | null, replies: null as number | null,
 		reactions: [] as Kinds['reactions'],
 		...(s?.kinds ?? {}),
