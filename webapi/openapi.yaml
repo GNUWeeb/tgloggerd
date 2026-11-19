@@ -8506,18 +8506,43 @@ components:
             format: int64
 
     # Forwarding.
+    T2DType:
+      type: string
+      description: >-
+        A kind of content a Telegram to Discord route may forward, in
+        the order of type_options. A message is filtered part by part:
+        its text or caption follows text, each file its type, and a
+        kind's summary line (a location, a contact, a poll, ...) its
+        kind. poll covers quizzes, location venues and live locations.
+        service is service messages. other is everything without a type
+        of its own: rich messages, calls, giveaways and every kind added
+        later.
+      enum: [text, photo, video, animation, video_note, document, sticker, voice, audio, poll, checklist, dice, game, location, contact, story, paid_media, invoice, service, other]
+    D2TType:
+      type: string
+      description: >-
+        A kind of content a Discord to Telegram route may forward, in
+        the order of type_options. audio is audio/* attachments;
+        animation is image/gif attachments and animated stickers; any
+        other attachment is a photo (image/*), a video (video/*) or a
+        document.
+      enum: [text, photo, video, animation, document, sticker, audio]
     T2DTypes:
       type: array
-      description: The message kinds forwarded.
+      description: >-
+        The kinds of content forwarded, in the order of type_options.
+        A write takes the whole set: an unknown type or an empty set is
+        400 bad_request (disabling a route is how it stops).
       items:
-        type: string
-        enum: [sticker, text, photo, video, document, other]
+        $ref: '#/components/schemas/T2DType'
     D2TTypes:
       type: array
-      description: The message kinds forwarded.
+      description: >-
+        The kinds of content forwarded, in the order of type_options.
+        A write takes the whole set: an unknown type or an empty set is
+        400 bad_request (disabling a route is how it stops).
       items:
-        type: string
-        enum: [sticker, text, photo, video, document]
+        $ref: '#/components/schemas/D2TType'
     FwdPerson:
       type: object
       required: [id, name]
@@ -8655,24 +8680,42 @@ components:
           $ref: '#/components/schemas/FwdCounts'
     T2DProps:
       type: object
-      required: [routes, federations]
+      required: [routes, federations, type_options]
       properties:
         routes:
           type: array
           items:
             $ref: '#/components/schemas/T2DRoute'
+        type_options:
+          type: array
+          description: >-
+            Every type this direction's bridge honours, in the order the
+            form lists them. Groups, labels and presets are the app's; a
+            type the app does not know is shown under "Other kinds" by
+            its name.
+          items:
+            $ref: '#/components/schemas/T2DType'
         federations:
           type: array
           items:
             $ref: '#/components/schemas/FedRef'
     D2TProps:
       type: object
-      required: [routes, federations]
+      required: [routes, federations, type_options]
       properties:
         routes:
           type: array
           items:
             $ref: '#/components/schemas/D2TRoute'
+        type_options:
+          type: array
+          description: >-
+            Every type this direction's bridge honours, in the order the
+            form lists them. Groups, labels and presets are the app's; a
+            type the app does not know is shown under "Other kinds" by
+            its name.
+          items:
+            $ref: '#/components/schemas/D2TType'
         federations:
           type: array
           items:

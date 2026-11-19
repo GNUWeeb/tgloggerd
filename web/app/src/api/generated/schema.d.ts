@@ -3351,10 +3351,20 @@ export interface components {
             group_ids?: number[];
             admin_ids?: number[];
         };
-        /** @description The message kinds forwarded. */
-        T2DTypes: ("sticker" | "text" | "photo" | "video" | "document" | "other")[];
-        /** @description The message kinds forwarded. */
-        D2TTypes: ("sticker" | "text" | "photo" | "video" | "document")[];
+        /**
+         * @description A kind of content a Telegram to Discord route may forward, in the order of type_options. A message is filtered part by part: its text or caption follows text, each file its type, and a kind's summary line (a location, a contact, a poll, ...) its kind. poll covers quizzes, location venues and live locations. service is service messages. other is everything without a type of its own: rich messages, calls, giveaways and every kind added later.
+         * @enum {string}
+         */
+        T2DType: "text" | "photo" | "video" | "animation" | "video_note" | "document" | "sticker" | "voice" | "audio" | "poll" | "checklist" | "dice" | "game" | "location" | "contact" | "story" | "paid_media" | "invoice" | "service" | "other";
+        /**
+         * @description A kind of content a Discord to Telegram route may forward, in the order of type_options. audio is audio/* attachments; animation is image/gif attachments and animated stickers; any other attachment is a photo (image/*), a video (video/*) or a document.
+         * @enum {string}
+         */
+        D2TType: "text" | "photo" | "video" | "animation" | "document" | "sticker" | "audio";
+        /** @description The kinds of content forwarded, in the order of type_options. A write takes the whole set: an unknown type or an empty set is 400 bad_request (disabling a route is how it stops). */
+        T2DTypes: components["schemas"]["T2DType"][];
+        /** @description The kinds of content forwarded, in the order of type_options. A write takes the whole set: an unknown type or an empty set is 400 bad_request (disabling a route is how it stops). */
+        D2TTypes: components["schemas"]["D2TType"][];
         FwdPerson: {
             /** Format: int64 */
             id: number;
@@ -3417,10 +3427,14 @@ export interface components {
         };
         T2DProps: {
             routes: components["schemas"]["T2DRoute"][];
+            /** @description Every type this direction's bridge honours, in the order the form lists them. Groups, labels and presets are the app's; a type the app does not know is shown under "Other kinds" by its name. */
+            type_options: components["schemas"]["T2DType"][];
             federations: components["schemas"]["FedRef"][];
         };
         D2TProps: {
             routes: components["schemas"]["D2TRoute"][];
+            /** @description Every type this direction's bridge honours, in the order the form lists them. Groups, labels and presets are the app's; a type the app does not know is shown under "Other kinds" by its name. */
+            type_options: components["schemas"]["D2TType"][];
             federations: components["schemas"]["FedRef"][];
         };
         T2DCreate: {
