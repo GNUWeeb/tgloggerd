@@ -54,6 +54,11 @@ func (e *mediaEnv) fileURL(id uint64) string {
 	return "/files/" + e.tokens.Encrypt(id)
 }
 
+// fetchPath is a file's "Fetch from Telegram" action.
+func (e *mediaEnv) fetchPath(id uint64) string {
+	return "/api/files/" + e.tokens.Encrypt(id) + "/fetch"
+}
+
 // chatMedia is the media of Fetch Lab's messages by row id - 3000, as
 // cookie sees them.
 func (e *mediaEnv) chatMedia(cookie string) map[int]chatMediaJSON {
@@ -172,19 +177,26 @@ func TestFetchFromChatSignedOut(t *testing.T) {
 	}
 }
 
-// TestFetchFromChatSignedIn: a signed-in viewer gets every unstored
-// file linked, big ones too, and a big one streams from TDLib's cache.
+// TestFetchFromChatSignedIn: a signed-in viewer that may fetch gets
+// every small unstored file linked, and a big one only through the
+// "Fetch from Telegram" action, whose URL then streams it from TDLib's
+// cache.
 func TestFetchFromChatSignedIn(t *testing.T) {
 	t.Parallel()
 	e := newFilesEnv(t, mediaOpts{})
 	ck, _ := e.signIn("fetcher")
 	md := e.chatMedia(ck)
 
-	if m := md[3]; m.Stored || !m.Fetchable || strp(m.URL) != e.fileURL(860003) || m.Thumb != nil {
+	if m := md[3]; m.Stored || !m.Fetchable || m.URL != nil || m.Thumb != nil ||
+		strp(m.Fetch) != e.fetchPath(860003) {
 		t.Errorf("metadata-only big video: %+v", m)
 	}
-	if m := md[2]; !m.Fetchable || strp(m.URL) != e.fileURL(860002) {
+	if m := md[2]; !m.Fetchable || strp(m.URL) != e.fileURL(860002) ||
+		strp(m.Fetch) != e.fetchPath(860002) {
 		t.Errorf("metadata-only small photo: %+v", m)
+	}
+	if m := md[1]; m.Fetch != nil {
+		t.Errorf("stored photo with a fetch action: %+v", m)
 	}
 	if m := md[5]; !m.Stored || m.Fetchable || strp(m.URL) != e.fileURL(860005) || m.Thumb != nil {
 		t.Errorf("stored audio: %+v", m)
@@ -196,7 +208,14 @@ func TestFetchFromChatSignedIn(t *testing.T) {
 	}
 	e.fake.answer(860003, 200, "", fmt.Sprintf(
 		`{"state":"partial","path":%q,"offset":0,"available":10,"size":2147483648}`, part))
-	g := e.get(strp(md[3].URL), ck)
+	a := e.post(strp(md[3].Fetch), ck)
+	expect(t, a, 200, "")
+	var ans fileFetchJSON
+	if err := json.Unmarshal([]byte(a.body), &ans); err != nil || ans.State != "partial" ||
+		ans.URL != e.fileURL(860003) || ans.Size != 2147483648 {
+		t.Fatalf("fetch action: %s", a.body)
+	}
+	g := e.get(ans.URL, ck)
 	expect(t, g, 206, "0123456789")
 	expectHeader(t, g, "Content-Range", "bytes 0-9/2147483648")
 	if f := e.fake.lastFetch(); !strings.HasPrefix(f, "860003 ") {
@@ -243,7 +262,7 @@ func TestFilesListFetch(t *testing.T) {
 	}{
 		{860001, true, false, true},
 		{860002, false, true, false},
-		{860003, false, true, false},
+		{860003, false, true, false}, // big: the action only
 		{860004, false, true, false},
 		{860005, true, false, false},
 	} {
@@ -252,8 +271,15 @@ func TestFilesListFetch(t *testing.T) {
 		if c.thumb {
 			wantThumb = e.fileURL(c.id)
 		}
+		wantURL, wantFetch := any(e.fileURL(c.id)), any(nil)
+		if c.fetchabl {
+			wantFetch = e.fetchPath(c.id)
+		}
+		if c.id == 860003 {
+			wantURL = nil
+		}
 		if r["stored"] != c.stored || r["fetchable"] != c.fetchabl ||
-			r["url"] != e.fileURL(c.id) || r["thumb"] != wantThumb {
+			r["url"] != wantURL || r["fetch"] != wantFetch || r["thumb"] != wantThumb {
 			t.Errorf("file %d: %v", c.id, r)
 		}
 	}

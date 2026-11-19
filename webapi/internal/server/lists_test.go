@@ -191,7 +191,7 @@ func TestListFiles(t *testing.T) {
 		byID[js(r.(map[string]any)["id"])] = r.(map[string]any)
 	}
 	photo := map[string]any{"id": 880001, "file_type": "photo", "name": "880001.jpg",
-		"ext": "jpg", "size": 183406, "hits": 12, "stored": true, "fetchable": false,
+		"ext": "jpg", "size": 183406, "hits": 12, "stored": true, "fetchable": false, "fetch": nil,
 		"created_at": "2026-11-17T14:05:00Z", "accessed_at": "2026-11-17T15:30:00Z",
 		"tg_file_id": "AgACAgUAAxkBAAIfixture01",
 		"sha256":     "4a0886fd32d3b6fe7983dcfcb3f5948184e9751e308f0ddf34ca3076a7844913",

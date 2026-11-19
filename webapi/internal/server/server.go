@@ -355,6 +355,7 @@ func (s *Server) routes() []route {
 		{"POST /api/join-chat/preview", s.RequireSession(s.previewJoin)},
 		{"POST /api/join-chat/join", s.RequireSession(s.joinChat)},
 		{"POST /api/users/{id}/lookup-name", s.RequireSession(s.lookupName)},
+		{"POST /api/files/{token}/fetch", s.RequireSession(s.fetchFile)},
 		{"POST /api/mcp/groups", s.RequireSession(s.exposeMcpGroup)},
 		{"DELETE /api/mcp/groups/{group_id}", s.RequireSession(s.unexposeMcpGroup)},
 		{"PATCH /api/mcp/groups/{group_id}", s.RequireSession(s.setMcpGroupNote)},

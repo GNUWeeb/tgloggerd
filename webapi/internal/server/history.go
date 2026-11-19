@@ -136,7 +136,7 @@ type photosAnswer struct {
 
 // photos turns a photo list into its answer: every photo with its
 // URL, given whenever the file may be served, from the store or
-// fetched from Telegram through /files/ (Server.fileURL).
+// fetched from Telegram through /files/ (Server.fileLink).
 func (v view) photos(l logdb.PhotoList) photosAnswer {
 	a := photosAnswer{Items: []photoJSON{}}
 	for _, p := range l.Photos {

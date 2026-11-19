@@ -107,22 +107,35 @@ func TestPolicy(t *testing.T) {
 	for _, c := range []struct {
 		size     uint64
 		signedIn bool
+		via      Via
 		want     Decision
 	}{
-		{999, false, Allowed},
-		{0, false, Allowed}, // unknown size counts as small
-		{1000, false, NeedsSession},
-		{1000, true, Allowed},
+		{999, false, ViaLink, Allowed},
+		{0, false, ViaLink, Allowed}, // unknown size counts as small
+		{1000, false, ViaLink, NeedsSession},
+		{1000, true, ViaLink, Allowed},
+		// A page view links small files only, signed in or not.
+		{999, false, ViaPage, Allowed},
+		{999, true, ViaPage, Allowed},
+		{0, true, ViaPage, Allowed},
+		{1000, false, ViaPage, NeedsSession},
+		{1000, true, ViaPage, OnRequest},
+		// The action fetches any size for a signed-in request.
+		{1000, true, ViaAction, Allowed},
+		{999, true, ViaAction, Allowed},
+		{1000, false, ViaAction, NeedsSession},
 	} {
-		if got := p.MayFetch(c.size, c.signedIn); got != c.want {
-			t.Errorf("MayFetch(%d, %v) = %v, want %v", c.size, c.signedIn, got, c.want)
+		if got := p.MayFetch(c.size, c.signedIn, c.via); got != c.want {
+			t.Errorf("MayFetch(%d, %v, %v) = %v, want %v", c.size, c.signedIn, c.via, got, c.want)
 		}
 	}
-	if (Policy{Enabled: true}).MayFetch(1<<40, false) != Allowed {
-		t.Error("no cap: every file is small")
-	}
-	if (Policy{StoreCap: 1000}).MayFetch(1, true) != Off {
-		t.Error("off without the daemon API")
+	for _, v := range []Via{ViaLink, ViaPage, ViaAction} {
+		if (Policy{Enabled: true}).MayFetch(1<<40, false, v) != Allowed {
+			t.Error("no cap: every file is small")
+		}
+		if (Policy{StoreCap: 1000}).MayFetch(1, true, v) != Off {
+			t.Error("off without the daemon API")
+		}
 	}
 }
 

@@ -442,16 +442,24 @@ func TestChatFetchableSignedOut(t *testing.T) {
 	anon := s.viewFor(scope.Anonymous(), false)
 	signed := s.viewFor(scope.Anonymous(), true)
 	fetchable := func(v view, f logdb.FileRef) bool {
-		_, _, ok := v.file(f)
-		return ok
+		l, _ := v.file(f)
+		return l.Fetchable
 	}
 	if !fetchable(anon, small) || fetchable(anon, big) || !fetchable(signed, big) {
 		t.Error("the cap does not decide for signed-out requests only")
 	}
-	if u, stored, f := anon.file(big); u != nil || stored || f {
-		t.Errorf("big file signed out: %v %v %v", u, stored, f)
+	if l, stored := anon.file(big); l.URL != nil || l.Fetch != nil || stored || l.Fetchable {
+		t.Errorf("big file signed out: %+v %v", l, stored)
 	}
-	if u, _, _ := anon.file(logdb.FileRef{ID: 3}); u != nil {
+	// Signed in, a big file is fetchable through the action only; a
+	// small one is linked as well.
+	if l, _ := signed.file(big); l.URL != nil || l.Fetch == nil || !l.Fetchable {
+		t.Errorf("big file signed in: %+v", l)
+	}
+	if l, _ := signed.file(small); l.URL == nil || l.Fetch == nil || !l.Fetchable {
+		t.Errorf("small file signed in: %+v", l)
+	}
+	if l, _ := anon.file(logdb.FileRef{ID: 3}); l.URL != nil {
 		t.Error("a file without its row has a URL")
 	}
 }

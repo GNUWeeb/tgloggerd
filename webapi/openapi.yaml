@@ -488,7 +488,6 @@ paths:
 
   /api/files/{token}/fetch:
     post:
-      x-tgd-status: planned
       operationId: fetchFile
       tags: [files]
       summary: Fetch an unstored file from Telegram
