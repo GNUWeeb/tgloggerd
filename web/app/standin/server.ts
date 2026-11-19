@@ -394,6 +394,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		send(res, status, out);
 		return;
 	}
+	// A group's files and polls, a page at a time (groupfiles.ts).
+	const gt = url.pathname.match(/^\/api\/groups\/(-?\d+)\/(files|polls)$/);
+	if (gt && req.method === 'GET') {
+		const [status, out] = fx.groupTabApi(gt[2] as 'files' | 'polls', gt[1], url.searchParams, who);
+		send(res, status, out);
+		return;
+	}
 	if (url.pathname === '/api/entities' && req.method === 'GET') {
 		const [status, out] = fx.entities(who, url.searchParams);
 		send(res, status, out);

@@ -82,7 +82,7 @@ function samples(): Sample[] {
 		{ content_type: 'dice', detail: () => ({ kind: 'dice', emoji: '', value: 6, stake: true }) },
 		{ content_type: 'game', text: 'Beat my score!', detail: () => ({ kind: 'game', title: 'Lumberjack', description: 'Chop the tree, dodge the branches.', short_name: 'lumberjack', photo: null }) },
 		{ content_type: 'poll', text: 'For the next meetup.', detail: poll('Which editor do you use?', 'regular', ['Vim', 'Neovim', 'Emacs', 'VS Code', 'Helix']), kinds: { pinned: true, views: 1534, forwards: 12, replies: 4, reactions: REACTIONS } },
-		{ content_type: 'poll', detail: poll('Who wrote the first Linux kernel?', 'quiz', ['Richard Stallman', 'Linus Torvalds', 'Andrew Tanenbaum']) },
+		{ content_type: 'poll', detail: poll('Who wrote the first Linux kernel?', 'quiz', ['Richard Stallman', 'Linus Torvalds', 'Andrew Tanenbaum'], { closed: true, close_date: '2026-11-10T12:00:00Z' }) },
 		{ content_type: 'poll', detail: poll('Pick your favourite syscall', 'regular', Array.from({ length: 25 }, (_, i) => `syscall_${i + 1}`)) },
 		{ content_type: 'checklist', text: 'Release checklist', detail: (v) => ({
 			kind: 'checklist', tasks_total: 4, others_can_add: true, others_can_mark: true,
