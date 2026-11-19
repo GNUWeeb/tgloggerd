@@ -636,9 +636,16 @@ the TDLib loop and written in one batch every `TG_INTERACTION_FLUSH_SECS`
 (default 60; 0 keeps only the totals a stored copy carries), so a
 message changes in the database at most once per interval however busy
 it is. Every ten minutes the daemon logs how many updates arrived for
-how many messages and how many writes they became; the interval is
-chosen from those numbers once the daemon has run with them for a day
-(item `msg-interaction`).
+how many messages and how many writes they became.
+
+Measured over 19.5 hours of those reports on the live account
+(2026-11-18 and 19), updates arrive at about 8 a minute (476 an hour;
+402 in a typical hour, 1368 in the busiest), for about 220 distinct
+messages an hour, and the 60-second interval turns them into about 5
+writes a minute (297 an hour). That is negligible next to the
+messages the daemon stores, so the default stays at 60 seconds: totals
+on the web are at most a minute old. Each write also moves the row's
+`updated_at`, which nothing reads for messages.
 
 Who reacted with what is available only through
 `getMessageAddedReactions` and only where the chat allows it; it is
