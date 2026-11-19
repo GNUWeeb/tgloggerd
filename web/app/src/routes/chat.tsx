@@ -20,6 +20,7 @@ import { TYPE_LABEL } from './groups.tsx';
 import { contentLabel, serviceLabel } from '../ui/labels.ts';
 import { isSentence } from '../ui/serviceline.ts';
 import { ServiceText } from '../ui/serviceparts.tsx';
+import { ServiceDetailView, topicInText } from '../ui/servicedetail.tsx';
 import { loggerName } from '../ui/logger.ts';
 import type { PageData, Viewer } from '../page.ts';
 import type { ChatMedia, ChatMessage, GroupSummary } from '../types.ts';
@@ -147,7 +148,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 	);
 }
 
-function Feed({ msgs: all, v, isGroup, flash, onReply, tag, chat }: { msgs: ChatMessage[]; v: Viewer; isGroup: boolean; flash: number | null; onReply: (id: number) => void; tag?: (m: ChatMessage) => ReactNode; chat?: RichChat }) {
+function Feed({ msgs: all, v, isGroup, flash, onReply, tag, chat, topicHref }: { msgs: ChatMessage[]; v: Viewer; isGroup: boolean; flash: number | null; onReply: (id: number) => void; tag?: (m: ChatMessage) => ReactNode; chat?: RichChat; topicHref: (id: number) => string }) {
 	const pref = prefs(v);
 	const msgs = all.filter((m) => (pref.showDeleted || !m.deleted_at) && (pref.showService || m.content_type !== 'service'));
 	const out: ReactElement[] = [];
@@ -171,10 +172,14 @@ function Feed({ msgs: all, v, isGroup, flash, onReply, tag, chat }: { msgs: Chat
 			// The names the text gives link to their pages; the rest of it
 			// to the message the action is about.
 			const about = (s: string) => (svcAbout ? <a href={`?at=${svcAbout}`} onClick={(e) => { e.preventDefault(); onReply(svcAbout); }}>{s}</a> : s);
+			// The stored detail adds to the line; a topic the text quotes
+			// becomes its link.
+			const svcText = m.text || serviceText(svcType);
+			const plain = (s: string) => topicInText(s, m.service?.detail, topicHref) ?? about(s);
 			const actor = sentence ? null : m.sender_chat ? <Link to={`/groups/${m.sender_chat.id}`}>{m.sender_chat.title}</Link> : m.sender ? (m.sender.id !== 0 ? <Link to={`/users/${m.sender.id}`}>{m.sender.name}</Link> : <span>{m.sender.name}</span>) : <span>{loggerName(v)}</span>;
 			out.push(
 				<div key={m.id} id={`m${m.message_id}`} className={`c-service ${m.deleted_at ? 'deleted' : ''}`}>
-					<span>{actor} <ServiceText service={m.service} text={m.text || serviceText(svcType)} capital={sentence} plain={about} /> <Link to={`/messages/${m.scope}/${m.id}`} className="c-svctime" title={m.date}>{hm(m.date, v)}</Link>{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}</span>
+					<span>{actor} <ServiceText service={m.service} text={svcText} capital={sentence} plain={plain} /><ServiceDetailView service={m.service} text={svcText} v={v} topicHref={topicHref} self={!sentence && !m.sender_chat && !m.sender && v.signed_in} /> <Link to={`/messages/${m.scope}/${m.id}`} className="c-svctime" title={m.date}>{hm(m.date, v)}</Link>{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}</span>
 				</div>,
 			);
 			return;
@@ -461,7 +466,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 			<div className="c-scroll" ref={scroller}>
 				<div className="c-feed">
 					{older ? (prefs(v).autoLoad ? <div className="c-loading">Loading older messages...</div> : <div className="c-loading"><button type="button" className="a-link" onClick={() => void loadOlder()}>Load older messages</button></div>) : <div className="c-start">Beginning of the archived history</div>}
-					<Feed msgs={msgs} v={v} isGroup={isGroup} flash={flash} onReply={onReply} tag={tagOf} chat={richChat} />
+					<Feed msgs={msgs} v={v} isGroup={isGroup} flash={flash} onReply={onReply} tag={tagOf} chat={richChat} topicHref={topicHref} />
 					{newer && (prefs(v).autoLoad ? <div className="c-loading">Loading newer messages...</div> : <div className="c-loading"><button type="button" className="a-link" onClick={() => void loadNewer()}>Load newer messages</button></div>)}
 				</div>
 			</div>

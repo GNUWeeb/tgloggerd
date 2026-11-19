@@ -14,6 +14,7 @@ import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
 import { RichText } from '../ui/richtext.tsx';
 import { ServiceText, partsOf } from '../ui/serviceparts.tsx';
+import { ServiceDetailView, topicInText } from '../ui/servicedetail.tsx';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
@@ -37,6 +38,11 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 	// A service message's action, and the message it is about (a pin).
 	const svcType = m.service?.type ?? m.service_type;
 	const svcAbout = m.service?.refs.message_id ?? null;
+	// What its stored detail adds (the new photo, what was pinned, ...),
+	// after its text; a topic the text quotes links to the topic.
+	const svcDetail = m.content_type === 'service' ? m.service?.detail : null;
+	const topicHref = (id: number) => `/groups/${m.chat.id}/chat?topic=${id}`;
+	const svcLine = svcDetail && <ServiceDetailView service={m.service} text={m.text} v={v} topicHref={topicHref} self={!m.sender && !m.sender_chat && v.signed_in} photoSize={96} />;
 	// Posted as a chat (a channel, an anonymous admin): link that chat.
 	const asChat = m.sender_chat;
 	// No sender: the logging account ("You" when signed in).
@@ -93,7 +99,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						)}
 						{m.detail ? <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} tdlib={m.tdlib_type} /></div>
 							: fallback && <div className="a-msgkind"><KindFallback ct={m.content_type} tdlib={m.tdlib_type} /></div>}
-						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext">{partsOf(m.service, m.text) ? <ServiceText service={m.service} text={m.text} linkClass="a-link" /> : <RichText text={m.text} entities={ents} chat={chat} />}</div> : !m.media && !m.detail && !fallback && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}</p>}
+						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext">{partsOf(m.service, m.text) ? <ServiceText service={m.service} text={m.text} linkClass="a-link" /> : topicInText(m.text, svcDetail, topicHref) ?? <RichText text={m.text} entities={ents} chat={chat} />}{svcLine}</div> : !m.media && !m.detail && !fallback && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}{svcLine}</p>}
 						{m.link_preview && <LinkPreview lp={m.link_preview} />}
 						{svcAbout !== null && <p className="a-muted sm"><Link to={`${chatPath(m).split('?')[0]}?at=${svcAbout}`} className="a-link">The message this is about</Link></p>}
 						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies) && (

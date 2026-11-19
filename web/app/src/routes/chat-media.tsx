@@ -29,7 +29,7 @@ export function stillOf(m: Pick<Media, 'poster' | 'minithumb' | 'thumb' | 'url'>
 
 // A plain left click opens the viewer; other clicks (new tab, middle
 // button) follow the link to the file itself.
-const plainClick = (e: MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+export const plainClick = (e: MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 
 // The full-size viewer: a picture or a playing video over the page.
 // Esc, the close button or a click beside the media closes it. It needs

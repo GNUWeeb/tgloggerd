@@ -317,7 +317,7 @@ export function Counts({ k }: { k: Pick<Kinds, 'pinned' | 'views' | 'forwards' |
 }
 
 type Topic = S['ChatTopic'];
-export const topicColor = (t: Topic) => `#${(t.icon_color & 0xffffff).toString(16).padStart(6, '0')}`;
+export const topicColor = (t: Pick<Topic, 'icon_color'>) => `#${(t.icon_color & 0xffffff).toString(16).padStart(6, '0')}`;
 
 // A forum's topics above its chat: all of them, or one at a time. The
 // choice is the page's ?topic=, so it survives a reload and a link.
