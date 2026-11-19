@@ -29,7 +29,7 @@ const FIELDS: Record<'group' | 'private', FieldDef[]> = {
 	],
 	private: [
 		{ key: 'text', label: 'Text', type: 'text' },
-		{ key: 'content_type', label: 'Content type', type: 'enum', values: TYPES.filter((t) => t !== 'service'), labels: CONTENT_LABELS },
+		{ key: 'content_type', label: 'Content type', type: 'enum', values: TYPES, labels: CONTENT_LABELS },
 		{ key: 'chat_id', label: 'User (chat) id', type: 'number' },
 		{ key: 'is_outgoing', label: 'Outgoing', type: 'bool' },
 		{ key: 'is_deleted', label: 'Deleted', type: 'bool' },

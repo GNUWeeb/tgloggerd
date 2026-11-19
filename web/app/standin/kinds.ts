@@ -1,12 +1,12 @@
 // The message kinds of web/docs/message-kinds.md in the stand-in: one
-// sample message of each kind in a sample group (and a private call in
-// a private chat), the service messages' actions, the interaction counts
-// and a forum group with topics. The samples replace the newest messages
-// of those chats but their newest two, so the chats' sizes and the
-// message lists stay as they were. Whom a detail names follows the
-// viewer as Go does: hidden users and chats are null or left out, the
-// *_total fields still count them, and only full viewers get a
-// contact's phone.
+// sample message of each kind in a sample group (and a private call and
+// a service message in a private chat), the service messages' actions,
+// the interaction counts and a forum group with topics. The samples
+// replace the newest messages of those chats but their newest two, so
+// the chats' sizes and the message lists stay as they were. Whom a
+// detail names follows the viewer as Go does: hidden users and chats
+// are null or left out, the *_total fields still count them, and only
+// full viewers get a contact's phone.
 import { groups, getGroupsOfUser } from '../../mockup/src/data/groups.js';
 import { users, getUser } from '../../mockup/src/data/users.js';
 import { chatStream, privateMessages } from '../../mockup/src/data/messages.js';
@@ -201,6 +201,9 @@ function table(): Map<string, Sample> {
 		const ps = chatStream(pm);
 		const m = ps[ps.length - 3];
 		if (m) byKey.set(`user${pm.id}:${m.message_id}`, { content_type: 'call', detail: () => ({ kind: 'call', video: false, group: false, duration: 0, outcome: 'missed', participants: [], participants_total: 0 }) });
+		// Private chats have service rows too.
+		const t = ps[ps.length - 4];
+		if (t) byKey.set(`user${pm.id}:${t.message_id}`, { content_type: 'service', service: () => ({ type: 'screenshot_taken', text: 'took a screenshot', refs: { users: [], chats: [], message_id: null } }) });
 	}
 	return byKey;
 }
