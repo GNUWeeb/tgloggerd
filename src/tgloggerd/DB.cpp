@@ -72,11 +72,18 @@ std::vector<std::pair<int64_t, int64_t>> DB::listMediaMessagesWithoutFile(void)
 	return out;
 }
 
-/* The repair selection (listMessagesToRepair) of one message table. */
+/*
+ * The repair selection (listMessagesToRepair) of one message table: rows
+ * without their kind or detail, and rich rows stored before their mapping,
+ * which have a tdlib_type but no curated "blocks" key (decision
+ * 2026-11-19-msg-rich-reread).
+ */
 static std::string repair_where(void)
 {
-	return " WHERE deleted_at IS NULL AND tdlib_type IS NULL"
-	       " AND content_type IN ('unknown','service')";
+	return " WHERE deleted_at IS NULL AND ((tdlib_type IS NULL"
+	       " AND content_type IN ('unknown','service'))"
+	       " OR (content_type = 'rich'"
+	       " AND JSON_EXTRACT(content_extra, '$.blocks') IS NULL))";
 }
 
 std::vector<std::pair<int64_t, int64_t>> DB::listMessagesToRepair(void)

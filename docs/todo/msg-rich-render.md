@@ -37,7 +37,8 @@ interface section, treated as landed).
 
 ## Depends on
 
-`msg-rich-store` (the text and the media rows).
+Nothing; msg-rich-store, which stores the text and the media rows, has
+landed.
 
 ## Done when
 

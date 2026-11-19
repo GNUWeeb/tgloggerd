@@ -198,6 +198,17 @@ target_compile_options(extra_files_test PRIVATE -Wall -Wextra)
 target_link_libraries(extra_files_test PRIVATE Td::TdStatic tdjson_private
 	nlohmann_json::nlohmann_json Threads::Threads)
 
+# How a rich message is stored (text, content_extra, the media in its
+# blocks) over hand-built TDLib objects; not part of the default build:
+#   cmake --build build --target rich_message_test && build/rich_message_test
+add_executable(rich_message_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/rich_message_test.cpp
+	src/tgloggerd/MessageExtract.cpp)
+target_include_directories(rich_message_test PRIVATE src)
+target_compile_options(rich_message_test PRIVATE -Wall -Wextra)
+target_link_libraries(rich_message_test PRIVATE Td::TdStatic tdjson_private
+	nlohmann_json::nlohmann_json Threads::Threads)
+
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
 # Telegram). Added last: it links Td::TdStatic and connector-jdbc from the
 # subprojects above, and pulls in the self-contained gwdiscord library. Its

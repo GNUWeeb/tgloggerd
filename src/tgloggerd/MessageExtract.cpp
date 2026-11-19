@@ -650,6 +650,404 @@ tdlib_extra_json(const td_api::MessageContent &c)
 	return std::string("{\"tdlib\":") + body + "}";
 }
 
+/*
+ * The plain text of a rich text: every run of text it shows, the
+ * alternative text of a custom emoji, a formula's source and a button's
+ * label. Icons and anchors show no text.
+ */
+void rich_text_append(const td_api::RichText *t, std::string &out)
+{
+	if (!t)
+		return;
+	switch (t->get_id()) {
+	case td_api::richTextPlain::ID:
+		out += static_cast<const td_api::richTextPlain &>(*t).text_;
+		break;
+#define TGLOGGERD_RICH_WRAP(cls) \
+	case td_api::cls::ID: \
+		rich_text_append(static_cast<const td_api::cls &>(*t).text_.get(), \
+				 out); \
+		break;
+	TGLOGGERD_RICH_WRAP(richTextBold)
+	TGLOGGERD_RICH_WRAP(richTextItalic)
+	TGLOGGERD_RICH_WRAP(richTextUnderline)
+	TGLOGGERD_RICH_WRAP(richTextStrikethrough)
+	TGLOGGERD_RICH_WRAP(richTextSpoiler)
+	TGLOGGERD_RICH_WRAP(richTextSubscript)
+	TGLOGGERD_RICH_WRAP(richTextSuperscript)
+	TGLOGGERD_RICH_WRAP(richTextMarked)
+	TGLOGGERD_RICH_WRAP(richTextDateTime)
+	TGLOGGERD_RICH_WRAP(richTextMention)
+	TGLOGGERD_RICH_WRAP(richTextHashtag)
+	TGLOGGERD_RICH_WRAP(richTextCashtag)
+	TGLOGGERD_RICH_WRAP(richTextBankCardNumber)
+	TGLOGGERD_RICH_WRAP(richTextTonAddress)
+	TGLOGGERD_RICH_WRAP(richTextBotCommand)
+	TGLOGGERD_RICH_WRAP(richTextFixed)
+	TGLOGGERD_RICH_WRAP(richTextMentionName)
+	TGLOGGERD_RICH_WRAP(richTextUrl)
+	TGLOGGERD_RICH_WRAP(richTextEmailAddress)
+	TGLOGGERD_RICH_WRAP(richTextPhoneNumber)
+	TGLOGGERD_RICH_WRAP(richTextDiff)
+	TGLOGGERD_RICH_WRAP(richTextReference)
+	TGLOGGERD_RICH_WRAP(richTextReferenceLink)
+	TGLOGGERD_RICH_WRAP(richTextAnchorLink)
+#undef TGLOGGERD_RICH_WRAP
+	case td_api::richTextCustomEmoji::ID:
+		out += static_cast<const td_api::richTextCustomEmoji &>(*t)
+			       .alternative_text_;
+		break;
+	case td_api::richTextMathematicalExpression::ID:
+		out += static_cast<const td_api::richTextMathematicalExpression &>(
+			       *t).expression_;
+		break;
+	case td_api::richTextButton::ID: {
+		auto &b = static_cast<const td_api::richTextButton &>(*t);
+		if (b.button_)
+			rich_text_append(b.button_->text_.get(), out);
+		break;
+	}
+	case td_api::richTexts::ID:
+		for (const auto &x : static_cast<const td_api::richTexts &>(*t).texts_)
+			rich_text_append(x.get(), out);
+		break;
+	default:
+		break;
+	}
+}
+
+/* Append @s to @lines unless it is empty. */
+void add_line(std::vector<std::string> &lines, std::string s)
+{
+	if (!s.empty())
+		lines.push_back(std::move(s));
+}
+
+void add_rich_line(std::vector<std::string> &lines, const td_api::RichText *t)
+{
+	std::string s;
+	rich_text_append(t, s);
+	add_line(lines, std::move(s));
+}
+
+void add_caption_lines(std::vector<std::string> &lines,
+		       const td_api::pageBlockCaption *c)
+{
+	if (!c)
+		return;
+	add_rich_line(lines, c->text_.get());
+	add_rich_line(lines, c->credit_.get());
+}
+
+void page_blocks_text(
+	const std::vector<td_api::object_ptr<td_api::PageBlock>> &blocks,
+	std::vector<std::string> &lines);
+
+/*
+ * The lines of text one page block shows, in reading order: headings,
+ * paragraphs, quotes and their credit, captions, list items (after their
+ * label), table cells (a row on one line, its cells apart by " | "),
+ * the header and titles of related articles, button labels.
+ */
+void page_block_text(const td_api::PageBlock *b, std::vector<std::string> &lines)
+{
+	if (!b)
+		return;
+	switch (b->get_id()) {
+#define TGLOGGERD_BLOCK_TEXT(cls, field) \
+	case td_api::cls::ID: \
+		add_rich_line(lines, \
+			      static_cast<const td_api::cls &>(*b).field.get()); \
+		break;
+	TGLOGGERD_BLOCK_TEXT(pageBlockTitle, title_)
+	TGLOGGERD_BLOCK_TEXT(pageBlockSubtitle, subtitle_)
+	TGLOGGERD_BLOCK_TEXT(pageBlockAuthorDate, author_)
+	TGLOGGERD_BLOCK_TEXT(pageBlockHeader, header_)
+	TGLOGGERD_BLOCK_TEXT(pageBlockSubheader, subheader_)
+	TGLOGGERD_BLOCK_TEXT(pageBlockSectionHeading, text_)
+	TGLOGGERD_BLOCK_TEXT(pageBlockKicker, kicker_)
+	TGLOGGERD_BLOCK_TEXT(pageBlockParagraph, text_)
+	TGLOGGERD_BLOCK_TEXT(pageBlockPreformatted, text_)
+	TGLOGGERD_BLOCK_TEXT(pageBlockFooter, footer_)
+	TGLOGGERD_BLOCK_TEXT(pageBlockThinking, text_)
+#undef TGLOGGERD_BLOCK_TEXT
+#define TGLOGGERD_BLOCK_CAPTION(cls) \
+	case td_api::cls::ID: \
+		add_caption_lines(lines, \
+				  static_cast<const td_api::cls &>(*b).caption_.get()); \
+		break;
+	TGLOGGERD_BLOCK_CAPTION(pageBlockAnimation)
+	TGLOGGERD_BLOCK_CAPTION(pageBlockAudio)
+	TGLOGGERD_BLOCK_CAPTION(pageBlockDocument)
+	TGLOGGERD_BLOCK_CAPTION(pageBlockPhoto)
+	TGLOGGERD_BLOCK_CAPTION(pageBlockVideo)
+	TGLOGGERD_BLOCK_CAPTION(pageBlockVoiceNote)
+	TGLOGGERD_BLOCK_CAPTION(pageBlockEmbedded)
+	TGLOGGERD_BLOCK_CAPTION(pageBlockMap)
+#undef TGLOGGERD_BLOCK_CAPTION
+	case td_api::pageBlockMathematicalExpression::ID:
+		add_line(lines, static_cast<const td_api::pageBlockMathematicalExpression &>(
+					*b).expression_);
+		break;
+	case td_api::pageBlockList::ID:
+		for (const auto &it : static_cast<const td_api::pageBlockList &>(
+					      *b).items_) {
+			if (!it)
+				continue;
+			std::vector<std::string> sub;
+			page_blocks_text(it->blocks_, sub);
+			if (!it->label_.empty()) {
+				if (sub.empty())
+					sub.push_back(it->label_);
+				else
+					sub[0] = it->label_ + " " + sub[0];
+			}
+			for (auto &s : sub)
+				lines.push_back(std::move(s));
+		}
+		break;
+	case td_api::pageBlockBlockQuote::ID: {
+		auto &q = static_cast<const td_api::pageBlockBlockQuote &>(*b);
+		page_blocks_text(q.blocks_, lines);
+		add_rich_line(lines, q.credit_.get());
+		break;
+	}
+	case td_api::pageBlockExpandableBlockQuote::ID: {
+		auto &q = static_cast<const td_api::pageBlockExpandableBlockQuote &>(*b);
+		add_rich_line(lines, q.text_.get());
+		add_rich_line(lines, q.credit_.get());
+		break;
+	}
+	case td_api::pageBlockPullQuote::ID: {
+		auto &q = static_cast<const td_api::pageBlockPullQuote &>(*b);
+		add_rich_line(lines, q.text_.get());
+		add_rich_line(lines, q.credit_.get());
+		break;
+	}
+	case td_api::pageBlockCover::ID:
+		page_block_text(static_cast<const td_api::pageBlockCover &>(*b)
+					.cover_.get(), lines);
+		break;
+	case td_api::pageBlockEmbeddedPost::ID: {
+		auto &p = static_cast<const td_api::pageBlockEmbeddedPost &>(*b);
+		page_blocks_text(p.blocks_, lines);
+		add_caption_lines(lines, p.caption_.get());
+		break;
+	}
+	case td_api::pageBlockCollage::ID: {
+		auto &c = static_cast<const td_api::pageBlockCollage &>(*b);
+		page_blocks_text(c.blocks_, lines);
+		add_caption_lines(lines, c.caption_.get());
+		break;
+	}
+	case td_api::pageBlockSlideshow::ID: {
+		auto &c = static_cast<const td_api::pageBlockSlideshow &>(*b);
+		page_blocks_text(c.blocks_, lines);
+		add_caption_lines(lines, c.caption_.get());
+		break;
+	}
+	case td_api::pageBlockChatLink::ID:
+		add_line(lines, static_cast<const td_api::pageBlockChatLink &>(
+					*b).title_);
+		break;
+	case td_api::pageBlockTable::ID: {
+		auto &t = static_cast<const td_api::pageBlockTable &>(*b);
+		add_rich_line(lines, t.caption_.get());
+		for (const auto &row : t.cells_) {
+			std::string line;
+			for (const auto &cell : row) {
+				if (!cell)
+					continue;
+				std::string s;
+				rich_text_append(cell->text_.get(), s);
+				if (s.empty())
+					continue;
+				if (!line.empty())
+					line += " | ";
+				line += s;
+			}
+			add_line(lines, std::move(line));
+		}
+		break;
+	}
+	case td_api::pageBlockDetails::ID: {
+		auto &d = static_cast<const td_api::pageBlockDetails &>(*b);
+		add_rich_line(lines, d.header_.get());
+		page_blocks_text(d.blocks_, lines);
+		break;
+	}
+	case td_api::pageBlockRelatedArticles::ID: {
+		auto &r = static_cast<const td_api::pageBlockRelatedArticles &>(*b);
+		add_rich_line(lines, r.header_.get());
+		for (const auto &a : r.articles_) {
+			if (!a)
+				continue;
+			add_line(lines, a->title_);
+			add_line(lines, a->description_);
+		}
+		break;
+	}
+	case td_api::pageBlockButtonRow::ID:
+		for (const auto &btn : static_cast<const td_api::pageBlockButtonRow &>(
+					       *b).buttons_)
+			if (btn)
+				add_rich_line(lines, btn->text_.get());
+		break;
+	default:
+		/* Divider, anchor, unsupported: no text. */
+		break;
+	}
+}
+
+void page_blocks_text(
+	const std::vector<td_api::object_ptr<td_api::PageBlock>> &blocks,
+	std::vector<std::string> &lines)
+{
+	for (const auto &b : blocks)
+		page_block_text(b.get(), lines);
+}
+
+/* telegram_message_files.position is a SMALLINT. */
+constexpr size_t kMaxRichFiles = 32767;
+
+void page_blocks_files(
+	const std::vector<td_api::object_ptr<td_api::PageBlock>> &blocks,
+	std::vector<ExtraFile> &out);
+
+/*
+ * The media of one page block, appended to @out in order of appearance
+ * as role "rich", position its index in @out: a photo (largest size), a
+ * video, an animation, an audio file, a document or a voice note, an
+ * embedded page's poster, an embedded post's author photo and the
+ * photos of related articles; the blocks inside a cover, a collage, a
+ * slideshow, a quote, a list, a collapsible block or an embedded post.
+ * A chat link's photo (the chat's own) and the icons inside rich text
+ * are not listed.
+ */
+void page_block_files(const td_api::PageBlock *b, std::vector<ExtraFile> &out)
+{
+	auto add = [&out](const td_api::file *f, const char *category,
+			  std::string name) {
+		if (f && out.size() < kMaxRichFiles)
+			out.push_back(ExtraFile{ f, category, std::move(name),
+						 "rich", (int)out.size() });
+	};
+	if (!b)
+		return;
+	switch (b->get_id()) {
+	case td_api::pageBlockPhoto::ID:
+		add(photo_best_size(static_cast<const td_api::pageBlockPhoto &>(
+					    *b).photo_.get()), "photo", "");
+		break;
+	case td_api::pageBlockVideo::ID: {
+		auto &v = static_cast<const td_api::pageBlockVideo &>(*b);
+		if (v.video_)
+			add(v.video_->video_.get(), "video", v.video_->file_name_);
+		break;
+	}
+	case td_api::pageBlockAnimation::ID: {
+		auto &a = static_cast<const td_api::pageBlockAnimation &>(*b);
+		if (a.animation_)
+			add(a.animation_->animation_.get(), "animation",
+			    a.animation_->file_name_);
+		break;
+	}
+	case td_api::pageBlockAudio::ID: {
+		auto &a = static_cast<const td_api::pageBlockAudio &>(*b);
+		if (a.audio_)
+			add(a.audio_->audio_.get(), "audio", a.audio_->file_name_);
+		break;
+	}
+	case td_api::pageBlockDocument::ID: {
+		auto &d = static_cast<const td_api::pageBlockDocument &>(*b);
+		if (d.document_)
+			add(d.document_->document_.get(), "document",
+			    d.document_->file_name_);
+		break;
+	}
+	case td_api::pageBlockVoiceNote::ID: {
+		auto &v = static_cast<const td_api::pageBlockVoiceNote &>(*b);
+		if (v.voice_note_)
+			add(v.voice_note_->voice_.get(), "voice", "");
+		break;
+	}
+	case td_api::pageBlockEmbedded::ID:
+		add(photo_best_size(static_cast<const td_api::pageBlockEmbedded &>(
+					    *b).poster_photo_.get()), "photo", "");
+		break;
+	case td_api::pageBlockEmbeddedPost::ID: {
+		auto &p = static_cast<const td_api::pageBlockEmbeddedPost &>(*b);
+		add(photo_best_size(p.author_photo_.get()), "photo", "");
+		page_blocks_files(p.blocks_, out);
+		break;
+	}
+	case td_api::pageBlockRelatedArticles::ID:
+		for (const auto &a : static_cast<const td_api::pageBlockRelatedArticles &>(
+					     *b).articles_)
+			if (a)
+				add(photo_best_size(a->photo_.get()), "photo", "");
+		break;
+	case td_api::pageBlockCover::ID:
+		page_block_files(static_cast<const td_api::pageBlockCover &>(*b)
+					 .cover_.get(), out);
+		break;
+	case td_api::pageBlockCollage::ID:
+		page_blocks_files(static_cast<const td_api::pageBlockCollage &>(
+					  *b).blocks_, out);
+		break;
+	case td_api::pageBlockSlideshow::ID:
+		page_blocks_files(static_cast<const td_api::pageBlockSlideshow &>(
+					  *b).blocks_, out);
+		break;
+	case td_api::pageBlockBlockQuote::ID:
+		page_blocks_files(static_cast<const td_api::pageBlockBlockQuote &>(
+					  *b).blocks_, out);
+		break;
+	case td_api::pageBlockDetails::ID:
+		page_blocks_files(static_cast<const td_api::pageBlockDetails &>(
+					  *b).blocks_, out);
+		break;
+	case td_api::pageBlockList::ID:
+		for (const auto &it : static_cast<const td_api::pageBlockList &>(
+					      *b).items_)
+			if (it)
+				page_blocks_files(it->blocks_, out);
+		break;
+	default:
+		break;
+	}
+}
+
+void page_blocks_files(
+	const std::vector<td_api::object_ptr<td_api::PageBlock>> &blocks,
+	std::vector<ExtraFile> &out)
+{
+	for (const auto &b : blocks)
+		page_block_files(b.get(), out);
+}
+
+/*
+ * A rich message's content_extra: the curated {"blocks": <top-level block
+ * count>, "is_rtl": <bool>} beside TDLib's JSON, which stays the render
+ * source (decision 2026-11-19-msg-rich-raw-json). The curated keys come from
+ * the live object, so a message whose JSON is over the cap still has them.
+ */
+std::string rich_extra_json(const td_api::messageRichMessage &c)
+{
+	nlohmann::json cur = {
+		{ "blocks", c.message_ ? c.message_->blocks_.size() : 0 },
+		{ "is_rtl", c.message_ ? c.message_->is_rtl_ : false },
+	};
+	std::string out = cur.dump();
+	std::optional<std::string> raw = tdlib_extra_json(c);
+	if (raw && raw->size() > 2 && (*raw)[0] == '{') {
+		out.pop_back();
+		out += ',';
+		out.append(*raw, 1, std::string::npos);
+	}
+	return out;
+}
+
 
 /* Standard base64 of raw bytes (TDLib's `bytes` fields). */
 std::string base64(const std::string &in)
@@ -2152,6 +2550,22 @@ void extract_message_content(const td_api::MessageContent &content,
 		/* Nothing is left to keep but the class. */
 		out.is_expired = true;
 		return;
+	case td_api::messageRichMessage::ID: {
+		/*
+		 * The blocks' plain text, for search and the preview line,
+		 * and the curated summary beside TDLib's JSON (message-types.md
+		 * section 4.2).
+		 */
+		auto &c = static_cast<const td_api::messageRichMessage &>(
+			content);
+		if (c.message_) {
+			std::string text = rich_message_text(*c.message_);
+			if (!text.empty())
+				out.text = std::move(text);
+		}
+		out.content_extra = rich_extra_json(c);
+		return;
+	}
 	default:
 		break;
 	}
@@ -2193,6 +2607,38 @@ void extract_message_content(const td_api::MessageContent &content,
 		out.content_extra = std::move(extra);
 	else if (id != td_api::messageText::ID)
 		out.content_extra = tdlib_extra_json(content);
+}
+
+std::string rich_message_text(const td_api::richMessage &m)
+{
+	std::vector<std::string> lines;
+	page_blocks_text(m.blocks_, lines);
+	std::string out;
+	for (const auto &l : lines) {
+		if (!out.empty())
+			out += '\n';
+		out += l;
+	}
+	return out;
+}
+
+std::vector<ExtraFile> rich_message_files(const td_api::richMessage &m)
+{
+	std::vector<ExtraFile> out;
+	page_blocks_files(m.blocks_, out);
+	return out;
+}
+
+const ExtraFile *rich_file_with_unique_id(const std::vector<ExtraFile> &files,
+					  const std::string &unique_id)
+{
+	if (unique_id.empty())
+		return nullptr;
+	for (const auto &x : files)
+		if (x.file && x.file->remote_ &&
+		    x.file->remote_->unique_id_ == unique_id)
+			return &x;
+	return nullptr;
 }
 
 /* The message's text/caption formattedText (carrying its entities), or nullptr
@@ -2245,9 +2691,10 @@ const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
  * The files of @content beyond the one message_content_file() returns, in
  * a stable order: a video's cover, a live photo's video, each paid media
  * item, a game's photo and animation, an invoice's photo and paid media,
- * the photo of a chat photo change or suggestion, and the still
+ * the photo of a chat photo change or suggestion, the still
  * thumbnail of a video, an animation, a video note or a video sticker
- * (the picture shown before it plays). Other thumbnails and a video's
+ * (the picture shown before it plays), and the media in a rich
+ * message's page blocks (rich_message_files). Other thumbnails and a video's
  * other qualities are not listed: the first only repeat the media, the
  * second are the same video again.
  */
@@ -2375,6 +2822,12 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 				    content).photo_.get()),
 		    "photo", "", "chat_photo", 0);
 		break;
+	case td_api::messageRichMessage::ID: {
+		auto &c = static_cast<const td_api::messageRichMessage &>(content);
+		if (c.message_)
+			out = rich_message_files(*c.message_);
+		break;
+	}
 	default:
 		break;
 	}
