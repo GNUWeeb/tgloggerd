@@ -40,6 +40,7 @@ static int g_failures;
  * real user id is this small. */
 static const int64_t kGroup = -4242003;
 static const int64_t kUser = 4242;
+static const int64_t kSuper = -1004242000001;
 
 static std::string env(const char *k, const char *def = "")
 {
@@ -60,6 +61,8 @@ static std::string one(mysql::Database &db, const std::string &sql,
 static void cleanup(mysql::Database &raw)
 {
 	raw.execute("DELETE FROM telegram_group_messages WHERE chat_id = ?", { kGroup });
+	raw.execute("DELETE FROM telegram_group_messages WHERE chat_id = ?", { kSuper });
+	raw.execute("DELETE FROM `telegram_groups` WHERE id = ?", { kSuper });
 	raw.execute("DELETE FROM telegram_private_messages WHERE chat_id = ?", { kUser });
 	raw.execute("DELETE FROM `telegram_groups` WHERE id = ?", { kGroup });
 	raw.execute("DELETE FROM telegram_users WHERE id = ?", { kUser });
@@ -213,6 +216,31 @@ int main()
 		      "a one-id span: nothing between, an older one stored");
 		auto first = db.listRecheckStored(kGroup, true, { 1, 1 });
 		CHECK(!first.older_exists, "nothing older than the first");
+	}
+
+	printf("stored near the newest, for the catch-up:\n");
+	{
+		models::Group sgr;
+		sgr.id = kSuper;
+		sgr.title = "recheck supergroup";
+		db.upsertGroup(sgr);
+		/* Ids 101..150 with only every fifth stored, plus 150. */
+		for (int64_t id = 105; id <= 150; id += 5) {
+			models::GroupMessage m;
+			m.chat_id = kSuper;
+			m.message_id = id;
+			m.date = 1700000000 + id;
+			m.content.content_type = models::MessageContentType::Text;
+			m.content.text = "m";
+			db.upsertGroupMessage(m);
+		}
+		auto newest = db.newestStoredMessageIds({ kSuper, kGroup });
+		CHECK(newest.count(kSuper) && newest[kSuper] == 150,
+		      "the newest stored id");
+		auto near = db.storedNearNewest(newest);
+		CHECK(near.count(kSuper) && near[kSuper] == 10,
+		      "10 of the 50 ids up to it are stored");
+		CHECK(!near.count(kGroup), "a basic group is not counted");
 	}
 
 	printf("restore a recheck deletion:\n");

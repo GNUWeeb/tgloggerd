@@ -527,14 +527,15 @@ int TgLoggerd::start(void)
 				try {
 					auto stored =
 						db_->newestStoredMessageIds(chats);
+					auto near = db_->storedNearNewest(stored);
 					auto gaps = recheck::gapChats(
-						chats, tdlib_last, stored);
+						chats, tdlib_last, stored, near);
 					const size_t queued =
 						tdlib_->queueRecheckCatchUp(gaps);
 					pr_info(l_, "recheck: restart catch-up"
 						" queued %zu of %zu chat(s) with a"
-						" gap at the newest end (%zu"
-						" active in the last 48 h)",
+						" gap at or below the newest message"
+						" (%zu active in the last 48 h)",
 						queued, gaps.size(), chats.size());
 				} catch (const std::exception &e) {
 					pr_error(l_, "recheck: catch-up failed: %s",

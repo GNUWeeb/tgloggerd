@@ -216,6 +216,25 @@ size_t DB::countStoredMessages(int64_t chat_id, bool is_group,
 	return (size_t)std::stoull(*rows[0][0]);
 }
 
+std::unordered_map<int64_t, int64_t> DB::storedNearNewest(
+	const std::unordered_map<int64_t, int64_t> &newest)
+{
+	std::unordered_map<int64_t, int64_t> out;
+	for (const auto &[chat, max] : newest) {
+		if (!recheck::isSupergroupId(chat) || max <= 0)
+			continue;
+		/* A range on the unique key's prefix. */
+		auto rows = db_.query(
+			"SELECT COUNT(*) FROM telegram_group_messages"
+			" FORCE INDEX (uq_group_messages_chat_msg)"
+			" WHERE chat_id = ? AND message_id > ? AND message_id <= ?",
+			{ chat, max - recheck::kDenseWindow, max });
+		if (!rows.empty() && rows[0][0].has_value())
+			out[chat] = std::stoll(*rows[0][0]);
+	}
+	return out;
+}
+
 std::vector<int64_t> DB::restoreRecheckDeleted(
 	int64_t chat_id, bool is_group, const std::vector<int64_t> &message_ids)
 {

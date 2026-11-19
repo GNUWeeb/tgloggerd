@@ -379,6 +379,27 @@ static void testGapChats(void)
 	      "the newest already stored: no recheck");
 	CHECK(gapChats({ -4 }, tdlib, stored).empty(),
 	      "TDLib named no last message: nothing to compare");
+
+	printf("a gap below the newest stored message\n");
+	const int64_t sg = -1001234567890, sg2 = -1009876543210;
+	const std::unordered_map<int64_t, int64_t> tl{ { sg, 500 }, { sg2, 500 },
+		{ -5, 90 } };
+	const std::unordered_map<int64_t, int64_t> sm{ { sg, 500 }, { sg2, 500 },
+		{ -5, 90 } };
+	const std::unordered_map<int64_t, int64_t> near{ { sg, 3 }, { sg2, 48 },
+		{ -5, 1 } };
+	CHECK(gapChats({ sg, sg2, -5 }, tl, sm, near) ==
+		      std::vector<int64_t>({ sg }),
+	      "a sparse supergroup is rechecked, a dense one and a basic group"
+	      " are not");
+	CHECK(sparseNearNewest(sg, 500, 39) && !sparseNearNewest(sg, 500, 40),
+	      "dense from 40 of the last 50");
+	CHECK(sparseNearNewest(sg, 11, 7) && !sparseNearNewest(sg, 11, 9),
+	      "a small chat: the share of its own ids");
+	CHECK(!sparseNearNewest(55, 500, 0), "a private chat: not applicable");
+	CHECK(isSupergroupId(-1001483770714) && !isSupergroupId(-4123456) &&
+		      !isSupergroupId(77),
+	      "supergroup and channel ids are -100...");
 }
 
 static void testSlotForAsked(void)

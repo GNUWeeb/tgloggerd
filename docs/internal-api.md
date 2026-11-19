@@ -695,9 +695,13 @@ The daemon's own: about two minutes after TDLib is authorized, the
 newest stretch of every chat whose last message (from `updateNewChat`
 and `updateChatLastMessage`) is at most 48 hours old is queued, newest
 first, through the same queue and limits; they count as recent for the
-60-second rule. Of those, only the chats with a gap at the newest end
-are queued: nothing stored for the chat, or its newest stored message
-older than TDLib's last message. It covers the chats TDLib has
+60-second rule. Of those, only the chats with a gap are queued: nothing
+stored for the chat, its newest stored message older than TDLib's last
+message, or, for a supergroup or channel, fewer than 40 of the 50
+message ids up to its newest stored one stored (their ids count up by
+one per message, so a dense chat has nearly all of them; basic groups
+and private chats number messages per account, so this part does not
+apply to them). It covers the chats TDLib has
 announced by then, which is every chat in the chat lists when the
 history backfill, which loads them, is on. The log says how many were
 active and how many had a gap.
