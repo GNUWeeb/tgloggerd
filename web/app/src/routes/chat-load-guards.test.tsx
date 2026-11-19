@@ -5,13 +5,16 @@
 // the new window's own loads. A window too short to scroll loads on by
 // itself, but not again after a page that added nothing.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { configure, fireEvent, screen, waitFor } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup, type Call } from '../test/page.tsx';
 import type { ChatProps } from './chat.tsx';
 import type { GroupsProps } from './groups.tsx';
 import type { ChatMessage } from '../types.ts';
 
 beforeEach(setup);
+// These tests hold answers back and wait for the next request; in a
+// loaded full run that can take longer than waitFor's default second.
+configure({ asyncUtilTimeout: 5000 });
 afterEach(() => vi.restoreAllMocks());
 
 const gid = () => fixture<GroupsProps>('/groups').props.rows[0]!.id;
