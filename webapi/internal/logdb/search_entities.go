@@ -76,7 +76,7 @@ const (
 	textOps   = OpEQ | OpNE | OpLike | OpNLike | OpCLike | OpNCLike
 	likeOps   = OpLike | OpNLike | OpCLike | OpNCLike
 	boolOps   = OpEQ | OpNE
-	enumOps   = OpEQ | OpNE
+	enumOps   = OpEQ | OpNE | OpIn
 	nullOps   = OpIsNull | OpIsNotNull
 	existsOps = OpEQ | OpNE | OpLike | OpNLike | OpCLike | OpNCLike
 	existsPos = OpEQ | OpLike | OpCLike
@@ -104,6 +104,13 @@ func needsChat(f Field) Field {
 
 func enum(f Field, values string) Field {
 	f.Enum = values
+	return f
+}
+
+// openEnum is an enum field that lists its known values and takes any
+// other too (Field.OpenEnum).
+func openEnum(f Field, values string) Field {
+	f.Enum, f.OpenEnum = values, true
 	return f
 }
 
@@ -492,6 +499,77 @@ const MessageTypes = "text,photo,video,document,audio,voice,sticker,animation,se
 	"video_note,location,venue,contact,dice,game,poll,checklist,story,paid_media,invoice," +
 	"giveaway,call,rich,widget,expired,unsupported"
 
+// ServiceTypes are the service_type values the daemon writes
+// (src/tgloggerd/MessageExtract.cpp, describe_service_message), in the
+// order of its code: the service message filter's list. A row of a
+// newer daemon may hold another, which the field still takes.
+const ServiceTypes = "chat_add_members,chat_join_by_link,chat_join_by_request,chat_delete_member," +
+	"chat_change_title,chat_change_photo,chat_delete_photo,pin_message,chat_create," +
+	"chat_upgrade_to,chat_upgrade_from,chat_set_message_auto_delete_time," +
+	"chat_set_theme,chat_set_background,forum_topic_created,forum_topic_edited," +
+	"forum_topic_is_closed_toggled,forum_topic_is_hidden_toggled,video_chat_started," +
+	"video_chat_ended,video_chat_scheduled,invite_video_chat_participants,chat_boost," +
+	"screenshot_taken,contact_registered,gifted_premium,payment_successful," +
+	"payment_successful_bot,custom_service_action,chat_join_from_community," +
+	"chat_added_to_community,chat_removed_from_community,chat_owner_left," +
+	"chat_owner_changed,chat_has_protected_content_toggled," +
+	"chat_has_protected_content_disable_requested,suggest_profile_photo," +
+	"suggest_birthdate,game_score,managed_bot_created,payment_refunded," +
+	"premium_gift_code,giveaway_created,giveaway_completed,giveaway_winners," +
+	"gifted_stars,gifted_grams,giveaway_prize_stars,ton_wallet_transfer," +
+	"ton_connect_request,gift,upgraded_gift,refunded_upgraded_gift," +
+	"upgraded_gift_purchase_offer,upgraded_gift_purchase_offer_rejected," +
+	"paid_messages_refunded,paid_message_price_changed,direct_message_price_changed," +
+	"unpaid_messages_allowed_by_link,checklist_tasks_done,checklist_tasks_added," +
+	"poll_option_added,poll_option_deleted,suggested_post_approval_failed," +
+	"suggested_post_approved,suggested_post_declined,suggested_post_paid," +
+	"suggested_post_refunded,users_shared,chat_shared,bot_write_access_allowed," +
+	"web_app_data_sent,web_app_data_received,passport_data_sent," +
+	"passport_data_received,proximity_alert_triggered"
+
+// TDLibTypes are the TDLib message content classes the daemon knows
+// (TGLOGGERD_MESSAGE_CONTENT_CLASSES in src/tgloggerd/MessageExtract.hpp),
+// in its order; a class newer than the daemon is stored by its name
+// too, which the field still takes.
+const TDLibTypes = "messageText,messageRichMessage,messageAnimation,messageAudio,messageDocument," +
+	"messagePaidMedia,messagePhoto,messageSticker,messageVideo,messageVideoNote," +
+	"messageVoiceNote,messageExpiredPhoto,messageExpiredVideo," +
+	"messageExpiredVideoNote,messageExpiredVoiceNote,messageLiveLocation," +
+	"messageLocation,messageVenue,messageContact,messageAnimatedEmoji,messageDice," +
+	"messageGame,messagePoll,messageStakeDice,messageStory,messageWidget," +
+	"messageChecklist,messageInvoice,messageCall,messageGroupCall," +
+	"messageVideoChatScheduled,messageVideoChatStarted,messageVideoChatEnded," +
+	"messageInviteVideoChatParticipants,messagePollOptionAdded," +
+	"messagePollOptionDeleted,messageBasicGroupChatCreate," +
+	"messageSupergroupChatCreate,messageChatChangeTitle,messageChatChangePhoto," +
+	"messageChatDeletePhoto,messageChatOwnerLeft,messageChatOwnerChanged," +
+	"messageChatHasProtectedContentToggled," +
+	"messageChatHasProtectedContentDisableRequested,messageChatAddMembers," +
+	"messageChatJoinByLink,messageChatJoinByRequest,messageChatJoinFromCommunity," +
+	"messageChatDeleteMember,messageChatAddedToCommunity," +
+	"messageChatRemovedFromCommunity,messageChatUpgradeTo,messageChatUpgradeFrom," +
+	"messagePinMessage,messageScreenshotTaken,messageChatSetBackground," +
+	"messageChatSetTheme,messageChatSetMessageAutoDeleteTime,messageChatBoost," +
+	"messageForumTopicCreated,messageForumTopicEdited," +
+	"messageForumTopicIsClosedToggled,messageForumTopicIsHiddenToggled," +
+	"messageSuggestProfilePhoto,messageSuggestBirthdate,messageCustomServiceAction," +
+	"messageGameScore,messageManagedBotCreated,messagePaymentSuccessful," +
+	"messagePaymentSuccessfulBot,messagePaymentRefunded,messageGiftedPremium," +
+	"messagePremiumGiftCode,messageGiveawayCreated,messageGiveaway," +
+	"messageGiveawayCompleted,messageGiveawayWinners,messageGiftedStars," +
+	"messageGiftedGrams,messageGiveawayPrizeStars,messageTonWalletTransfer," +
+	"messageTonConnectRequest,messageGift,messageUpgradedGift," +
+	"messageRefundedUpgradedGift,messageUpgradedGiftPurchaseOffer," +
+	"messageUpgradedGiftPurchaseOfferRejected,messagePaidMessagesRefunded," +
+	"messagePaidMessagePriceChanged,messageDirectMessagePriceChanged," +
+	"messageUnpaidMessagesAllowedByLink,messageChecklistTasksDone," +
+	"messageChecklistTasksAdded,messageSuggestedPostApprovalFailed," +
+	"messageSuggestedPostApproved,messageSuggestedPostDeclined," +
+	"messageSuggestedPostPaid,messageSuggestedPostRefunded,messageContactRegistered," +
+	"messageUsersShared,messageChatShared,messageBotWriteAccessAllowed," +
+	"messageWebAppDataSent,messageWebAppDataReceived,messagePassportDataSent," +
+	"messagePassportDataReceived,messageProximityAlertTriggered,messageUnsupported"
+
 func nameCols(r Row, first, last string) string {
 	return esc(DisplayName(r.Str(first), r.Str(last)))
 }
@@ -530,8 +608,10 @@ var PrivateMessages = &Entity{
 		enum(col("content_type", "m.content_type", Enum, "Content type", enumOps, false),
 			MessageTypes),
 		col("chat_id", "m.chat_id", Int, "User (chat) id", intOps, false),
-		needsChat(col("tdlib_type", "m.tdlib_type", Text, "TDLib type", OpEQ|OpNE, false)),
-		needsChat(col("service_type", "m.service_type", Text, "Service type", OpEQ|OpNE, false)),
+		needsChat(openEnum(col("tdlib_type", "m.tdlib_type", Enum, "TDLib type", enumOps, false),
+			TDLibTypes)),
+		needsChat(openEnum(col("service_type", "m.service_type", Enum, "Service type", enumOps, false),
+			ServiceTypes)),
 		col("sender_id", "m.sender_id", Int, "Sender id", intOps, false),
 		col("message_id", "m.message_id", Int, "Message id", intOps, false),
 		col("is_outgoing", "m.is_outgoing", Bool, "Outgoing", boolOps, false),
@@ -604,8 +684,10 @@ var GroupMessages = &Entity{
 		enum(col("content_type", "m.content_type", Enum, "Content type", enumOps, false),
 			MessageTypes),
 		col("chat_id", "m.chat_id", Int, "Group id", intOps, false),
-		needsChat(col("tdlib_type", "m.tdlib_type", Text, "TDLib type", OpEQ|OpNE, false)),
-		needsChat(col("service_type", "m.service_type", Text, "Service type", OpEQ|OpNE, false)),
+		needsChat(openEnum(col("tdlib_type", "m.tdlib_type", Enum, "TDLib type", enumOps, false),
+			TDLibTypes)),
+		needsChat(openEnum(col("service_type", "m.service_type", Enum, "Service type", enumOps, false),
+			ServiceTypes)),
 		col("sender_user_id", "m.sender_user_id", Int, "Sender user id", intOps, false),
 		col("deleted", "m.deleted_at", Bool, "Deleted", nullOps, false),
 		col("date", "m.date", Int, "Sent", intOps, true),

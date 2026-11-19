@@ -12,8 +12,8 @@ media, service and TDLib types to pick from, and every file type.
 - The "Media" quick filter is `content_type != text`, so it also
   matches service, unknown, poll, location, call and the other
   non-media kinds.
-- `service_type` and `tdlib_type` are free-text filters: one has to
-  know "chat_add_members" to use them.
+- The service type and TDLib type filters are text inputs: one has
+  to know "chat_add_members" to use them.
 - The files list's type filter lacks `video_note` and `thumbnail`,
   which the server offers, and its quick filters cover photos, videos
   and documents only.
@@ -22,23 +22,23 @@ media, service and TDLib types to pick from, and every file type.
 
 - React (frontend): `service` in the private list's filter; "Media" as
   the media kinds (photo, video, video_note, document, audio, voice,
-  sticker, animation, paid_media); `video_note` and `thumbnail` in the
-  files type filter; quick filters for voice, audio, stickers,
-  animations and video notes on /files.
-- Go (webapi): `service_type` and `tdlib_type` as enum fields in the
-  search registry (webapi/internal/logdb/search_entities.go), with
-  the known values (the daemon's service type names, the TDLib
-  classes), still within one chat; React shows them as lists with the
-  labels of `msg-type-labels`. web/docs/search-api.md follows.
-- If the list filter cannot express "one of" for "Media", Go adds it
-  (an IN operator on enum fields) in this item.
+  sticker, animation, paid_media) as one `in` filter; `video_note`
+  and `thumbnail` in the files type filter; quick filters for voice,
+  audio, stickers, animations and video notes on /files.
+- React: `service_type` and `tdlib_type` as lists with the labels of
+  `msg-type-labels`, still within one chat.
+- React: `Cond.value` is now a string or, for `in`, a list of strings
+  (the regenerated schema.d.ts); the filter bar's code that reads it
+  as a string (ui/list.tsx) follows.
 
 ## Design notes
 
-Whether the filter bar can already express "one of" was not confirmed;
-check first. An enum filter keeps accepting a value it does not list
-(a service type newer than the web), so it does not reject queries
-that work today.
+The Go part is on dev: the search conditions take `in` on enum
+fields, `{"field": ..., "op": "in", "value": [...]}` on the list
+pages (also file_type on /files), and `service_type` and `tdlib_type`
+are open enums (`enum_open: true` in ListState.fields: the known
+values listed in `enum`, any other value taken too).
+web/docs/search-api.md describes both.
 
 ## Depends on
 
@@ -51,4 +51,4 @@ Nothing.
 - The service type filter offers a list with labels, and picking
   "Members added" returns those rows.
 - /files filters video notes, voice, audio, stickers and animations.
-- Go and React tests cover the new filters.
+- React tests cover the new filters (the Go tests are on dev).

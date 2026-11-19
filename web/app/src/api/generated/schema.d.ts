@@ -1936,9 +1936,11 @@ export interface components {
             /** @enum {string} */
             type: "text" | "int" | "bool" | "datetime" | "enum";
             sortable: boolean;
-            operators: ("=" | "!=" | "<" | ">" | "<=" | ">=" | "LIKE" | "NOT LIKE" | "%LIKE%" | "NOT %LIKE%" | "matches" | "IS NULL" | "IS NOT NULL")[];
+            operators: ("=" | "!=" | "<" | ">" | "<=" | ">=" | "LIKE" | "NOT LIKE" | "%LIKE%" | "NOT %LIKE%" | "matches" | "IS NULL" | "IS NOT NULL" | "in")[];
             /** @description An enum field's values, comma-separated. */
             enum?: string;
+            /** @description Present (true) for an enum whose list is the known values only (service_type, tdlib_type of the message entities): a value it does not list is taken too. */
+            enum_open?: boolean;
             /** @description Present (true) for a field without an index of its own (tdlib_type, service_type of the message entities): a search may use it only beside a `chat_id =` condition in a chain whose connectors are all AND, else it is refused (bad_search). */
             needs_chat?: boolean;
         };
@@ -2593,9 +2595,9 @@ export interface components {
         Cond: {
             field: string;
             /** @enum {string} */
-            op: "=" | "!=" | ">" | "<" | ">=" | "<=" | "contains" | "empty" | "is" | "LIKE" | "NOT LIKE" | "%LIKE%" | "NOT %LIKE%" | "matches" | "IS NULL" | "IS NOT NULL";
-            /** @description Ignored (send "") for IS NULL and IS NOT NULL. */
-            value: string;
+            op: "=" | "!=" | ">" | "<" | ">=" | "<=" | "contains" | "empty" | "is" | "LIKE" | "NOT LIKE" | "%LIKE%" | "NOT %LIKE%" | "matches" | "IS NULL" | "IS NOT NULL" | "in";
+            /** @description A string; ignored (send "") for IS NULL and IS NOT NULL. For in (an enum field: one of a list of values) a list of 1 to 128 strings, and only for in. */
+            value: string | string[];
             /**
              * @description The connector to the next filter; absent is AND (and the answer's conds leave it out then). Not taken by the files list, whose filters are all ANDed.
              * @enum {string}
@@ -2904,7 +2906,7 @@ export interface components {
             /** @description The poll as the chat's message detail shows it: closed once past its close date, at most 20 options with options_total; null when the poll was never stored. */
             poll: components["schemas"]["PollDetail"] | null;
         };
-        /** @description The files list (route files). Its filters (Cond field, ops): id, size and hits (=, !=, >, <); file_type (=, != one of FileRow's file_type values, unknown included); name, ext and tg_file_id (contains, =, empty); stored (is yes or no); sha256 (=, != a digest of 64 hex digits, either case); created_at, updated_at and accessed_at (>, < a day, YYYY-MM-DD). Its sorts: id, name, file_type, ext, size, hits, created_at (the default) and accessed_at. The search text matches the name, and the id when it is a number. */
+        /** @description The files list (route files). Its filters (Cond field, ops): id, size and hits (=, !=, >, <); file_type (=, != one of FileRow's file_type values, unknown included, or in a list of them); name, ext and tg_file_id (contains, =, empty); stored (is yes or no); sha256 (=, != a digest of 64 hex digits, either case); created_at, updated_at and accessed_at (>, < a day, YYYY-MM-DD). Its sorts: id, name, file_type, ext, size, hits, created_at (the default) and accessed_at. The search text matches the name, and the id when it is a number. */
         FilesProps: components["schemas"]["ListState"] & {
             rows: components["schemas"]["FileRow"][];
             preview: components["schemas"]["FileRow"] | null;
@@ -4163,7 +4165,7 @@ export interface operations {
     searchEntity: {
         parameters: {
             query?: {
-                /** @description A JSON array of conditions {c, o, v, n} (field key, operator, value, connector AND or OR to the next one), at most 8 KB; empty is every row. */
+                /** @description A JSON array of conditions {c, o, v, n} (field key, operator, value, connector AND or OR to the next one), at most 8 KB; empty is every row. v is a string, or for the operator in (enum fields) a list of 1 to 128 strings. */
                 search?: string;
                 /** @description Read as C's atoi and clamped to 1 to 1000. */
                 limit?: number;

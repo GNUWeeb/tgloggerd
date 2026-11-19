@@ -202,7 +202,7 @@ func (e *Entity) plan(sc scope.Scope, req SearchRequest) (p enginePlan, ok bool)
 				return p, false
 			}
 			op, _, known := opLookup(c.O)
-			if !known || f.Ops&op == 0 {
+			if !known || f.Ops&op == 0 || c.IsList != (op == OpIn) {
 				return p, false
 			}
 			if op == OpMatch && !f.Exists {

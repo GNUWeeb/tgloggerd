@@ -74,7 +74,23 @@ webapi/openapi.yaml. Where the two differ:
   a chat_id index instead of scanning the table. Otherwise it is
   refused (`bad_search`: "field 'service_type' requires a 'chat_id ='
   condition ANDed with the others"). `fields` marks them with
-  `needs_chat: true`.
+  `needs_chat: true`. Both are open enums: `fields` lists the values
+  the daemon writes in `enum` (`service_type` its service actions,
+  `tdlib_type` the TDLib classes it knows, in the daemon's order) and
+  marks them `enum_open: true`, and a value not listed (a service type
+  or TDLib class newer than the web) is still taken, so a search that
+  worked before still does.
+- Enum fields take one more operator, `in`: one of a list of values,
+  whose `v` is a JSON array of strings instead of a string (1 to 128
+  of them, each checked as a single value is), as
+  `{"c":"content_type","o":"in","v":["photo","video"]}`. It becomes
+  `col IN (?, ?)`, one placeholder per value. A list for any other
+  operator, or a string for `in`, is refused ("operator '=' takes one
+  value, not a list", "operator 'in' expects a list of values for
+  field 'content_type'"), and so is a `v` that is neither ("'v' must
+  be a string or a list of strings"). The list pages take it in their
+  filters the same way, `{"field":"content_type","op":"in",
+  "value":["photo","video"]}`, and echo the list back.
 
 The React list pages (users, groups, files, group_messages,
 private_messages) read their rows through the same search, from the
@@ -258,8 +274,8 @@ index-backed columns are searchable so a query never scans the table.
 | `text` | Text | fulltext | `matches` |
 | `content_type` | Content type | enum | `= !=` (text,photo,video,document,audio,voice,sticker,animation,service,unknown,video_note,location,venue,contact,dice,game,poll,checklist,story,paid_media,invoice,giveaway,call,rich,widget,expired,unsupported) |
 | `chat_id` | User (chat) id | int | `= != < > <= >=` |
-| `tdlib_type` | TDLib type | text | `= !=`, with `chat_id =` only (Go service) |
-| `service_type` | Service type | text | `= !=`, with `chat_id =` only (Go service) |
+| `tdlib_type` | TDLib type | enum (open) | `= != in`, with `chat_id =` only (Go service) |
+| `service_type` | Service type | enum (open) | `= != in`, with `chat_id =` only (Go service) |
 | `sender_id` | Sender id | int | `= != < > <= >=` |
 | `message_id` | Message id | int | `= != < > <= >=` |
 | `is_outgoing` | Outgoing | bool | `= !=` |
@@ -281,8 +297,8 @@ searchable set is limited to indexed columns; the rest are display-only.
 | `text` | Text | fulltext | `matches` |
 | `content_type` | Content type | enum | `= !=` (same values as above) |
 | `chat_id` | Group id | int | `= != < > <= >=` |
-| `tdlib_type` | TDLib type | text | `= !=`, with `chat_id =` only (Go service) |
-| `service_type` | Service type | text | `= !=`, with `chat_id =` only (Go service) |
+| `tdlib_type` | TDLib type | enum (open) | `= != in`, with `chat_id =` only (Go service) |
+| `service_type` | Service type | enum (open) | `= != in`, with `chat_id =` only (Go service) |
 | `sender_user_id` | Sender user id | int | `= != < > <= >=` |
 | `deleted` | Deleted | bool | `IS NULL IS NOT NULL` |
 | `date` | Sent | int (unix ts) | `= != < > <= >=`, sortable (default) |

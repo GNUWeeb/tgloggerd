@@ -340,7 +340,7 @@ func TestFilesListFilters(t *testing.T) {
 	e := newFilesEnv(t, mediaOpts{})
 	ck, _ := e.signIn("filters")
 	cond := func(field, op, value string) string {
-		b, _ := json.Marshal(listCond{Field: field, Op: op, Value: value})
+		b, _ := json.Marshal(listCond{Field: field, Op: op, Value: strValue(value)})
 		return "," + string(b)
 	}
 	for _, c := range []struct {
