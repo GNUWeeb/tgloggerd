@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace tgloggerd {
 
@@ -63,6 +64,27 @@ struct ChatOutcome {
  * Telegram's).
  */
 ChatOutcome classifyChatError(int32_t code, const std::string &message);
+
+/*
+ * The q of GET /v1/chats/{id}/members, from its raw (percent-encoded)
+ * query value: decoded ('+' is a space), trimmed, a leading '@' dropped.
+ * An empty result means no search. nullopt when it is not valid UTF-8 or
+ * longer than 64 characters (code points).
+ */
+std::optional<std::string> parseMemberQuery(std::string_view raw);
+
+/* The user id a query names when it is only digits (an optional leading
+ * '-' allowed, as ids are written in links), else nullopt. */
+std::optional<int64_t> memberQueryId(const std::string &q);
+
+/*
+ * Whether a basic group member matches a search: q (case-insensitive for
+ * ASCII letters) is part of the first name, the last name, "first last",
+ * or one of the usernames.
+ */
+bool memberMatchesQuery(const std::string &q, const std::string &first_name,
+			const std::string &last_name,
+			const std::vector<std::string> &usernames);
 
 } /* namespace tgloggerd */
 

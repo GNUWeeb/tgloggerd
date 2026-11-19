@@ -17,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <vector>
 
 namespace tgloggerd {
 
@@ -690,12 +691,103 @@ nlohmann::json memberJson(const td_api::chatMember &m)
 }
 
 /*
- * GET /v1/chats/{chat_id}/members: one page of a group's members.
- * Supergroups and channels: getSupergroupMembers, recent filter (channels
- * only where the account is an administrator). Basic groups: the full
- * info's member list, paged here. The users are stored by the daemon's
- * usual user handling: TDLib sends updateUser for every user before an
- * answer mentions it.
+ * The search of GET /v1/chats/{chat_id}/members?q=: the user a q of digits
+ * names first, when that user is a member (on the first page only, so it
+ * is not repeated on every page), then the name and username matches. Each
+ * member says how it matched. total counts the matches when Telegram says.
+ */
+nlohmann::json searchMembers(TDLib &t, const GroupSide &g, int64_t chat_id,
+			     const std::string &q, int64_t offset, int64_t limit)
+{
+	nlohmann::json members = nlohmann::json::array();
+	int64_t id_hit = 0;
+	if (auto uid = memberQueryId(q); uid && *uid > 0 && offset == 0) {
+		try {
+			auto m = call<td_api::chatMember>(
+				t, td_api::make_object<td_api::getChatMember>(
+					   chat_id,
+					   td_api::make_object<td_api::messageSenderUser>(*uid)));
+			nlohmann::json e = memberJson(*m);
+			if (!e.is_null()) {
+				e["matched_by"] = "id";
+				members.push_back(e);
+				id_hit = *uid;
+			}
+		} catch (const TdFailure &f) {
+			/* No such user or not a member: no id match. A rate
+			 * limit or a failure of TDLib is the search's too. */
+			ChatOutcome o = classifyChatError(f.code, f.message);
+			if (o.outcome == "flood_wait" || o.outcome == "unavailable" ||
+			    o.outcome == "timeout")
+				throw;
+		}
+	}
+
+	nlohmann::json total = nullptr;
+	if (g.is_supergroup) {
+		auto cm = call<td_api::chatMembers>(
+			t, td_api::make_object<td_api::getSupergroupMembers>(
+				   g.group_id,
+				   td_api::make_object<td_api::supergroupMembersFilterSearch>(q),
+				   (int32_t)offset, (int32_t)limit));
+		for (const auto &m : cm->members_) {
+			if (!m)
+				continue;
+			nlohmann::json e = memberJson(*m);
+			if (e.is_null() || (id_hit && e["user_id"] == id_hit))
+				continue;
+			e["matched_by"] = "search";
+			members.push_back(e);
+		}
+		total = cm->total_count_;
+	} else {
+		auto fi = call<td_api::basicGroupFullInfo>(
+			t, td_api::make_object<td_api::getBasicGroupFullInfo>(g.group_id));
+		int64_t matched = 0;
+		for (const auto &m : fi->members_) {
+			if (!m)
+				continue;
+			nlohmann::json e = memberJson(*m);
+			if (e.is_null())
+				continue;
+			const int64_t uid = e["user_id"].get<int64_t>();
+			/* Names from TDLib's own copy of the user. */
+			std::vector<std::string> usernames;
+			std::string first, last;
+			try {
+				auto u = call<td_api::user>(
+					t, td_api::make_object<td_api::getUser>(uid));
+				first = u->first_name_;
+				last = u->last_name_;
+				if (u->usernames_)
+					usernames = u->usernames_->active_usernames_;
+			} catch (const TdFailure &) {
+				continue;
+			}
+			if (!memberMatchesQuery(q, first, last, usernames))
+				continue;
+			if (uid == id_hit)
+				continue;
+			if (matched++ < offset || (int64_t)members.size() >= limit + (id_hit ? 1 : 0))
+				continue;
+			e["matched_by"] = "search";
+			members.push_back(e);
+		}
+		total = matched;
+	}
+	if (id_hit && total.is_number())
+		total = total.get<int64_t>() + 1;
+	return { { "available", true }, { "reason", "" }, { "total", total },
+		 { "members", members } };
+}
+
+/*
+ * GET /v1/chats/{chat_id}/members: one page of a group's members, or of
+ * those matching q. Supergroups and channels: getSupergroupMembers, recent
+ * filter, or search filter for q (channels only where the account is an
+ * administrator). Basic groups: the full info's member list, paged (and
+ * matched) here. The users are stored by the daemon's usual user handling:
+ * TDLib sends updateUser for every user before an answer mentions it.
  */
 InternalApi::Response groupMembers(TDLib &t, DB &db, const InternalApi::Request &req)
 {
@@ -704,12 +796,16 @@ InternalApi::Response groupMembers(TDLib &t, DB &db, const InternalApi::Request 
 		std::chrono::steady_clock::time_point	at;
 		nlohmann::json				body;
 	};
-	static std::map<std::tuple<int64_t, int64_t, int64_t>, Cached> cache;
+	static std::map<std::tuple<int64_t, int64_t, int64_t, std::string>, Cached> cache;
 
 	const int64_t chat_id = requireChatId(req);
 	const int64_t offset = queryInt(req, "offset", 0, 0, 1000000);
 	const int64_t limit = queryInt(req, "limit", 50, 1, 200);
-	const auto key = std::make_tuple(chat_id, offset, limit);
+	auto q = parseMemberQuery(queryValue(req.query, "q"));
+	if (!q)
+		throw InternalApi::Error::badRequest(
+			"q must be at most 64 characters of UTF-8");
+	const auto key = std::make_tuple(chat_id, offset, limit, *q);
 	const auto now = std::chrono::steady_clock::now();
 	{
 		std::lock_guard<std::mutex> lk(mtx);
@@ -732,6 +828,8 @@ InternalApi::Response groupMembers(TDLib &t, DB &db, const InternalApi::Request 
 			body = membersUnavailable("not_allowed", row->member_count);
 		} else if (!g.is_member) {
 			body = membersUnavailable("not_member", row->member_count);
+		} else if (!q->empty()) {
+			body = searchMembers(t, g, chat_id, *q, offset, limit);
 		} else if (g.is_supergroup) {
 			auto cm = call<td_api::chatMembers>(
 				t, td_api::make_object<td_api::getSupergroupMembers>(

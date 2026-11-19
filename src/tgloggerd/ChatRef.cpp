@@ -232,4 +232,113 @@ ChatOutcome classifyChatError(int32_t code, const std::string &message)
 	return o;
 }
 
+namespace {
+
+int hexValue(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
+}
+
+/* Code points of a UTF-8 string, or -1 when it is not valid UTF-8. */
+long utf8Length(const std::string &s)
+{
+	long n = 0;
+	for (size_t i = 0; i < s.size(); n++) {
+		const unsigned char c = (unsigned char)s[i];
+		size_t len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2
+			   : (c >> 4) == 0xe ? 3 : (c >> 3) == 0x1e ? 4 : 0;
+		if (len == 0 || i + len > s.size())
+			return -1;
+		for (size_t k = 1; k < len; k++)
+			if (((unsigned char)s[i + k] >> 6) != 0x2)
+				return -1;
+		i += len;
+	}
+	return n;
+}
+
+std::string lowerAscii(std::string s)
+{
+	for (char &ch : s)
+		if (ch >= 'A' && ch <= 'Z')
+			ch = (char)(ch - 'A' + 'a');
+	return s;
+}
+
+} /* namespace */
+
+std::optional<std::string> parseMemberQuery(std::string_view raw)
+{
+	std::string q;
+	for (size_t i = 0; i < raw.size(); i++) {
+		if (raw[i] == '+') {
+			q += ' ';
+		} else if (raw[i] == '%') {
+			/* Two hex digits must follow. */
+			if (i + 2 >= raw.size())
+				return std::nullopt;
+			int hi = hexValue(raw[i + 1]);
+			int lo = hexValue(raw[i + 2]);
+			if (hi < 0 || lo < 0)
+				return std::nullopt;
+			q += (char)(hi * 16 + lo);
+			i += 2;
+		} else {
+			q += raw[i];
+		}
+	}
+	size_t b = q.find_first_not_of(" \t\r\n");
+	size_t e = q.find_last_not_of(" \t\r\n");
+	q = b == std::string::npos ? std::string() : q.substr(b, e - b + 1);
+	if (!q.empty() && q[0] == '@')
+		q.erase(0, 1);
+	const long len = utf8Length(q);
+	if (len < 0 || len > 64)
+		return std::nullopt;
+	return q;
+}
+
+std::optional<int64_t> memberQueryId(const std::string &q)
+{
+	size_t i = (!q.empty() && q[0] == '-') ? 1 : 0;
+	if (i >= q.size() || q.size() - i > 19)
+		return std::nullopt;
+	for (size_t k = i; k < q.size(); k++)
+		if (q[k] < '0' || q[k] > '9')
+			return std::nullopt;
+	try {
+		int64_t id = std::stoll(q);
+		if (id == 0)
+			return std::nullopt;
+		return id;
+	} catch (const std::exception &) {
+		return std::nullopt;
+	}
+}
+
+bool memberMatchesQuery(const std::string &q, const std::string &first_name,
+			const std::string &last_name,
+			const std::vector<std::string> &usernames)
+{
+	const std::string needle = lowerAscii(q);
+	if (needle.empty())
+		return true;
+	auto has = [&needle](const std::string &hay) {
+		return lowerAscii(hay).find(needle) != std::string::npos;
+	};
+	if (has(first_name) || has(last_name) ||
+	    has(first_name + " " + last_name))
+		return true;
+	for (const auto &u : usernames)
+		if (has(u))
+			return true;
+	return false;
+}
+
 } /* namespace tgloggerd */
