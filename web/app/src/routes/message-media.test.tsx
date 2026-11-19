@@ -128,3 +128,17 @@ describe('the message page\'s media', () => {
 		expect(box().querySelector('.c-fetch')!.textContent).toBe('Load from Telegram');
 	});
 });
+
+describe('an album on the message page', () => {
+	it('shows every item of the album, as the chat does', () => {
+		const raw = (groupMessages() as { id: number; album?: unknown[] }[]).find((x) => (x.album?.length ?? 0) > 0);
+		expect(raw, 'a sample message with an album').toBeTruthy();
+		const m = fixture<MessageProps>(`/messages/group/${raw!.id}`).props.message;
+		expect(m.album?.length).toBeGreaterThan(0);
+		fakeApi('superadmin');
+		renderPage(`/messages/group/${m.id}`);
+		const album = document.querySelector('.a-msgmedia .c-albumwrap')!;
+		expect(album.getAttribute('aria-label')).toBe(`album . ${1 + m.album!.length} items`);
+		expect(album.querySelectorAll('.c-album > *').length + album.querySelectorAll(':scope > :not(.c-album)').length).toBe(1 + m.album!.length);
+	});
+});
