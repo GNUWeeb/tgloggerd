@@ -28,10 +28,10 @@ test('a webhook is added for a chat found by search, and a bad URL is refused', 
 	await d.getByRole('button', { name: 'Choose a chat' }).click();
 	await d.locator('.a-picker-search input').fill('rust');
 	await d.locator('.a-picker-pop').getByRole('button', { name: /Rust Programming/ }).click();
-	await d.locator('input[type=password]').fill('https://evil.example/hook');
+	await d.locator('#webhook-url').fill('https://evil.example/hook');
 	await d.getByRole('button', { name: 'Save' }).click();
 	await expect(d.getByRole('alert')).toHaveText('That is not a Discord webhook URL.');
-	await d.locator('input[type=password]').fill('https://discord.com/api/webhooks/1/abc');
+	await d.locator('#webhook-url').fill('https://discord.com/api/webhooks/1/abc');
 	await d.getByRole('button', { name: 'Save' }).click();
 	await expect(page.locator('tbody tr')).toHaveCount(rows + 1);
 });

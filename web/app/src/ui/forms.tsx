@@ -101,7 +101,7 @@ export function ChatPicker({ value, onChange, search, exclude = NO_IDS, placehol
 			</button>
 			{open && (
 				<div className="a-picker-pop">
-					<div className="a-picker-search"><Search size={14} /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} /></div>
+					<div className="a-picker-search"><Search size={14} /><input autoFocus name="chat-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} {...NO_FILL} /></div>
 					<ul aria-busy={r.loading}>
 						{list.map((o) => (
 							<li key={o.kind + o.id}>
