@@ -5,6 +5,7 @@
 #include <tgloggerd/TDLib.hpp>
 #include <tgloggerd/MessageExtract.hpp>
 #include <tgloggerd/EmojiExtract.hpp>
+#include <tgloggerd/CommunityExtract.hpp>
 
 #include <td/telegram/Client.h>
 #include <td/telegram/td_api.h>
@@ -845,6 +846,10 @@ struct TDLib::Impl {
 	std::function<void(const models::GroupMessage &)> group_msg_handler_;
 	std::function<void(const models::LinkPreview &, bool)> link_preview_handler_;
 	std::function<void(const models::Poll &)>	poll_handler_;
+	std::function<void(const models::Community &)>	community_handler_;
+	std::function<void(const models::CommunityFullInfo &)>
+							community_full_info_handler_;
+	std::function<void(int64_t)>			community_named_handler_;
 	std::function<void(int64_t, std::optional<int64_t>, std::optional<bool>)>
 		group_member_info_handler_;
 	/* What was last passed on per chat, so repeats are not. Loop only. */
@@ -1063,6 +1068,24 @@ struct TDLib::Impl {
 	double						refetch_cooldown_ = 300.0;
 
 	/*
+	 * Communities (message-types.md section 4.13). communities_ is the
+	 * last updateCommunity of each, community_checked_ the ones already
+	 * handed to community_named_handler_ this run, and
+	 * community_full_done_ / community_full_failed_ (time of failure)
+	 * the outcome of their full info: loop thread only. The fetch queue
+	 * is filled from the serial worker (fetchCommunityFullInfo) under
+	 * refetch_mtx_ and drained at kCommunityFullInfoPerSecond.
+	 */
+	std::unordered_map<int64_t, models::Community>	communities_;
+	std::unordered_set<int64_t>			community_checked_;
+	std::unordered_set<int64_t>			community_full_done_;
+	std::unordered_map<int64_t, time_t>		community_full_failed_;
+	std::deque<int64_t>				community_fetch_pending_;
+	std::unordered_set<int64_t>			community_fetch_queued_;
+	time_t						community_tick_ = 0;
+	int						community_in_tick_ = 0;
+
+	/*
 	 * Media relink queue (see relinkMessageMedia), under refetch_mtx_.
 	 * relink_tick_/relink_sent_ are loop-thread-only pacing state.
 	 */
@@ -1124,6 +1147,11 @@ struct TDLib::Impl {
 	void maybe_download_message_file(const td_api::message &message,
 					 bool is_group);
 	void maybe_store_poll(const td_api::message &message);
+	void note_community_named(int64_t community_id);
+	void enqueue_community_full_info(int64_t community_id);
+	void drain_community_full_info(void);
+	void emit_community_full_info(int64_t community_id,
+				      const td_api::communityFullInfo &fi);
 	void note_interaction(int64_t chat_id, int64_t td_message_id,
 			      const models::Interaction &ia, bool reactions_only);
 	void drain_interaction(void);
@@ -1415,6 +1443,9 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 				if (fi.personal_chat_id != 0)
 					ensure_chat_saved(fi.personal_chat_id);
 				user_full_info_handler_(fi);
+				/* A bot's community, if it was added to one. */
+				note_community_named(
+					u.user_full_info_->community_id_);
 			},
 			[this](td_api::updateFile &u) {
 				if (u.file_)
@@ -1510,6 +1541,21 @@ void TDLib::Impl::process_update(td_api::object_ptr<td_api::Object> update)
 					-1000000000000LL - u.supergroup_id_,
 					u.supergroup_full_info_->member_count_,
 					u.supergroup_full_info_->can_get_members_);
+				note_community_named(
+					u.supergroup_full_info_->community_id_);
+			},
+			[this](td_api::updateCommunity &u) {
+				if (!u.community_)
+					return;
+				models::Community c = community_of(*u.community_);
+				if (community_handler_)
+					community_handler_(c);
+				communities_[c.id] = std::move(c);
+			},
+			[this](td_api::updateCommunityFullInfo &u) {
+				if (u.community_full_info_)
+					emit_community_full_info(u.community_id_,
+						*u.community_full_info_);
 			},
 			[this](td_api::updateBasicGroup &u) {
 				if (!u.basic_group_)
@@ -1976,6 +2022,7 @@ void TDLib::Impl::handle_message_for_private_chat(td_api::message &message,
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, false);
 	maybe_store_poll(message);
+	note_community_named(message_community_id(message.content_.get()));
 	/* ...and record its link preview, whose row keys off that same row. */
 	if (message.content_)
 		maybe_store_link_preview(message.chat_id_, message.id_,
@@ -1999,6 +2046,7 @@ void TDLib::Impl::handle_message_for_group_chat(td_api::message &message,
 	/* Row now exists; download and link any media attachment. */
 	maybe_download_message_file(message, true);
 	maybe_store_poll(message);
+	note_community_named(message_community_id(message.content_.get()));
 	if (forum_topic_handler_)
 		if (auto t = forum_topic_from_created(message))
 			forum_topic_handler_(*t, true);
@@ -2696,6 +2744,107 @@ void TDLib::Impl::maybe_store_poll(const td_api::message &message)
 		poll_handler_(extract_poll(m));
 }
 
+/*
+ * A logged message or a chat's full info names community @community_id
+ * (0: none). Make sure its row is stored, re-emitting the last
+ * updateCommunity, and hand it to the receiver once per run, which asks
+ * for its full info when the stored row has no chats yet. An
+ * inaccessible community is skipped: TDLib takes its id in no method.
+ */
+void TDLib::Impl::note_community_named(int64_t community_id)
+{
+	if (community_id == 0 || !community_named_handler_)
+		return;
+	if (!community_checked_.insert(community_id).second)
+		return;
+	auto it = communities_.find(community_id);
+	if (it != communities_.end()) {
+		if (community_handler_)
+			community_handler_(it->second);
+		if (!it->second.have_access)
+			return;
+	}
+	community_named_handler_(community_id);
+}
+
+/* Thread-safe: called from the serial DB worker. */
+void TDLib::Impl::enqueue_community_full_info(int64_t community_id)
+{
+	if (community_id == 0)
+		return;
+	std::lock_guard<std::mutex> lk(refetch_mtx_);
+	if (community_fetch_queued_.insert(community_id).second)
+		community_fetch_pending_.push_back(community_id);
+}
+
+/*
+ * At most this many getCommunityFullInfo calls per second. A backfill can
+ * name many communities at once; each is asked for once per run when it
+ * succeeds, and not again within kCommunityRetrySecs after it failed.
+ */
+constexpr int kCommunityFullInfoPerSecond = 2;
+constexpr time_t kCommunityRetrySecs = 3600;
+
+void TDLib::Impl::drain_community_full_info(void)
+{
+	time_t now = std::time(nullptr);
+	if (now != community_tick_) {
+		community_tick_ = now;
+		community_in_tick_ = 0;
+	}
+	while (community_in_tick_ < kCommunityFullInfoPerSecond) {
+		int64_t id;
+		{
+			std::lock_guard<std::mutex> lk(refetch_mtx_);
+			if (community_fetch_pending_.empty())
+				return;
+			id = community_fetch_pending_.front();
+			community_fetch_pending_.pop_front();
+			community_fetch_queued_.erase(id);
+		}
+		if (community_full_done_.count(id))
+			continue;
+		auto f = community_full_failed_.find(id);
+		if (f != community_full_failed_.end() &&
+		    now - f->second < kCommunityRetrySecs)
+			continue;
+		community_in_tick_++;
+		send_query(td_api::make_object<td_api::getCommunityFullInfo>(id),
+			[this, id](Object obj) {
+				if (obj->get_id() ==
+				    td_api::communityFullInfo::ID) {
+					emit_community_full_info(id,
+						static_cast<const td_api::communityFullInfo &>(
+							*obj));
+					return;
+				}
+				std::string why = "unexpected answer";
+				if (obj->get_id() == td_api::error::ID) {
+					auto &e = static_cast<const td_api::error &>(
+						*obj);
+					why = std::to_string(e.code_) + " " +
+					      e.message_;
+				}
+				pr_info(l_, "community %lld: no full info (%s);"
+					" not asked again for an hour",
+					(long long)id, why.c_str());
+				community_full_failed_[id] = std::time(nullptr);
+				/* A line naming it after the hour asks again. */
+				community_checked_.erase(id);
+			});
+	}
+}
+
+void TDLib::Impl::emit_community_full_info(int64_t community_id,
+					   const td_api::communityFullInfo &fi)
+{
+	community_full_done_.insert(community_id);
+	community_full_failed_.erase(community_id);
+	if (community_full_info_handler_)
+		community_full_info_handler_(
+			community_full_info_of(community_id, fi));
+}
+
 void TDLib::Impl::maybe_download_message_file(const td_api::message &message,
 					      bool is_group)
 {
@@ -2939,6 +3088,7 @@ void TDLib::Impl::drain_relink(void)
 void TDLib::Impl::drain_refetch(void)
 {
 	drain_relink();
+	drain_community_full_info();
 
 	std::unordered_set<int64_t> users, groups;
 	{
@@ -4347,6 +4497,21 @@ void TDLib::refetchUser(int64_t user_id)
 void TDLib::refetchGroup(int64_t group_id)
 {
 	impl_->enqueue_refetch_group(group_id);
+}
+
+void TDLib::setCommunityHandlers(
+	std::function<void(const models::Community &)> community,
+	std::function<void(const models::CommunityFullInfo &)> full_info,
+	std::function<void(int64_t)> named)
+{
+	impl_->community_handler_ = std::move(community);
+	impl_->community_full_info_handler_ = std::move(full_info);
+	impl_->community_named_handler_ = std::move(named);
+}
+
+void TDLib::fetchCommunityFullInfo(int64_t community_id)
+{
+	impl_->enqueue_community_full_info(community_id);
 }
 
 void TDLib::repairMessages(std::vector<std::pair<int64_t, int64_t>> msgs)

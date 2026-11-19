@@ -636,6 +636,50 @@ int TgLoggerd::start(void)
 				}
 			});
 		});
+	/*
+	 * Communities (message-types.md section 4.13): rows and chat lists
+	 * on serial_, like the users and groups. A community a logged line
+	 * names gets its full info asked for when its row has no chats yet.
+	 */
+	tdlib_->setCommunityHandlers(
+		[this](const models::Community &c) {
+			serial_->post([this, c] {
+				try {
+					onCommunity(c);
+				} catch (const std::exception &e) {
+					pr_error(l_, "Failed to store community"
+						 " %lld: %s", (long long)c.id,
+						 e.what());
+				}
+			});
+		},
+		[this](const models::CommunityFullInfo &fi) {
+			serial_->post([this, fi] {
+				try {
+					onCommunityFullInfo(fi);
+				} catch (const std::exception &e) {
+					pr_error(l_, "Failed to store community"
+						 " full info %lld: %s",
+						 (long long)fi.community_id,
+						 e.what());
+				}
+			});
+		},
+		[this](int64_t community_id) {
+			serial_->post([this, community_id] {
+				try {
+					if (db_->communityNeedsFullInfo(
+						    community_id))
+						tdlib_->fetchCommunityFullInfo(
+							community_id);
+				} catch (const std::exception &e) {
+					pr_error(l_, "Failed to look up community"
+						 " %lld: %s",
+						 (long long)community_id,
+						 e.what());
+				}
+			});
+		});
 	tdlib_->setPollHandler([this](const models::Poll &p) {
 		/* Serialised with the message writes, like everything that
 		 * belongs to a message. */
@@ -1209,6 +1253,37 @@ void TgLoggerd::onFileMeta(const FileMeta &m)
 	lk.role = m.role;
 	lk.position = m.position;
 	onMessageFileLink(lk);
+}
+
+/*
+ * A community photo's telegram_files row, recorded without its bytes
+ * like a chat photo from a chat the account is not in; 0 for none.
+ */
+uint64_t TgLoggerd::recordCommunityPhoto(const std::optional<models::File> &f)
+{
+	if (!f)
+		return 0;
+	models::KnownFile k = db_->upsertFileMeta(*f);
+	known_files_.put(f->tg_file_id, f->tg_unique_id, k);
+	return k.id;
+}
+
+void TgLoggerd::onCommunity(const models::Community &c)
+{
+	uint64_t photo = recordCommunityPhoto(c.photo);
+	db_->upsertCommunity(c, photo);
+	pr_debug(l_, "Stored community | id=%lld name=\"%s\" photo=%llu%s",
+		 (long long)c.id, c.name.c_str(), (unsigned long long)photo,
+		 c.have_access ? "" : " (no access)");
+}
+
+void TgLoggerd::onCommunityFullInfo(const models::CommunityFullInfo &fi)
+{
+	uint64_t photo = recordCommunityPhoto(fi.photo);
+	db_->putCommunityFullInfo(fi, photo);
+	pr_info(l_, "Stored community full info | id=%lld chats=%zu"
+		" photo=%llu", (long long)fi.community_id, fi.chats.size(),
+		(unsigned long long)photo);
 }
 
 std::optional<uint64_t>

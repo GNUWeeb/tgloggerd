@@ -23,6 +23,7 @@
 #include <tgloggerd/models/LinkPreview.hpp>
 #include <tgloggerd/models/GroupAdmin.hpp>
 #include <tgloggerd/models/Backfill.hpp>
+#include <tgloggerd/models/Community.hpp>
 
 #include "helpers/log.h"
 
@@ -647,6 +648,28 @@ public:
 	 */
 	void refetchUser(int64_t user_id);
 	void refetchGroup(int64_t group_id);
+
+	/*
+	 * Set the callbacks for communities (message-types.md section
+	 * 4.13): @community for every updateCommunity, @full_info for every
+	 * community full info (updateCommunityFullInfo, or one asked for
+	 * with fetchCommunityFullInfo), and @named, once per run, for each
+	 * accessible community a logged message or a chat's full info
+	 * names; @community is called again for it first, so its row is
+	 * stored before @named runs. All run on the loop thread.
+	 */
+	void setCommunityHandlers(
+		std::function<void(const models::Community &)> community,
+		std::function<void(const models::CommunityFullInfo &)> full_info,
+		std::function<void(int64_t)> named);
+
+	/*
+	 * Queue a getCommunityFullInfo of @community_id. Thread-safe; drained
+	 * on the loop thread at a fixed pace. A community whose full info
+	 * arrived this run is not asked again, and one whose call failed
+	 * not within the hour after.
+	 */
+	void fetchCommunityFullInfo(int64_t community_id);
 
 	/*
 	 * Queue (chat_id, server message id) pairs whose media should be
