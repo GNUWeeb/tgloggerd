@@ -121,7 +121,6 @@ Storing every kind of Telegram message faithfully:
 - [`msg-message-page-parity`](todo/msg-message-page-parity.md): Show a message's link preview and its forum topic's name on the message page.
 - [`msg-kind-snippets`](todo/msg-kind-snippets.md): Summarise a textless message by its detail in reply quotes and list snippets instead of "[poll]".
 - [`msg-list-filters`](todo/msg-list-filters.md): Filter the message and file lists by kind as expected: private service rows, real media, typed service types.
-- [`msg-paid-media-viewer`](todo/msg-paid-media-viewer.md): Open a paid media message's photos in the viewer and play its videos.
 - [`msg-edit-detail`](todo/msg-edit-detail.md): Show the detail of a message's earlier versions, such as a live location's earlier positions.
 - [`msg-contact-vcard`](todo/msg-contact-vcard.md): Show the numbers, addresses and organisation in a shared contact's vCard (optional).
 - [`msg-files-roles`](todo/msg-files-roles.md): Show and filter by the role a file plays in its message on /files (optional).
