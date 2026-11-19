@@ -116,7 +116,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 						{r.resolved === false ? <span className="c-sub">not in the archive</span> : <span className={r.deleted ? 'c-replydel' : ''}>{r.snippet}{r.deleted ? ' (deleted)' : ''}</span>}
 					</a>)}
 				<MessageMedia msg={m} onClick={pref.mediaOnClick} />
-				{m.detail && <KindDetail d={m.detail} text={m.text} entities={m.entities} chat={chat} v={v} />}
+				{m.detail && <KindDetail d={m.detail} text={m.text} entities={m.entities} chat={chat} v={v} tdlib={m.tdlib_type} />}
 				{m.content_type === 'unknown' && <div className="c-unknown c-sub">{m.tdlib_type ? `A kind of message this view does not show yet (${m.tdlib_type})` : 'A kind of message this view does not show'}</div>}
 				{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) && <div className="c-text"><RichText text={m.text} entities={m.entities} chat={chat} /></div>}
 				{m.link_preview && <LinkPreview lp={m.link_preview} />}

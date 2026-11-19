@@ -84,6 +84,13 @@ const PLACEHOLDER: Record<'rich' | 'widget' | 'expired' | 'unsupported', [string
 	expired: ['Self-destructing media that has expired', TimerOff],
 	unsupported: ['A message Telegram itself could not read', CircleHelp],
 };
+// An expired message's TDLib class says what it was.
+const EXPIRED: Readonly<Record<string, string>> = {
+	messageExpiredPhoto: 'Expired photo',
+	messageExpiredVideo: 'Expired video',
+	messageExpiredVideoNote: 'Expired video message',
+	messageExpiredVoiceNote: 'Expired voice message',
+};
 
 // The kinds whose message text belongs inside the card (a checklist's
 // title, a game's text): the bubble leaves the text to the card.
@@ -91,8 +98,8 @@ export const TEXT_INSIDE: ReadonlySet<string> = new Set(['checklist']);
 
 // The texts inside a card (a poll's question and explanation, a
 // checklist's title and tasks) are drawn with their entities; a
-// hashtag in them searches `chat`.
-export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: string; entities?: TextEntity[]; chat?: RichChat; v: Viewer }) {
+// hashtag in them searches `chat`. tdlib is the message's TDLib class.
+export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; text: string; entities?: TextEntity[]; chat?: RichChat; v: Viewer; tdlib?: string | null }) {
 	switch (d.kind) {
 		case 'location':
 			return (
@@ -221,7 +228,8 @@ export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 				</div>
 			);
 		default: {
-			const [label, I] = PLACEHOLDER[d.kind];
+			const [generic, I] = PLACEHOLDER[d.kind];
+			const label = d.kind === 'expired' && tdlib && Object.hasOwn(EXPIRED, tdlib) ? EXPIRED[tdlib]! : generic;
 			return <div className="c-unknown c-sub k-placeholder"><I size={14} />{label}</div>;
 		}
 	}

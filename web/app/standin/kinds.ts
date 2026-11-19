@@ -116,6 +116,10 @@ function samples(): Sample[] {
 		+ 'A long quote that Telegram folds: line one of it,\nline two of it,\nline three of it,\nline four of it.';
 	const editedText = 'The meetup is on Friday at the usual place.';
 	return [
+		// Samples added later go first: each sample takes the message at
+		// its place from the end, so the ones after them keep theirs (and
+		// their file ids).
+		{ content_type: 'expired', detail: () => ({ kind: 'expired' }), tdlib_type: 'messageExpiredVideoNote' },
 		{ content_type: 'text', text: formatted, entities: (v) => entitiesIn(formatted, [
 			['https://example.org/notes', 'url'], ['the changelog', 'text_url', { url: 'https://example.org/changelog' }],
 			[`@${handleOf(ha)}`, 'mention', v.user(ha) ? { user_id: ha } : {}], [`@${handleOf(hx)}`, 'mention', v.user(hx) ? { user_id: hx } : {}], ['@nobody_here_x', 'mention'],
