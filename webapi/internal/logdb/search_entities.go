@@ -305,7 +305,7 @@ var Groups = &Entity{
 	Name: "groups",
 	from: "`telegram_groups` g",
 	sel: "g.id, g.title, g.description, g.type, g.photo_file_id, " +
-		"g.created_at, g.updated_at, g.msg_count, " +
+		"g.created_at, g.updated_at, g.msg_count, g.member_count, g.member_count_at, " +
 		"(SELECT gu.username FROM telegram_group_usernames gu " +
 		"WHERE gu.group_id = g.id AND gu.kind='active' " +
 		"ORDER BY gu.position LIMIT 1) AS username, " +
@@ -323,6 +323,9 @@ var Groups = &Entity{
 		col("description", "g.description", Text, "Description", textOps, false),
 		enum(col("type", "g.type", Enum, "Type", enumOps, true), "basic_group,supergroup,channel"),
 		col("msg_count", "g.msg_count", Int, "Messages", intOps, true),
+		// Telegram's count as the daemon last stored it; NULL (no
+		// match for any operator) where it has not yet.
+		col("member_count", "g.member_count", Int, "Members", intOps, true),
 		col("has_photo", "g.photo_file_id", Bool, "Has photo", nullOps, false),
 		col("created_at", "g.created_at", Datetime, "Created", dtOps, true),
 		col("updated_at", "g.updated_at", Datetime, "Updated", dtOps, true),

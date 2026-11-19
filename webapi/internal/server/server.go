@@ -159,6 +159,9 @@ type Server struct {
 	engine SearchEngine
 	// bots is Deps.Bots.
 	bots *BotResolver
+	// members refreshes the member counts the pages show and caches
+	// the first pages of member lists (groupmembers.go).
+	members memberState
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -339,6 +342,8 @@ func (s *Server) routes() []route {
 		{"GET /api/users/{id}/photos", s.RequireSession(s.getUserPhotos)},
 		{"GET /api/groups/{id}/history", s.RequireSession(s.getGroupHistory)},
 		{"GET /api/groups/{id}/photos", s.RequireSession(s.getGroupPhotos)},
+		{"PATCH /api/groups/{id}", s.RequireSession(s.updateGroup)},
+		{"GET /api/groups/{id}/members", s.getGroupMembers},
 	}
 }
 

@@ -16,7 +16,8 @@
 // name (root:test@tcp(mysql:3306)/; docker-compose.test.yml starts
 // one). Without it, New skips the test.
 //
-// Each schema's .up.sql files are applied in order, once, into a
+// Each schema's .up.sql files, then its pending changes (pending/), are
+// applied in order, once, into a
 // template database named after a hash of their contents
 // (test_tpl_<schema>_<hash>), built under a MySQL named lock so test
 // processes running at once build it once between them. A test's
@@ -34,6 +35,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	mrand "math/rand/v2"
 	"os"
 	"path/filepath"
@@ -75,6 +77,14 @@ type DB struct {
 
 //go:embed fixtures
 var fixtures embed.FS
+
+// pending holds schema changes whose migration another part of the
+// project is still writing, pending/<schema>/*.sql, applied after the
+// migrations. Each must do nothing when its migration has already made
+// the change, so the file can stay until someone removes it.
+//
+//go:embed pending
+var pending embed.FS
 
 // readyTable marks a template whose migrations all applied. It is not
 // copied into the tests' databases.
@@ -324,6 +334,17 @@ func readMigrations(s Schema) ([]migration, string, error) {
 		fmt.Fprintf(h, "%s\x00%d\x00", n, len(b))
 		h.Write(b)
 		out = append(out, migration{name: n, sql: string(b)})
+	}
+	extra, _ := fs.Glob(pending, "pending/"+s.name+"/*.sql")
+	sort.Strings(extra)
+	for _, p := range extra {
+		b, err := pending.ReadFile(p)
+		if err != nil {
+			return nil, "", err
+		}
+		fmt.Fprintf(h, "%s\x00%d\x00", p, len(b))
+		h.Write(b)
+		out = append(out, migration{name: p, sql: string(b)})
 	}
 	return out, hex.EncodeToString(h.Sum(nil))[:16], nil
 }

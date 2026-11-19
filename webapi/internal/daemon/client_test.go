@@ -237,3 +237,97 @@ func TestStatusAndStorage(t *testing.T) {
 		t.Error("an unreachable daemon has a status")
 	}
 }
+
+// The group member calls: their paths and query, the answers read, and
+// failing soft.
+func TestRefreshAndMembers(t *testing.T) {
+	var mu sync.Mutex
+	var asked []string
+	answers := map[string]struct {
+		status int
+		body   string
+	}{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		asked = append(asked, r.Method+" "+r.URL.RequestURI())
+		a, ok := answers[r.URL.Path]
+		mu.Unlock()
+		if want, _ := Bearer(testKey); r.Header.Get("Authorization") != want {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(a.status)
+		io.WriteString(w, a.body)
+	}))
+	defer srv.Close()
+	set := func(path string, status int, body string) {
+		mu.Lock()
+		defer mu.Unlock()
+		answers[path] = struct {
+			status int
+			body   string
+		}{status, body}
+	}
+	c, err := New(srv.URL, testKey, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	set("/v1/chats/-1001/refresh", 200, `{"member_count":1234,"can_get_members":true,`+
+		`"is_channel":false,"account_is_admin":true,"fetched_at":1763540000}`)
+	if ref, _, ok := c.RefreshChat(ctx, -1001); !ok || ref.MemberCount == nil ||
+		*ref.MemberCount != 1234 || !ref.CanGetMembers || !ref.AccountIsAdmin ||
+		ref.FetchedAt == nil || *ref.FetchedAt != 1763540000 || ref.Error != "" {
+		t.Errorf("refresh = %+v %v", ref, ok)
+	}
+	set("/v1/chats/-1001/refresh", 200, `{"member_count":null,"can_get_members":false,`+
+		`"is_channel":true,"account_is_admin":false,"fetched_at":null,"error":"CHANNEL_PRIVATE"}`)
+	if ref, _, ok := c.RefreshChat(ctx, -1001); !ok || ref.MemberCount != nil ||
+		ref.FetchedAt != nil || ref.Error != "CHANNEL_PRIVATE" || !ref.IsChannel {
+		t.Errorf("refresh with an error = %+v %v", ref, ok)
+	}
+	set("/v1/chats/-1001/refresh", 504, `{"error":"timeout"}`)
+	if _, r, ok := c.RefreshChat(ctx, -1001); ok || r.Status != 504 {
+		t.Errorf("refresh 504 = %+v %v", r, ok)
+	}
+
+	set("/v1/chats/-1001/members", 200, `{"available":true,"reason":"","total":3,`+
+		`"members":[{"user_id":7,"status":"creator","joined_at":null},`+
+		`{"user_id":8,"status":"member","joined_at":1700000000}]}`)
+	m, _, ok := c.ChatMembers(ctx, -1001, 50, 2)
+	if !ok || !m.Available || m.Total == nil || *m.Total != 3 || len(m.Members) != 2 ||
+		m.Members[0] != (Member{UserID: 7, Status: "creator"}) || m.Members[1].JoinedAt == nil ||
+		*m.Members[1].JoinedAt != 1700000000 {
+		t.Errorf("members = %+v %v", m, ok)
+	}
+	set("/v1/chats/-1001/members", 200, `{"available":false,"reason":"flood_wait",`+
+		`"retry_after":30,"total":null,"members":[]}`)
+	if m, _, ok = c.ChatMembers(ctx, -1001, 0, 50); !ok || m.Available || m.Reason != "flood_wait" ||
+		m.RetryAfter != 30 || m.Total != nil || len(m.Members) != 0 {
+		t.Errorf("flood wait = %+v %v", m, ok)
+	}
+	if _, r, ok := c.ChatMembers(ctx, -1002, 0, 50); ok || r.Status != 404 {
+		t.Errorf("unknown chat = %+v %v", r, ok)
+	}
+	mu.Lock()
+	want := []string{"POST /v1/chats/-1001/refresh", "POST /v1/chats/-1001/refresh",
+		"POST /v1/chats/-1001/refresh", "GET /v1/chats/-1001/members?offset=50&limit=2",
+		"GET /v1/chats/-1001/members?offset=0&limit=50", "GET /v1/chats/-1002/members?offset=0&limit=50"}
+	if strings.Join(asked, "\n") != strings.Join(want, "\n") {
+		t.Errorf("asked\n%s", strings.Join(asked, "\n"))
+	}
+	mu.Unlock()
+
+	var off *Client
+	if _, _, ok := off.RefreshChat(ctx, -1001); ok {
+		t.Error("refresh with the client off")
+	}
+	if _, _, ok := off.ChatMembers(ctx, -1001, 0, 50); ok {
+		t.Error("members with the client off")
+	}
+}

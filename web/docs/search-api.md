@@ -202,6 +202,7 @@ Datetime values accept MySQL-parseable strings (`2024-03-17`,
 | `description` | Description | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
 | `type` | Type | enum | C | `= !=` — values `basic_group,supergroup,channel` |
 | `msg_count` | Messages | int | C | `= != < > <= >=` |
+| `member_count` | Members | int | C | `= != < > <= >=` |
 | `has_photo` | Has photo | bool | C | `IS NULL IS NOT NULL` |
 | `username` | Username (current) | text | E | `= LIKE %LIKE%` (+`!=`/`NOT LIKE`/`NOT %LIKE%` = never) |
 | `created_at` | Created | datetime | C | `= != < > <= >=` |
@@ -211,7 +212,10 @@ Datetime values accept MySQL-parseable strings (`2024-03-17`,
 | `hist_username` | Username (ever) | text | E | `= LIKE %LIKE%` (+never) |
 
 Group ids are negative Telegram chat ids. Sortable keys: `id, title, type,
-created_at, updated_at, msg_count`.
+created_at, updated_at, msg_count, member_count`. `member_count` is
+Telegram's member count as the daemon last stored it; a group without
+one yet matches no comparison. It is a filter and a sort, not a column
+of the answer (the groups list page's rows carry it).
 
 ## Files field registry
 

@@ -124,7 +124,7 @@ func TestListRegistryConditions(t *testing.T) {
 func TestListEveryFieldAndOperator(t *testing.T) {
 	t.Parallel()
 	e := newListSearchEnv(t, searchOpts{})
-	want := map[string]int{"users": 32, "groups": 12, "group_messages": 8, "private_messages": 12}
+	want := map[string]int{"users": 32, "groups": 13, "group_messages": 8, "private_messages": 12}
 	for path, nfields := range want {
 		p := e.props("superadmin", path)
 		fields, _ := p["fields"].([]any)
@@ -226,7 +226,7 @@ func TestListScopeFields(t *testing.T) {
 	}
 	// The member's other lists: groups (none granted yet) with the
 	// groups' fields; private messages are not its page.
-	if p := e.props("member", "groups"); len(p["fields"].([]any)) != 12 || num(p["total"]) != 0 {
+	if p := e.props("member", "groups"); len(p["fields"].([]any)) != 13 || num(p["total"]) != 0 {
 		t.Errorf("member groups: %v", p["total"])
 	}
 	if st, _ := e.page("member", "private_messages"); st != 404 {

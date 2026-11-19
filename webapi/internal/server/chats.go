@@ -131,13 +131,21 @@ type groupSummaryJSON struct {
 	Photo    *string `json:"photo"`
 	MsgCount *uint64 `json:"msg_count,omitempty"`
 	Exposed  *bool   `json:"exposed,omitempty"`
+	// Telegram's member count as the daemon last stored it, and when;
+	// null before it has. Every viewer of the group sees it: it is
+	// what Telegram shows anyone who opens the group.
+	MemberCount   *uint64 `json:"member_count"`
+	MemberCountAt *string `json:"member_count_at"`
 }
 
 // group is a group's summary; its count and exposure only for a
 // full-access viewer.
 func (v view) group(g logdb.Group) groupSummaryJSON {
 	j := groupSummaryJSON{ID: g.ID, Title: g.Title, Username: g.Username, Type: g.Type,
-		Photo: v.photo(g.Photo)}
+		Photo: v.photo(g.Photo), MemberCount: g.MemberCount}
+	if g.MemberCount != nil {
+		j.MemberCountAt = isoPtr(g.MemberCountAt)
+	}
 	if v.full() {
 		n, e := g.MsgCount, g.Exposed
 		j.MsgCount, j.Exposed = &n, &e

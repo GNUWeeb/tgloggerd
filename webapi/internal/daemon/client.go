@@ -396,3 +396,69 @@ func (c *Client) resolveUser(ctx context.Context, username string, timeout time.
 	}
 	return res, true, r
 }
+
+// chatTimeout bounds the group member calls: the daemon waits up to
+// 15 s on Telegram for each.
+const chatTimeout = 20 * time.Second
+
+// Refresh is POST /v1/chats/{id}/refresh's answer: the daemon asked
+// Telegram for the group's full info (at most once a minute per chat)
+// and stored its member count in telegram_groups, or answered from the
+// stored row, with Error set when Telegram failed.
+type Refresh struct {
+	MemberCount    *int64 `json:"member_count"`
+	CanGetMembers  bool   `json:"can_get_members"`
+	IsChannel      bool   `json:"is_channel"`
+	AccountIsAdmin bool   `json:"account_is_admin"`
+	FetchedAt      *int64 `json:"fetched_at"`
+	Error          string `json:"error"`
+}
+
+// RefreshChat asks the daemon to refresh a group's stored member
+// count. ok is false when the client is off or the daemon did not
+// answer a refresh (r says why).
+func (c *Client) RefreshChat(ctx context.Context, chatID int64) (ref Refresh, r Reply, ok bool) {
+	r = c.Call(ctx, http.MethodPost, "/v1/chats/"+strconv.FormatInt(chatID, 10)+"/refresh",
+		nil, chatTimeout)
+	if !r.OK() || r.Body == nil || json.Unmarshal(r.Body, &ref) != nil {
+		return Refresh{}, r, false
+	}
+	return ref, r, true
+}
+
+// Member is one member of a group as GET /v1/chats/{id}/members
+// lists it: a user, its status (creator, administrator, member or
+// restricted) and when it joined (Unix time), if Telegram says.
+type Member struct {
+	UserID   int64  `json:"user_id"`
+	Status   string `json:"status"`
+	JoinedAt *int64 `json:"joined_at"`
+}
+
+// Members is one page of a group's members. When Available is false,
+// Reason says why (not_allowed, not_member, flood_wait with
+// RetryAfter, error with Message, or a reason added later) and
+// Members is empty.
+type Members struct {
+	Available  bool     `json:"available"`
+	Reason     string   `json:"reason"`
+	Message    string   `json:"message"`
+	RetryAfter int64    `json:"retry_after"`
+	Total      *int64   `json:"total"`
+	Members    []Member `json:"members"`
+}
+
+// ChatMembers is GET /v1/chats/{id}/members?offset=&limit= (limit 1 to
+// 200, offset 0 to 1000000). ok is false when the client is off or the
+// daemon did not answer a page (r says why).
+func (c *Client) ChatMembers(ctx context.Context, chatID int64, offset, limit int) (m Members, r Reply, ok bool) {
+	r = c.Call(ctx, http.MethodGet, "/v1/chats/"+strconv.FormatInt(chatID, 10)+
+		"/members?offset="+strconv.Itoa(offset)+"&limit="+strconv.Itoa(limit), nil, chatTimeout)
+	if !r.OK() || r.Body == nil || json.Unmarshal(r.Body, &m) != nil {
+		return Members{}, r, false
+	}
+	if !m.Available {
+		m.Members = nil
+	}
+	return m, r, true
+}

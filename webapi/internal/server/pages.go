@@ -105,6 +105,8 @@ func defaultPages() []pageRoute {
 		{id: "group", pattern: "/groups/{id}", public: true, load: loadGroupPage},
 		{id: "group_admins", pattern: "/groups/{id}/admins", load: loadGroup},
 		{id: "group_history", pattern: "/groups/{id}/history", load: loadGroup},
+		// The member list: for viewers who see users in full.
+		{id: "group_members", pattern: "/groups/{id}/members", load: loadGroupMembers},
 		// The chats of groups exposed through MCP are public; the
 		// loader decides which group is exposed.
 		{id: "group_chat", pattern: "/groups/{id}/chat", public: true, load: loadGroupChat},

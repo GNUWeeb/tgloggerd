@@ -540,9 +540,34 @@ the chat window. web/docs/message-kinds.md describes it.
 The chat page's query also takes Drogon's links: ?after=, ?after_ts=
 and ?limit=, and ?date= as a day or a day and time in the viewer's
 timezone. Its header counts the members the archive has seen
-(senders and admins), since the logger does not record Telegram's
-count. /messages/{group|private}?chat_id= redirects to the message
-list filtered by that chat.
+(senders and admins), and gives Telegram's own count (member_count,
+member_count_at) as the daemon last stored it in telegram_groups;
+every group summary, the group pages and the groups list carry it too
+(null before the daemon has one). A chat page or group page (its tabs and
+an exposed group's public page too) whose count is missing or older
+than 10 minutes asks the daemon to refresh it (POST
+/v1/chats/{id}/refresh) in the background: never in the page's path,
+at most one call in flight per group, and a group asked about is left
+alone for a minute after. The daemon stores the new count, which the
+next page load shows; a failed refresh keeps the stored count.
+
+A superadmin can hide a channel's member list (PATCH /api/groups/{id}
+{"hide_member_list": true}; web migration 000013,
+web_hidden_member_lists): the list is then for superadmins only, and
+everyone else who sees the channel gets its count and reason hidden.
+Channels only, since a group's members see each other in Telegram;
+audited as member_list_hide and member_list_show. GroupProps carries
+hide_member_list and can_hide_member_list (a superadmin, on a
+channel).
+
+GET /api/groups/{id}/members?offset=&limit= lists a page of the
+group's members through the daemon (GET /v1/chats/{id}/members), for
+viewers who see the group and users in full; everyone else gets 404
+and the count only. Members are named from telegram_users in one query
+per page; the first page is kept for 2 minutes per group and limit.
+The page /groups/{id}/members (group_members) carries the group's page
+and the same answer. web/docs/group-members.md describes it all. /messages/{group|private}?chat_id=
+redirects to the message list filtered by that chat.
 
 Signed-out visitors may read the chats of exposed groups
 (telegram_public_groups), as the public chat page does, and get 401
@@ -1139,6 +1164,13 @@ template database (test_tpl_<schema>_<hash>) built under a MySQL
 named lock, so test binaries running at once, from `go test ./...` or
 from separate runs, share it; each test's database is made from the
 template's table definitions. A new migration needs nothing more.
+
+A schema change whose migration is still being written elsewhere (a
+daemon migration the web already reads) goes in
+internal/testdb/pending/<schema>/*.sql, applied after the migrations.
+Each such file makes its change only when it is missing (a prepared
+ALTER behind an information_schema check), so it does nothing once
+the migration is in, and is removed then.
 
 The fixtures are invented data, nothing from production, following the
 named samples of the app's stand-in (web/mockup/src/data). The header

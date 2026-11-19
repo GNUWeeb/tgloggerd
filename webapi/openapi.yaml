@@ -114,6 +114,8 @@ tags:
     description: Actions on the logging account's Telegram contacts.
   - name: history
     description: The change timelines of users and groups, page by page.
+  - name: groups
+    description: A group's members and web settings.
 
 paths:
 
@@ -618,6 +620,7 @@ paths:
         group /groups/{id};
         group_admins /groups/{id}/admins;
         group_history /groups/{id}/history;
+        group_members /groups/{id}/members;
         group_chat /groups/{id}/chat;
         files /files;
         group_messages /group_messages;
@@ -672,7 +675,7 @@ paths:
 
         So far the service loads the data of login, dashboard, user,
         user_history, user_chat, group, group_admins, group_history,
-        group_chat and message, of the list pages users, groups,
+        group_members, group_chat and message, of the list pages users, groups,
         files, group_messages and private_messages, of the settings
         pages, of the administration pages accounts, federations,
         federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram,
@@ -3648,6 +3651,139 @@ paths:
         '503':
           $ref: '#/components/responses/SessionUnavailable'
 
+  /api/groups/{id}:
+    patch:
+      operationId: updateGroup
+      tags: [groups]
+      summary: Change a group's web settings
+      description: >-
+        Superadmins only: hide_member_list hides a channel's member
+        list (GET /api/groups/{id}/members and the group_members page)
+        from everyone but the superadmins, who get available false with
+        reason hidden in its place, the member count still shown; false
+        shows it again (web_hidden_member_lists). Only channels: a
+        group's members see each other in Telegram, so a supergroup or
+        basic group is 400 bad_request. A group the viewer does not
+        see is 404; an admin who sees it gets 403 forbidden. Audited as
+        member_list_hide or member_list_show, with the group, when the
+        setting changes. The answer is the setting as it now is.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The group's Telegram chat id.
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hide_member_list]
+              properties:
+                hide_member_list:
+                  type: boolean
+      responses:
+        '200':
+          description: The setting as it now is.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, hide_member_list, can_hide_member_list]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  hide_member_list:
+                    type: boolean
+                  can_hide_member_list:
+                    type: boolean
+                    const: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: >-
+            The CSRF token is wrong (error csrf), the viewer is not a
+            superadmin (error forbidden), or a gate is up (see Gates).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
+  /api/groups/{id}/members:
+    get:
+      operationId: getGroupMembers
+      tags: [groups]
+      summary: A page of a group's members
+      description: >-
+        The group's members as Telegram lists them to the logging
+        account (the daemon's GET /v1/chats/{id}/members, Telegram's
+        "recent" order), for the group page's Members tab and its
+        background prefetch. For a viewer who sees the group and users
+        in full (superadmins and admins); a member, a signed-out
+        visitor and a group the viewer does not see get 404, and the
+        member count of the group's pages only. The members are named
+        from telegram_users, where the daemon stores them; one not
+        stored yet is named by its id (type unknown). The first page
+        (offset 0) is kept for 2 minutes per group and limit, so a
+        prefetch makes the tab instant; the group_members page carries
+        the same answer. When the list is not available, available is
+        false, members is empty, total is the stored member count, and
+        reason says why (GroupMembersPage).
+      security:
+        - session: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The group's Telegram chat id.
+          schema:
+            type: integer
+            format: int64
+        - name: offset
+          in: query
+          description: Members to skip, 0 to 1000000.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1000000
+            default: 0
+        - name: limit
+          in: query
+          description: Members per page, 1 to 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        '200':
+          description: The page of members, or why there is none.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupMembersPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/SessionUnavailable'
+
   /api/groups/{id}/photos:
     get:
       operationId: getGroupPhotos
@@ -4152,6 +4288,7 @@ components:
         - $ref: '#/components/schemas/PageUser'
         - $ref: '#/components/schemas/PageGroups'
         - $ref: '#/components/schemas/PageGroup'
+        - $ref: '#/components/schemas/PageGroupMembers'
         - $ref: '#/components/schemas/PageFiles'
         - $ref: '#/components/schemas/PageMessages'
         - $ref: '#/components/schemas/PageMessage'
@@ -4255,6 +4392,16 @@ components:
               oneOf:
                 - $ref: '#/components/schemas/GroupProps'
                 - $ref: '#/components/schemas/GroupPublicProps'
+    PageGroupMembers:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          required: [route, props]
+          properties:
+            route:
+              enum: [group_members]
+            props:
+              $ref: '#/components/schemas/GroupMembersProps'
     PageFiles:
       allOf:
         - $ref: '#/components/schemas/PageBase'
@@ -4691,6 +4838,20 @@ components:
           type: integer
         exposed:
           type: boolean
+        member_count:
+          type: [integer, 'null']
+          description: >-
+            Telegram's member count of the group, as the daemon last
+            stored it (from the group's full info and its updates);
+            null before it has one. Every viewer of the group gets it.
+            Always sent by the service; required where the schemas
+            that extend this one say so.
+        member_count_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When the daemon stored member_count; null with it. Always
+            sent by the service.
     GroupCounted:
       allOf:
         - $ref: '#/components/schemas/GroupSummary'
@@ -4703,7 +4864,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/GroupSummary'
         - type: object
-          required: [description, members, msg_count, admin_count, created_at, updated_at, usernames, photo_file_id]
+          required: [description, members, msg_count, admin_count, created_at, updated_at, usernames, photo_file_id, member_count, member_count_at]
           properties:
             usernames:
               type: array
@@ -4726,8 +4887,8 @@ components:
               description: >-
                 How many people the archive has seen in the group: the
                 distinct users who sent a message there and its
-                administrators, as in the chat page's header. The logger
-                does not record Telegram's own member count.
+                administrators, as in the chat page's header. Telegram's
+                own count is member_count.
             msg_count:
               type: integer
             admin_count:
@@ -6623,7 +6784,7 @@ components:
                 allOf:
                   - $ref: '#/components/schemas/GroupSummary'
                   - type: object
-                    required: [msg_count, admin_count, description, created_at, updated_at]
+                    required: [msg_count, admin_count, description, created_at, updated_at, member_count, member_count_at]
                     properties:
                       msg_count:
                         type: integer
@@ -6655,7 +6816,7 @@ components:
           allOf:
             - $ref: '#/components/schemas/GroupSummary'
             - type: object
-              required: [usernames, description, members, msg_count, created_at]
+              required: [usernames, description, members, msg_count, created_at, member_count, member_count_at]
               properties:
                 usernames:
                   type: array
@@ -6672,8 +6833,18 @@ components:
                   type: string
     GroupProps:
       type: object
-      required: [group, admins, history, top_posters, activity, history_next]
+      required: [group, admins, history, top_posters, activity, history_next, hide_member_list, can_hide_member_list]
       properties:
+        hide_member_list:
+          type: boolean
+          description: >-
+            A superadmin hid the channel's member list: only superadmins
+            get it (GET /api/groups/{id}/members).
+        can_hide_member_list:
+          type: boolean
+          description: >-
+            Whether the viewer may change hide_member_list (PATCH
+            /api/groups/{id}): a superadmin, on a channel.
         group:
           $ref: '#/components/schemas/GroupFull'
         admins:
@@ -6706,6 +6877,68 @@ components:
           type: array
           items:
             type: integer
+    GroupMember:
+      type: object
+      required: [user, status, joined_at]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserSummary'
+        status:
+          type: string
+          enum: [creator, administrator, member, restricted]
+          description: restricted is a restricted member still in the group.
+        joined_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the member joined; null when Telegram does not say.
+    GroupMembersPage:
+      type: object
+      required: [available, reason, total, members, offset, limit]
+      properties:
+        available:
+          type: boolean
+        reason:
+          type: string
+          description: >-
+            Empty when available. Otherwise: not_allowed (a channel
+            where the logging account is not an administrator, or a
+            group that hides its members), hidden (a superadmin hid
+            the channel's list; never for a superadmin), not_member
+            (the account is not in the group), flood_wait (Telegram
+            rate-limited the account; see retry_after), unavailable
+            (the daemon is off or did not answer), error (Telegram
+            failed otherwise). A client treats a reason it does not
+            know as "not available".
+        retry_after:
+          type: integer
+          format: int64
+          description: With flood_wait, the seconds Telegram asked to wait.
+        total:
+          type: [integer, 'null']
+          format: int64
+          description: >-
+            Telegram's member count: the daemon's with the list, else
+            the stored one (GroupSummary.member_count); null when none
+            is known.
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupMember'
+        offset:
+          type: integer
+        limit:
+          type: integer
+    GroupMembersProps:
+      description: >-
+        The group_members route (/groups/{id}/members): the group's
+        page as its other tabs have it, and the page of members its
+        ?offset= (and ?limit=, as getGroupMembers takes them; out of
+        range reads as the first page) names. For a viewer who sees the
+        group and users in full; anyone else gets not_found, and a
+        signed-out visitor is asked to sign in.
+      allOf:
+        - $ref: '#/components/schemas/GroupProps'
+        - $ref: '#/components/schemas/GroupMembersPage'
     FilesProps:
       description: >-
         The files list (route files). Its filters (Cond field, ops):
@@ -6812,16 +7045,15 @@ components:
                   allOf:
                     - $ref: '#/components/schemas/GroupSummary'
                     - type: object
-                      required: [members, msg_count]
+                      required: [members, msg_count, member_count, member_count_at]
                       properties:
                         members:
                           type: integer
                           description: >-
                             How many people the archive has seen in the
                             group: the distinct users who sent a
-                            message there and its administrators. The
-                            logger does not record Telegram's own
-                            member count.
+                            message there and its administrators.
+                            Telegram's own count is member_count.
                         msg_count:
                           type: integer
             - type: object

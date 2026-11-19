@@ -147,7 +147,7 @@ export interface paths {
          * A page's data
          * @description The data of the page at /<path>, the same object the server embeds in the page's HTML on a first load (web-ssr.md sections 5 and 7), for navigation in the browser. `path` is the page's path without its leading slash (empty for the dashboard at /); its slashes may be sent as they are or encoded as %2F. The page's query string (search, filters, sort, page) is passed on as the query string of this request.
          *
-         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; federation /settings/federations/{id}; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; bots /platform-fwd/bots; join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
+         *     The route ids and their page paths: login /login; dashboard /; users /users; user /users/{id}; user_history /users/{id}/history; user_chat /users/{id}/chat; groups /groups; group /groups/{id}; group_admins /groups/{id}/admins; group_history /groups/{id}/history; group_members /groups/{id}/members; group_chat /groups/{id}/chat; files /files; group_messages /group_messages; private_messages /private_messages; message /messages/{group|private}/{id}; settings /settings; settings_preferences /settings/preferences; settings_sessions /settings/sessions; accounts /settings/accounts; federations /settings/federations; federation /settings/federations/{id}; platform_fwd /platform-fwd; fwd_telegram_discord /platform-fwd/telegram-discord; fwd_discord_telegram /platform-fwd/discord-telegram; bots /platform-fwd/bots; join_chat /join-chat; mcp /mcp-admin; mcp_groups /mcp-admin/groups; mcp_tokens /mcp-admin/tokens; password_forgot /password/forgot; password_set /password/set; email_verify /account/email/verify.
          *
          *     /messages/{group|private}, the Drogon message lists that its message pages link to, answers {"reload": true}: its document redirects (302) to /group_messages or /private_messages, filtered by its ?chat_id= and with ?per= its ?limit=.
          *
@@ -157,7 +157,7 @@ export interface paths {
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public chats of exposed groups (group_chat).
          *
-         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope. The users, groups, group_messages and private_messages lists take every field of their search registry (ListState.fields) with the search's operators and connectors, besides their own filter keys, and sort by the registry's sortable fields too; a filter or search text they refuse, or a search that runs out of time, answers the whole list with ListState.error, as the Drogon lists did. The files list drops a filter it does not take, not echoed in conds. per defaults to the viewer's rows_per_page and goes up to 1000. archive_total is there only for a viewer who sees the whole archive of that list. A Drogon list URL (search, offset, limit, order, without f, page, per and dir) is read as the same list, and the answer's url is the translated one, to put in the address bar. The user and group pages and their history pages take before, the history cursor (history_next). The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
+         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_members, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope. The users, groups, group_messages and private_messages lists take every field of their search registry (ListState.fields) with the search's operators and connectors, besides their own filter keys, and sort by the registry's sortable fields too; a filter or search text they refuse, or a search that runs out of time, answers the whole list with ListState.error, as the Drogon lists did. The files list drops a filter it does not take, not echoed in conds. per defaults to the viewer's rows_per_page and goes up to 1000. archive_total is there only for a viewer who sees the whole archive of that list. A Drogon list URL (search, offset, limit, order, without f, page, per and dir) is read as the same list, and the answer's url is the translated one, to put in the address bar. The user and group pages and their history pages take before, the history cursor (history_next). The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
         put?: never;
@@ -1231,6 +1231,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a group's web settings
+         * @description Superadmins only: hide_member_list hides a channel's member list (GET /api/groups/{id}/members and the group_members page) from everyone but the superadmins, who get available false with reason hidden in its place, the member count still shown; false shows it again (web_hidden_member_lists). Only channels: a group's members see each other in Telegram, so a supergroup or basic group is 400 bad_request. A group the viewer does not see is 404; an admin who sees it gets 403 forbidden. Audited as member_list_hide or member_list_show, with the group, when the setting changes. The answer is the setting as it now is.
+         */
+        patch: operations["updateGroup"];
+        trace?: never;
+    };
+    "/api/groups/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A page of a group's members
+         * @description The group's members as Telegram lists them to the logging account (the daemon's GET /v1/chats/{id}/members, Telegram's "recent" order), for the group page's Members tab and its background prefetch. For a viewer who sees the group and users in full (superadmins and admins); a member, a signed-out visitor and a group the viewer does not see get 404, and the member count of the group's pages only. The members are named from telegram_users, where the daemon stores them; one not stored yet is named by its id (type unknown). The first page (offset 0) is kept for 2 minutes per group and limit, so a prefetch makes the tab instant; the group_members page carries the same answer. When the list is not available, available is false, members is empty, total is the stored member count, and reason says why (GroupMembersPage).
+         */
+        get: operations["getGroupMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/groups/{id}/photos": {
         parameters: {
             query?: never;
@@ -1390,7 +1430,7 @@ export interface components {
             props?: Record<string, never>;
         };
         /** @description The page data; `route` says which props it carries. */
-        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageFederation"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageBots"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PagePasswordChange"];
+        PageAnswer: components["schemas"]["PageLogin"] | components["schemas"]["PageDashboard"] | components["schemas"]["PageUsers"] | components["schemas"]["PageUser"] | components["schemas"]["PageGroups"] | components["schemas"]["PageGroup"] | components["schemas"]["PageGroupMembers"] | components["schemas"]["PageFiles"] | components["schemas"]["PageMessages"] | components["schemas"]["PageMessage"] | components["schemas"]["PageChat"] | components["schemas"]["PageSettings"] | components["schemas"]["PagePreferences"] | components["schemas"]["PageSessions"] | components["schemas"]["PageAccounts"] | components["schemas"]["PageFederations"] | components["schemas"]["PageFederation"] | components["schemas"]["PageForwarding"] | components["schemas"]["PageT2D"] | components["schemas"]["PageD2T"] | components["schemas"]["PageBots"] | components["schemas"]["PageJoinChat"] | components["schemas"]["PageMcp"] | components["schemas"]["PageMcpGroups"] | components["schemas"]["PageMcpTokens"] | components["schemas"]["PageLinkPage"] | components["schemas"]["PagePasswordChange"];
         PageLinkPage: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
             route: "password_forgot" | "password_set" | "email_verify";
@@ -1430,6 +1470,11 @@ export interface components {
             /** @enum {unknown} */
             route: "group" | "group_admins" | "group_history";
             props: components["schemas"]["GroupProps"] | components["schemas"]["GroupPublicProps"];
+        };
+        PageGroupMembers: components["schemas"]["PageBase"] & {
+            /** @enum {unknown} */
+            route: "group_members";
+            props: components["schemas"]["GroupMembersProps"];
         };
         PageFiles: components["schemas"]["PageBase"] & {
             /** @enum {unknown} */
@@ -1673,6 +1718,13 @@ export interface components {
             photo: string | null;
             msg_count?: number;
             exposed?: boolean;
+            /** @description Telegram's member count of the group, as the daemon last stored it (from the group's full info and its updates); null before it has one. Every viewer of the group gets it. Always sent by the service; required where the schemas that extend this one say so. */
+            member_count?: number | null;
+            /**
+             * Format: date-time
+             * @description When the daemon stored member_count; null with it. Always sent by the service.
+             */
+            member_count_at?: string | null;
         };
         GroupCounted: components["schemas"]["GroupSummary"] & {
             msg_count: number;
@@ -1686,7 +1738,7 @@ export interface components {
              */
             photo_file_id: number | null;
             description: string;
-            /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators, as in the chat page's header. The logger does not record Telegram's own member count. */
+            /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators, as in the chat page's header. Telegram's own count is member_count. */
             members: number;
             msg_count: number;
             admin_count: number;
@@ -2612,6 +2664,10 @@ export interface components {
             };
         };
         GroupProps: {
+            /** @description A superadmin hid the channel's member list: only superadmins get it (GET /api/groups/{id}/members). */
+            hide_member_list: boolean;
+            /** @description Whether the viewer may change hide_member_list (PATCH /api/groups/{id}): a superadmin, on a channel. */
+            can_hide_member_list: boolean;
             group: components["schemas"]["GroupFull"];
             admins: components["schemas"]["GroupAdmin"][];
             /** @description The newest page of the timeline (GroupHistoryPage). */
@@ -2624,6 +2680,39 @@ export interface components {
             }[];
             activity: number[];
         };
+        GroupMember: {
+            user: components["schemas"]["UserSummary"];
+            /**
+             * @description restricted is a restricted member still in the group.
+             * @enum {string}
+             */
+            status: "creator" | "administrator" | "member" | "restricted";
+            /**
+             * Format: date-time
+             * @description When the member joined; null when Telegram does not say.
+             */
+            joined_at: string | null;
+        };
+        GroupMembersPage: {
+            available: boolean;
+            /** @description Empty when available. Otherwise: not_allowed (a channel where the logging account is not an administrator, or a group that hides its members), hidden (a superadmin hid the channel's list; never for a superadmin), not_member (the account is not in the group), flood_wait (Telegram rate-limited the account; see retry_after), unavailable (the daemon is off or did not answer), error (Telegram failed otherwise). A client treats a reason it does not know as "not available". */
+            reason: string;
+            /**
+             * Format: int64
+             * @description With flood_wait, the seconds Telegram asked to wait.
+             */
+            retry_after?: number;
+            /**
+             * Format: int64
+             * @description Telegram's member count: the daemon's with the list, else the stored one (GroupSummary.member_count); null when none is known.
+             */
+            total: number | null;
+            members: components["schemas"]["GroupMember"][];
+            offset: number;
+            limit: number;
+        };
+        /** @description The group_members route (/groups/{id}/members): the group's page as its other tabs have it, and the page of members its ?offset= (and ?limit=, as getGroupMembers takes them; out of range reads as the first page) names. For a viewer who sees the group and users in full; anyone else gets not_found, and a signed-out visitor is asked to sign in. */
+        GroupMembersProps: components["schemas"]["GroupProps"] & components["schemas"]["GroupMembersPage"];
         /** @description The files list (route files). Its filters (Cond field, ops): id, size and hits (=, !=, >, <); file_type (=, != one of FileRow's file_type values, unknown included); name, ext and tg_file_id (contains, =, empty); stored (is yes or no); sha256 (=, != a digest of 64 hex digits, either case); created_at, updated_at and accessed_at (>, < a day, YYYY-MM-DD). Its sorts: id, name, file_type, ext, size, hits, created_at (the default) and accessed_at. The search text matches the name, and the id when it is a number. */
         FilesProps: components["schemas"]["ListState"] & {
             rows: components["schemas"]["FileRow"][];
@@ -2652,7 +2741,7 @@ export interface components {
                 /** @constant */
                 kind: "group";
                 group: components["schemas"]["GroupSummary"] & {
-                    /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators. The logger does not record Telegram's own member count. */
+                    /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators. Telegram's own count is member_count. */
                     members: number;
                     msg_count: number;
                 };
@@ -5908,6 +5997,86 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthenticated"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    updateGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group's Telegram chat id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    hide_member_list: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The setting as it now is. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int64 */
+                        id: number;
+                        hide_member_list: boolean;
+                        /** @constant */
+                        can_hide_member_list: true;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            /** @description The CSRF token is wrong (error csrf), the viewer is not a superadmin (error forbidden), or a gate is up (see Gates). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["SessionUnavailable"];
+        };
+    };
+    getGroupMembers: {
+        parameters: {
+            query?: {
+                /** @description Members to skip, 0 to 1000000. */
+                offset?: number;
+                /** @description Members per page, 1 to 200. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The group's Telegram chat id. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page of members, or why there is none. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupMembersPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
             503: components["responses"]["SessionUnavailable"];
         };
