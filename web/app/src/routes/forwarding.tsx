@@ -14,15 +14,17 @@ import { ago, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
-import { BOT_STATUS } from './bots.tsx';
+import { BOT_STATUS, BotAvatar, BotName } from './bots.tsx';
 
 type Person = S['FwdPerson'];
 type Owned = S['Owned'];
 export type T2DRoute = S['T2DRoute'];
 export type D2TRoute = S['D2TRoute'];
-// photo: a Telegram bot's profile photo (null for Discord bots), until
-// the API description has it.
-type BotRef = S['BotRef'] & { photo?: string | null };
+// photo: a Telegram bot's profile photo (null for Discord bots); profile:
+// the bot's user id when the viewer may open its user page (null
+// otherwise, and for Discord bots). Both stay until the API description
+// has them.
+type BotRef = S['BotRef'] & { photo?: string | null; profile?: number | null };
 type BotKind = S['BotKind'];
 
 export type ForwardingIndexProps = S['ForwardingIndexProps'];
@@ -240,9 +242,9 @@ function BotCell({ b, kind }: { b: BotRef | null; kind: BotKind }) {
 	const [label, tone] = BOT_STATUS[b.enabled ? b.status : 'disabled'];
 	return (
 		<span className="a-botcell">
-			<Avatar id={b.id} name={b.name} photo={b.photo} size={24} />
+			<BotAvatar b={b} size={24} />
 			<span className="a-botcell-text">
-				<span className={b.enabled ? 'a-uname' : 'a-uname a-muted'}>{b.name}</span>
+				<BotName b={b} className={b.enabled ? 'a-uname' : 'a-uname a-muted'} />
 				<span className="a-handle">{b.identity?.username ? `@${b.identity.username} . ` : ''}<Pill tone={tone}>{b.enabled ? label : 'bot disabled'}</Pill></span>
 			</span>
 		</span>

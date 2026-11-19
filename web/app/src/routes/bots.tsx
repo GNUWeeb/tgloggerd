@@ -6,7 +6,7 @@
 import { useState, type FormEvent } from 'react';
 import { Bot as BotIcon, Pencil, Plus, Trash2, TriangleAlert, Users as UsersIcon } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
-import { useNav } from '../nav.tsx';
+import { Link, useNav } from '../nav.tsx';
 import { Avatar, Btn, PageHead, Pill } from '../ui/primitives.tsx';
 import { Field, NO_FILL, SecretInput, Seg, Switch } from '../ui/forms.tsx';
 import { Modal } from '../ui/Modal.tsx';
@@ -17,9 +17,11 @@ import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
 export type BotsProps = S['BotsProps'];
-// photo: a Telegram bot's profile photo (null for Discord bots), until
-// the API description has it.
-type Bot = S['Bot'] & { photo?: string | null };
+// photo: a Telegram bot's profile photo (null for Discord bots); profile:
+// the bot's user id when the viewer may open its user page (null
+// otherwise, and for Discord bots). Both stay until the API description
+// has them.
+type Bot = S['Bot'] & { photo?: string | null; profile?: number | null };
 type Kind = S['BotKind'];
 type Status = S['BotStatus'];
 
@@ -46,6 +48,19 @@ const TOKEN_HINT: Record<Kind, string> = {
 	telegram: 'From @BotFather: <digits>:<secret>. Saved write-only; it is never shown again.',
 	discord: 'From the Discord developer portal, the Bot page, Reset Token. Saved write-only; it is never shown again.',
 };
+
+// A bot's avatar and name, each a link to its user page when it has one.
+// The avatar's link is only a bigger target for the mouse: out of the tab
+// order and hidden from screen readers, so the bot is one link, named by
+// its name.
+type BotFace = { id: number; name: string; photo?: string | null; profile?: number | null };
+export function BotAvatar({ b, size }: { b: BotFace; size: number }) {
+	const a = <Avatar id={b.id} name={b.name} photo={b.photo} size={size} />;
+	return b.profile != null ? <Link to={`/users/${b.profile}`} className="a-botavatar" tabIndex={-1} aria-hidden="true">{a}</Link> : a;
+}
+export function BotName({ b, className }: { b: BotFace; className: string }) {
+	return b.profile != null ? <Link to={`/users/${b.profile}`} className={`${className} a-botlink`}>{b.name}</Link> : <span className={className}>{b.name}</span>;
+}
 
 const errText = (x: unknown) => (x instanceof ApiError ? x.message : 'The server could not be reached.');
 
@@ -160,7 +175,7 @@ function Bots({ page }: { page: PageData<BotsProps> }) {
 							const [label, tone, advice] = BOT_STATUS[b.status];
 							return (
 								<tr key={b.id} className={b.enabled ? '' : 'a-off'}>
-									<td><span className="a-usercell"><Avatar id={b.id} name={b.name} photo={b.photo} size={28} /><span><span className="a-uname">{b.name}</span><span className="a-handle">{b.identity ? (b.identity.username ? `@${b.identity.username}` : `id ${b.identity.user_id}`) : 'not logged in yet'}</span></span></span></td>
+									<td><span className="a-usercell"><BotAvatar b={b} size={28} /><span><BotName b={b} className="a-uname" /><span className="a-handle">{b.identity ? (b.identity.username ? `@${b.identity.username}` : `id ${b.identity.user_id}`) : 'not logged in yet'}</span></span></span></td>
 									<td>{KIND_LABEL[b.kind]}</td>
 									<td className="a-botstatus"><Pill tone={tone}>{label}</Pill>{advice && <span className="a-muted sm a-block">{advice}</span>}{b.status_detail && <span className="a-muted sm a-block" title="As discordd reported it">{b.status_detail}</span>}{b.status_at && <span className="a-muted sm a-block">{ago(b.status_at, v)}</span>}</td>
 									{p.show_owner && <td><span className={b.owner.active ? '' : 'a-muted'}>{b.owner.name}</span></td>}
