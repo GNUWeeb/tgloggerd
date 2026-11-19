@@ -1359,7 +1359,9 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		if (i < 0) return [404, { error: 'not_found' }];
 		mcpExposed[i].group.exposed = false; mcpExposed.splice(i, 1); return [204, null];
 	}
-	if ((m = p.match(/^mcp\/tokens(?:\/(\d+)\/(revoke))?$/))) {
+	if ((m = p.match(/^mcp\/tokens(?:\/(\d+)(?:\/(revoke))?)?$/))) {
+		// Go routes only these methods here; any other is 405.
+		if (method !== (m[1] && !m[2] ? 'PATCH' : 'POST')) return [405, { error: 'method_not_allowed' }];
 		if (!allowed(s, 'mcp')) return [404, { error: 'not_found' }];
 		if (!m[1] && method === 'POST') {
 			const name = String(body.name ?? '').trim();
@@ -1373,6 +1375,12 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		}
 		const t = mcpToks.find((x) => String(x.id) === m[1] && managesMcp(s, x.owner));
 		if (!t) return [404, { error: 'not_found' }];
+		// A revoked token can be renamed too; the name is cut to 64.
+		if (!m[2]) {
+			const name = String(body.name ?? '').trim().slice(0, 64);
+			if (!name) return [400, { error: 'bad_request', message: 'A name is required.', field: 'name' }];
+			t.name = name; return [204, null];
+		}
 		t.revoked = '2026-11-17 16:00:00'; return [204, null];
 	}
 	if (p === 'federations' && method === 'POST') {

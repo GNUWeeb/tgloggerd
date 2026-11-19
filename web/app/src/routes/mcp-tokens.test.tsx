@@ -80,3 +80,49 @@ describe('minting an mcp token', () => {
 		expect([t.owner.name, t.minted_by.name]).toEqual(['Security lead', 'Administrator']);
 	});
 });
+
+describe('renaming an mcp token', () => {
+	const open = (name: string, handlers = {}) => {
+		const calls = fakeApi('superadmin', handlers);
+		renderPage('/mcp-admin/tokens');
+		fireEvent.click(within(rowOf(name)).getByRole('button', { name: /Rename/ }));
+		return calls;
+	};
+	const tokenId = (name: string) => fixture<McpTokensProps>('/mcp-admin/tokens').props.tokens.find((t) => t.name === name)!.id;
+
+	it('sends the new name', async () => {
+		const calls = open('laptop', { 'PATCH /api/mcp/tokens/:id': () => undefined });
+		const i = dialog().querySelector('input')!;
+		expect(i.value).toBe('laptop');
+		expect(i.getAttribute('autocomplete')).toBe('off');
+		fireEvent.change(i, { target: { value: 'work laptop' } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		const path = `/api/mcp/tokens/${tokenId('laptop')}`;
+		await waitFor(() => expect(callsTo(calls, 'PATCH', path)).toHaveLength(1));
+		expect(callsTo(calls, 'PATCH', path)[0]!.body).toEqual({ name: 'work laptop' });
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+	});
+
+	it('will not save an empty name, and renames a revoked token too', () => {
+		open('old ci job');
+		fireEvent.change(dialog().querySelector('input')!, { target: { value: '  ' } });
+		expect((within(dialog()).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+	});
+
+	it('shows the server\'s refusal in the dialog', async () => {
+		open('laptop', { 'PATCH /api/mcp/tokens/:id': () => json(404, { error: 'not_found', message: 'No such token.' }) });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		expect((await within(dialog()).findByRole('alert')).textContent).toBe('No such token.');
+	});
+
+	it('renames in the stand-in only what the viewer manages', () => {
+		const laptop = tokenId('laptop');
+		expect(adminApi('PATCH', `mcp/tokens/${laptop}`, { name: 'mine now' }, 'admin')[0]).toBe(404);
+		expect(adminApi('PATCH', `mcp/tokens/${laptop}`, { name: ' ' }, 'superadmin')[0]).toBe(400);
+		const agent = tokenId('research-agent');
+		expect(adminApi('PATCH', `mcp/tokens/${agent}`, { name: 'research-agent ' + 'x'.repeat(80) }, 'admin')).toEqual([204, null]);
+		const t = fixture<McpTokensProps>('/mcp-admin/tokens').props.tokens.find((x) => x.id === agent)!;
+		expect(t.name).toHaveLength(64);
+		expect(adminApi('PATCH', `mcp/tokens/${agent}`, { name: 'research-agent' }, 'admin')).toEqual([204, null]);
+	});
+});

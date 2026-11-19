@@ -141,7 +141,14 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 	const [minted, setMinted] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
 	const [err, setErr] = useState('');
+	// The token being renamed, and the draft name.
+	const [renaming, setRenaming] = useState<Token | null>(null);
+	const [draft, setDraft] = useState('');
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
+	const rename = async () => {
+		setErr('');
+		try { await ok(api.PATCH('/api/mcp/tokens/{id}', { params: { path: { id: renaming!.id } }, body: { name: draft } })); setRenaming(null); refresh(); } catch (x) { setErr(errText(x)); }
+	};
 	const mint = async () => {
 		setErr('');
 		try {
@@ -154,7 +161,7 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 		<Shell crumbs={[['MCP', '/mcp-admin'], ['Access tokens', null]]}>
 			<PageHead title="Access tokens" sub="A token reads every exposed group, so treat one like a password."
 				actions={<Btn primary icon={Plus} onClick={() => setMinting(true)}>Mint a token</Btn>} />
-			{err && !minting && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+			{err && !minting && !renaming && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			{minted && (
 				<div className="a-card a-minted">
 					<div className="a-cardhead"><h2><KeyRound size={15} /> Copy this token now</h2></div>
@@ -175,7 +182,7 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 								<td title={t.created}>{ago(t.created, v)}</td>
 								<td>{t.last_used ? ago(t.last_used, v) : <span className="a-muted">never</span>}</td>
 								<td>{t.revoked ? <span className="a-muted">revoked {ago(t.revoked, v)}</span> : <Pill tone="ok">active</Pill>}</td>
-								<td className="a-rowactions">{!t.revoked && <Btn ghost danger onClick={() => { if (confirm(`Revoke ${t.name || 'this token'}? Clients using it stop working at once.`)) void revoke(t.id); }}>Revoke</Btn>}</td>
+								<td className="a-rowactions"><Btn ghost icon={Pencil} onClick={() => { setErr(''); setDraft(t.name); setRenaming(t); }}>Rename</Btn>{!t.revoked && <Btn ghost danger onClick={() => { if (confirm(`Revoke ${t.name || 'this token'}? Clients using it stop working at once.`)) void revoke(t.id); }}>Revoke</Btn>}</td>
 							</tr>
 						))}</tbody>
 					</table>
@@ -194,6 +201,13 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 							</select>
 						</Field>
 					)}
+				</Modal>
+			)}
+			{renaming && (
+				<Modal title={`Rename ${renaming.name || 'this token'}`} onClose={() => setRenaming(null)}
+					footer={<><span className="a-grow" /><Btn ghost onClick={() => setRenaming(null)}>Cancel</Btn><Btn primary disabled={!draft.trim()} onClick={() => void rename()}>Save</Btn></>}>
+					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+					<Field label="Name" hint="Clients keep working; only the label changes."><input id="mcp-token-rename" name="mcp-token-rename" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={64} {...NO_FILL} /></Field>
 				</Modal>
 			)}
 		</Shell>
