@@ -126,7 +126,6 @@ Accounts, roles and federations:
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
 - [`search-engine-profiles`](todo/search-engine-profiles.md): Index users' bios and groups' descriptions in the optional search engine (optional).
-- [`group-member-search`](todo/group-member-search.md): Search a group's members by name, username or user id on its Members tab.
 - [`video-thumbnails`](todo/video-thumbnails.md): Show a still thumbnail for every video before it is played, wherever the web shows one.
 - [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
 
