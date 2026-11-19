@@ -70,20 +70,23 @@ function OwnerCell({ r }: { r: Owned }) {
 // The owner today; editors and viewers can join this list later.
 type Dir = 'telegram-discord' | 'discord-telegram';
 
-// Handing a route to another owner is designed but not served yet
-// (the transfer operations are planned in webapi/openapi.yaml): until it
-// is, the dialog shows the owner only. Turn this on with the service.
-const ROUTE_TRANSFER_SERVED = false;
-
-function Access({ r, dir, title, canTransfer, onClose, onSaved }: { r: Owned; dir: Dir; title: string; canTransfer: boolean; onClose: () => void; onSaved: () => void }) {
+// The owner, and for an admin or a superadmin a transfer to one of the
+// route's transfer_candidates (who the service lets the viewer give it
+// to; none for a member).
+function Access({ r, dir, title, member, onClose, onSaved }: { r: Owned; dir: Dir; title: string; member: boolean; onClose: () => void; onSaved: () => void }) {
 	const [to, setTo] = useState('');
 	const [err, setErr] = useState('');
+	const cands = r.transfer_candidates.filter((p) => p.id !== r.owner.id);
+	const canTransfer = !member && cands.length > 0;
 	const transfer = async () => {
+		const who = cands.find((p) => String(p.id) === to);
+		if (!who || !confirm(`Give the route of ${title} to ${who.name}? It keeps forwarding, in the ${r.federation.name} federation.`)) return;
+		setErr('');
 		try {
-			const req = { params: { path: { id: r.id } }, body: { owner_id: Number(to) } };
+			const req = { params: { path: { id: r.id } }, body: { owner_id: who.id } };
 			await ok(dir === 'telegram-discord' ? api.POST('/api/forwarding/telegram-discord/{id}/transfer', req) : api.POST('/api/forwarding/discord-telegram/{id}/transfer', req));
 			onSaved(); onClose();
-		} catch (x) { setErr(errText(x)); }
+		} catch (x) { setErr(fwdErr(x, who.name)); }
 	};
 	return (
 		<Modal title={`People with access: ${title}`} icon={<Users size={16} />} onClose={onClose}
@@ -99,10 +102,11 @@ function Access({ r, dir, title, canTransfer, onClose, onSaved }: { r: Owned; di
 				<Field label="Transfer ownership to" hint="The route keeps running throughout.">
 					<select className="a-select" value={to} onChange={(e) => setTo(e.target.value)}>
 						<option value="">Choose an account...</option>
-						{r.transfer_candidates.filter((p) => p.id !== r.owner.id).map((p) => <option key={p.id} value={p.id}>{p.name}{p.role ? ` (${p.role})` : ''}</option>)}
+						{cands.map((p) => <option key={p.id} value={p.id}>{p.name}{p.role ? ` (${p.role})` : ''}</option>)}
 					</select>
 				</Field>
 			)}
+			{!member && !canTransfer && <p className="a-muted sm">There is nobody you may give it to.</p>}
 		</Modal>
 	);
 }
@@ -257,7 +261,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 					<Switch checked={edit.enabled} onChange={(on) => setEdit({ ...edit, enabled: on })} label="Enabled" />
 				</Modal>
 			)}
-			{access && <Access r={access} dir="telegram-discord" title={access.chat.title} canTransfer={ROUTE_TRANSFER_SERVED && !member} onClose={() => setAccess(null)} onSaved={refresh} />}
+			{access && <Access r={access} dir="telegram-discord" title={access.chat.title} member={member} onClose={() => setAccess(null)} onSaved={refresh} />}
 		</Shell>
 	);
 }
@@ -394,7 +398,7 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 					<Switch checked={edit.enabled} onChange={(on) => setEdit({ ...edit, enabled: on })} label="Enabled" />
 				</Modal>
 			)}
-			{access && <Access r={access} dir="discord-telegram" title={access.channel_name} canTransfer={ROUTE_TRANSFER_SERVED && !member} onClose={() => setAccess(null)} onSaved={refresh} />}
+			{access && <Access r={access} dir="discord-telegram" title={access.channel_name} member={member} onClose={() => setAccess(null)} onSaved={refresh} />}
 		</Shell>
 	);
 }

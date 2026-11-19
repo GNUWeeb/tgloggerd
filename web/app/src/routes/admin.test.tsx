@@ -492,8 +492,8 @@ describe('forwarding', () => {
 });
 
 describe('people with access', () => {
-	it('shows the owner and offers no transfer while the service has none', () => {
-		renderPage('/platform-fwd/telegram-discord');
+	it('shows the owner, and offers a member no transfer', () => {
+		renderPage('/platform-fwd/telegram-discord', 'member');
 		fireEvent.click(screen.getAllByRole('button', { name: 'People with access' })[0]!);
 		expect(within(dialog()).getByText('Owner')).toBeTruthy();
 		expect(within(dialog()).queryByRole('button', { name: 'Transfer ownership' })).toBeNull();
