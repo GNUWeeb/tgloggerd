@@ -7714,11 +7714,26 @@ components:
                           format: int64
                         stored:
                           type: boolean
+                        fetchable:
+                          type: boolean
+                          description: >-
+                            As ChatMedia's fetchable. Always sent;
+                            optional in this description.
+                        fetch:
+                          type: [string, 'null']
+                          description: >-
+                            As ChatMedia's fetch: the fetchFile path when
+                            fetchable is true, else null. Always sent;
+                            optional in this description.
                         thumb:
                           type: [string, 'null']
                           description: As ChatMedia's thumb.
                         url:
                           type: [string, 'null']
+                          description: >-
+                            As ChatMedia's url: null for an unstored
+                            file over the store's per-file cap, which is
+                            fetched through fetch first.
                 - type: 'null'
             link_preview:
               description: >-

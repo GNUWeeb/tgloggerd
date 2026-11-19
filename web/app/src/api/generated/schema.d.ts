@@ -2930,8 +2930,13 @@ export interface components {
                 /** Format: int64 */
                 size: number;
                 stored: boolean;
+                /** @description As ChatMedia's fetchable. Always sent; optional in this description. */
+                fetchable?: boolean;
+                /** @description As ChatMedia's fetch: the fetchFile path when fetchable is true, else null. Always sent; optional in this description. */
+                fetch?: string | null;
                 /** @description As ChatMedia's thumb. */
                 thumb: string | null;
+                /** @description As ChatMedia's url: null for an unstored file over the store's per-file cap, which is fetched through fetch first. */
                 url: string | null;
             }) | null;
             /** @description The link preview card, as ChatMessage.link_preview; null when the message has none. Always sent; optional here only until the app's message page reads it. */
