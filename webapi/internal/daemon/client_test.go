@@ -185,8 +185,18 @@ func TestStatusAndStorage(t *testing.T) {
 	ctx := context.Background()
 
 	set("/v1/status", `{"tdlib":"ready","since":1763400000}`)
-	if st, ok := c.Status(ctx); !ok || st != (Status{"ready", 1763400000}) {
+	if st, ok := c.Status(ctx); !ok || st != (Status{"ready", 1763400000, 0}) {
 		t.Errorf("Status = %+v, %v", st, ok)
+	}
+	// The account, once the daemon knows it; null and a missing one
+	// are none.
+	set("/v1/status", `{"tdlib":"ready","since":1763400000,"account":{"user_id":7000000001}}`)
+	if st, ok := c.Status(ctx); !ok || st != (Status{"ready", 1763400000, 7000000001}) {
+		t.Errorf("Status with an account = %+v, %v", st, ok)
+	}
+	set("/v1/status", `{"tdlib":"waiting","since":5,"account":null}`)
+	if st, ok := c.Status(ctx); !ok || st != (Status{"waiting", 5, 0}) {
+		t.Errorf("Status with a null account = %+v, %v", st, ok)
 	}
 	set("/v1/storage", `{"files":3,"bytes":1024,"max_bytes":4096,"dry_run":true,"last_sweep":null}`)
 	if st, ok := c.Storage(ctx); !ok || st != (Storage{3, 1024, 4096}) {

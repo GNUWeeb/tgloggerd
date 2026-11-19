@@ -267,19 +267,33 @@ func (c *Client) LookupRealName(ctx context.Context, userID int64) Reply {
 const statusTimeout = time.Second
 
 // Status is GET /v1/status: the daemon's TDLib client state ("ready",
-// "waiting" or "closing") and when it last changed (Unix seconds).
+// "waiting" or "closing"), when it last changed (Unix seconds), and
+// the logged-in account's own Telegram user id (0 while the daemon
+// has none: before login, or before TDLib told it).
 type Status struct {
-	TDLib string `json:"tdlib"`
-	Since int64  `json:"since"`
+	TDLib     string
+	Since     int64
+	AccountID int64
 }
 
 // Status asks for the TDLib client's state. ok is false when the
 // client is off, the daemon does not answer within a second, or its
 // answer is not a status.
 func (c *Client) Status(ctx context.Context) (st Status, ok bool) {
+	var raw struct {
+		TDLib   string `json:"tdlib"`
+		Since   int64  `json:"since"`
+		Account *struct {
+			UserID int64 `json:"user_id"`
+		} `json:"account"`
+	}
 	r := c.Call(ctx, http.MethodGet, "/v1/status", nil, statusTimeout)
-	if !r.OK() || r.Body == nil || json.Unmarshal(r.Body, &st) != nil || st.TDLib == "" {
+	if !r.OK() || r.Body == nil || json.Unmarshal(r.Body, &raw) != nil || raw.TDLib == "" {
 		return Status{}, false
+	}
+	st = Status{TDLib: raw.TDLib, Since: raw.Since}
+	if raw.Account != nil && raw.Account.UserID > 0 {
+		st.AccountID = raw.Account.UserID
 	}
 	return st, true
 }
