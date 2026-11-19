@@ -255,7 +255,7 @@ export function chatMessage(m, view: boolean | View = false) {
 		// Each version says its type; a media message's first version had
 		// another file (the media was replaced in the edit).
 		forward: m.forward?.from ?? null, edits: (m.edits || []).map((e, i) => ({
-			at: iso(e.at), text: e.text, content_type: ct, entities: [],
+			at: iso(e.at), text: e.text, content_type: ct, entities: [], detail: null,
 			...(i === 0 && m.media ? { media: chatMedia({ ...m.media, fileId: m.media.fileId + 500000 }, ct, fetch) } : {}),
 		})),
 		edited_at: m.edited_at ? iso(m.edited_at) : null, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,

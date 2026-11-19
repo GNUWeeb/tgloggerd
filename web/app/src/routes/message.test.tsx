@@ -45,8 +45,8 @@ describe('message page', () => {
 		render({
 			content_type: 'photo', text: 'now', edited: true, edited_at: '2026-11-10T11:00:00Z',
 			edits: [
-				{ at: '2026-11-10T10:00:00Z', text: 'was a file', content_type: 'document', media: { stored: true, url: '/files/doc', thumb: null, name: 'notes.pdf' }, entities: [] },
-				{ at: '2026-11-10T10:30:00Z', text: '', content_type: 'photo', media: { stored: true, url: '/files/old', thumb: '/files/old' }, entities: [] },
+				{ at: '2026-11-10T10:00:00Z', text: 'was a file', content_type: 'document', media: { stored: true, url: '/files/doc', thumb: null, name: 'notes.pdf' }, entities: [], detail: null },
+				{ at: '2026-11-10T10:30:00Z', text: '', content_type: 'photo', media: { stored: true, url: '/files/old', thumb: '/files/old' }, entities: [], detail: null },
 			],
 		});
 		const c = card('Edit history');

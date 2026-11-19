@@ -74,7 +74,7 @@ const GAME_COVER = { stored: true, fetchable: false, url: '/files/standin-986001
 const INVOICE_PHOTO = { stored: true, fetchable: false, url: '/files/standin-986002', thumb: '/files/standin-986002', render: 'image', ext: 'jpg', w: 800, h: 600, name: '', size: 64000 };
 
 type Entity = { offset: number; length: number; type: string; url?: string; user_id?: number | null; language?: string; custom_emoji_id?: string };
-type Edit = { at: string; text: string; content_type: string; entities: Entity[] };
+type Edit = { at: string; text: string; content_type: string; entities: Entity[]; detail: unknown };
 type Sample = { content_type: string; text?: string; entities?: (v: View) => Entity[]; edits?: (v: View) => Edit[]; edited_at?: string; detail?: (v: View) => unknown; service?: (v: View) => Service; media?: { round?: boolean }; tdlib_type?: string; kinds?: Partial<Kinds> };
 // A service message's action as Go sends it. parts spell the text, a
 // name pointing at its index in refs.users (LOCAL until openapi.yaml
@@ -181,7 +181,7 @@ function samples(): Sample[] {
 			['A quote from the docs.', 'block_quote'], ['docs', 'italic'], ['A long quote that Telegram folds: line one of it,\nline two of it,\nline three of it,\nline four of it.', 'expandable_block_quote'],
 		]) },
 		{ content_type: 'text', text: editedText, entities: () => entitiesIn(editedText, [['Friday', 'bold'], ['the usual place', 'text_url', { url: 'https://example.org/place' }]]),
-			edited_at: '2026-11-16T08:05:00Z', edits: () => [{ at: '2026-11-16T08:00:00Z', text: 'The meetup is on Thursday, see #meetup.', content_type: 'text', entities: entitiesIn('The meetup is on Thursday, see #meetup.', [['Thursday', 'italic'], ['#meetup', 'hashtag']]) }] },
+			edited_at: '2026-11-16T08:05:00Z', edits: () => [{ at: '2026-11-16T08:00:00Z', text: 'The meetup is on Thursday, see #meetup.', content_type: 'text', detail: null, entities: entitiesIn('The meetup is on Thursday, see #meetup.', [['Thursday', 'italic'], ['#meetup', 'hashtag']]) }] },
 		{ content_type: 'video_note', media: { round: true } },
 		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.2088, lon: 106.8456, accuracy: null, live: null }), kinds: { reactions: [{ emoji: '📍', count: 2 }] } },
 		{ content_type: 'location', detail: () => ({ kind: 'location', lat: -6.9175, lon: 107.6191, accuracy: 12, live: { period: 3600, heading: 90, proximity_radius: 0, updates: 17 } }) },
