@@ -119,15 +119,18 @@ type owned struct {
 
 // fwdMeta is what the answers of a list's configurations of one type
 // need beside their rows: their owners and federations, each read in
-// one query, and the federations' names.
+// one query, the federations' names, and, for a viewer that may
+// transfer, the accounts and the request scope (fwdCandidates).
 type fwdMeta struct {
-	owners map[int64]webdb.OwnerInfo
-	feds   map[int64]uint64
-	names  map[uint64]string
+	owners   map[int64]webdb.OwnerInfo
+	feds     map[int64]uint64
+	names    map[uint64]string
+	sc       scope.Scope
+	accounts []webdb.Account
 }
 
 // fwdMetaOf reads the fwdMeta of the configurations ids of type t.
-func (s *Server) fwdMetaOf(ctx context.Context, v scope.Viewer, t webdb.ResourceType,
+func (s *Server) fwdMetaOf(ctx context.Context, sc scope.Scope, v scope.Viewer, t webdb.ResourceType,
 	ids []uint64) (fwdMeta, error) {
 	keys := make([]int64, len(ids))
 	for i, id := range ids {
@@ -143,14 +146,20 @@ func (s *Server) fwdMetaOf(ctx context.Context, v scope.Viewer, t webdb.Resource
 	if m.feds, err = webdb.ResourceFederations(ctx, s.app, t, keys); err != nil {
 		return m, err
 	}
-	m.names, err = s.fedNames(ctx, v)
+	if m.names, err = s.fedNames(ctx, v); err != nil {
+		return m, err
+	}
+	m.sc = sc
+	if sc.SeesAllForwarding() {
+		m.accounts, err = webdb.ListAccounts(ctx, s.app)
+	}
 	return m, err
 }
 
 // ownership is a configuration's owner and federation: its owner from
-// m, or shared (id 0, active) when it has none, and its federation,
-// Default when it has no row.
-func (s *Server) ownership(ctx context.Context, v scope.Viewer, id uint64, m fwdMeta) owned {
+// m, or shared (id 0, active) when it has none, its federation, Default
+// when it has no row, and who the viewer may give it to.
+func (s *Server) ownership(ctx context.Context, v scope.Viewer, id uint64, chat int64, m fwdMeta) owned {
 	owner := fwdPerson{ID: 0, Name: s.textFor(ctx, v, "fwd.shared"), Active: true}
 	if o, ok := m.owners[int64(id)]; ok {
 		owner = fwdPerson{ID: o.ID, Name: o.Name(), Role: o.Role, Active: o.Active}
@@ -160,7 +169,7 @@ func (s *Server) ownership(ctx context.Context, v scope.Viewer, id uint64, m fwd
 		ID:                 id,
 		Owner:              owner,
 		Federation:         fedRef{fed, m.names[fed]},
-		TransferCandidates: []fwdPerson{},
+		TransferCandidates: fwdCandidates(m.sc, m.accounts, fed, chat, owner.ID),
 	}
 }
 
@@ -188,7 +197,7 @@ type t2dRoute struct {
 }
 
 func (s *Server) t2dJSON(ctx context.Context, v scope.Viewer, h logdb.T2DWebhook, m fwdMeta) t2dRoute {
-	return t2dRoute{owned: s.ownership(ctx, v, h.ID, m), Chat: s.fwdPick(h.Chat),
+	return t2dRoute{owned: s.ownership(ctx, v, h.ID, h.Chat.ID, m), Chat: s.fwdPick(h.Chat),
 		URLMasked: maskWebhook(h.URL), Types: logdb.T2D.List(h.Types),
 		Enabled: h.Enabled, Sent: h.Sent, LastSent: isoPtr(h.LastSent)}
 }
@@ -226,7 +235,7 @@ func (s *Server) botsByID(ctx context.Context) (map[uint64]logdb.BotRow, error) 
 // bot users (botProfiles).
 func (s *Server) d2tJSON(ctx context.Context, v scope.Viewer, d logdb.D2TRoute,
 	m fwdMeta, bots map[uint64]logdb.BotRow, profiles map[int64]bool) d2tRoute {
-	out := d2tRoute{owned: s.ownership(ctx, v, d.ID, m),
+	out := d2tRoute{owned: s.ownership(ctx, v, d.ID, d.Chat.ID, m),
 		// A snowflake does not fit a JavaScript number exactly.
 		ChannelID: strconv.FormatUint(d.ChannelID, 10), ChannelName: d.ChannelName,
 		Chat:        s.fwdPick(d.Chat),
@@ -886,7 +895,7 @@ func loadT2D(ctx context.Context, pr *pageRequest) (any, error) {
 	for i, w := range ws {
 		ids[i] = w.ID
 	}
-	m, err := s.fwdMetaOf(ctx, v, webdb.ResT2DWebhook, ids)
+	m, err := s.fwdMetaOf(ctx, pr.scope, v, webdb.ResT2DWebhook, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -923,7 +932,7 @@ func loadD2T(ctx context.Context, pr *pageRequest) (any, error) {
 	for i, r := range rs {
 		ids[i] = r.ID
 	}
-	m, err := s.fwdMetaOf(ctx, v, webdb.ResD2TRoute, ids)
+	m, err := s.fwdMetaOf(ctx, pr.scope, v, webdb.ResD2TRoute, ids)
 	if err != nil {
 		return nil, err
 	}

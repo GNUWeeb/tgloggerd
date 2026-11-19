@@ -2736,7 +2736,6 @@ paths:
 
   /api/forwarding/telegram-discord/{id}/transfer:
     post:
-      x-tgd-status: planned
       operationId: transferT2D
       tags: [forwarding]
       summary: Give a webhook to another owner
@@ -2893,7 +2892,6 @@ paths:
 
   /api/forwarding/discord-telegram/{id}/transfer:
     post:
-      x-tgd-status: planned
       operationId: transferD2T
       tags: [forwarding]
       summary: Give a route to another owner

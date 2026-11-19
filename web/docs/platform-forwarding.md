@@ -40,11 +40,13 @@ Bodies are JSON, every write carries the session's CSRF token in
                                                    enabled, webhook_url
     DELETE /api/forwarding/telegram-discord/{id}
     POST   /api/forwarding/telegram-discord/test   {id} or {webhook_url}; 204
+    POST   /api/forwarding/telegram-discord/{id}/transfer  {owner_id}; 204
     POST   /api/forwarding/discord-telegram        create; 201 {id}
     PATCH  /api/forwarding/discord-telegram/{id}   discord_channel_id, chat_id,
                                                    discord_bot_id, telegram_bot_id,
                                                    types, enabled
     DELETE /api/forwarding/discord-telegram/{id}
+    POST   /api/forwarding/discord-telegram/{id}/transfer  {owner_id}; 204
     GET    /api/forwarding/federations?chat_id=    {federations: FedRef[]}
     GET    /api/bots?kind=                         {bots: BotRef[]}
     POST   /api/bots                               {kind, name, token}; 201 Bot
@@ -126,8 +128,9 @@ configurations with their counts of what was sent, and the bots.
 - Every change writes a `web_audit` row: `fwd_t2d_create`,
   `fwd_t2d_update`, `fwd_t2d_delete`, `fwd_d2t_create`,
   `fwd_d2t_update`, `fwd_d2t_delete`, `bot_create`, `bot_update`,
-  `bot_delete`, `bot_transfer`, with the id, the chat and what
-  changed, never a token. Tests change nothing and are not audited.
+  `bot_delete`, `bot_transfer`, `fwd_t2d_transfer`,
+  `fwd_d2t_transfer`, with the id, the chat and what changed, never a
+  token. Tests change nothing and are not audited.
 - Every configuration and every bot created here is owned by the
   account that created it;
   `web_resource_relations`, see *Ownership* in
@@ -157,6 +160,20 @@ configurations with their counts of what was sent, and the bots.
   audit row names a federation other than Default
   (`federation=<id>`). The pages' `federations` are the federations
   the viewer administers.
+- Transfer: admins and superadmins give a configuration to one of its
+  `transfer_candidates`: for a superadmin every active account; for
+  an admin that administers the configuration's federation, that
+  federation's active admins and its active members holding `forward`
+  to whom the configuration's group is granted there (so the new
+  owner sees it); for an admin of other federations nobody. Anyone
+  else is 400 `bad_request`, and to a member the operations do not
+  exist (404). A configuration without an owner gets its first one.
+  It keeps forwarding and stays in its federation. A route goes to a
+  member only when the member owns both its bots (409
+  `bot_not_owned`); give it the bots first (*Bots*, Transfer).
+- A disabled owner's configurations keep forwarding: the lists answer
+  the owner with `active: false`, which the pages flag as "owner
+  disabled" for an admin to transfer.
 
 ## Bots
 

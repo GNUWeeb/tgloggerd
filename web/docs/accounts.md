@@ -379,8 +379,9 @@ resource, so more relations (sharing) can be added later:
   groups; admins and superadmins see every configuration of the chats
   they see. Each configuration is also in a federation, stored beside
   the owner in `web_resource_federations` (web migration 000018; no
-  row is Default), and dropped with it (platform-forwarding.md).
-  Transferring them is `forwarding-per-user`'s.
+  row is Default), and dropped with it. Admins transfer the
+  configurations of their federations, superadmins any
+  (platform-forwarding.md, Transfer).
 
 ### Assigning the existing resources (deployment)
 

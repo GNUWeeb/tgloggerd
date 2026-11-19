@@ -75,7 +75,9 @@ func TestForwardingPages(t *testing.T) {
 		t.Fatalf("webhooks %v", routes)
 	}
 	if got := js(routes[2]); got != canon(`{"id":1,"owner":{"id":0,"name":"Shared","active":true},`+
-		`"federation":{"id":0,"name":"Default"},"transfer_candidates":[],`+
+		`"federation":{"id":0,"name":"Default"},"transfer_candidates":[`+
+		`{"id":3,"name":"gw_admin","role":"admin","active":true},`+
+		`{"id":4,"name":"sec_lead","role":"admin","active":true}],`+
 		`"chat":{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup",`+
 		`"photo":"`+photoOf(gnuWeebPhoto)+`"},"url_masked":"https://discord.com/api/webhooks/1100000000000000001/****",`+
 		`"types":["text","photo","video","animation","video_note","document","sticker","voice","audio",`+
