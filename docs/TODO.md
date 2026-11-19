@@ -108,7 +108,6 @@ The file store as a capped cache in front of Telegram:
 Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
-- [`chat-recheck`](todo/chat-recheck.md): Recheck a chat's messages against Telegram when it is opened or scrolled and after a restart, filling missed messages, edits and deletions.
 - [`msg-repair-census`](todo/msg-repair-census.md): Count what the repair pass left without a kind or detail, turn it off, and adjust these items.
 - [`msg-widgets`](todo/msg-widgets.md): Show a widget message's box at its size and its HTML as escaped source, never rendered.
 
