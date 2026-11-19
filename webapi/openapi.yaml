@@ -3135,8 +3135,11 @@ paths:
         group is added to the chosen federations, which must be ones
         the viewer administers (404 otherwise, before anything is
         joined); none leaves it in Default (web-accounts.md section 3).
-        Filing the group into the chosen ones comes with
-        join-chat-federations; until then it stays in Default.
+        The group is filed when the outcome is joined; after
+        request_sent or approval_required the choice is held
+        (filing_pending) and applied once the account is a member. A
+        group the account was already in (already_member) is not
+        filed: moving an existing group is the federation editor's.
       security:
         - session: []
           csrf: []
@@ -3152,6 +3155,9 @@ paths:
                   type: string
                 federation_ids:
                   type: array
+                  description: >-
+                    The federations to file the joined group into; 0
+                    (Default) and none leave it in Default.
                   items:
                     type: integer
                     format: int64
@@ -3172,6 +3178,38 @@ paths:
           $ref: '#/components/responses/NotFound'
         '502':
           $ref: '#/components/responses/DaemonFailed'
+
+  /api/join-chat/pending/{id}:
+    delete:
+      operationId: cancelJoinFiling
+      x-tgd-status: planned
+      tags: [join-chat]
+      summary: Drop a held filing of a group not yet joined
+      description: >-
+        Drops one held filing (JoinChatProps.pending), so the group is
+        not filed into that federation when the account becomes a
+        member. Admins drop their own, superadmins any. Audited
+        (chat_join_cancel). Anyone else, and an id that is not held
+        or not the viewer's, gets 404.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Dropped.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/users/{id}/lookup-name:
     post:
@@ -9836,9 +9874,53 @@ components:
         retry_after:
           type: integer
           description: Seconds to wait, with flood_wait.
+        federation_ids:
+          type: array
+          description: >-
+            Join only: the federations the group was filed into
+            (outcome joined), or is held for (filing_pending); empty
+            when none was chosen or nothing is filed. Absent from a
+            preview.
+          items:
+            type: integer
+            format: int64
+        filing_pending:
+          type: boolean
+          description: >-
+            Join only: true when federation_ids are held until the
+            account is a member (request_sent, approval_required).
+            Absent from a preview.
+    JoinFiling:
+      type: object
+      description: >-
+        A held filing: a group whose join waits for approval, and a
+        federation it goes into once the account is a member.
+      required: [id, ref, title, chat_id, federation, by, at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        ref:
+          type: string
+          description: The reference as the daemon normalised it.
+        title:
+          type: string
+          description: The chat's title at the request; empty when unknown.
+        chat_id:
+          type: integer
+          format: int64
+          description: 0 when the account could not see the chat yet.
+        federation:
+          $ref: '#/components/schemas/FedRef'
+        by:
+          type: string
+          description: The account that asked, by username.
+        at:
+          type: string
+          description: When it was asked (UTC, RFC 3339).
     JoinChatProps:
       type: object
-      required: [federations, recent, api_configured]
+      required: [federations, recent, pending, api_configured]
       properties:
         api_configured:
           type: boolean
@@ -9851,8 +9933,20 @@ components:
           description: Federations the viewer may file a joined group into.
           items:
             $ref: '#/components/schemas/FedRef'
+        pending:
+          type: array
+          description: >-
+            The held filings, oldest first: an admin's own, every one
+            for a superadmin.
+          items:
+            $ref: '#/components/schemas/JoinFiling'
         recent:
           type: array
+          description: >-
+            The last attempts, newest first: a superadmin sees every
+            account's, an admin only its own. A chat the viewer's
+            scope hides is left out, and a non-superadmin gets no
+            title for an attempt that does not name its chat id.
           items:
             type: object
             required: [at, by, ref, title, outcome]
