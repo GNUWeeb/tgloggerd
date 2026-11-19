@@ -59,9 +59,8 @@ export function MsgFlags({ m }: { m: MessageRow }) {
 	);
 }
 
-// A row's kind: a service row by its action. Go does not send a row's
-// service_type yet; drop the cast once MessageRow in the schema has it.
-const rowType = (m: MessageRow) => typeLabel(m.content_type, (m as MessageRow & { service_type?: string }).service_type);
+// A row's kind: a service row by its action.
+const rowType = (m: MessageRow) => typeLabel(m.content_type, m.service_type);
 
 export const chatPath = (m: MessageRow) => `${m.scope === 'group' ? '/groups' : '/users'}/${m.chat.id}/chat?at=${m.message_id}`;
 const chatLink = (c: MessageRow['chat']) => (c.kind === 'group' ? `/groups/${c.id}` : `/users/${c.id}`);

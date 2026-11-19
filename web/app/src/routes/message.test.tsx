@@ -5,7 +5,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { fixture, renderPage, setup } from '../test/page.tsx';
-import { NO_ENTITIES } from '../test/kinds.ts';
 import type { MessageProps } from './message.tsx';
 import type { MessagesProps } from './messages.tsx';
 import type { GroupsProps } from './groups.tsx';
@@ -46,8 +45,8 @@ describe('message page', () => {
 		render({
 			content_type: 'photo', text: 'now', edited: true, edited_at: '2026-11-10T11:00:00Z',
 			edits: [
-				{ at: '2026-11-10T10:00:00Z', text: 'was a file', content_type: 'document', media: { stored: true, url: '/files/doc', thumb: null, name: 'notes.pdf' }, ...NO_ENTITIES },
-				{ at: '2026-11-10T10:30:00Z', text: '', content_type: 'photo', media: { stored: true, url: '/files/old', thumb: '/files/old' }, ...NO_ENTITIES },
+				{ at: '2026-11-10T10:00:00Z', text: 'was a file', content_type: 'document', media: { stored: true, url: '/files/doc', thumb: null, name: 'notes.pdf' }, entities: [] },
+				{ at: '2026-11-10T10:30:00Z', text: '', content_type: 'photo', media: { stored: true, url: '/files/old', thumb: '/files/old' }, entities: [] },
 			],
 		});
 		const c = card('Edit history');

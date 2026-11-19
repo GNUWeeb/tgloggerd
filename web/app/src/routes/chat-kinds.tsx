@@ -14,7 +14,7 @@ import { duration } from '../ui/media.tsx';
 import { PaidMedia } from './chat-paid.tsx';
 import type { Viewer } from '../page.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
-import type { HasEntities, PollEntities, TextEntity } from '../api/entities.ts';
+import type { TextEntity } from '../api/entities.ts';
 import type { S } from '../api/schema.ts';
 
 type Detail = NonNullable<S['MessageDetail']>;
@@ -146,10 +146,9 @@ export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 		case 'poll': {
 			const label = d.type === 'quiz' ? 'Quiz' : d.anonymous ? 'Anonymous poll' : 'Poll';
 			const more = d.options_total - d.options.length;
-			const pe = d as PollEntities;
 			return (
 				<div className="k-card k-poll">
-					<div className="k-question"><RichText text={d.question} entities={pe.question_entities} chat={chat} /></div>
+					<div className="k-question"><RichText text={d.question} entities={d.question_entities} chat={chat} /></div>
 					<div className="c-sub">{label}{d.multiple ? ' . several answers' : ''}{d.closed ? ' . closed' : d.close_date ? ` . closes ${dateTime(d.close_date, v)}` : ''}</div>
 					<ul className="k-options">{d.options.map((o, i) => (
 						<li key={i} className={o.correct ? 'correct' : ''}>
@@ -158,7 +157,7 @@ export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 						</li>
 					))}</ul>
 					<div className="c-sub">{fmt(d.total_voters)} {d.total_voters === 1 ? 'vote' : 'votes'}{more > 0 ? ` . ${fmt(more)} more option${more === 1 ? '' : 's'} not shown` : ''}</div>
-					{d.explanation && <div className="k-explain"><RichText text={d.explanation} entities={pe.explanation_entities} chat={chat} /></div>}
+					{d.explanation && <div className="k-explain"><RichText text={d.explanation} entities={d.explanation_entities} chat={chat} /></div>}
 				</div>
 			);
 		}
@@ -170,7 +169,7 @@ export function KindDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 					<ul>{d.tasks.map((t) => (
 						<li key={t.id} className={t.done ? 'done' : ''}>
 							{t.done ? <SquareCheck size={15} aria-label="done" /> : <Square size={15} aria-label="not done" />}
-							<span className="a-grow"><span className="k-task"><RichText text={t.text} entities={(t as HasEntities).entities} chat={chat} /></span>{t.done && (t.done_by || t.done_at) && <span className="c-sub"> . {t.done_by ? <>by <RefLink r={t.done_by} /></> : 'done'}{t.done_at ? ` ${dateTime(t.done_at, v)}` : ''}</span>}</span>
+							<span className="a-grow"><span className="k-task"><RichText text={t.text} entities={t.entities} chat={chat} /></span>{t.done && (t.done_by || t.done_at) && <span className="c-sub"> . {t.done_by ? <>by <RefLink r={t.done_by} /></> : 'done'}{t.done_at ? ` ${dateTime(t.done_at, v)}` : ''}</span>}</span>
 						</li>
 					))}</ul>
 					{more > 0 && <div className="c-sub">and {fmt(more)} more task{more === 1 ? '' : 's'}</div>}

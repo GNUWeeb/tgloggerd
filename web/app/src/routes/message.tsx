@@ -11,28 +11,21 @@ import { MessageMedia, kindOf } from './chat-media.tsx';
 import { Counts, KindDetail, Reactions, TEXT_INSIDE, topicColor } from './chat-kinds.tsx';
 import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
-import { entitiesOf } from '../api/entities.ts';
 import { RichText } from '../ui/richtext.tsx';
-import type { ChatMessage, MessageFull } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
 export type MessageProps = S['MessageProps'];
 
-// The link preview and the forum topic, as the chat gives them. Until
-// openapi.yaml has them on MessageFull they are typed here; drop this
-// once it does.
-type PageMessage = MessageFull & { link_preview?: ChatMessage['link_preview']; topic?: S['ChatTopic'] | null };
-
 const ORIGIN = { user: 'a user', hidden_user: 'a user who hides their account', chat: 'a group', channel: 'a channel' } as const;
 
 function MessagePage({ page }: { page: PageData<MessageProps> }) {
-	const m: PageMessage = page.props.message;
+	const m = page.props.message;
 	const v = page.viewer;
 	const chatHref = m.chat.kind === 'group' ? `/groups/${m.chat.id}` : `/users/${m.chat.id}`;
 	// Hashtags search the message's chat.
 	const chat = { scope: m.scope, id: m.chat.id };
-	const ents = entitiesOf(m);
+	const ents = m.entities;
 	const list = m.scope === 'group' ? ['Group messages', '/group_messages'] as const : ['Private messages', '/private_messages'] as const;
 	// The media as the chat draws it, by kind; only media no kind fits
 	// (an unknown type without a render) falls back to a plain file row.
@@ -123,7 +116,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 										{e.media && (e.media.thumb
 											? <a href={e.media.url ?? undefined} target="_blank" rel="noopener" className="a-editmedia" aria-label="Earlier file"><img src={e.media.thumb} alt="" width={72} height={72} loading="lazy" /></a>
 											: <div className="a-muted sm">{e.media.url ? <a href={e.media.url} className="a-link">{e.media.name || 'earlier file'}</a> : `${e.media.name || 'earlier file'} (not stored)`}</div>)}
-										{e.text ? <RichText text={e.text} entities={entitiesOf(e)} chat={chat} /> : !e.media && <span className="a-muted">(no text)</span>}
+										{e.text ? <RichText text={e.text} entities={e.entities} chat={chat} /> : !e.media && <span className="a-muted">(no text)</span>}
 									</>,
 								})),
 								...(m.edited_at ? [{ icon: Pencil, at: m.edited_at, title: 'Current version', body: <RichText text={m.text} entities={ents} chat={chat} />, tone: 'accent' as const }] : []),

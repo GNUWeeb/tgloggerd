@@ -11,8 +11,7 @@ import { MessageMedia } from './chat-media.tsx';
 import { LinkPreview } from './chat-preview.tsx';
 import { Counts, KindDetail, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
-import { fetchMembers, seesMembers, type MemberCount } from '../api/members.ts';
-import { entitiesOf } from '../api/entities.ts';
+import { fetchMembers, seesMembers } from '../api/members.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
 import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
@@ -115,9 +114,9 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 						{r.resolved === false ? <span className="c-sub">not in the archive</span> : <span className={r.deleted ? 'c-replydel' : ''}>{r.snippet}{r.deleted ? ' (deleted)' : ''}</span>}
 					</a>)}
 				<MessageMedia msg={m} onClick={pref.mediaOnClick} />
-				{m.detail && <KindDetail d={m.detail} text={m.text} entities={entitiesOf(m)} chat={chat} v={v} />}
+				{m.detail && <KindDetail d={m.detail} text={m.text} entities={m.entities} chat={chat} v={v} />}
 				{m.content_type === 'unknown' && <div className="c-unknown c-sub">{m.tdlib_type ? `A kind of message this view does not show yet (${m.tdlib_type})` : 'A kind of message this view does not show'}</div>}
-				{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) && <div className="c-text"><RichText text={m.text} entities={entitiesOf(m)} chat={chat} /></div>}
+				{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) && <div className="c-text"><RichText text={m.text} entities={m.entities} chat={chat} /></div>}
 				{m.link_preview && <LinkPreview lp={m.link_preview} />}
 				{m.author_signature && <div className="c-sign">- {m.author_signature}</div>}
 				<Reactions list={m.reactions} />
@@ -135,10 +134,10 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 							<div key={i}>
 								<span className="c-sub">{hm(e.at, v)}{e.content_type && e.content_type !== m.content_type ? ` . was ${e.content_type}` : ''}</span>
 								{e.media && <EditMedia m={e.media} type={e.content_type ?? m.content_type} />}
-								{e.text ? <div><RichText text={e.text} entities={entitiesOf(e)} chat={chat} /></div> : !e.media && <div className="c-sub">(no text)</div>}
+								{e.text ? <div><RichText text={e.text} entities={e.entities} chat={chat} /></div> : !e.media && <div className="c-sub">(no text)</div>}
 							</div>
 						))}
-						<div><span className="c-sub">{m.edited_at ? hm(m.edited_at, v) : ''} (current)</span><div><RichText text={m.text} entities={entitiesOf(m)} chat={chat} /></div></div>
+						<div><span className="c-sub">{m.edited_at ? hm(m.edited_at, v) : ''} (current)</span><div><RichText text={m.text} entities={m.entities} chat={chat} /></div></div>
 					</div></div>
 				)}
 			</div>
@@ -401,7 +400,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const info = publicView ? (isGroup ? back : null) : back;
 	// Telegram's member count, when the archive has it; beside it the
 	// members the archive has seen.
-	const counted = p.chat.kind === 'group' ? (group as MemberCount | null)?.member_count ?? (p.chat.group as MemberCount).member_count : null;
+	const counted = p.chat.kind === 'group' ? group?.member_count ?? p.chat.group.member_count : null;
 	const sub = p.chat.kind === 'group'
 		? `${TYPE_LABEL[p.chat.group.type]}${counted != null ? ` . ${fmt(counted)} members` : ''}${p.chat.group.members ? ` . ${fmt(p.chat.group.members)} members seen` : ''} . ${fmt(group?.msg_count ?? p.chat.group.msg_count)} messages`
 		: `private chat with the logging account . ${fmt(p.chat.count)} messages`;
