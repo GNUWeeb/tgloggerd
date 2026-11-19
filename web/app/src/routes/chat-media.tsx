@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 're
 import { createPortal } from 'react-dom';
 import { CloudDownload, CloudOff, Download, ExternalLink, Pause, Play, Trash2, X } from 'lucide-react';
 import { duration } from '../ui/media.tsx';
+import { useScrollLock } from '../ui/scrollLock.ts';
 import { playTgs } from '../ui/lottie.ts';
 import { bytes } from '../format.ts';
 import type { ChatMedia, ChatMessage } from '../types.ts';
@@ -35,16 +36,17 @@ const plainClick = (e: MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey
 // only the file's URL, name and size, so a file row can open it too.
 export function Lightbox({ m, kind, onClose }: { m: Pick<Media, 'url' | 'name' | 'w' | 'h' | 'poster'>; kind: 'picture' | 'video'; onClose: () => void }) {
 	const close = useRef<HTMLButtonElement>(null);
+	useScrollLock();
+	const closing = useRef(onClose);
+	closing.current = onClose;
 	useEffect(() => {
 		// Esc closes the viewer only, not a dialog it was opened from
 		// (a file's preview): caught first, and stopped there.
-		const on = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); onClose(); } };
+		const on = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); closing.current(); } };
 		addEventListener('keydown', on, true);
-		const prev = document.body.style.overflow;
-		document.body.style.overflow = 'hidden';
 		close.current?.focus();
-		return () => { removeEventListener('keydown', on, true); document.body.style.overflow = prev; };
-	}, [onClose]);
+		return () => removeEventListener('keydown', on, true);
+	}, []);
 	const url = m.url ?? undefined;
 	const box = (
 		<div className="c-lightbox" role="dialog" aria-modal="true" aria-label="Media viewer" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

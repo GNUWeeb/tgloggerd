@@ -193,3 +193,67 @@ test('the grid fills every row of a batch and scrolls for more', async ({ page }
 	expect(new URL(pages[0]!).searchParams.get('page')).toBe('2');
 	await expect(page).toHaveURL(/\/files$/);
 });
+
+test('closing a preview, by any path and after its bigger view, leaves the page scrolling for more', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await page.goto('/users');
+	await page.click('nav[aria-label="Main"] a:has-text("Files")');
+	await expect(page.getByRole('heading', { name: 'Files', level: 1 })).toBeVisible();
+	const cards = page.locator('.a-filecard');
+	await expect.poll(() => cards.count()).toBeGreaterThan(0);
+	// A stored photo in the first batch: its preview opens a bigger view.
+	const rows = (await (await page.request.get('/api/page/files')).json()).props.rows as { name: string; file_type: string; stored: boolean; ext: string }[];
+	const photo = rows.find((r) => r.file_type === 'photo' && r.stored && !/^(webm|tgs)$/i.test(r.ext))!;
+	expect(photo, 'a stored photo on the first page').toBeTruthy();
+	// The page is unlocked and scrolls, and its end loads the next batch.
+	const scrollsForMore = async () => {
+		expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe('hidden');
+		const n = await cards.count();
+		const y = await page.evaluate(() => scrollY);
+		await page.mouse.wheel(0, 100000);
+		await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(y);
+		await expect.poll(() => cards.count()).toBeGreaterThan(n);
+	};
+	const open = async (name = photo.name) => {
+		await page.locator('.a-filecard', { has: page.locator('.a-uname', { hasText: name }) }).first().click();
+		const d = page.getByRole('dialog', { name });
+		await expect(d).toBeVisible();
+		expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe('hidden');
+		return d;
+	};
+	const bigger = async (d: ReturnType<typeof page.getByRole>, close: 'button' | 'esc' | 'backdrop') => {
+		await d.getByRole('button', { name: 'View bigger' }).click();
+		const viewer = page.getByRole('dialog', { name: 'Media viewer' });
+		await expect(viewer).toBeVisible();
+		if (close === 'button') await viewer.getByRole('button', { name: 'Close' }).click();
+		else if (close === 'esc') await page.keyboard.press('Escape');
+		else await viewer.click({ position: { x: 5, y: 300 } });
+		await expect(viewer).toHaveCount(0);
+		await expect(d).toBeVisible();
+	};
+	const backdrop = () => page.locator('.a-modal-wrap').click({ position: { x: 5, y: 300 } });
+	const paths: [string, (d: ReturnType<typeof page.getByRole>) => Promise<void>][] = [
+		['close button', (d) => d.getByRole('button', { name: 'Close' }).click()],
+		['Esc', () => page.keyboard.press('Escape')],
+		['backdrop', backdrop],
+	];
+	for (const viaBigger of ['', 'button', 'esc', 'backdrop'] as const) {
+		for (const [label, close] of paths) {
+			await test.step(`${label}${viaBigger ? ` after the bigger view closed by ${viaBigger}` : ''}`, async () => {
+				await page.evaluate(() => scrollTo(0, 0));
+				const d = await open();
+				if (viaBigger) await bigger(d, viaBigger);
+				await close(d);
+				await expect(d).toHaveCount(0);
+				await scrollsForMore();
+			});
+		}
+	}
+	// Leaving the page with the preview (and its bigger view) open.
+	await page.evaluate(() => scrollTo(0, 0));
+	const d = await open();
+	await d.getByRole('button', { name: 'View bigger' }).click();
+	await page.goBack();
+	await expect(page.getByRole('heading', { name: 'Users', level: 1 })).toBeVisible();
+	expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe('hidden');
+});

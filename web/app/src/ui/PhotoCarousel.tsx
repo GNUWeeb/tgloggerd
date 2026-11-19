@@ -6,6 +6,7 @@
 // button or a click beside the photo closes it.
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { track } from './busy.ts';
+import { useScrollLock } from './scrollLock.ts';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, CloudOff, ExternalLink, ImageOff, LoaderCircle, X } from 'lucide-react';
 import { api, ApiError, ok } from '../api/client.ts';
@@ -55,9 +56,12 @@ export function PhotoCarousel({ kind, id, start, title, viewer, onClose }: { kin
 	}, [kind, id, start]);
 	const n = photos?.items.length ?? 0;
 	const go = useCallback((i: number) => setAt((cur) => (n ? Math.min(n - 1, Math.max(0, i)) : cur)), [n]);
+	useScrollLock();
+	const closing = useRef(onClose);
+	closing.current = onClose;
 	useEffect(() => {
 		const on = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') onClose();
+			if (e.key === 'Escape') closing.current();
 			// Newest first: left is newer, right is older, as a timeline reads.
 			else if (e.key === 'ArrowLeft') setAt((i) => Math.max(0, i - 1));
 			else if (e.key === 'ArrowRight') setAt((i) => Math.min(n - 1, i + 1));
@@ -67,11 +71,9 @@ export function PhotoCarousel({ kind, id, start, title, viewer, onClose }: { kin
 			e.preventDefault();
 		};
 		addEventListener('keydown', on);
-		const prev = document.body.style.overflow;
-		document.body.style.overflow = 'hidden';
 		close.current?.focus();
-		return () => { removeEventListener('keydown', on); document.body.style.overflow = prev; };
-	}, [n, onClose]);
+		return () => removeEventListener('keydown', on);
+	}, [n]);
 	const onDown = (e: PointerEvent) => { down.current = e.clientX; };
 	const onUp = (e: PointerEvent) => {
 		if (down.current === null) return;

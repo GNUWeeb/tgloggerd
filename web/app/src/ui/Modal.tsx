@@ -1,16 +1,19 @@
 // The one dialog pattern: centred, header with close, scrolling body,
 // footer for actions. Escape or a backdrop click closes it.
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { useScrollLock } from './scrollLock.ts';
 
 export function Modal({ title, icon, onClose, children, footer, wide = false }: { title: string; icon?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+	useScrollLock();
+	// Through a ref: a caller may pass a new onClose on every render.
+	const close = useRef(onClose);
+	close.current = onClose;
 	useEffect(() => {
-		const on = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+		const on = (e: KeyboardEvent) => e.key === 'Escape' && close.current();
 		addEventListener('keydown', on);
-		const prev = document.body.style.overflow;
-		document.body.style.overflow = 'hidden';
-		return () => { removeEventListener('keydown', on); document.body.style.overflow = prev; };
-	}, [onClose]);
+		return () => removeEventListener('keydown', on);
+	}, []);
 	return (
 		<div className="a-modal-wrap" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
 			<div className={`a-modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
