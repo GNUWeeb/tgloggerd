@@ -109,7 +109,6 @@ Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
 - [`msg-repair-census`](todo/msg-repair-census.md): Count what the repair pass left without a kind or detail, turn it off, and adjust these items.
-- [`msg-widgets`](todo/msg-widgets.md): Show a widget message's box at its size and its HTML as escaped source, never rendered.
 
 ## Web backend in Go
 
