@@ -73,6 +73,11 @@ func TestListRegistryConditions(t *testing.T) {
 		// The page's own date filter takes >= and <= as well.
 		{"users", fq(`[{"field":"created_at","op":">=","value":"2026-01-01"}]`, "sort", "id"),
 			2, "9299100001,9299000008"},
+		// A bio or description word, through their FULLTEXT indexes.
+		{"users", fq(`[{"field":"bio","op":"matches","value":"kernel"}]`), 1, "9299000001"},
+		{"users", fq(`[{"field":"bio","op":"matches","value":"+gamer -kernel"}]`), 1, "9299000003"},
+		{"groups", fq(`[{"field":"description","op":"matches","value":"kernel patches"}]`), 1,
+			"-1001000000002"},
 		{"groups", fq(`[{"field":"hist_title","op":"=","value":"Title 7"}]`), 1, "-1001000200001"},
 		{"groups", fq(`[{"field":"has_photo","op":"IS NOT NULL"}]`, "sort", "id"), 2,
 			"-1001000000001,-1001000200001"},

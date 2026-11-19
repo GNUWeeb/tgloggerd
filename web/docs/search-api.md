@@ -143,7 +143,7 @@ With `?debug=1` (admin) the response echoes the exact generated SQL.
 | `NOT LIKE` | text | negation of `LIKE` |
 | `%LIKE%` | text | **contains**: the value is wrapped as `%value%` server-side (the user's own `%`/`_` are escaped, so their text matches literally). The easy "find rows containing this text" operator |
 | `NOT %LIKE%` | text | negation of `%LIKE%` (does not contain) |
-| `matches` | fulltext | `MATCH(col) AGAINST(value IN BOOLEAN MODE)` — full-text word search (message `text` fields). Supports Telegram-style boolean queries: `+must -exclude "a phrase"`. Words shorter than the server's min token length (3) are ignored |
+| `matches` | fulltext | `MATCH(col) AGAINST(value IN BOOLEAN MODE)` — full-text word search (message `text` fields; in the Go service also users' `bio` and groups' `description`). Supports Telegram-style boolean queries: `+must -exclude "a phrase"`. Words shorter than the server's min token length (3) are ignored |
 | `IS NULL` `IS NOT NULL` | nullable fields | presence test (no `v`) |
 
 **History / current-username fields** are `EXISTS` fields: `=`/`LIKE`/`%LIKE%`
@@ -178,7 +178,7 @@ the response, so a client can build its UI from the registry.
 | `is_support` | Support | bool | C | `= !=` |
 | `created_at` | Created | datetime | C | `= != < > <= >=` |
 | `updated_at` | Updated | datetime | C | `= != < > <= >=` |
-| `bio` | Bio | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
+| `bio` | Bio | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%`, and `matches` in the Go service |
 | `phone` | Phone | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
 | `language` | Language | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
 | `restriction_reason` | Restriction | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
@@ -203,8 +203,9 @@ before logging began), `first_name`/`last_name` hold the contact name too.
 
 Column fields on `telegram_user_extra_info` are `COALESCE`'d to their schema default, so a
 user whose extra-info row is absent (the daemon deletes all-default rows) still
-matches e.g. `bio = ''`. Sortable keys: `id, first_name, type, created_at,
-updated_at, msg_count, paid_star_count`.
+matches e.g. `bio = ''`. `bio matches` (Go service) searches the bios'
+FULLTEXT index; without a `sort` it orders by relevance. Sortable keys:
+`id, first_name, type, created_at, updated_at, msg_count, paid_star_count`.
 
 Datetime values accept MySQL-parseable strings (`2024-03-17`,
 `2024-03-17 09:00`). Boolean values are `0`/`1`.
@@ -215,7 +216,7 @@ Datetime values accept MySQL-parseable strings (`2024-03-17`,
 |-----|-------|------|------|-----------|
 | `id` | Group ID | int | C | `= != < > <= >=` |
 | `title` | Title | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
-| `description` | Description | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
+| `description` | Description | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%`, and `matches` in the Go service |
 | `type` | Type | enum | C | `= !=` — values `basic_group,supergroup,channel` |
 | `msg_count` | Messages | int | C | `= != < > <= >=` |
 | `member_count` | Members | int | C | `= != < > <= >=` |
@@ -227,10 +228,11 @@ Datetime values accept MySQL-parseable strings (`2024-03-17`,
 | `hist_description` | Description (ever) | text | E | `= LIKE %LIKE%` |
 | `hist_username` | Username (ever) | text | E | `= LIKE %LIKE%` (+never) |
 
-Group ids are negative Telegram chat ids. Sortable keys: `id, title, type,
-created_at, updated_at, msg_count, member_count`. `member_count` is
-Telegram's member count as the daemon last stored it; a group without
-one yet matches no comparison. It is a filter and a sort, not a column
+Group ids are negative Telegram chat ids. `description matches` (Go service)
+searches the descriptions' FULLTEXT index, by relevance without a `sort`.
+Sortable keys: `id, title, type, created_at, updated_at, msg_count,
+member_count`. `member_count` is Telegram's member count as the daemon
+last stored it; a group without one yet matches no comparison. It is a filter and a sort, not a column
 of the answer (the groups list page's rows carry it).
 
 ## Files field registry

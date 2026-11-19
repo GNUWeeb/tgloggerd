@@ -145,6 +145,18 @@ type Field struct {
 	// row must meet (chatBound), so it reads one chat's rows through
 	// the chat_id indexes instead of scanning the table.
 	NeedsChat bool
+	// Match is the column list of a "matches" condition, the
+	// FULLTEXT index's columns; "" is Expr. A text field whose Expr
+	// wraps its column (COALESCE) names the column itself here.
+	Match string
+}
+
+// matchExpr is the column list f's "matches" conditions search.
+func (f *Field) matchExpr() string {
+	if f.Match != "" {
+		return f.Match
+	}
+	return f.Expr
 }
 
 // Col is a displayed column: its key, label, render type and the field
@@ -555,10 +567,10 @@ func (e *Entity) chain(sc scope.Scope, conds []Cond, internal bool, exists *int,
 			where.WriteString(inIDs(e.idCol, c.engineIDs) + ")")
 			continue
 		case !f.Exists && op == OpMatch:
-			where.WriteString("MATCH(" + f.Expr + ") AGAINST(? IN BOOLEAN MODE))")
+			where.WriteString("MATCH(" + f.matchExpr() + ") AGAINST(? IN BOOLEAN MODE))")
 			val = mysqlText(c.V)
 			if *ftExpr == "" {
-				*ftExpr, *ftVal = f.Expr, val
+				*ftExpr, *ftVal = f.matchExpr(), val
 			}
 		case !f.Exists:
 			rhs := f.Bind

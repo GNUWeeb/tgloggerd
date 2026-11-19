@@ -92,6 +92,13 @@ func exists(key, label, table, column, extra string, ops Op) Field {
 		ExCol: column, ExExtra: extra, Ops: ops}
 }
 
+// withMatch gives a text field's "matches" conditions their FULLTEXT
+// column (Field.Match).
+func withMatch(f Field, column string) Field {
+	f.Match = column
+	return f
+}
+
 func internal(f Field) Field {
 	f.internal = true
 	return f
@@ -209,7 +216,10 @@ var Users = &Entity{
 		col("is_support", "u.is_support", Bool, "Support", boolOps, false),
 		col("created_at", "u.created_at", Datetime, "Created", dtOps, true),
 		col("updated_at", "u.updated_at", Datetime, "Updated", dtOps, true),
-		col("bio", "COALESCE(e.bio,'')", Text, "Bio", textOps, false),
+		// matches: the FULLTEXT index of the bios, or the search
+		// engine's users index (search_engine.go).
+		withMatch(col("bio", "COALESCE(e.bio,'')", Text, "Bio", textOps|OpMatch, false),
+			"e.bio"),
 		col("phone", "COALESCE(e.phone_number,'')", Text, "Phone", textOps, false),
 		col("language", "COALESCE(e.language_code,'')", Text, "Language", textOps, false),
 		col("restriction_reason", "COALESCE(e.restriction_reason,'')", Text,
@@ -328,7 +338,9 @@ var Groups = &Entity{
 	fields: []Field{
 		col("id", "g.id", Int, "Group ID", intOps, true),
 		col("title", "g.title", Text, "Title", textOps, true),
-		col("description", "g.description", Text, "Description", textOps, false),
+		// matches: the FULLTEXT index of the descriptions, or the
+		// search engine's groups index (search_engine.go).
+		col("description", "g.description", Text, "Description", textOps|OpMatch, false),
 		enum(col("type", "g.type", Enum, "Type", enumOps, true), "basic_group,supergroup,channel"),
 		col("msg_count", "g.msg_count", Int, "Messages", intOps, true),
 		// Telegram's count as the daemon last stored it; NULL (no
