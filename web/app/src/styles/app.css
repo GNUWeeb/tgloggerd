@@ -469,7 +469,9 @@
 .app .a-sc-tip { position: absolute; z-index: 3; pointer-events: none; white-space: nowrap; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; box-shadow: 0 6px 20px rgb(0 0 0 / .12); font-size: 13px; }
 .app .a-sc-tip b { font-size: 15px; }
 .app .a-sc-empty { height: 200px; display: grid; place-items: center; }
-.app .a-sc-busy { opacity: .6; transition: opacity .2s; }
+.app .a-bigchart { position: relative; }
+.app .a-sc-busy > :not(.a-sc-loading) { opacity: .6; transition: opacity .2s; }
+.app .a-sc-loading { position: absolute; top: 8px; right: 8px; z-index: 1; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); font-size: 12.5px; color: var(--fg-2); box-shadow: var(--shadow); }
 .app .a-sc-table { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; }
 .app .a-sc-table td { padding: 6px 12px; border-top: 1px solid var(--border); }
 .app .a-sc-table td.num, .app .a-sc-table th.num { text-align: right; }

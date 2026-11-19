@@ -17,6 +17,7 @@
 // Fetching again rather than shifting the points here keeps the period
 // boundaries (months, clock changes) the server's alone.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { LoaderCircle } from 'lucide-react';
 import { Card } from '../ui/primitives.tsx';
 import { SeriesChart, SeriesTable, VARIANTS, isVariant, type Variant } from '../ui/serieschart.tsx';
 import { fmt, SITE_DEFAULTS } from '../format.ts';
@@ -220,7 +221,12 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 				{saveErr && <span className="a-muted sm" role="status">Not saved; shown on this page only.</span>}
 			</div>
 			{load.error && <p className="a-sc-err" role="alert">{load.error}</p>}
-			<div className={`a-bigchart ${load.state === 'loading' && data ? 'a-sc-busy' : ''}`}>{body}</div>
+			{/* A long range of a coarse period can take seconds to count the
+			    first time: the old chart stays, dimmed, under a note. */}
+			<div className={`a-bigchart ${load.state === 'loading' && data ? 'a-sc-busy' : ''}`} aria-busy={load.state === 'loading'}>
+				{load.state === 'loading' && data && <span className="a-sc-loading" role="status"><LoaderCircle size={14} className="a-spin" />Loading...</span>}
+				{body}
+			</div>
 		</Card>
 	);
 }

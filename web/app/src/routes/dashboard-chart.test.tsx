@@ -86,6 +86,26 @@ describe('dashboard chart', () => {
 		expect(screen.getByRole('heading', { name: 'Messages per minute' })).toBeTruthy();
 	});
 
+	it('says it is loading while a slow new series is counted, over the old chart', async () => {
+		let answer: ((v: unknown) => void) | null = null;
+		const calls = fakeApi('superadmin', {
+			'PATCH /api/account/preferences': () => ({ prefs: {} }),
+			'GET /api/dashboard/series': () => new Promise((r) => { answer = r; }),
+		});
+		renderPage('/');
+		await chart();
+		expect(screen.queryByText('Loading...')).toBeNull();
+		fireEvent.change(control('Period'), { target: { value: 'day' } });
+		await waitFor(() => expect(series(calls)).toHaveLength(1));
+		// The old chart stays while the note says the new one is coming.
+		expect(screen.getByRole('status').textContent).toBe('Loading...');
+		expect(document.querySelector('.a-bigchart')!.getAttribute('aria-busy')).toBe('true');
+		expect(await chart()).toBeTruthy();
+		await act(async () => { answer!(firstOf([5, 6, 7], 'day', 86400)); });
+		await waitFor(() => expect(screen.queryByText('Loading...')).toBeNull());
+		expect(document.querySelector('.a-bigchart')!.getAttribute('aria-busy')).toBe('false');
+	});
+
 	it('moves the start when a picked start is further back than the limit', async () => {
 		const calls = fakeApi('superadmin');
 		renderPage('/', 'superadmin', viewer({ dashboard_period: 'minute', dashboard_last: 3600 }, firstOf([1, 2], 'minute', 60)));
