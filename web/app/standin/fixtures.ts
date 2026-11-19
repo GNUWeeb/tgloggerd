@@ -14,7 +14,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { REGISTRY, SLOW, compile, fieldsOf, legacyQuery, type ListError } from './search.ts';
 import { ALL, kindsOf, sampleOf, topicOf, topicsOf, type View } from './kinds.ts';
 import { engineAnswer } from './engine.ts';
-import { memberCount, memberFlags, membersPage } from './members.ts';
+import { MAX_Q, memberCount, memberFlags, membersPage } from './members.ts';
 export { membersApi, patchGroup } from './members.ts';
 import { groupFiles, groupPolls } from './groupfiles.ts';
 export { engineOf, setEngine } from './engine.ts';
@@ -531,8 +531,10 @@ export function load(url: string, persona: Persona): Loaded {
 		}
 		if (!g || !s.group(g)) return notFound;
 		// The member list (members.ts): its first page, or the page at
-		// ?offset=; 404 to viewers who do not see users in full.
-		const mp = m[2] === '/members' ? membersPage(g, s.role, Number(q(u, 'offset')) || 0) : undefined;
+		// ?offset=, within the matches of ?q= (one too long is ignored, as
+		// Go's page does); 404 to viewers who do not see users in full.
+		const mq = q(u, 'q') ?? '';
+		const mp = m[2] === '/members' ? membersPage(g, s.role, Number(q(u, 'offset')) || 0, 50, mq.length > MAX_Q ? '' : mq) : undefined;
 		if (mp === null) return notFound;
 		// The files and polls tabs (groupfiles.ts); a bad query is read as none.
 		const tabPart = m[2] === '/files' || m[2] === '/polls' ? groupTab(g, m[2], u.searchParams, persona) : {};

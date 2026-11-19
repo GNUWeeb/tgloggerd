@@ -66,22 +66,43 @@ function listOf(g) {
 
 const fullView = (role: Role) => role === 'superadmin' || role === 'admin';
 
+// The members a search finds, as the contract has Go search them: a
+// leading @ is dropped, the name and username match case insensitively
+// anywhere, and a q of digits (a leading - allowed) finds the member
+// with that exact id (byId) apart from the others (hits). Each match
+// says how it was found (matched_by), as the daemon marks them. No
+// search (an empty q, or an @ alone) is null.
+export const MAX_Q = 64;
+function search(list, q: string) {
+	const t = q.trim().replace(/^@/, '').toLowerCase();
+	if (!t) return null;
+	const id = /^-?\d+$/.test(t) ? list.find((m) => String(m.user.id) === t) : undefined;
+	const hit = (m) => m !== id && (m.user.name.toLowerCase().includes(t) || (m.user.username ?? '').toLowerCase().includes(t));
+	return { byId: id ? { ...id, matched_by: 'id' } : null, hits: list.filter(hit).map((m) => ({ ...m, matched_by: 'search' })) };
+}
+
 // The list's first page, or a later one; null for viewers who get 404
 // (members, signed out). The caller checks the viewer sees the group.
-export function membersPage(g, role: Role, offset = 0, limit = 50) {
+// With a search (q), the page is one of the search's matches, and
+// the first page (offset 0) also holds the id match first, in addition
+// to limit; total counts every match, the id match included.
+export function membersPage(g, role: Role, offset = 0, limit = 50, q = '') {
 	if (!fullView(role)) return null;
 	const total = memberCount(g).member_count;
 	const off = Math.max(0, Math.floor(offset) || 0);
 	const lim = Math.min(200, Math.max(1, Math.floor(limit) || 50));
-	// As Go answers: the page asked for, and how long Telegram wants a
-	// flood wait to last.
-	const none = (reason: string) => ({ available: false, reason, total, members: [], offset: off, limit: lim, ...(reason === 'flood_wait' ? { retry_after: 30 } : {}) });
+	// As Go answers: the page asked for, how long Telegram wants a
+	// flood wait to last, and no total in a search.
+	const none = (reason: string) => ({ available: false, reason, total: search([], q) ? null : total, members: [], offset: off, limit: lim, ...(reason === 'flood_wait' ? { retry_after: 30 } : {}) });
 	if (g.id === NOT_MEMBER) return none('not_member');
 	if (g.id === FLOOD) return none('flood_wait');
 	if (g.id === NOT_ALLOWED) return none('not_allowed');
 	if (g.id === UNAVAILABLE) return none('unavailable');
 	if (hidden.has(g.id) && role !== 'superadmin') return none('hidden');
-	return { available: true, reason: '', total, members: listOf(g).slice(off, off + lim), offset: off, limit: lim };
+	const found = search(listOf(g), q);
+	if (!found) return { available: true, reason: '', total, members: listOf(g).slice(off, off + lim), offset: off, limit: lim };
+	const first = off === 0 && found.byId ? [found.byId] : [];
+	return { available: true, reason: '', total: found.hits.length + (found.byId ? 1 : 0), members: [...first, ...found.hits.slice(off, off + lim)], offset: off, limit: lim };
 }
 
 // The group page's fields for the switch.
@@ -99,7 +120,9 @@ export function membersApi(id: string, q: URLSearchParams, role: Role, sees: (g)
 		const v = num(k);
 		if (v !== undefined && (!Number.isInteger(v) || v < 0 || (k === 'limit' && (v < 1 || v > 200)))) return [400, { error: 'bad_request', message: `${k} is out of range.`, field: k }];
 	}
-	const page = membersPage(g, role, num('offset') ?? 0, num('limit') ?? 50);
+	const s = q.get('q') ?? '';
+	if (s.length > MAX_Q) return [400, { error: 'bad_request', message: `q is longer than ${MAX_Q} characters.`, field: 'q' }];
+	const page = membersPage(g, role, num('offset') ?? 0, num('limit') ?? 50, s);
 	return page ? [200, page] : [404, { error: 'not_found' }];
 }
 

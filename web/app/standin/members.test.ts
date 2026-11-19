@@ -7,7 +7,7 @@ import { pageData } from './fixtures.ts';
 
 const q = (s: string) => new URLSearchParams(s);
 const all = () => true;
-type Page = { available: boolean; reason: string; total: number | null; members: { user: { id: number; name: string }; status: string }[] };
+type Page = { available: boolean; reason: string; total: number | null; members: { user: { id: number; name: string; username: string }; status: string }[] };
 const list = (id: number, s = '', role: 'superadmin' | 'admin' | 'member' = 'superadmin') => membersApi(String(id), q(s), role, all) as [number, Page];
 
 describe('stand-in group members', () => {
@@ -56,6 +56,48 @@ describe('stand-in group members', () => {
 		const p = pageData(`/groups/${M.LONG}/members?offset=50`, 'admin');
 		expect(p.route).toBe('group_members');
 		expect(p.props).toMatchObject({ available: true, offset: 50, limit: 50 });
+	});
+
+	it('searches by name, @username and id, paging within the matches', () => {
+		const every = [...list(M.LONG)[1].members, ...list(M.LONG, 'offset=50&limit=200')[1].members];
+		const u = every.find((x) => x.user.username && x.user.name)!.user;
+		// The username, with a leading @, in another case.
+		const [st, byName] = list(M.LONG, `q=${encodeURIComponent('@' + u.username.toUpperCase())}`);
+		expect(st).toBe(200);
+		expect(byName.members.map((x) => x.user.id)).toContain(u.id);
+		expect(byName.total).toBe(byName.members.length);
+		// A part of the name.
+		const part = u.name.split(' ')[0]!.toLowerCase();
+		const named = list(M.LONG, `q=${encodeURIComponent(part)}`)[1];
+		expect(named.members.length).toBeGreaterThan(0);
+		for (const x of named.members) expect(x.user.name.toLowerCase().includes(part) || x.user.username.toLowerCase().includes(part)).toBe(true);
+		// An exact id comes first; one nobody has finds nothing.
+		const last = every.at(-1)!.user;
+		const byId = list(M.LONG, `q=${last.id}`)[1].members;
+		expect(byId[0]).toMatchObject({ user: { id: last.id }, matched_by: 'id' });
+		// The id match comes on the first page in addition to limit, and
+		// counts in total; later pages leave it out.
+		const one = list(M.LONG, `q=${last.id}&limit=1`)[1];
+		expect(one.members[0]).toMatchObject({ user: { id: last.id }, matched_by: 'id' });
+		expect(one.total).toBe(one.members.length);
+		expect(list(M.LONG, `q=${last.id}&offset=1`)[1].members).toEqual([]);
+		expect(named.members.every((x) => (x as { matched_by?: string }).matched_by === 'search')).toBe(true);
+		// Without a search, no member says how it was found.
+		expect(every.some((x) => 'matched_by' in x)).toBe(false);
+		expect(list(M.LONG, 'q=zzzqqqxxx')[1]).toMatchObject({ available: true, total: 0, members: [] });
+		// Paging within the matches.
+		const a = list(M.LONG, 'q=a&limit=5')[1];
+		const b = list(M.LONG, 'q=a&limit=5&offset=5')[1];
+		expect(a.total).toBeGreaterThan(10);
+		expect(b.members[0]!.user.id).not.toBe(a.members[0]!.user.id);
+		// Too long for the API; the page ignores it.
+		expect(list(M.LONG, `q=${'x'.repeat(65)}`)[0]).toBe(400);
+		expect(list(M.LONG, `q=${'x'.repeat(64)}`)[0]).toBe(200);
+		expect((pageData(`/groups/${M.LONG}/members?q=${'x'.repeat(65)}`, 'admin').props as Page).members).toHaveLength(50);
+		expect((pageData(`/groups/${M.LONG}/members?q=zzzqqqxxx`, 'admin').props as Page).total).toBe(0);
+		// A search of a list that is not available has no total.
+		expect(list(M.FLOOD, 'q=a')[1]).toMatchObject({ available: false, total: null });
+		expect(list(M.FLOOD)[1].total).not.toBeNull();
 	});
 
 	it('lets only a superadmin hide a channel\'s list', () => {
