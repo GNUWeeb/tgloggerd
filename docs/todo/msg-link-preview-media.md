@@ -36,7 +36,7 @@ they have; only new and edited messages get the extras.
 
 ## Depends on
 
-`msg-message-page-parity` (the link preview on the message page).
+Nothing.
 
 ## Done when
 
