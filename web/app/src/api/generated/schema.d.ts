@@ -2234,6 +2234,16 @@ export interface components {
             /** @description The action (service_type: chat_add_members, pin_message, ...; docs/design/message-types.md section 4.2.3). */
             type: string;
             refs: components["schemas"]["ServiceRefs"];
+            /** @description The rebuilt text piece by piece, for links: joined, the parts' texts are the message's text. A name is a part that points at its user or chat in refs; the rest is plain text. Absent where the text is the logger's own, which names nobody; draw the text then. A user or chat the viewer may not see is never a part, as it is never named. */
+            parts?: components["schemas"]["ServicePart"][];
+        };
+        /** @description A piece of a service message's text: plain text when user and chat are both absent, else the name of refs.users[user] (link to /users/{id}) or refs.chats[chat] (link to /groups/{id}). */
+        ServicePart: {
+            text: string;
+            /** @description The index of the user in refs.users. */
+            user?: number;
+            /** @description The index of the chat in refs.chats. */
+            chat?: number;
         };
         /** @description Who and what the action names, for links: the users (kind user) and chats (kind group) the viewer may see, in the order the action names them; the others are left out. message_id is the message of this chat the action is about (the pinned message, a poll or checklist that changed, a giveaway), for ?at= links; null when none. */
         ServiceRefs: {
