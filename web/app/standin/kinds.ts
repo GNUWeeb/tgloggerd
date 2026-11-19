@@ -357,6 +357,8 @@ function publicPolls(): Map<number, Sample> {
 let forumKeys: Map<number, Sample> | null = null;
 const NEW_PHOTO = { stored: true, fetchable: false, url: '/files/standin-986010', thumb: '/files/standin-986010', render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 48000 };
 const LOST_PHOTO = { stored: false, fetchable: false, url: null, thumb: null, render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 51000 };
+// A background logged before the background itself was kept.
+const OLD_BG = { kind: 'background', only_for_self: false, type: null, dark: false, image: null, fill: null, intensity: null, is_inverted: false, is_moving: false, is_blurred: false, theme_name: null };
 function forumServices(): Map<number, Sample> {
 	if (forumKeys) return forumKeys;
 	forumKeys = new Map();
@@ -365,8 +367,8 @@ function forumServices(): Map<number, Sample> {
 	const svc = (type: string, text: string, detail: (v: View) => unknown, message_id: number | null = null): Sample =>
 		({ content_type: 'service', service: (v) => ({ type, text, refs: { users: [], chats: [], message_id }, detail: detail(v) }) });
 	const list: Sample[] = [
-		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: NEW_PHOTO })),
-		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: LOST_PHOTO })),
+		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: NEW_PHOTO, animation: null })),
+		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: LOST_PHOTO, animation: null })),
 		svc('pin_message', 'pinned a message', () => (pinned ? { kind: 'pin', snippet: pinned.text.slice(0, 80) } : null), pinned?.message_id ?? null),
 		svc('pin_message', 'pinned a message', () => null),
 		svc('video_chat_ended', 'ended the video chat', () => ({ kind: 'video_chat', duration: 3725, start_date: null })),
@@ -375,7 +377,7 @@ function forumServices(): Map<number, Sample> {
 		svc('forum_topic_created', `created topic "${TOPICS[1]!.name}"`, () => ({ kind: 'topic', topic: { id: TOPICS[1]!.id, name: TOPICS[1]!.name, icon_color: TOPICS[1]!.icon_color, icon_custom_emoji_id: TOPICS[1]!.icon_custom_emoji_id, icon_custom_emoji: TOPICS[1]!.icon_custom_emoji } })),
 		svc('chat_added_to_community', 'added the group to a community', (v) => { const c = refOf(v, PUBLIC_POLLS_GROUP.id); return c ? { kind: 'community', community: c } : null; }),
 		svc('chat_upgrade_from', 'the supergroup was created from a group', (v) => ({ kind: 'title', title: 'Linux Study Group', basic_group: refOf(v, KINDS_GROUP.id) })),
-		svc('chat_set_background', 'changed the chat background', () => ({ kind: 'background', only_for_self: true })),
+		svc('chat_set_background', 'changed the chat background', () => ({ ...OLD_BG, only_for_self: true })),
 	];
 	const rows = all.filter((m) => m.content_type === 'service').slice(-list.length);
 	rows.forEach((m, i) => forumKeys!.set(m.message_id, list[i]!));

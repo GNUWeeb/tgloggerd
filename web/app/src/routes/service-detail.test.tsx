@@ -17,6 +17,8 @@ beforeEach(setup);
 const chatUrl = `/groups/${FORUM_GROUP.id}/chat`;
 const ref = (id: number, title: string) => ({ id, title, kind: 'group' as const, photo: null });
 const PHOTO = { stored: true, fetchable: false, url: '/files/p1', thumb: '/files/p1t', render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 1000 } as unknown as ChatMessage['media'] & object;
+// A background logged before the background itself was kept.
+const OLD_BG = { kind: 'background', only_for_self: false, type: null, dark: false, image: null, fill: null, intensity: null, is_inverted: false, is_moving: false, is_blurred: false, theme_name: null } as const;
 const SENDER = { id: 5, name: 'Sample Sender' } as ChatMessage['sender'];
 
 // The chat with one service message, built on a plain text one;
@@ -35,7 +37,7 @@ const words = (el: Element) => [...el.childNodes].filter((n) => !(n instanceof E
 
 describe('a service line in the chat', () => {
 	it('shows the new group photo, which opens the viewer', () => {
-		const l = line('chat_change_photo', 'changed the group photo', { kind: 'photo', photo: PHOTO });
+		const l = line('chat_change_photo', 'changed the group photo', { kind: 'photo', photo: PHOTO, animation: null });
 		const a = within(l).getByRole('link', { name: 'The new photo' });
 		expect(a.querySelector('img')!.getAttribute('src')).toBe('/files/p1t');
 		fireEvent.click(a);
@@ -43,10 +45,10 @@ describe('a service line in the chat', () => {
 	});
 
 	it('says a new photo was not stored, and waits to be asked when media load on click', () => {
-		const lost = line('suggest_profile_photo', 'suggested a profile photo', { kind: 'photo', photo: { ...PHOTO, stored: false, url: null, thumb: null } });
+		const lost = line('suggest_profile_photo', 'suggested a profile photo', { kind: 'photo', photo: { ...PHOTO, stored: false, url: null, thumb: null }, animation: null });
 		expect(within(lost).getByRole('img', { name: 'Photo not stored' })).toBeTruthy();
 		document.body.innerHTML = '';
-		const l = line('chat_change_photo', 'changed the group photo', { kind: 'photo', photo: PHOTO }, {}, { chat: { media: 'click' } });
+		const l = line('chat_change_photo', 'changed the group photo', { kind: 'photo', photo: PHOTO, animation: null }, {}, { chat: { media: 'click' } });
 		expect(l.querySelector('img')).toBeNull();
 		fireEvent.click(within(l).getByRole('button', { name: 'Show the photo' }));
 		expect(within(l).getByRole('link', { name: 'The new photo' })).toBeTruthy();
@@ -110,11 +112,11 @@ describe('a service line in the chat', () => {
 	});
 
 	it('says a background was set for the actor alone', () => {
-		expect(words(line('chat_set_background', 'changed the chat background', { kind: 'background', only_for_self: true }))).toBe('Sample Sender changed the chat background for themselves');
+		expect(words(line('chat_set_background', 'changed the chat background', { ...OLD_BG, only_for_self: true }))).toBe('Sample Sender changed the chat background for themselves');
 		document.body.innerHTML = '';
-		expect(words(line('chat_set_background', 'changed the chat background', { kind: 'background', only_for_self: true }, { sender: null, sender_chat: undefined }))).toBe('You changed the chat background for yourself');
+		expect(words(line('chat_set_background', 'changed the chat background', { ...OLD_BG, only_for_self: true }, { sender: null, sender_chat: undefined }))).toBe('You changed the chat background for yourself');
 		document.body.innerHTML = '';
-		expect(words(line('chat_set_background', 'changed the chat background', { kind: 'background', only_for_self: false }))).toBe('Sample Sender changed the chat background');
+		expect(words(line('chat_set_background', 'changed the chat background', { ...OLD_BG, only_for_self: false }))).toBe('Sample Sender changed the chat background');
 	});
 
 	it('stays as it was without a detail', () => {
