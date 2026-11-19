@@ -7,12 +7,16 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"tgloggerd/webapi/internal/daemon"
+	"tgloggerd/webapi/internal/logdb"
 	"tgloggerd/webapi/internal/scope"
 	"tgloggerd/webapi/internal/webdb"
 )
@@ -53,6 +57,19 @@ type joinAnswer struct {
 	Chat       *joinChatJSON `json:"chat"`
 	Ref        string        `json:"ref"`
 	RetryAfter *int64        `json:"retry_after,omitempty"`
+	// FederationIDs and FilingPending answer a join only: where the
+	// group was filed, or is held for (filing_pending).
+	FederationIDs *[]uint64 `json:"federation_ids,omitempty"`
+	FilingPending *bool     `json:"filing_pending,omitempty"`
+}
+
+// joinedGroup is the chat id of the group or channel a answers about,
+// 0 when it names none.
+func (a joinAnswer) joinedGroup() int64 {
+	if a.Chat == nil || a.Chat.ChatID >= 0 {
+		return 0
+	}
+	return a.Chat.ChatID
 }
 
 // daemonJoin reads a daemon answer: a 200 with an outcome, else false.
@@ -203,7 +220,69 @@ func (s *Server) previewJoin(w http.ResponseWriter, r *http.Request) {
 		s.daemonFailure(w, r, v, rep, false)
 		return
 	}
+	// A preview that finds the account in a chat it asked to join
+	// files the group where that request said.
+	if a.Outcome == "ok" && a.Chat != nil && a.Chat.IsMember {
+		s.settleHeld(r, a)
+	}
 	s.joinReply(r.Context(), w, v, a)
+}
+
+// settleHeld files a group the account is now a member of into the
+// federations held for it (by its ref or its id). A failure is logged:
+// the sweep or the next look settles it.
+func (s *Server) settleHeld(r *http.Request, a joinAnswer) {
+	g := a.joinedGroup()
+	if g == 0 {
+		return
+	}
+	if _, err := webdb.SettleJoinFilings(r.Context(), s.app, nil, a.Ref, g, clientIP(r)); err != nil {
+		s.log.Error("settle join filings", "chat", g, "err", err)
+	}
+}
+
+// fileJoin files the group a join answered about, as its outcome
+// says: into feds once joined; held for feds while the chat approves
+// the request; nowhere otherwise, also when the account was a member
+// already, since moving a group the logger has is the federation
+// editor's. It sets the answer's federation_ids and filing_pending.
+func (s *Server) fileJoin(r *http.Request, v scope.Viewer, a *joinAnswer, feds []uint64) error {
+	ctx := r.Context()
+	ids, pending := []uint64{}, false
+	switch a.Outcome {
+	case "joined":
+		if g := a.joinedGroup(); g != 0 {
+			var err error
+			if ids, err = webdb.FileJoinedGroup(ctx, s.app, v.ID, feds, g, clientIP(r)); err != nil {
+				return err
+			}
+		}
+		s.settleHeld(r, *a)
+	case "already_member":
+		s.settleHeld(r, *a)
+	case "request_sent", "approval_required":
+		if a.Chat == nil || a.Chat.ChatID > 0 {
+			break
+		}
+		// The group's counter now, so the sweep can tell when the
+		// account starts receiving its messages.
+		var count uint64
+		if g := a.joinedGroup(); g != 0 {
+			counts, err := logdb.GroupMsgCounts(ctx, s.ro, []int64{g})
+			if err != nil {
+				return err
+			}
+			count = counts[g]
+		}
+		var err error
+		if ids, err = webdb.HoldJoinFilings(ctx, s.app, v.ID, feds, a.Ref, a.Chat.ChatID,
+			a.Chat.Title, count, clientIP(r)); err != nil {
+			return err
+		}
+		pending = len(ids) > 0
+	}
+	a.FederationIDs, a.FilingPending = &ids, &pending
+	return nil
 }
 
 // joinChat answers POST /api/join-chat/join. Every attempt that passes
@@ -221,9 +300,7 @@ func (s *Server) joinChat(w http.ResponseWriter, r *http.Request) {
 	}
 	// The chosen federations must exist and be the viewer's
 	// (fileFederations, from Scope.AdministersFederation), checked
-	// before anything is joined. Filing the joined group into them
-	// comes with join-chat-federations; until then the group is in
-	// Default, as when none is chosen.
+	// before anything is joined; fileJoin files the group into them.
 	for _, f := range feds {
 		ok, err := s.filesInto(r.Context(), sc, f)
 		if err != nil {
@@ -267,7 +344,42 @@ func (s *Server) joinChat(w http.ResponseWriter, r *http.Request) {
 		s.daemonFailure(w, r, v, rep, true)
 		return
 	}
+	if err := s.fileJoin(r, v, &a, feds); err != nil {
+		// The chat is joined; only the filing failed, and the
+		// answer must still say what Telegram did.
+		s.log.Error("file joined group", "ref", a.Ref, "err", err)
+		none, no := []uint64{}, false
+		a.FederationIDs, a.FilingPending = &none, &no
+	}
 	s.joinReply(r.Context(), w, v, a)
+}
+
+// cancelJoinFiling answers DELETE /api/join-chat/pending/{id}: an
+// admin drops its own held filings, a superadmin any.
+func (s *Server) cancelJoinFiling(w http.ResponseWriter, r *http.Request) {
+	sc, v, ok := s.adminWrite(w, r, scope.JoinChat)
+	if !ok {
+		return
+	}
+	id, ok := pathID(r, "id")
+	if !ok {
+		notFound(w)
+		return
+	}
+	var by *uint64
+	if sc.Role() != scope.Superadmin {
+		by = &v.ID
+	}
+	done, err := webdb.CancelJoinFiling(r.Context(), s.app, v.ID, id, by, clientIP(r))
+	if err != nil {
+		s.internalError(w, "cancel join filing", err)
+		return
+	}
+	if !done {
+		notFound(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // joinAttempt is one row of the page's list of recent attempts.
@@ -306,9 +418,21 @@ func parseJoinDetail(e webdb.AuditEntry) joinAttempt {
 	return j
 }
 
+// joinFilingJSON is JoinFiling.
+type joinFilingJSON struct {
+	ID         uint64 `json:"id"`
+	Ref        string `json:"ref"`
+	Title      string `json:"title"`
+	ChatID     int64  `json:"chat_id"`
+	Federation fedRef `json:"federation"`
+	By         string `json:"by"`
+	At         string `json:"at"`
+}
+
 type joinChatProps struct {
-	Federations []fedRef      `json:"federations"`
-	Recent      []joinAttempt `json:"recent"`
+	Federations []fedRef         `json:"federations"`
+	Recent      []joinAttempt    `json:"recent"`
+	Pending     []joinFilingJSON `json:"pending"`
 	// APIConfigured is whether this service reaches the daemon's API;
 	// without it no chat can be joined, and the page says so up front.
 	APIConfigured bool `json:"api_configured"`
@@ -337,7 +461,17 @@ func loadJoinChat(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := joinChatProps{Federations: feds, Recent: []joinAttempt{}, APIConfigured: s.daemon != nil}
+	held, err := webdb.ListJoinFilings(ctx, s.app, by)
+	if err != nil {
+		return nil, err
+	}
+	p := joinChatProps{Federations: feds, Recent: []joinAttempt{}, Pending: []joinFilingJSON{},
+		APIConfigured: s.daemon != nil}
+	for _, j := range held {
+		p.Pending = append(p.Pending, joinFilingJSON{ID: j.ID, Ref: j.Ref, Title: j.Title,
+			ChatID: j.ChatID, Federation: fedRef{j.FedID, j.FedName}, By: j.ByName,
+			At: j.At.Format("2006-01-02T15:04:05Z")})
+	}
 	for _, e := range rows {
 		j := parseJoinDetail(e)
 		if !all {
@@ -351,4 +485,71 @@ func loadJoinChat(ctx context.Context, pr *pageRequest) (any, error) {
 		p.Recent = append(p.Recent, j)
 	}
 	return p, nil
+}
+
+// joinFilingSweep is how often JoinFiler looks at the held filings.
+const joinFilingSweep = time.Minute
+
+// JoinFiler settles held filings in the background: a group whose
+// join waited for approval is filed once the logger counts messages of
+// it beyond those it had at the request, which it only receives as a
+// member. Filings of chats unknown at the request (a private group
+// behind an invite link) settle when the chat is previewed or joined
+// again instead. Each pass reads the held filings with one query and
+// stops there when none has a known chat.
+type JoinFiler struct {
+	log     *slog.Logger
+	ro, app *sql.DB
+	every   time.Duration
+}
+
+// NewJoinFiler makes the sweep; Run starts it.
+func NewJoinFiler(log *slog.Logger, ro, app *sql.DB) *JoinFiler {
+	return &JoinFiler{log: log, ro: ro, app: app, every: joinFilingSweep}
+}
+
+// Run sweeps every f.every until ctx ends.
+func (f *JoinFiler) Run(ctx context.Context) {
+	t := time.NewTicker(f.every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := f.pass(ctx); err != nil && ctx.Err() == nil {
+				f.log.Error("join filings", "err", err)
+			}
+		}
+	}
+}
+
+// pass settles the held filings whose group now has more messages.
+func (f *JoinFiler) pass(ctx context.Context) error {
+	held, err := webdb.KnownJoinFilings(ctx, f.app)
+	if err != nil || len(held) == 0 {
+		return err
+	}
+	var groups []int64
+	for _, j := range held {
+		groups = append(groups, j.ChatID)
+	}
+	counts, err := logdb.GroupMsgCounts(ctx, f.ro, groups)
+	if err != nil {
+		return err
+	}
+	due := map[int64][]uint64{}
+	for _, j := range held {
+		if n, ok := counts[j.ChatID]; ok && n > j.MsgCount {
+			due[j.ChatID] = append(due[j.ChatID], j.ID)
+		}
+	}
+	for g, ids := range due {
+		n, err := webdb.SettleJoinFilings(ctx, f.app, ids, "", g, "")
+		if err != nil {
+			return err
+		}
+		f.log.Info("filed an approved join", "chat", g, "federations", n)
+	}
+	return nil
 }

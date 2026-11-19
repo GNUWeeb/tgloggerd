@@ -179,6 +179,11 @@ func run(log *slog.Logger, cfg *config.Config) error {
 	bots := server.NewBotResolver(log.With("component", "bot-users"), ro, dc)
 	go bots.Run(ctx)
 
+	// Groups joined pending approval are filed into their chosen
+	// federations once the account is a member; the sweep stops with
+	// ctx.
+	go server.NewJoinFiler(log.With("component", "join-filings"), ro, app).Run(ctx)
+
 	signer := auth.NewSigner(cfg.AppKey)
 	var acctLimiter *auth.RateLimiter
 	if cfg.LoginMaxPerAccount > 0 {

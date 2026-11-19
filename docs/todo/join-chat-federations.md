@@ -10,16 +10,26 @@ the right federation (docs/design/web-accounts.md section 3).
 
 ## Scope
 
-- On the confirmation step, the admin's federations as toggle chips
-  (none selected = the group stays in Default); after a successful
-  join, the group is added to the chosen federations, audited.
-- `web/docs/join-chat.md` updated.
+The Go service's half is built (web/docs/join-chat.md, "Filing the
+joined group into federations"): `federation_ids` on
+`POST /api/join-chat/join` files the group on `joined` and holds the
+choice after `request_sent` or `approval_required`; the answer carries
+`federation_ids` and `filing_pending`; the page data has `pending`; and
+`DELETE /api/join-chat/pending/{id}` drops a held filing. What is left
+is the React application's half:
+
+- On the confirmation step, the page's `federations` as toggle chips
+  (none selected = the group stays in Default), sent as
+  `federation_ids`.
+- After the join, say where the group went (`federation_ids`), or that
+  it goes there once the chat approves the request (`filing_pending`).
+- The held filings (`pending`) listed on the page, each with a button
+  that drops it.
 
 ## Design notes
 
-- The group's chat id is known from the preview; add it only after the
-  join succeeds (or the request is sent, if approval is needed: then
-  add it once the account becomes a member).
+- Nothing is filed for `already_member`: moving a group the logger has
+  is the federation editor's.
 
 ## Depends on
 

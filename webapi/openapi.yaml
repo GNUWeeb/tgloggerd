@@ -3182,7 +3182,6 @@ paths:
   /api/join-chat/pending/{id}:
     delete:
       operationId: cancelJoinFiling
-      x-tgd-status: planned
       tags: [join-chat]
       summary: Drop a held filing of a group not yet joined
       description: >-

@@ -354,6 +354,7 @@ func (s *Server) routes() []route {
 		{"POST /api/bots/{id}/transfer", s.RequireSession(s.transferBot)},
 		{"POST /api/join-chat/preview", s.RequireSession(s.previewJoin)},
 		{"POST /api/join-chat/join", s.RequireSession(s.joinChat)},
+		{"DELETE /api/join-chat/pending/{id}", s.RequireSession(s.cancelJoinFiling)},
 		{"POST /api/users/{id}/lookup-name", s.RequireSession(s.lookupName)},
 		{"POST /api/mcp/groups", s.RequireSession(s.exposeMcpGroup)},
 		{"DELETE /api/mcp/groups/{group_id}", s.RequireSession(s.unexposeMcpGroup)},
