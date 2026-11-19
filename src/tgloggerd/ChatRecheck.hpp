@@ -184,8 +184,11 @@ bool isShort(const Page &p, bool older_exists);
 
 /*
  * Whether a recheck asks TDLib for another page, older than this one:
- * the answer was short, it is not the last page allowed, and it brought
- * messages not stored before (a quiet chat stops after one or two reads).
+ * the answer was short and it is not the last page allowed. From the
+ * second page on it must also have brought messages not stored before, so
+ * a quiet chat stops after two reads; the first page always reads on when
+ * short, since TDLib's short first answer is the newest message, which is
+ * usually stored already while the ones before it are what is missing.
  * Deletions are concluded from each page alone, never across pages.
  */
 bool askAgain(int pages_used, bool short_answer, size_t new_messages);

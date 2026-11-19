@@ -715,8 +715,11 @@ For a chat TDLib has not opened, its first answer is often only the
 newest message or two. A short answer (fewer older messages than asked
 while an older one is stored, so not the chat's start) is read on: the
 next page asks for the 50 messages from the oldest one returned, up to
-3 pages in all, and stops early once a page brings nothing that was not
-stored before, so a quiet chat costs one or two reads. Later pages skip
+3 pages in all, and from the second page on stops early once a page
+brings nothing that was not stored before, so a quiet chat costs two
+reads. A short first page always reads on: TDLib's short first answer is
+the newest message, usually stored already, while the ones before it are
+what is missing. Later pages skip
 the queue and its limits, since their recheck was already let in. Each
 page is stored like the first, and deletions are concluded from each
 page alone, never across pages. Each page's log line names it ("page 2")

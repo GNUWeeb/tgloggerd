@@ -423,7 +423,10 @@ static void testPaging(void)
 	CHECK(askAgain(1, true, 1), "short and something new: page 2");
 	CHECK(askAgain(2, true, 5), "and page 3");
 	CHECK(!askAgain(3, true, 5), "never more than three pages");
-	CHECK(!askAgain(1, true, 0), "nothing new: stop, a quiet chat costs one read");
+	CHECK(askAgain(1, true, 0),
+	      "page 1: 1 returned, 0 new, short: read on (the newest is stored,"
+	      " the ones before it are missing)");
+	CHECK(!askAgain(2, true, 0), "from page 2, nothing new: stop");
 	CHECK(!askAgain(1, false, 9), "a full answer: no more pages");
 
 	Page p;
