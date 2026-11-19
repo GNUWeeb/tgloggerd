@@ -38,15 +38,47 @@ describe('groups list', () => {
 });
 
 describe('files', () => {
-	it('opens a file preview through ?file= and closes it', async () => {
+	it('opens and closes a file preview in place, without reloading the list', async () => {
 		const calls = fakeApi('superadmin');
 		const { page } = renderPage('/files?view=list');
 		const f = (page.props as FilesProps).rows[0]!;
 		fireEvent.click(screen.getAllByText(f.name)[0]!);
-		await waitFor(() => expect(lastPageCall(calls)?.query.get('file')).toBe(String(f.id)));
 		await screen.findByRole('dialog', { name: f.name });
+		expect(new URLSearchParams(location.search).get('file')).toBe(String(f.id));
 		fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
-		await waitFor(() => expect(lastPageCall(calls).query.get('file')).toBeNull());
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(location.search).toBe('?view=list');
+		// A mobile row and a grid card open it in place too.
+		fireEvent.click(within(document.querySelector('.a-list')!).getAllByText(f.name)[0]!);
+		await screen.findByRole('dialog', { name: f.name });
+		fireEvent.keyDown(document, { key: 'Escape' });
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(0);
+		// The next navigation starts from the URL as it is now.
+		fireEvent.click(screen.getByRole('button', { name: 'Grid view' }));
+		await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(1));
+		expect(lastPageCall(calls).query.get('file')).toBeNull();
+		const card = (await screen.findAllByRole('button', { name: new RegExp(f.name) })).find((b) => b.classList.contains('a-filecard'))!;
+		fireEvent.click(card);
+		await screen.findByRole('dialog', { name: f.name });
+		expect(new URLSearchParams(location.search).get('file')).toBe(String(f.id));
+		expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(1);
+	});
+
+	it('shows the server\'s preview on a direct visit to ?file=, and closes it in place', async () => {
+		const calls = fakeApi('superadmin');
+		const p = fixture<FilesProps>('/files?view=list').props;
+		const far = { ...p.rows[0]!, id: 98765, name: 'not-on-this-page.jpg' };
+		renderPage('/files?view=list&file=98765', 'superadmin', { props: { ...p, preview: far } });
+		await screen.findByRole('dialog', { name: 'not-on-this-page.jpg' });
+		fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(location.search).toBe('?view=list');
+		expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(0);
+		// A later navigation does not bring the closed preview back.
+		fireEvent.click(screen.getByRole('button', { name: 'Grid view' }));
+		await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(1));
+		expect(lastPageCall(calls).query.get('file')).toBeNull();
 	});
 
 	it('shows a file seen in no visible message without links, and cannot open its message', async () => {

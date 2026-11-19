@@ -261,7 +261,9 @@ export function LongText({ text, title, limit = 120 }: { text: string; title: st
 export interface Col<T> { key: string; label: string; sort?: boolean; align?: 'right'; cls?: string; render: (row: T) => ReactNode }
 export interface MobileRow { lead: ReactNode; title: ReactNode; sub?: ReactNode; extra?: ReactNode; side?: ReactNode }
 
-export function DataTable<T extends { id: number }>({ L, cols, href, mobile, empty, noun }: { L: ListNav<T>; cols: Col<T>[]; href: (row: T) => string; mobile: (row: T) => MobileRow; empty: string; noun: string }) {
+// open, when given, handles a plain click on a mobile row in place of
+// following href (which stays for a new tab).
+export function DataTable<T extends { id: number }>({ L, cols, href, open, mobile, empty, noun }: { L: ListNav<T>; cols: Col<T>[]; href: (row: T) => string; open?: (row: T) => void; mobile: (row: T) => MobileRow; empty: string; noun: string }) {
 	const SortIcon = ({ k }: { k: string }) => (L.sort === k ? (L.dir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />) : null);
 	return (
 		<div className="a-card a-tablecard">
@@ -283,7 +285,11 @@ export function DataTable<T extends { id: number }>({ L, cols, href, mobile, emp
 					const m = mobile(row);
 					return (
 						<li key={row.id}>
-							<Link to={href(row)}>
+							<Link to={href(row)} onClick={open && ((e) => {
+								if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+								e.preventDefault();
+								open(row);
+							})}>
 								{m.lead}
 								<span className="a-list-main">
 									<span className="a-uname">{m.title}</span>

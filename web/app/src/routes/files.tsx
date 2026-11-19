@@ -79,11 +79,18 @@ function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void
 
 function Files({ page }: { page: PageData<FilesProps> }) {
 	const L = useListNav(page.props);
-	const { navigate } = useNav();
+	const { navigate, replaceUrl } = useNav();
 	const q = useQueryParams();
 	const v = page.viewer;
 	const grid = q.get('view') !== 'list';
-	const show = (f: FileRow | null) => navigate(setQuery(page.url, { file: f ? f.id : undefined }), { replace: true, scroll: false });
+	// The preview opens and closes in place: the URL names the file, but
+	// the list stays as it is, so nothing is fetched. The server's
+	// preview serves a direct visit to ?file= (a link, a reload, or a
+	// file not on this page).
+	const fileId = Number(q.get('file')) || null;
+	const server = page.props.preview;
+	const preview = fileId === null ? null : server?.id === fileId ? server : L.rows.find((r) => r.id === fileId) ?? null;
+	const show = (f: FileRow | null) => replaceUrl(setQuery(page.url, { file: f ? f.id : undefined }));
 	const member = v.account?.role === 'member';
 	const cols: Col<FileRow>[] = [
 		{ key: 'id', label: 'ID', sort: true, align: 'right', cls: 'a-hide-md', render: (f) => <span className="num">{f.id}</span> },
@@ -127,10 +134,10 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 				</div>
 			) : (
 				<DataTable L={L} cols={cols} noun="files" empty={emptyText(L, member, 'files', 'No files match these filters.')}
-					href={(f) => setQuery(page.url, { file: f.id })}
+					href={(f) => setQuery(page.url, { file: f.id })} open={show}
 					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
 			)}
-			{page.props.preview && <Preview f={page.props.preview} v={v} onClose={() => show(null)} />}
+			{preview && <Preview f={preview} v={v} onClose={() => show(null)} />}
 		</Shell>
 	);
 }
