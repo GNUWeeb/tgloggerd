@@ -152,9 +152,17 @@ func (s *Server) registerPages(mux *http.ServeMux) {
 		}
 		pat := p.pattern
 		if pat == "/" {
-			pat = "/{$}"
+			mux.HandleFunc("GET /{$}", s.servePage)
+			continue
 		}
 		mux.HandleFunc("GET "+pat, s.servePage)
+		// The same page with a trailing slash, served in place, as
+		// matchPage ignores the slash: a typed or bookmarked "/users/"
+		// opens the page instead of a bare 404. Served, not redirected:
+		// nginx once answered /files with a permanent redirect to
+		// /files/, which browsers keep, and a redirect back would loop
+		// there.
+		mux.HandleFunc("GET "+pat+"/{$}", s.servePage)
 	}
 }
 

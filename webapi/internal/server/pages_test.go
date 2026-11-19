@@ -503,3 +503,28 @@ func TestPageAssets(t *testing.T) {
 		}
 	}
 }
+
+// A page opened with a trailing slash is served as without it, in
+// place: "/files/" is the files page, not a 404 (and never a redirect,
+// which would loop in browsers that kept nginx's old permanent
+// redirect from /files to /files/).
+func TestPageTrailingSlash(t *testing.T) {
+	t.Parallel()
+	e := newPagesEnv(t, pagesOpts{})
+	g := e.get("/login/", "")
+	if g.status != 200 || !strings.Contains(g.body, `<main data-route="login">`) {
+		t.Fatalf("/login/: %d %s", g.status, g.body)
+	}
+	for _, p := range []string{"/users", "/files", "/group_messages", "/settings/preferences"} {
+		bare, slashed := e.get(p, ""), e.get(p+"/", "")
+		if bare.status == 404 || slashed.status != bare.status {
+			t.Errorf("%s: %d, %s/: %d", p, bare.status, p, slashed.status)
+		}
+		if slashed.status/100 == 3 && !strings.HasPrefix(slashed.header.Get("Location"), "/login") {
+			t.Errorf("%s/ redirects to %s", p, slashed.header.Get("Location"))
+		}
+	}
+	if g := e.get("/nothing/", ""); g.status != 404 {
+		t.Errorf("/nothing/: %d", g.status)
+	}
+}
