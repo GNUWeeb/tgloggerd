@@ -3,10 +3,12 @@
  * Copyright (C) 2026 Alviro Iskandar Setiawan <alviro.iskandar@gnuweeb.org>
  */
 /*
- * chat_background_test -- how a chat background change is stored, over
- * hand-built TDLib messages: no TDLib client. It checks the curated
- * content_extra keys of the background's fill and pattern, and that the
- * background's document is listed as role "background".
+ * chat_background_test -- how a chat background change and an animated
+ * chat photo are stored, over hand-built TDLib messages: no TDLib
+ * client. It checks the curated content_extra keys of the background's
+ * fill and pattern, that the background's document is listed as role
+ * "background", and that an animated chat photo's video is listed as
+ * role "chat_photo" at position 1.
  */
 #include <tgloggerd/MessageExtract.hpp>
 
@@ -196,12 +198,85 @@ static void test_chat_theme()
 	CHECK(message_extra_files(*c).empty(), "no file");
 }
 
+static td_api::object_ptr<td_api::chatPhoto> chat_photo(bool big, bool small)
+{
+	auto p = td_api::make_object<td_api::chatPhoto>();
+	p->id_ = 99;
+	p->sizes_.push_back(td_api::make_object<td_api::photoSize>(
+		"a", file(20), 160, 160, std::vector<int32_t>{}));
+	p->sizes_.push_back(td_api::make_object<td_api::photoSize>(
+		"c", file(21), 640, 640, std::vector<int32_t>{}));
+	if (big)
+		p->animation_ = td_api::make_object<td_api::animatedChatPhoto>(
+			800, file(22), 0.5);
+	if (small)
+		p->small_animation_ =
+			td_api::make_object<td_api::animatedChatPhoto>(
+				160, file(23), 0.5);
+	return p;
+}
+
+/* Whether @files are the still photo (21) and, if @video, file @video
+ * as the animation at position 1. */
+static bool photo_files(const std::vector<ExtraFile> &files, int32_t video)
+{
+	if (files.empty() || !files[0].file || files[0].file->id_ != 21 ||
+	    std::string(files[0].role) != "chat_photo" ||
+	    files[0].position != 0 ||
+	    std::string(files[0].category) != "photo")
+		return false;
+	if (!video)
+		return files.size() == 1;
+	return files.size() == 2 && files[1].file &&
+	       files[1].file->id_ == video &&
+	       std::string(files[1].role) == "chat_photo" &&
+	       files[1].position == 1 &&
+	       std::string(files[1].category) == "animation";
+}
+
+static void test_animated_photo()
+{
+	printf("test: an animated chat photo\n");
+	{
+		auto c = td_api::make_object<td_api::messageChatChangePhoto>(
+			chat_photo(true, true));
+		CHECK(photo_files(message_extra_files(*c), 22),
+		      "change: the still photo, then the big animation");
+		models::MessageContent out;
+		extract_message_content(*c, out);
+		nlohmann::json j = nlohmann::json::parse(
+			out.content_extra.value_or("null"), nullptr, false);
+		CHECK(j.is_object() && j.contains("photo") &&
+			      j["photo"].value("animated", false),
+		      "animated: true stays");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageChatChangePhoto>(
+			chat_photo(false, true));
+		CHECK(photo_files(message_extra_files(*c), 23),
+		      "change: only a small animation is taken");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageChatChangePhoto>(
+			chat_photo(false, false));
+		CHECK(photo_files(message_extra_files(*c), 0),
+		      "change: a still photo lists no video");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageSuggestProfilePhoto>(
+			chat_photo(true, false));
+		CHECK(photo_files(message_extra_files(*c), 22),
+		      "suggestion: the still photo, then the animation");
+	}
+}
+
 int main()
 {
 	test_wallpaper();
 	test_pattern();
 	test_fill();
 	test_chat_theme();
+	test_animated_photo();
 	if (g_failures) {
 		printf("\n%d check(s) FAILED\n", g_failures);
 		return 1;

@@ -143,7 +143,7 @@ service messages keep `content_type = 'service'` and get the
 | messageBasicGroupChatCreate | text only | title, initial members | chat_create |
 | messageSupergroupChatCreate | text only | title | chat_create |
 | messageChatChangeTitle | text only | (title is inside the description) | chat_change_title |
-| messageChatChangePhoto | partly | the new photo (only `updateChatPhoto` history keeps one) | chat_change_photo |
+| messageChatChangePhoto | fully | stored: the new photo (role `chat_photo`, section 4.3) and, since msg-chat-backgrounds, an animated photo's video; still lost: a sticker-based photo's sticker and fill | chat_change_photo |
 | messageChatDeletePhoto | fully | - | chat_delete_photo |
 | messageChatAddMembers | partly | which users were added | chat_add_members |
 | messageChatJoinByLink | fully | - | chat_join_by_link |
@@ -170,7 +170,7 @@ service messages keep `content_type = 'service'` and get the
 | messageForumTopicIsHiddenToggled | partly | hidden or shown | forum_topic_is_hidden_toggled |
 | messageCustomServiceAction | fully | - | custom_service_action |
 | messageContactRegistered | fully | - | contact_registered |
-| messageSuggestProfilePhoto | not | the photo | suggest_profile_photo |
+| messageSuggestProfilePhoto | fully | stored: the photo and, since msg-chat-backgrounds, an animated photo's video, as for chat_change_photo | suggest_profile_photo |
 | messageSuggestBirthdate | not | the date | suggest_birthdate |
 | messageProximityAlertTriggered | not | who, whom, distance | proximity_alert_triggered |
 | messageManagedBotCreated | not | bot and manager bot | managed_bot_created |
@@ -428,7 +428,7 @@ false.
 |---|---|
 | chat_create | `title`, `user_ids` (basic groups) |
 | chat_change_title | `title` |
-| chat_change_photo, suggest_profile_photo | `photo`: `{photo_id, width, height, animated, minithumbnail}` |
+| chat_change_photo, suggest_profile_photo | `photo`: `{photo_id, width, height, animated, minithumbnail}`; an animated photo's video is the `chat_photo` file at position 1 |
 | chat_add_members | `user_ids` |
 | chat_delete_member | `user_id` |
 | chat_join_from_community, chat_added_to_community | `community_id` |
@@ -524,7 +524,7 @@ A video note's round video is now the main file, like any other media.
 | `paid` | each photo or video of paid media, `position` its index among the items (previews of unpaid items have no file); an invoice's paid media at position 0 |
 | `game` | a game's photo (position 0) and animation (position 1) |
 | `invoice` | an invoice's product photo |
-| `chat_photo` | the new photo of a chat photo change or a suggested profile photo (largest size) |
+| `chat_photo` | the new photo of a chat photo change or a suggested profile photo: the still photo (largest size) at position 0 and, when the photo is animated, its MPEG-4 video at position 1 (file_type `animation`; the big animation, up to 1280x1280, else the small one, 160x160, when TDLib gives only that) |
 | `thumbnail` | the still thumbnail TDLib offers with a video, an animation, a video note or a video (.webm) sticker, when it is an image (JPEG, PNG or WebP; MPEG-4, GIF, TGS and WebM thumbnails are not stored), file_type `thumbnail`: the picture the web shows before the video plays |
 | `poll`, `preview` | reserved: poll media (msg-polls); other thumbnails (a document's, a photo's sizes) and a video's other qualities are not stored, since they repeat the media |
 | `rich` | the media inside a rich message's page blocks, `position` their order of appearance, depth first through collages, slideshows, quotes, lists, collapsible blocks, covers and embedded posts: each photo (largest size), video, animation, audio file, document and voice note, an embedded page's poster, an embedded post's author photo, the photos of related articles; not a chat link's photo (the chat's own) nor the icons inside rich text |

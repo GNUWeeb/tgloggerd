@@ -2762,17 +2762,34 @@ const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
 }
 
 /*
+ * The video of an animated chat photo: the big animation (up to
+ * 1280x1280), else the small one (160x160) when TDLib gives only that;
+ * nullptr for a still photo.
+ */
+const td_api::file *chat_photo_animation(const td_api::chatPhoto *p)
+{
+	if (!p)
+		return nullptr;
+	if (p->animation_ && p->animation_->file_)
+		return p->animation_->file_.get();
+	if (p->small_animation_ && p->small_animation_->file_)
+		return p->small_animation_->file_.get();
+	return nullptr;
+}
+
+/*
  * The files of @content beyond the one message_content_file() returns, in
  * a stable order: a video's cover, a live photo's video, each paid media
  * item, a game's photo and animation, an invoice's photo and paid media,
- * the photo of a chat photo change or suggestion, a chat background's
- * document (the wallpaper or the pattern), the still
- * thumbnail of a video, an animation, a video note or a video sticker
- * (the picture shown before it plays), the media in a rich message's
- * page blocks (rich_message_files), and a text message's link preview's
- * own video, animation or audio (link_preview_media_files). Other
- * thumbnails and a video's other qualities are not listed: the first
- * only repeat the media, the second are the same video again.
+ * the photo of a chat photo change or suggestion and its video when it
+ * is animated, a chat background's document (the wallpaper or the
+ * pattern), the still thumbnail of a video, an animation, a video note
+ * or a video sticker (the picture shown before it plays), the media in
+ * a rich message's page blocks (rich_message_files), and a text
+ * message's link preview's own video, animation or audio
+ * (link_preview_media_files). Other thumbnails and a video's other
+ * qualities are not listed: the first only repeat the media, the second
+ * are the same video again.
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content)
 {
@@ -2886,18 +2903,20 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 					  2 + (int)i);
 		break;
 	}
-	case td_api::messageChatChangePhoto::ID:
-		add(chat_photo_best_size(
-			    static_cast<const td_api::messageChatChangePhoto &>(
-				    content).photo_.get()),
-		    "photo", "", "chat_photo", 0);
+	case td_api::messageChatChangePhoto::ID: {
+		auto *p = static_cast<const td_api::messageChatChangePhoto &>(
+				  content).photo_.get();
+		add(chat_photo_best_size(p), "photo", "", "chat_photo", 0);
+		add(chat_photo_animation(p), "animation", "", "chat_photo", 1);
 		break;
-	case td_api::messageSuggestProfilePhoto::ID:
-		add(chat_photo_best_size(
-			    static_cast<const td_api::messageSuggestProfilePhoto &>(
-				    content).photo_.get()),
-		    "photo", "", "chat_photo", 0);
+	}
+	case td_api::messageSuggestProfilePhoto::ID: {
+		auto *p = static_cast<const td_api::messageSuggestProfilePhoto &>(
+				  content).photo_.get();
+		add(chat_photo_best_size(p), "photo", "", "chat_photo", 0);
+		add(chat_photo_animation(p), "animation", "", "chat_photo", 1);
 		break;
+	}
 	case td_api::messageChatSetBackground::ID: {
 		/* A wallpaper's JPEG or a pattern's PNG or TGV; a fill or
 		 * a chat theme has no document. */
