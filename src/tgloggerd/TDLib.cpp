@@ -437,6 +437,7 @@ const char *forward_kind_str(models::MessageContentType t)
 	case models::MessageContentType::Invoice:   return "invoice";
 	case models::MessageContentType::Giveaway:  return "giveaway";
 	case models::MessageContentType::Call:      return "call";
+	case models::MessageContentType::Rich:      return "rich";
 	default:                                    return "";
 	}
 }
