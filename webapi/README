@@ -543,7 +543,13 @@ timezone. Its header counts the members the archive has seen
 (senders and admins), and gives Telegram's own count (member_count,
 member_count_at) as the daemon last stored it in telegram_groups;
 every group summary, the group pages and the groups list carry it too
-(null before the daemon has one). /messages/{group|private}?chat_id=
+(null before the daemon has one). A chat page or group page (its tabs and
+an exposed group's public page too) whose count is missing or older
+than 10 minutes asks the daemon to refresh it (POST
+/v1/chats/{id}/refresh) in the background: never in the page's path,
+at most one call in flight per group, and a group asked about is left
+alone for a minute after. The daemon stores the new count, which the
+next page load shows; a failed refresh keeps the stored count. /messages/{group|private}?chat_id=
 redirects to the message list filtered by that chat.
 
 Signed-out visitors may read the chats of exposed groups

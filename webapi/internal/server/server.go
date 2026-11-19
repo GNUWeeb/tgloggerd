@@ -154,6 +154,9 @@ type Server struct {
 	forgotAcct    *auth.RateLimiter
 	// engine is Deps.SearchEngine.
 	engine SearchEngine
+	// members refreshes the member counts the pages show
+	// (groupmembers.go).
+	members memberRefresher
 }
 
 // New returns the service's handler: the routes wrapped in request

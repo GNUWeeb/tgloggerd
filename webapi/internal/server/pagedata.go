@@ -445,6 +445,7 @@ func loadGroupPage(ctx context.Context, pr *pageRequest) (any, error) {
 		return nil, err
 	}
 	g := c.GroupInfo
+	pr.s.refreshMemberCount(g)
 	gs := pr.view().group(g)
 	gs.MsgCount = nil
 	return groupPublicProps{Public: true, Group: groupPublicJSON{groupSummaryJSON: gs,
@@ -462,6 +463,7 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	pr.s.refreshMemberCount(p.Group.Group)
 	v := pr.view()
 	gs := v.group(p.Group.Group)
 	gs.MsgCount = nil
@@ -672,6 +674,7 @@ func loadChat(ctx context.Context, pr *pageRequest, group bool) (any, error) {
 			Closed: t.Closed, Hidden: t.Hidden})
 	}
 	if group {
+		pr.s.refreshMemberCount(c.GroupInfo)
 		gs := v.group(c.GroupInfo)
 		gs.MsgCount = nil
 		members, err := c.KnownMembers(ctx, pr.s.ro)
