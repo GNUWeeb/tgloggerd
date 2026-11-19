@@ -106,7 +106,10 @@
 .app .c-album.n3 > :first-child { grid-row: span 2; }
 .app .c-album.n4 { grid-template-columns: 1fr 1fr; }
 .app .c-album .c-media { border-radius: 4px; height: 100%; aspect-ratio: auto !important; min-height: 90px; }
-.app .c-videowrap { position: relative; }
+.app .c-videowrap { position: relative; overflow: hidden; }
+/* A video's blurred preview fills its box under the poster or frame. */
+.app .c-media > img.c-mini { position: absolute; inset: 0; filter: blur(10px); transform: scale(1.15); }
+.app .c-videowrap > video { position: relative; }
 .app .c-playbig { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 48px; height: 48px; border-radius: 50%; background: rgb(0 0 0 / .45); color: #fff; display: grid; place-items: center; pointer-events: none; }
 .app .c-dur { position: absolute; left: 8px; top: 8px; background: rgb(0 0 0 / .45); color: #fff; font-size: 12px; padding: 1px 7px; border-radius: 8px; }
 .app .c-doc { display: flex; gap: 10px; align-items: center; padding: 2px 0 4px; min-width: 220px; }

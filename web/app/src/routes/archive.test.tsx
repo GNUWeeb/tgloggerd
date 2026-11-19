@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The archive's list and detail pages: groups, files, messages, a user,
 // a group, a message, the dashboard, and a missing page.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, json, renderPage, setup } from '../test/page.tsx';
 import type { GroupsProps } from './groups.tsx';
@@ -10,6 +10,9 @@ import type { MessagesProps } from './messages.tsx';
 import type { UserProps } from './user.tsx';
 import type { DashboardProps } from './dashboard.tsx';
 import { readFileSync } from 'node:fs';
+
+// A .tgs preview plays with the Lottie player, which is not under test.
+vi.mock('../ui/lottie.ts', () => ({ playTgs: vi.fn(() => () => {}) }));
 
 beforeEach(setup);
 const lastPageCall = (calls: ReturnType<typeof fakeApi>) => callsTo(calls, 'GET', /^\/api\/page\//).at(-1)!;
@@ -121,12 +124,12 @@ describe('files', () => {
 		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'big.jpg' })).toBeNull());
 	});
 
-	it('offers no bigger view for a video\'s poster', async () => {
+	it('offers no picture\'s bigger view for a video\'s poster', async () => {
 		const p = fixture<FilesProps>('/files?view=list').props;
 		const f = { ...p.rows[0]!, id: 4247, name: 'clip.mp4', file_type: 'video' as const, stored: true, url: '/files/tok-clip', thumb: '/files/tok-clip-poster' };
 		renderPage('/files?view=list&file=4247', 'superadmin', { props: { ...p, rows: [f], preview: f } });
 		const d = await screen.findByRole('dialog', { name: 'clip.mp4' });
-		expect(d.querySelector('.a-preview img')!.getAttribute('src')).toBe('/files/tok-clip-poster');
+		expect(d.querySelector('.a-preview video')!.getAttribute('poster')).toBe('/files/tok-clip-poster');
 		expect(within(d).queryByRole('button', { name: 'View bigger' })).toBeNull();
 	});
 
@@ -233,7 +236,9 @@ describe('files', () => {
 			const r = renderPage(`/files?view=list&file=${f.id}`, 'superadmin', { props: { ...p, rows, preview: f } });
 			const d = await screen.findByRole('dialog', { name: f.name });
 			expect(d.querySelector('img')).toBeNull();
-			expect(d.querySelector(f.file_type === 'video' ? '.a-preview .a-thumb-video' : '.a-preview .a-thumb-sticker')).toBeTruthy();
+			// It plays with the chat's player, with no poster to draw.
+			if (f.file_type === 'video') expect(d.querySelector('.a-preview video')!.hasAttribute('poster')).toBe(false);
+			else expect(d.querySelector('.a-preview .c-lottie')).toBeTruthy();
 			expect(within(d).queryByRole('button', { name: 'View bigger' })).toBeNull();
 			// Nor the list's small thumbnails.
 			expect(document.querySelectorAll('.a-table img[src*="tok-"]')).toHaveLength(0);
@@ -241,13 +246,98 @@ describe('files', () => {
 		}
 	});
 
-	it('lists a .webm video and a .tgs sticker in the stand-in with no thumb, as Go sends them', () => {
-		const rows = fixture<FilesProps>('/files').props.rows;
-		for (const ext of ['webm', 'tgs']) {
-			const f = rows.find((r) => r.ext === ext && r.stored)!;
-			expect(f, `a stored .${ext} file`).toBeTruthy();
-			expect(f.thumb).toBeNull();
+	describe('video stills', () => {
+		const MINI = 'data:image/jpeg;base64,AA';
+		const base = () => fixture<FilesProps>('/files').props;
+		const row = (o: Partial<FilesProps['rows'][number]>) => ({ ...base().rows[0]!, stored: true, duration: 30, ...o });
+		const still = row({ id: 4260, name: 'clip.mp4', ext: 'mp4', file_type: 'video', url: '/files/tok-v1', thumb: '/files/tok-v1-still', minithumb: MINI });
+		const blurOnly = row({ id: 4261, name: 'blur.mp4', ext: 'mp4', file_type: 'animation', url: '/files/tok-v2', thumb: null, minithumb: MINI });
+		const neither = row({ id: 4262, name: 'bare.mp4', ext: 'mp4', file_type: 'video', url: '/files/tok-v3', thumb: null });
+		const webmSticker = row({ id: 4263, name: 'cat.webm', ext: 'webm', file_type: 'sticker', url: '/files/tok-v4', thumb: '/files/tok-v4-still' });
+		const webmVideo = row({ id: 4264, name: 'clip.webm', ext: 'webm', file_type: 'video', url: '/files/tok-v5', thumb: '/files/tok-v5-still' });
+		const unstored = row({ id: 4265, name: 'gone.mp4', ext: 'mp4', file_type: 'video_note', stored: false, url: null, thumb: '/files/tok-v6-still', minithumb: MINI });
+		const rows = [still, blurOnly, neither, webmSticker, webmVideo, unstored];
+		const card = (name: string) => screen.getAllByRole('button').find((b) => b.classList.contains('a-filecard') && within(b).queryByText(name))!;
+		const picOf = (el: Element) => el.querySelector('img:not(.a-thumb-mini)')?.getAttribute('src') ?? null;
+		const miniOf = (el: Element) => el.querySelector('img.a-thumb-mini')?.getAttribute('src') ?? null;
+
+		it('shows each grid card\'s still with the play mark, the blurred preview without one, and a .webm\'s still', () => {
+			renderPage('/files', 'superadmin', { props: { ...base(), rows } });
+			const c1 = card('clip.mp4');
+			expect(picOf(c1)).toBe('/files/tok-v1-still');
+			expect(miniOf(c1)).toBe(MINI);
+			expect(c1.querySelector('.a-thumb-play')).toBeTruthy();
+			const c2 = card('blur.mp4');
+			expect(picOf(c2)).toBeNull();
+			expect(miniOf(c2)).toBe(MINI);
+			expect(c2.querySelector('.a-thumb-blurred .a-thumb-play')).toBeTruthy();
+			const c3 = card('bare.mp4');
+			expect(c3.querySelector('img')).toBeNull();
+			expect(c3.querySelector('.a-thumb-video')).toBeTruthy();
+			// Keyed on the thumb, not the file: a .webm with a still shows it.
+			expect(picOf(card('cat.webm'))).toBe('/files/tok-v4-still');
+			expect(picOf(card('clip.webm'))).toBe('/files/tok-v5-still');
+			// An unstored video keeps its still, marked as not stored.
+			const c6 = card('gone.mp4');
+			expect(picOf(c6)).toBe('/files/tok-v6-still');
+			expect(c6.querySelector('.a-thumb')!.getAttribute('title')).toBe('Not stored');
+			// No card asks for a video's own bytes.
+			for (const f of rows) expect(document.querySelector(`.a-filegrid img[src="${f.url}"]`)).toBeNull();
+			expect(document.querySelector('.a-filegrid video')).toBeNull();
+		});
+
+		it('shows the stills in the list view too', () => {
+			renderPage('/files?view=list', 'superadmin', { props: { ...base(), rows } });
+			const table = document.querySelector('.a-table')!;
+			expect(table.querySelector('img[src="/files/tok-v1-still"]')).toBeTruthy();
+			expect(table.querySelector(`img.a-thumb-mini[src="${MINI}"]`)).toBeTruthy();
+		});
+
+		it('shows the still or blurred preview of a video it cannot play in the preview, which opens no bigger view', async () => {
+			// Neither stored nor fetchable: nothing to play, only its still.
+			for (const f of rows.map((x) => ({ ...x, stored: false, fetchable: false, url: null }))) {
+				const r = renderPage(`/files?view=list&file=${f.id}`, 'superadmin', { props: { ...base(), rows, preview: f } });
+				const d = await screen.findByRole('dialog', { name: f.name });
+				const pane = d.querySelector('.a-preview')!;
+				expect(within(d).queryByRole('button', { name: 'View bigger' })).toBeNull();
+				if (f.thumb) {
+					expect(pane.querySelector('img.a-preview-img')!.getAttribute('src')).toBe(f.thumb);
+					if (f.file_type !== 'sticker') expect(pane.querySelector('.a-thumb-play')).toBeTruthy();
+				} else if (f.minithumb) {
+					expect(miniOf(pane)).toBe(MINI);
+					expect(pane.querySelector('.a-thumb-play')).toBeTruthy();
+				} else {
+					expect(pane.querySelector('img')).toBeNull();
+				}
+				expect(pane.querySelector('video')).toBeNull();
+				// The still shows beside the note that the video is not stored.
+				expect(pane.querySelector('.a-preview-missing')).toBeTruthy();
+				r.unmount();
+			}
+		});
+	});
+
+	it('lists a .tgs sticker in the stand-in with no thumb, and a .webm with a still, never its own URL, as Go sends them', () => {
+		const rows = fixture<FilesProps>('/files?per=1000').props.rows;
+		const tgs = rows.find((r) => r.ext === 'tgs' && r.stored)!;
+		expect(tgs, 'a stored .tgs file').toBeTruthy();
+		expect(tgs.thumb).toBeNull();
+		for (const type of ['video', 'sticker']) {
+			const f = rows.find((r) => r.ext === 'webm' && r.file_type === type && r.stored && r.thumb)!;
+			expect(f, `a stored .webm ${type} with a still`).toBeTruthy();
+			expect(f.thumb).toMatch(/^\/files\//);
+			expect(f.thumb).not.toBe(f.url);
 		}
+	});
+
+	it('gives the stand-in\'s videos a still and a blurred preview, some only the preview, some neither', () => {
+		const vids = fixture<FilesProps>('/files?per=1000').props.rows.filter((r) => r.file_type === 'video');
+		const mini = /^data:image\/jpeg;base64,/;
+		expect(vids.some((r) => r.thumb && mini.test(r.minithumb ?? ''))).toBe(true);
+		expect(vids.some((r) => !r.thumb && mini.test(r.minithumb ?? ''))).toBe(true);
+		expect(vids.some((r) => !r.thumb && r.minithumb === undefined)).toBe(true);
+		// Unstored videos keep their still too.
+		expect(vids.some((r) => !r.stored && r.thumb)).toBe(true);
 	});
 
 	it('switches between grid and list', async () => {

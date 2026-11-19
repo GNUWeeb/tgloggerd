@@ -137,6 +137,17 @@ const STICKER_FORMATS = ['webp', 'webm', 'tgs'];
 // How each content type renders (MediaDetail.render); stickers by format.
 const RENDER = { photo: 'image', video: 'video', animation: 'animation', voice: 'audio', audio: 'audio', document: 'file' };
 const EXT_OF = { photo: 'jpg', video: 'mp4', animation: 'mp4', voice: 'ogg', audio: 'mp3', document: 'bin' };
+// What a video waits to play behind, as Go sends it: a still (its
+// cover, else Telegram's thumbnail, a stored /files/ URL the stand-in
+// serves as a picture) and a blurred preview (TDLib's minithumbnail, a
+// tiny JPEG). Varied by file id: most have both, every seventh only the
+// blurred preview, and as many again neither.
+const MINITHUMB = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAGAAgDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/xAAXEAEAAwAAAAAAAAAAAAAAAAAAAhRh/8QAFAEBAAAAAAAAAAAAAAAAAAAABP/EABcRAAMBAAAAAAAAAAAAAAAAAAADFFL/2gAMAwEAAhEDEQA/AKKkcAApbodOrJ//2Q==';
+export function videoStill(fileId: number): { poster: string | null; minithumb: string | null } {
+	const k = fileId % 7;
+	return { poster: k === 3 || k === 4 ? null : `/files/standin-${600000 + (fileId % 100000)}`, minithumb: k === 4 ? null : MINITHUMB };
+}
+
 export function chatMedia(md, type, fetch = false, extra = {}) {
 	if (!md) return null;
 	const stored = md.stored !== false;
@@ -147,8 +158,12 @@ export function chatMedia(md, type, fetch = false, extra = {}) {
 	const url = stored || fetchable ? `/files/standin-${md.fileId}${format === 'tgs' ? '.tgs' : ''}` : null;
 	const render = RENDER[type] ?? (format === 'tgs' ? 'lottie' : format === 'webm' ? 'animation' : 'image');
 	const picture = render === 'image';
+	// A video, animation, video note or .webm sticker: thumb is its still,
+	// else its blurred preview.
+	const still = render === 'video' || render === 'animation' ? videoStill(md.fileId) : null;
 	return {
-		stored, fetchable, thumb: picture ? url : null, url, render, ext: format ?? md.ext ?? EXT_OF[type],
+		stored, fetchable, thumb: picture ? url : still ? still.poster ?? still.minithumb : null, url, render, ext: format ?? md.ext ?? EXT_OF[type],
+		...(still?.poster ? { poster: still.poster } : {}), ...(still?.minithumb ? { minithumb: still.minithumb } : {}),
 		w: md.w, h: md.h, duration: md.duration, name: md.name, size: md.size, emoji: md.emoji,
 		// Telegram's voice waveform is 5-bit: 0 to 31 per bar.
 		wave: md.wave?.map((x) => Math.round(x * 31)),
@@ -347,16 +362,21 @@ function allFiles() {
 const pictureType = (t: string) => t === 'photo' || t === 'sticker';
 
 // A file as Go sends it (FileRow): url when the bytes are stored or the
-// viewer may have them fetched from Telegram; thumb only for a stored
-// photo or sticker an <img> can draw (not a .webm or .tgs).
+// viewer may have them fetched from Telegram; thumb the URL itself for a
+// stored photo or .webp sticker, a video's (or .webm sticker's) still
+// whether it is stored or not, never its own URL, and nothing for a
+// .tgs sticker; a video's blurred preview when it has one.
+const videoType = (f) => f.file_type === 'video' || f.file_type === 'animation' || f.file_type === 'video_note' || (f.file_type === 'sticker' && f.ext === 'webm');
 function fileRow(f, fetch: boolean) {
 	const fetchable = !f.stored && fetch;
 	const url = f.stored || fetchable ? `/files/standin-${f.id}${f.ext === 'tgs' ? '.tgs' : ''}` : null;
 	const drawable = f.ext !== 'webm' && f.ext !== 'tgs';
+	const still = videoType(f) ? videoStill(f.id) : null;
 	const base = {
 		id: f.id, file_type: f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored, fetchable,
 		created_at: iso(f.created_at), accessed_at: iso(f.accessed_at), duration: f.duration, tg_file_id: f.tg_file_id, sha256: f.sha256,
-		url, thumb: f.stored && pictureType(f.file_type) && drawable ? url : null,
+		url, thumb: still ? still.poster : f.stored && pictureType(f.file_type) && drawable ? url : null,
+		...(still?.minithumb ? { minithumb: still.minithumb } : {}),
 	};
 	if (orphan(f)) return { ...base, chat: null, sender: null, message: null };
 	return {

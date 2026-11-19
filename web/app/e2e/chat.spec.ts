@@ -73,6 +73,32 @@ test('a photo opens full size in the viewer above the chat; Esc closes it', asyn
 	await expect(viewer).toHaveCount(0);
 });
 
+test('a video shows its poster and fetches none of its bytes until it is played', async ({ page, request }) => {
+	const asked: string[] = [];
+	page.on('request', (r) => asked.push(new URL(r.url()).pathname));
+	// The newest stored, plain video with a poster, a page back at a time.
+	type M = { message_id: number; content_type: string; album: unknown[]; media: { stored: boolean; url: string | null; poster?: string } | null };
+	let v: M | undefined;
+	for (let i = 0, before = ''; i < 20 && !v; i++) {
+		const msgs = (await (await request.get(`/api/chats/group/${G}/messages?limit=100${before}`, { headers: { cookie: 'tgd_as=superadmin' } })).json()).messages as M[];
+		if (!msgs.length) break;
+		v = msgs.filter((m) => m.content_type === 'video' && !m.album.length && m.media?.stored && m.media.poster).at(-1);
+		before = `&before=${msgs[0]!.message_id}`;
+	}
+	expect(v, 'a stored video with a poster').toBeTruthy();
+	await page.goto(`/groups/${G}/chat?at=${v!.message_id}`);
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	const box = page.locator(`#m${v!.message_id}`).getByRole('link', { name: 'Video' });
+	const video = box.locator('video');
+	await expect(video).toHaveAttribute('poster', v!.media!.poster!);
+	await expect(video).toHaveAttribute('preload', 'none');
+	await expect(box.locator('.c-playbig')).toBeVisible();
+	await expect.poll(() => asked.includes(v!.media!.poster!)).toBe(true);
+	expect(asked.filter((u) => u === v!.media!.url)).toEqual([]);
+	await box.click();
+	await expect(page.getByRole('dialog', { name: 'Media viewer' }).locator('video')).toHaveAttribute('src', v!.media!.url!);
+});
+
 test('a voice note fetches nothing until it is played', async ({ page }) => {
 	const asked: string[] = [];
 	page.on('request', (r) => r.url().includes('/files/') && asked.push(r.url()));
