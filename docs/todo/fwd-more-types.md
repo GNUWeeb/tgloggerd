@@ -17,17 +17,16 @@ of their own.
 
 ## Scope
 
-- Design first: the list of flags and their grouping, agreed with the
-  frontend for the form's UX (grouped, with group toggles, presets,
-  or another layout that fits a dozen or more types), and whether the
-  flags stay one column each or become one set column. Record the
-  choice as a decision file.
+- The design is decided:
+  [../design/decisions/2026-11-20-fwd-more-types.md](../design/decisions/2026-11-20-fwd-more-types.md)
+  (the flags and groups, storage, API shape, form and list).
 - Daemon (TDLib session): both bridges (tgloggerd's Telegram to
   Discord forwarder and discordd's Discord to Telegram routes) honour
-  the new flags part by part, as today; types with no flag of their
-  own keep following `fwd_other`. A migration adds the flags, each
-  defaulting to the value `fwd_other` has on the row, so no route
-  changes what it forwards.
+  the new flags part by part, as today, a summary line of
+  message-types.md section 4.10 following its kind's flag; kinds with
+  no flag of their own keep following `fwd_other`. A migration adds
+  the flags, each copying the flag its type followed until now, so no
+  route changes what it forwards.
 - Go (webapi): the forwarding API reads and writes the new flags;
   OpenAPI and web/docs/platform-forwarding.md follow.
 - React (frontend): the route form and the route list show the new
