@@ -36,7 +36,9 @@ describe('message page parity with the chat', () => {
 		const link = screen.getByRole('link', { name: t.name });
 		expect(details().contains(link)).toBe(true);
 		expect(link.getAttribute('href')).toBe(`/groups/${FORUM_GROUP.id}/chat?topic=${t.id}`);
-		expect((link.querySelector('.k-topicdot') as HTMLElement).style.background).toBeTruthy();
+		// Its custom emoji icon, else its colour.
+		if (t.icon_custom_emoji) expect(link.querySelector('.k-topicicon .ce')).not.toBeNull();
+		else expect((link.querySelector('.k-topicdot') as HTMLElement).style.background).toBeTruthy();
 		expect(screen.queryByText(`topic ${t.id}`)).toBeNull();
 	});
 

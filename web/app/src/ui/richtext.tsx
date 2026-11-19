@@ -8,6 +8,7 @@
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { Link } from '../nav.tsx';
 import type { TextEntity } from '../api/entities.ts';
+import { CustomEmoji } from './customemoji.tsx';
 
 // The chat a text is in: hashtags search its messages.
 export interface RichChat { scope: 'group' | 'private'; id: number }
@@ -139,9 +140,9 @@ function draw(n: Node | string, text: string, chat: RichChat | undefined, inLink
 		}
 		case 'block_quote': return <blockquote key={key} className="rt-quote">{kids}</blockquote>;
 		case 'expandable_block_quote': return <Expandable key={key}>{kids}</Expandable>;
-		// The text holds the emoji's own characters; the custom sticker is
-		// not fetched.
-		case 'custom_emoji': return <span key={key} className="rt-emoji">{kids}</span>;
+		// The sticker, its text (the emoji's own characters) as alt text;
+		// the text itself while the sticker is not known.
+		case 'custom_emoji': return <CustomEmoji key={key} e={e.custom_emoji} alt={own}><span className="rt-emoji">{kids}</span></CustomEmoji>;
 		// media_timestamp (the time is in the text; the service sends no
 		// second), bank_card_number, unknown and types this view does not
 		// know: the text as it is.

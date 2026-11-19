@@ -9,7 +9,7 @@ import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
 import { LinkPreview } from './chat-preview.tsx';
-import { Counts, KindDetail, KindFallback, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
+import { Counts, EffectMark, KindDetail, KindFallback, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
 import { fetchMembers, seesMembers } from '../api/members.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
@@ -126,6 +126,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 				{m.author_signature && <div className="c-sign">- {m.author_signature}</div>}
 				<Reactions list={m.reactions} />
 				<div className="c-meta">
+					<EffectMark id={m.effect_id} effect={m.effect} />
 					<Counts k={m} />
 					{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}
 					{pref.showEdited && m.edits.length > 0 && <button type="button" className="c-edited" onClick={() => setEdits((x) => !x)} aria-expanded={edits}><Pencil size={10} />edited</button>}

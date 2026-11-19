@@ -6,7 +6,7 @@
 // may not are null or left out, and the *_total fields still count
 // them, so the page says how many more there were but never who.
 import type { ReactNode } from 'react';
-import { Building2, Check, CircleDashed, CircleHelp, Contact, Dices, Eye, Gamepad2, Gift, LayoutTemplate, ListChecks, Lock, MapPin, MessageSquare, Navigation, Phone, PhoneMissed, PhoneOff, Pin, Receipt, Repeat2, Square, SquareCheck, Star, TimerOff, Trophy, Video, AppWindow, type LucideIcon } from 'lucide-react';
+import { Building2, Check, CircleDashed, CircleHelp, Contact, Dices, Eye, Gamepad2, Gift, LayoutTemplate, ListChecks, Lock, MapPin, MessageSquare, Navigation, Phone, PhoneMissed, PhoneOff, Pin, Receipt, Repeat2, Sparkles, Square, SquareCheck, Star, TimerOff, Trophy, Video, AppWindow, type LucideIcon } from 'lucide-react';
 import { Link } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { compact, dateTime, fmt } from '../format.ts';
@@ -17,6 +17,7 @@ import { VcardExtra } from './chat-vcard.tsx';
 import { Animation, Picture, type Media } from './chat-media.tsx';
 import type { Viewer } from '../page.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
+import { CustomEmoji } from '../ui/customemoji.tsx';
 import type { TextEntity } from '../api/entities.ts';
 import type { S } from '../api/schema.ts';
 
@@ -298,8 +299,9 @@ export function Reactions({ list }: { list: Kinds['reactions'] }) {
 	return (
 		<div className="k-reactions" aria-label="Reactions">
 			{list.map((r, i) => (
-				<span key={i} className="k-reaction" title={r.paid ? 'Paid reaction (Stars)' : r.custom_emoji_id ? 'Custom emoji' : r.emoji}>
-					<span aria-hidden="true">{r.paid ? <Star size={12} fill="currentColor" /> : r.emoji ?? '◆'}</span><span className="num">{compact(r.count)}</span>
+				<span key={i} className="k-reaction" title={r.paid ? 'Paid reaction (Stars)' : r.custom_emoji_id ? `Custom emoji${r.custom_emoji ? ` ${r.custom_emoji.emoji}` : ''}` : r.emoji}>
+					{/* A custom emoji not known yet is a diamond. */}
+					<span aria-hidden="true">{r.paid ? <Star size={12} fill="currentColor" /> : r.custom_emoji_id ? (r.custom_emoji ? <CustomEmoji e={r.custom_emoji} /> : '◆') : r.emoji ?? '◆'}</span><span className="num">{compact(r.count)}</span>
 				</span>
 			))}
 		</div>
@@ -321,6 +323,13 @@ export function Counts({ k }: { k: Pick<Kinds, 'pinned' | 'views' | 'forwards' |
 type Topic = S['ChatTopic'];
 export const topicColor = (t: Pick<Topic, 'icon_color'>) => `#${(t.icon_color & 0xffffff).toString(16).padStart(6, '0')}`;
 
+// A topic's icon: its custom emoji, else a dot of its colour (also
+// while the emoji is not known).
+export function TopicIcon({ t, className = '' }: { t: Pick<Topic, 'icon_color' | 'icon_custom_emoji'>; className?: string }) {
+	const dot = <span className={`k-topicdot ${className}`.trim()} style={{ background: topicColor(t) }} />;
+	return t.icon_custom_emoji ? <span className={`k-topicicon ${className}`.trim()} aria-hidden="true"><CustomEmoji e={t.icon_custom_emoji} /></span> : dot;
+}
+
 // A forum's topics above its chat: all of them, or one at a time. The
 // choice is the page's ?topic=, so it survives a reload and a link.
 export function TopicStrip({ topics, current, hrefOf }: { topics: Topic[]; current: number | null; hrefOf: (id: number | null) => string }) {
@@ -329,7 +338,7 @@ export function TopicStrip({ topics, current, hrefOf }: { topics: Topic[]; curre
 			<Link to={hrefOf(null)} className={current === null ? 'on' : ''} aria-current={current === null ? 'page' : undefined}>All topics</Link>
 			{topics.filter((t) => !t.hidden || t.id === current).map((t) => (
 				<Link key={t.id} to={hrefOf(t.id)} className={current === t.id ? 'on' : ''} aria-current={current === t.id ? 'page' : undefined} title={t.closed ? `${t.name} (closed)` : t.name}>
-					<span className="k-topicdot" style={{ background: topicColor(t) }} />{t.name}{t.closed && <Lock size={11} aria-label="closed" />}
+					<TopicIcon t={t} />{t.name}{t.closed && <Lock size={11} aria-label="closed" />}
 				</Link>
 			))}
 		</nav>
@@ -338,5 +347,16 @@ export function TopicStrip({ topics, current, hrefOf }: { topics: Topic[]; curre
 
 // The topic of a message, on the bubble, while the chat shows them all.
 export function TopicTag({ t, href }: { t: Topic; href: string }) {
-	return <Link to={href} className="k-topictag" style={{ ['--tc' as string]: topicColor(t) }}><span className="k-topicdot" style={{ background: topicColor(t) }} />{t.name}</Link>;
+	return <Link to={href} className="k-topictag" style={{ ['--tc' as string]: topicColor(t) }}><TopicIcon t={t} />{t.name}</Link>;
+}
+
+// The effect Telegram showed when a message was sent, as a small mark:
+// its picture, else its emoji, else a sparkle while it is not known.
+export function EffectMark({ id, effect }: { id: string | null; effect: S['MessageEffect'] | null }) {
+	if (id === null) return null;
+	return (
+		<span className="k-effect" title={`Message effect${effect ? ` ${effect.emoji}` : ''}`}>
+			{effect ? <CustomEmoji e={effect} /> : <Sparkles size={11} aria-label="Message effect" />}
+		</span>
+	);
 }

@@ -9,7 +9,7 @@ import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
 import { MessageMedia, kindOf } from './chat-media.tsx';
-import { Counts, KindDetail, KindFallback, Reactions, TEXT_INSIDE, hasFallback, topicColor } from './chat-kinds.tsx';
+import { Counts, EffectMark, KindDetail, KindFallback, Reactions, TEXT_INSIDE, TopicIcon, hasFallback } from './chat-kinds.tsx';
 import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
 import { RichText } from '../ui/richtext.tsx';
@@ -104,8 +104,9 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext">{partsOf(m.service, m.text) ? <ServiceText service={m.service} text={m.text} linkClass="a-link" /> : topicInText(m.text, svcDetail, topicHref) ?? <RichText text={m.text} entities={ents} chat={chat} />}{svcLine}</div> : !m.media && !m.detail && !fallback && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}{svcLine}</p>}
 						{m.link_preview && <LinkPreview lp={m.link_preview} />}
 						{svcAbout !== null && <p className="a-muted sm"><Link to={`${chatPath(m).split('?')[0]}?at=${svcAbout}`} className="a-link">The message this is about</Link></p>}
-						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies) && (
+						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies || m.effect_id !== null) && (
 							<div className="a-msginteract">
+								<EffectMark id={m.effect_id} effect={m.effect} />
 								<Reactions list={m.reactions} />
 								<span className="a-muted sm a-msgcounts"><Counts k={{ ...m, pinned: false }} /></span>
 							</div>
@@ -155,7 +156,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						m.forwarded ? [null, 'Forwarded from', fromLink] : null,
 						m.author_signature ? [null, 'Signature', m.author_signature] : null,
 						svcType ? [null, 'Service action', <>{serviceLabel(svcType)} <span className="mono a-muted sm">{svcType}</span></>] : null,
-						m.topic_id !== null && m.scope === 'group' ? [null, 'Forum topic', <Link to={`/groups/${m.chat.id}/chat?topic=${m.topic_id}`} className="a-rowlink">{m.topic ? <><span className="k-topicdot a-topicdot" style={{ background: topicColor(m.topic) }} />{m.topic.name}</> : `topic ${m.topic_id}`}</Link>] : null,
+						m.topic_id !== null && m.scope === 'group' ? [null, 'Forum topic', <Link to={`/groups/${m.chat.id}/chat?topic=${m.topic_id}`} className="a-rowlink">{m.topic ? <><TopicIcon t={m.topic} className="a-topicdot" />{m.topic.name}</> : `topic ${m.topic_id}`}</Link>] : null,
 						m.views !== null ? [null, 'Views', fmt(m.views)] : null,
 						m.forwards !== null ? [null, 'Forwards', fmt(m.forwards)] : null,
 						m.replies !== null ? [null, 'Replies', fmt(m.replies)] : null,

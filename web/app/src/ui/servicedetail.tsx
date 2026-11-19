@@ -8,7 +8,7 @@ import { useState, type ReactNode } from 'react';
 import { CloudOff, Download } from 'lucide-react';
 import { Link } from '../nav.tsx';
 import { Lightbox, plainClick } from '../routes/chat-media.tsx';
-import { topicColor } from '../routes/chat-kinds.tsx';
+import { TopicIcon } from '../routes/chat-kinds.tsx';
 import { dateTime } from '../format.ts';
 import type { Viewer } from '../page.ts';
 import type { ChatMedia } from '../types.ts';
@@ -53,10 +53,10 @@ function NewPhoto({ m, size, onClick }: { m: ChatMedia; size: number; onClick: b
 const DEFAULT_TOPIC_COLOR = 0x6fb9f0;
 const topicName = (t: Topic) => t.name || 'a topic';
 
-// The topic as a link to it, with its colour dot; only its name when
-// its id is not known.
+// The topic as a link to it, with its icon (or colour dot); only its
+// name when its id is not known.
 export function TopicLink({ t, hrefOf }: { t: Topic; hrefOf: (id: number) => string }) {
-	const inner = <><span className="k-topicdot" style={{ background: topicColor({ icon_color: t.icon_color ?? DEFAULT_TOPIC_COLOR }) }} />{topicName(t)}</>;
+	const inner = <><TopicIcon t={{ icon_color: t.icon_color ?? DEFAULT_TOPIC_COLOR, icon_custom_emoji: t.icon_custom_emoji }} />{topicName(t)}</>;
 	return t.id !== null ? <Link to={hrefOf(t.id)} className="c-svctopic">{inner}</Link> : <span className="c-svctopic">{inner}</span>;
 }
 
