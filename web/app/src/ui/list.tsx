@@ -97,7 +97,7 @@ function FilterAdd({ fields, onAdd, waiting = [], chatLabel = 'chat id' }: { fie
 					{needsValue(op) && (
 						<label>Value
 							{f.type === 'bool' ? <select value={value} onChange={(e) => setValue(e.target.value)}>{f.search ? <><option value="1">yes</option><option value="0">no</option></> : <><option>yes</option><option>no</option></>}</select>
-								: f.type === 'enum' ? <select value={value} onChange={(e) => setValue(e.target.value)}>{f.values?.map((v) => <option key={v}>{v}</option>)}</select>
+								: f.type === 'enum' ? <select value={value} onChange={(e) => setValue(e.target.value)}>{f.values?.map((v) => <option key={v} value={v}>{f.labels?.[v] ?? v}</option>)}</select>
 									: <input autoFocus value={value} onChange={(e) => setValue(e.target.value)} placeholder={f.type === 'date' ? (f.search ? 'YYYY-MM-DD HH:MM:SS' : 'YYYY-MM-DD') : ''} />}
 							{OP_HINT[op] && <span className="a-muted sm">{OP_HINT[op]}</span>}
 						</label>
@@ -161,7 +161,8 @@ export function FilterBar<T>({ L, fields: own, placeholder, quick, name }: { L: 
 	const fields = listFields(own, L.fields);
 	const joins = !!L.fields;
 	const label = (c: Cond) => fields.find((x) => x.key === c.field)?.label ?? c.field;
-	const shown = (c: Cond) => `${label(c)} ${c.op}${needsValue(c.op) ? ' ' + c.value : ''}`;
+	const valueOf = (c: Cond) => fields.find((x) => x.key === c.field)?.labels?.[c.value] ?? c.value;
+	const shown = (c: Cond) => `${label(c)} ${c.op}${needsValue(c.op) ? ' ' + valueOf(c) : ''}`;
 	const toggle = (i: number) => L.setConds(L.conds.map((c, j) => {
 		if (j !== i) return c;
 		const { n: _n, ...rest } = c;
@@ -193,7 +194,7 @@ export function FilterBar<T>({ L, fields: own, placeholder, quick, name }: { L: 
 						</button>
 					)}
 					<span className="a-chip">
-						<b>{label(c)}</b> {c.op} {needsValue(c.op) && <b>{c.value}</b>}
+						<b>{label(c)}</b> {c.op} {needsValue(c.op) && <b>{valueOf(c)}</b>}
 						<button type="button" aria-label="Remove filter" onClick={() => L.setConds(L.conds.filter((_, j) => j !== i))}><X size={12} /></button>
 					</span>
 				</span>

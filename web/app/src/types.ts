@@ -30,5 +30,7 @@ export type FieldType = 'number' | 'text' | 'enum' | 'bool' | 'date';
 // of the advanced search (ListState.fields) is marked search: its bools
 // compare 1 and 0, its times are full date-times.
 // needsChat: usable only beside a `chat_id =` filter, all joined with AND.
-export interface FieldDef { key: string; label: string; type: FieldType; values?: string[]; ops?: Op[]; search?: boolean; sortable?: boolean; needsChat?: boolean }
+// labels: what an enum's values are shown as, by value; the value is
+// what the filter sends.
+export interface FieldDef { key: string; label: string; type: FieldType; values?: string[]; labels?: Readonly<Record<string, string>>; ops?: Op[]; search?: boolean; sortable?: boolean; needsChat?: boolean }
 export type SearchField = S['SearchField'];

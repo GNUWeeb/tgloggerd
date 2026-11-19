@@ -4,6 +4,7 @@ import { Link } from '../nav.tsx';
 import { Avatar, PageHead } from '../ui/primitives.tsx';
 import { DataTable, emptyText, FilterBar, useListNav, type Col } from '../ui/list.tsx';
 import { TypeIcon, CONTENT_TYPES } from '../ui/media.tsx';
+import { CONTENT_LABELS } from '../ui/labels.ts';
 import { ago, dateTime, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { Cond, FieldDef, ListProps, MessageRow } from '../types.ts';
@@ -18,7 +19,7 @@ const TYPES: string[] = CONTENT_TYPES;
 const FIELDS: Record<'group' | 'private', FieldDef[]> = {
 	group: [
 		{ key: 'text', label: 'Text', type: 'text' },
-		{ key: 'content_type', label: 'Content type', type: 'enum', values: TYPES },
+		{ key: 'content_type', label: 'Content type', type: 'enum', values: TYPES, labels: CONTENT_LABELS },
 		{ key: 'chat_id', label: 'Group id', type: 'number' },
 		{ key: 'sender_id', label: 'Sender user id', type: 'number' },
 		{ key: 'is_forwarded', label: 'Forwarded', type: 'bool' },
@@ -28,7 +29,7 @@ const FIELDS: Record<'group' | 'private', FieldDef[]> = {
 	],
 	private: [
 		{ key: 'text', label: 'Text', type: 'text' },
-		{ key: 'content_type', label: 'Content type', type: 'enum', values: TYPES.filter((t) => t !== 'service') },
+		{ key: 'content_type', label: 'Content type', type: 'enum', values: TYPES.filter((t) => t !== 'service'), labels: CONTENT_LABELS },
 		{ key: 'chat_id', label: 'User (chat) id', type: 'number' },
 		{ key: 'is_outgoing', label: 'Outgoing', type: 'bool' },
 		{ key: 'is_deleted', label: 'Deleted', type: 'bool' },

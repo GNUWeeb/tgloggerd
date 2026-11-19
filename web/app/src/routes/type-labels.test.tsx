@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 // Message kinds by their human labels, not the archive's stored names:
-// the message page's pill and rows.
+// the message page's pill and rows, and the content type filter.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { screen } from '@testing-library/react';
-import { fixture, renderPage, setup } from '../test/page.tsx';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
 import type { MessageProps } from './message.tsx';
 import type { MessagesProps } from './messages.tsx';
 
@@ -37,5 +37,27 @@ describe('the message page', () => {
 	it('shows an action it has no label for by its raw name', () => {
 		render({ content_type: 'service', text: '', media: null, service_type: 'some_future_action', service: undefined });
 		expect(pill()).toBe('some_future_action');
+	});
+});
+
+describe('the message lists', () => {
+	it('offer the content types by their labels and filter by the stored name', async () => {
+		const calls = fakeApi('superadmin');
+		renderPage('/group_messages');
+		fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+		fireEvent.change(screen.getByRole('combobox', { name: 'Field' }), { target: { value: 'content_type' } });
+		const value = screen.getAllByRole('combobox').find((x) => x.closest('label')?.textContent?.startsWith('Value')) as HTMLSelectElement;
+		const opts = [...value.options].map((o) => [o.value, o.textContent]);
+		expect(opts).toContainEqual(['video_note', 'Video message']);
+		expect(opts).toContainEqual(['paid_media', 'Paid media']);
+		fireEvent.change(value, { target: { value: 'video_note' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+		await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(1));
+		expect(JSON.parse(callsTo(calls, 'GET', /^\/api\/page\//)[0]!.query.get('f')!)).toEqual([{ field: 'content_type', op: '=', value: 'video_note' }]);
+	});
+
+	it('show a content type filter by its label', () => {
+		renderPage('/group_messages?f=' + encodeURIComponent(JSON.stringify([{ field: 'content_type', op: '=', value: 'video_note' }])));
+		expect(document.querySelector('.a-chip')!.textContent).toContain('Video message');
 	});
 });
