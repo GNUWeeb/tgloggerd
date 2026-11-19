@@ -24,7 +24,8 @@ export type MemberStatus = 'creator' | 'administrator' | 'member' | 'restricted'
 // Why a group's list is not available: the archive account may not
 // read it (not_allowed: a channel it is no admin of; not_member: it
 // left), a superadmin hid it (hidden), or Telegram asked to wait.
-export type MembersReason = '' | 'not_allowed' | 'hidden' | 'not_member' | 'flood_wait';
+// unavailable: the daemon is off or does not answer.
+export type MembersReason = '' | 'not_allowed' | 'hidden' | 'not_member' | 'flood_wait' | 'unavailable';
 
 export interface GroupMember {
 	// A member the archive has not stored yet comes with its id alone
@@ -42,6 +43,11 @@ export interface MembersPage {
 	// Telegram's count, when known.
 	total: number | null;
 	members: GroupMember[];
+	// The page answered, and how many seconds Telegram asked to wait
+	// (flood_wait only).
+	offset?: number;
+	limit?: number;
+	retry_after?: number;
 }
 
 export const MEMBERS_PAGE = 50;
@@ -82,5 +88,6 @@ export function reasonText(r: MembersReason): string {
 	if (r === 'hidden') return 'Hidden by a superadmin';
 	if (r === 'flood_wait') return 'Telegram asked to wait; try again later';
 	if (r === 'not_allowed' || r === 'not_member') return "Telegram doesn't show this group's members to the archive account";
+	if (r === 'unavailable') return 'Member list not available right now';
 	return 'Telegram did not give this group\'s members';
 }

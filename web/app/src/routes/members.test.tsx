@@ -123,6 +123,7 @@ describe('Members tab', () => {
 		[M.NOT_ALLOWED, "Telegram doesn't show this group's members to the archive account"],
 		[M.NOT_MEMBER, "Telegram doesn't show this group's members to the archive account"],
 		[M.FLOOD, 'Telegram asked to wait; try again later'],
+		[M.UNAVAILABLE, 'Member list not available right now'],
 	])('says why a list is not available (%s), with the count', (id, why) => {
 		const p = fixture<GroupMembersProps>(`/groups/${id}/members`, 'admin').props;
 		fakeApi('admin');
