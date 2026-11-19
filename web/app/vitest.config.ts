@@ -9,5 +9,7 @@ export default defineConfig({
 		// Every file runs in its own worker with its own modules, so the
 		// fixtures' in-memory state is never shared between files.
 		isolate: true,
+		// No test may reach the network, not even after it ends.
+		setupFiles: ['src/test/no-network.ts'],
 	},
 });

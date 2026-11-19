@@ -63,6 +63,8 @@ export function setup() {
 	vi.stubGlobal('EventSource', undefined);
 }
 
+// Unstubbing puts back the refusing fetch of no-network.ts, so a request
+// started during or after cleanup never reaches the network.
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
