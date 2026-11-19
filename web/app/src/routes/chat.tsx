@@ -213,7 +213,15 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const [flash, setFlash] = useState<number | null>(p.at);
 	const [unseen, setUnseen] = useState(0);
 	const scroller = useRef<HTMLDivElement>(null);
-	const busy = useRef(false);
+	// The window's loads (older, newer, the live tail) belong to it: when
+	// a new page replaces the window they are aborted and their answers
+	// dropped, and the busy guard, held by the load running, is free for
+	// the new window's own loads.
+	const win = useRef<AbortController | null>(null);
+	const busy = useRef<AbortSignal | null>(null);
+	// The last message after which a page came back empty: a window too
+	// short to scroll does not ask again by itself (a scroll may).
+	const emptyAfter = useRef<number | null>(null);
 	const msgsRef = useRef(msgs);
 	msgsRef.current = msgs;
 	// A scroll to make once the next messages are rendered: keep the view
@@ -240,6 +248,13 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	}, []);
 
 	// A new page (another chat, or ?at=) replaces the window.
+	useEffect(() => {
+		const ac = new AbortController();
+		win.current = ac;
+		busy.current = null;
+		emptyAfter.current = null;
+		return () => ac.abort();
+	}, [p]);
 	useEffect(() => { setMsgs(p.messages); setOlder(p.has_older); setNewer(p.has_newer); setFlash(p.at); setUnseen(0); }, [p]);
 
 	useLayoutEffect(() => {
@@ -253,16 +268,18 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const loadOlder = useCallback(async () => {
 		const el = scroller.current;
 		const first = msgs[0];
-		if (!el || !first || !older || busy.current) return;
-		busy.current = true;
+		const sig = win.current?.signal;
+		if (!el || !first || !older || busy.current || !sig) return;
+		busy.current = sig;
 		try {
-			const w = await track(fetchChatWindow(scope, chatId, { before: first.message_id }, 60, undefined, topic));
+			const w = await track(fetchChatWindow(scope, chatId, { before: first.message_id }, 60, sig, topic));
+			if (sig.aborted) return;
 			// Once the older messages are rendered, keep the reader where
 			// they were (see the layout effect below).
 			afterRender.current = { prepend: el.scrollHeight };
 			setMsgs((cur) => [...w.messages, ...cur]);
 			setOlder(w.has_older);
-		} finally { busy.current = false; }
+		} catch { /* aborted, or failed: the next scroll asks again */ } finally { if (busy.current === sig) busy.current = null; }
 	}, [msgs, older, scope, chatId, topic]);
 
 	// The messages after the window, when it does not end at the newest
@@ -273,15 +290,20 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	// is reached, the view follows the live tail (following, below).
 	const loadNewer = useCallback(async () => {
 		const last = msgs[msgs.length - 1];
-		if (!last || !newer || busy.current) return;
-		busy.current = true;
+		const sig = win.current?.signal;
+		if (!last || !newer || busy.current || !sig) return;
+		busy.current = sig;
 		try {
-			const w = await track(fetchChatWindow(scope, chatId, { after: last.message_id }, 60, undefined, topic));
+			const w = await track(fetchChatWindow(scope, chatId, { after: last.message_id }, 60, sig, topic));
+			if (sig.aborted) return;
 			const have = new Set(msgsRef.current.map((c) => c.id));
-			msgsRef.current = [...msgsRef.current, ...w.messages.filter((x) => !have.has(x.id))];
-			setMsgs(msgsRef.current);
+			const add = w.messages.filter((x) => !have.has(x.id));
+			if (add.length) {
+				msgsRef.current = [...msgsRef.current, ...add];
+				setMsgs(msgsRef.current);
+			} else emptyAfter.current = last.message_id;
 			setNewer(w.has_newer);
-		} catch { /* not reached: the next scroll asks again */ } finally { busy.current = false; }
+		} catch { /* aborted, or failed: the next scroll asks again */ } finally { if (busy.current === sig) busy.current = null; }
 	}, [msgs, newer, scope, chatId, topic]);
 
 	useEffect(() => {
@@ -302,9 +324,12 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		return () => el.removeEventListener('scroll', on);
 	}, [loadOlder, loadNewer]);
 
-	// A window too short to scroll gives no scroll event: load on.
+	// A window too short to scroll gives no scroll event: load on, until
+	// a page adds nothing.
 	useEffect(() => {
 		const el = scroller.current;
+		const last = msgs[msgs.length - 1];
+		if (last && last.message_id === emptyAfter.current) return;
 		if (el && newer && prefs(v).autoLoad && el.scrollHeight - el.clientHeight < 300) void loadNewer();
 	}, [msgs, newer, loadNewer]);
 
@@ -314,10 +339,13 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	// them. Edits, deletions and stored files replace the message in
 	// place. The stream drives it; while it is down, poll every second.
 	const fetchNewer = useCallback(async () => {
+		const sig = win.current?.signal;
+		if (!sig) return;
 		for (let pages = 0; pages < 3; pages++) {
 			const last = msgsRef.current[msgsRef.current.length - 1];
 			if (!last) return;
-			const w = await fetchChatWindow(scope, chatId, { after: last.message_id }, 60, undefined, topic);
+			const w = await fetchChatWindow(scope, chatId, { after: last.message_id }, 60, sig, topic);
+			if (sig.aborted) return;
 			const el = scroller.current;
 			const stick = el ? el.scrollHeight - el.scrollTop - el.clientHeight < 80 : false;
 			const have = new Set(msgsRef.current.map((c) => c.id));

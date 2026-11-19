@@ -24,14 +24,26 @@ export function duration(s: number): string {
 	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export function Thumb({ type, thumb, stored, ext, size = 36, radius = 8, fill = false }: { type: ContentType; thumb?: string | null; stored: boolean; ext?: string; size?: number; radius?: number; fill?: boolean }) {
+// An <img> cannot draw a .webm video or a .tgs (Lottie) sticker, which
+// an older server sent as such a file's own thumb: the type's icon
+// stands in instead of a broken image.
+const UNDRAWABLE = /\.(webm|tgs)$/i;
+export function drawableThumb(thumb: string | null | undefined, ext?: string): string | null {
+	if (!thumb || (ext && UNDRAWABLE.test('.' + ext))) return null;
+	return UNDRAWABLE.test(new URL(thumb, 'http://x').pathname) ? null : thumb;
+}
+
+export function Thumb({ type, thumb: given, stored, ext, size = 36, radius = 8, fill = false }: { type: ContentType; thumb?: string | null; stored: boolean; ext?: string; size?: number; radius?: number; fill?: boolean }) {
+	const thumb = drawableThumb(given, ext);
 	const style = fill ? { borderRadius: radius } : { width: size, height: size, borderRadius: radius };
 	const cls = `a-thumb ${fill ? 'a-fill' : ''}`;
 	if (!stored) return <span className={`${cls} a-thumb-missing`} style={style} title="Not stored"><CloudOff size={Math.round(size * 0.4)} /></span>;
 	if (thumb) {
 		return (
 			<span className={cls} style={style}>
-				<img src={thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+				{/* A filled box keeps its own size and shows the picture whole;
+				    a small square thumbnail is cropped to fill it. */}
+				<img src={thumb} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: fill ? 'contain' : 'cover' }} />
 				{(type === 'video' || type === 'animation') && <span className="a-thumb-play"><Play size={Math.round(size * 0.3)} fill="currentColor" /></span>}
 			</span>
 		);

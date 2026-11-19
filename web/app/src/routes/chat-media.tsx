@@ -14,15 +14,16 @@ export type MediaKind = 'photo' | 'video' | 'animation' | 'sticker' | 'voice' | 
 
 export type Media = ChatMedia;
 
-const ratioOf = (m: Media, def = '4 / 3') => (m.w && m.h ? `${m.w} / ${m.h}` : def);
+const ratioOf = (m: Pick<Media, 'w' | 'h'>, def = '4 / 3') => (m.w && m.h ? `${m.w} / ${m.h}` : def);
 
 // A plain left click opens the viewer; other clicks (new tab, middle
 // button) follow the link to the file itself.
 const plainClick = (e: MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 
 // The full-size viewer: a picture or a playing video over the page.
-// Esc, the close button or a click beside the media closes it.
-export function Lightbox({ m, kind, onClose }: { m: Media; kind: 'picture' | 'video'; onClose: () => void }) {
+// Esc, the close button or a click beside the media closes it. It needs
+// only the file's URL, name and size, so a file row can open it too.
+export function Lightbox({ m, kind, onClose }: { m: Pick<Media, 'url' | 'name' | 'w' | 'h'>; kind: 'picture' | 'video'; onClose: () => void }) {
 	const close = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
 		const on = (e: KeyboardEvent) => e.key === 'Escape' && onClose();

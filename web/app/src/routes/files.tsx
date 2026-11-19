@@ -1,15 +1,19 @@
-import { CloudDownload, CloudOff, Copy, Download, LayoutGrid, List, MessageSquare } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { CloudDownload, CloudOff, Copy, Download, LayoutGrid, List, MessageSquare, Play } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, setQuery, useNav, useQueryParams } from '../nav.tsx';
 import { Btn, KV, PageHead, Pill } from '../ui/primitives.tsx';
 import { DataTable, emptyText, FilterBar, Pager, useListNav, type Col } from '../ui/list.tsx';
 import { Modal } from '../ui/Modal.tsx';
-import { Thumb, TypeIcon, duration } from '../ui/media.tsx';
+import { Thumb, TypeIcon, drawableThumb, duration } from '../ui/media.tsx';
 import { ago, bytes, dateTime, fmt } from '../format.ts';
 import type { PageData, Viewer } from '../page.ts';
 import type { Cond, FieldDef, FileRow, ListProps } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
+import { Lightbox } from './chat-media.tsx';
+
+const noop = () => {};
 
 export type FilesProps = S['FilesProps'];
 
@@ -39,10 +43,30 @@ const QUICK: [string, Cond[]][] = [
 const NO_MESSAGE = 'no visible message';
 const chatHref = (c: NonNullable<FileRow['chat']>) => (c.kind === 'group' ? `/groups/${c.id}` : `/users/${c.id}`);
 
+// The file's picture (a photo, or a video's poster) whole, at its own
+// shape: never cropped, within the pane and most of the window's height.
+// A stored picture opens bigger, in the chat's viewer, on a click.
+function PreviewImage({ f, src, onZoom }: { f: FileRow; src: string; onZoom: (() => void) | null }) {
+	const video = f.file_type === 'video' || f.file_type === 'animation';
+	const img = <img className="a-preview-img" src={src} alt="" />;
+	if (onZoom) return <button type="button" className="a-preview-media a-preview-zoom" onClick={onZoom} aria-label="View bigger">{img}</button>;
+	return (
+		<span className="a-preview-media">
+			{img}
+			{video && <span className="a-thumb-play"><Play size={36} fill="currentColor" /></span>}
+		</span>
+	);
+}
+
 function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void }) {
 	const big = f.file_type === 'photo' || f.file_type === 'video' || f.file_type === 'animation' || f.file_type === 'sticker';
+	const [zoom, setZoom] = useState(false);
+	const pic = drawableThumb(f.thumb, f.ext);
+	const zoomable = (f.file_type === 'photo' || f.file_type === 'sticker') && !!pic && !!f.url;
+	const unzoom = useCallback(() => setZoom(false), []);
 	return (
-		<Modal wide title={f.name} icon={<TypeIcon type={f.file_type} />} onClose={onClose}
+		// While the bigger view is open, Esc and clicks belong to it.
+		<Modal wide title={f.name} icon={<TypeIcon type={f.file_type} />} onClose={zoom ? noop : onClose}
 			footer={<>
 				{f.message
 					? <Btn to={`/messages/${f.message.scope}/${f.message.id}`} ghost icon={MessageSquare}>Open message</Btn>
@@ -55,7 +79,8 @@ function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void
 			</>}>
 			<div className="a-previewgrid">
 				<div className={`a-preview ${big ? 'big' : ''}`}>
-					{f.stored ? <Thumb type={f.file_type} thumb={f.thumb} stored ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
+					{f.stored && pic ? <PreviewImage f={f} src={pic} onZoom={zoomable ? () => setZoom(true) : null} />
+						: f.stored ? <Thumb type={f.file_type} thumb={null} stored ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
 						: <div className="a-preview-missing"><CloudOff size={28} /><span>{f.url ? 'Not stored. Fetch from Telegram downloads it from there, if Telegram still has it.' : 'Not stored in the archive; only its details were kept.'}</span></div>}
 				</div>
 				<KV rows={[
@@ -73,23 +98,31 @@ function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void
 					f.accessed_at ? [null, 'Last access', dateTime(f.accessed_at, v)] : null,
 				]} />
 			</div>
+			{zoom && <Lightbox m={f} kind="picture" onClose={unzoom} />}
 		</Modal>
 	);
 }
 
 function Files({ page }: { page: PageData<FilesProps> }) {
 	const L = useListNav(page.props);
-	const { navigate } = useNav();
+	const { navigate, replaceUrl } = useNav();
 	const q = useQueryParams();
 	const v = page.viewer;
 	const grid = q.get('view') !== 'list';
-	const show = (f: FileRow | null) => navigate(setQuery(page.url, { file: f ? f.id : undefined }), { replace: true, scroll: false });
+	// The preview opens and closes in place: the URL names the file, but
+	// the list stays as it is, so nothing is fetched. The server's
+	// preview serves a direct visit to ?file= (a link, a reload, or a
+	// file not on this page).
+	const fileId = Number(q.get('file')) || null;
+	const server = page.props.preview;
+	const preview = fileId === null ? null : server?.id === fileId ? server : L.rows.find((r) => r.id === fileId) ?? null;
+	const show = (f: FileRow | null) => replaceUrl(setQuery(page.url, { file: f ? f.id : undefined }));
 	const member = v.account?.role === 'member';
 	const cols: Col<FileRow>[] = [
 		{ key: 'id', label: 'ID', sort: true, align: 'right', cls: 'a-hide-md', render: (f) => <span className="num">{f.id}</span> },
 		{ key: 'name', label: 'File', sort: true, cls: 'c-name', render: (f) => (
 			<button type="button" className="a-usercell a-plain" onClick={() => show(f)}>
-				<Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} size={30} radius={6} />
+				<Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} ext={f.ext} size={30} radius={6} />
 				<span><span className="a-uname a-clip">{f.name}</span><span className="a-handle">{f.chat?.title ?? NO_MESSAGE}</span></span>
 			</button>
 		) },
@@ -127,10 +160,10 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 				</div>
 			) : (
 				<DataTable L={L} cols={cols} noun="files" empty={emptyText(L, member, 'files', 'No files match these filters.')}
-					href={(f) => setQuery(page.url, { file: f.id })}
-					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
+					href={(f) => setQuery(page.url, { file: f.id })} open={show}
+					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} stored={f.stored} ext={f.ext} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
 			)}
-			{page.props.preview && <Preview f={page.props.preview} v={v} onClose={() => show(null)} />}
+			{preview && <Preview f={preview} v={v} onClose={() => show(null)} />}
 		</Shell>
 	);
 }

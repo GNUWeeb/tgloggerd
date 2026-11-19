@@ -14,6 +14,11 @@ interface Nav {
 	// Refetch the current page's data in place: no history entry, no
 	// scrolling, no loading state. Dropped if a navigation starts.
 	refresh: () => Promise<void>;
+	// Change the address in place, without fetching: for state a page
+	// keeps in its URL and draws itself (an open preview). The page data
+	// keeps its props and takes the new url, so the next setQuery, a
+	// refresh and a reload all see it. No history entry.
+	replaceUrl: (to: string) => void;
 }
 
 const Ctx = createContext<Nav | null>(null);
@@ -87,12 +92,19 @@ export function NavProvider({ initial, children }: { initial: PageData; children
 		} catch { /* the next event or poll tries again */ }
 	}, []);
 
+	const replaceUrl = useCallback((to: string) => {
+		const url = noHash(to);
+		history.replaceState(null, '', url);
+		current.current = url;
+		setPage((p) => ({ ...p, url }));
+	}, []);
+
 	useEffect(() => {
 		onGate(() => void refresh());
 		return () => onGate(null);
 	}, [refresh]);
 
-	return <Ctx.Provider value={{ page, viewer: page.viewer, loading, navigate, refresh }}>{children}</Ctx.Provider>;
+	return <Ctx.Provider value={{ page, viewer: page.viewer, loading, navigate, refresh, replaceUrl }}>{children}</Ctx.Provider>;
 }
 
 export function useNav(): Nav {
