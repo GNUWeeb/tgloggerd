@@ -228,6 +228,9 @@ type kinds struct {
 	// gifts are the gift and chat theme service messages' detail
 	// (service_gift.go), by row id.
 	gifts map[uint64]*giftExtra
+	// previews are the link previews' extra (linkpreview.go), by
+	// row id.
+	previews map[uint64]*previewExtra
 }
 
 // pollClosed is whether a poll is closed: stored as closed, or past its
@@ -256,6 +259,7 @@ func (s *Server) loadKindsWith(ctx context.Context, sc scope.Scope, chat int64, 
 		richEdits: map[uint64][]*richDoc{}}
 	var users, chats, polls, pins, topics, communities []int64
 	for _, m := range ms {
+		k.addPreview(m, &users, &chats, &emoji)
 		if m.ContentType == "service" {
 			k.addServiceDetail(m, &chats, &pins, &topics, &communities)
 			k.addGift(m, &users, &chats)
@@ -346,6 +350,7 @@ func (s *Server) loadKindsWith(ctx context.Context, sc scope.Scope, chat int64, 
 		}
 		mc.add(m.Text, m.Entities, "message")
 		mc.addRich(k.rich[m.RowID])
+		k.addPreviewTexts(&mc, m)
 		for i, e := range m.Edits {
 			mc.add(e.Text, e.Entities, "edit")
 			if xs := k.richEdits[m.RowID]; xs != nil {

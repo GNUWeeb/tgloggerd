@@ -9,7 +9,7 @@ import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
 import type { ChatProps } from './chat.tsx';
 import type { GroupsProps } from './groups.tsx';
 import type { MessageProps } from './message.tsx';
-import type { ChatMessage } from '../types.ts';
+import type { ChatMedia, ChatMessage } from '../types.ts';
 
 type LP = NonNullable<ChatMessage['link_preview']>;
 
@@ -30,6 +30,23 @@ describe('the stand-in\'s link previews', () => {
 		expect(of('embedded_video_player').some((x) => x.embed?.url)).toBe(true);
 		expect(of('message').some((x) => x.target)).toBe(true);
 		expect(of('unsupported').length).toBeGreaterThan(0);
+		// One of each type named since, with what it carries.
+		expect(of('document').some((x) => x.media?.render === 'file')).toBe(true);
+		expect(of('sticker').some((x) => x.media?.format)).toBe(true);
+		expect(of('video_note').some((x) => x.media?.round)).toBe(true);
+		expect(of('voice_note').some((x) => x.media?.render === 'audio' && x.media.wave?.length)).toBe(true);
+		expect(of('album').some((x) => x.album && x.album.items.some((i) => i === null) && x.album.items.some((i) => i?.render === 'video'))).toBe(true);
+		expect(of('background').some((x) => x.background?.image)).toBe(true);
+		expect(of('sticker_set').some((x) => (x.stickers?.length ?? 0) > 1 && x.stickers!.length <= 5)).toBe(true);
+		expect(of('gift_collection').some((x) => x.stickers?.length)).toBe(true);
+		expect(of('gift_auction').some((x) => x.gift?.auction && x.gift.star_count)).toBe(true);
+		expect(of('upgraded_gift').some((x) => x.gift?.upgraded)).toBe(true);
+		expect(of('story').some((x) => x.story?.poster && x.story.username)).toBe(true);
+		expect(of('live_story').some((x) => x.story)).toBe(true);
+		expect(of('story_album').some((x) => x.media?.w && x.media.h)).toBe(true);
+		expect(of('theme').some((x) => x.theme?.background)).toBe(true);
+		expect(of('text_composition_style').some((x) => x.custom_emoji_id && x.custom_emoji)).toBe(true);
+		for (const t of ['direct_messages_chat', 'premium_gift_code', 'request_managed_bot', 'shareable_chat_folder']) expect(of(t).length, t).toBeGreaterThan(0);
 		// A preview's own medium never carries a minithumb.
 		expect(all.every((x) => !x.media?.minithumb)).toBe(true);
 	});
@@ -159,11 +176,167 @@ describe('a link preview card', () => {
 	});
 });
 
+// The later types (docs/todo/msg-link-preview-types.md), each with
+// what it carries beside its card.
+const card = (o: Partial<LP>): LP => ({ type: 'unsupported', site: 'Telegram', title: 'T', desc: '', url: 'https://t.me/x/1', ...o });
+const stk = (url: string, format: 'webp' | 'tgs' | 'webm', emoji = '🙂'): ChatMedia => ({ stored: true, url, thumb: format === 'webp' ? url : null, render: format === 'tgs' ? 'lottie' : format === 'webm' ? 'animation' : 'image', ext: format, format, emoji, w: 512, h: 512 });
+const fill = { type: 'gradient' as const, colors: [0x112233, 0x445566], rotation_angle: 0 };
+const bgOf = (o: Partial<NonNullable<LP['background']>> = {}): NonNullable<LP['background']> => ({ type: 'pattern', image: { stored: true, url: '/files/lp-bg', thumb: '/files/lp-bg', render: 'image', ext: 'png', w: 1440, h: 2560 }, fill, intensity: 40, is_inverted: false, is_moving: false, is_blurred: false, theme_name: null, ...o });
+
+describe('a link preview of a later type', () => {
+	it('links a document preview\'s file with the chat\'s document row', () => {
+		const { card: c } = chatWith(card({ type: 'document', title: 'notes.txt', media: { stored: true, url: '/files/lp-doc', thumb: null, render: 'file', ext: 'txt', name: 'notes.txt', size: 2048 } }));
+		const a = c.querySelector('a.c-doc')!;
+		expect(a.getAttribute('href')).toBe('/files/lp-doc');
+		expect(c.querySelector('a.c-lp-main')!.contains(a)).toBe(false);
+		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Document');
+	});
+
+	it('draws a sticker preview\'s sticker, and an older one\'s picture as before', () => {
+		const { card: c } = chatWith(card({ type: 'sticker', media: stk('/files/lp-stk.webm', 'webm') }));
+		expect(c.querySelector('video.c-sticker')!.getAttribute('src')).toBe('/files/lp-stk.webm');
+		expect(c.querySelector('img.c-lp-img')).toBeNull();
+	});
+
+	it('keeps an older sticker preview\'s picture in the card', () => {
+		const { card: c } = chatWith(card({ type: 'sticker', media: { stored: true, url: PIC, thumb: PIC, render: 'image' } }));
+		expect(c.querySelector('a.c-lp-main img.c-lp-img')!.getAttribute('src')).toBe(PIC);
+		expect(c.querySelector('.c-sticker')).toBeNull();
+	});
+
+	it('draws a video note preview as a round video', () => {
+		const { card: c } = chatWith(card({ type: 'video_note', media: { stored: true, url: '/files/lp-round', thumb: PIC, poster: PIC, render: 'video', ext: 'mp4', w: 384, h: 384, duration: 21 } }));
+		const box = c.querySelector('a.c-videowrap')!;
+		expect(box.classList.contains('round')).toBe(true);
+		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Video message');
+	});
+
+	it('plays a voice note preview with the chat\'s voice player', () => {
+		const { card: c } = chatWith(card({ type: 'voice_note', media: { stored: true, url: '/files/lp-voice', thumb: null, render: 'audio', ext: 'ogg', duration: 14, wave: [1, 20, 31] } }));
+		expect(c.querySelector('.c-voice audio')!.getAttribute('src')).toBe('/files/lp-voice');
+		expect(c.querySelectorAll('.c-voice .c-wave span')).toHaveLength(3);
+		expect(c.querySelector('audio.c-audio')).toBeNull();
+		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Voice message');
+	});
+
+	it('shows a video preview\'s kept cover as its poster', () => {
+		const { card: c } = chatWith(video({ media: { stored: true, url: '/files/lp-video', thumb: PIC, poster: '/files/lp-cover', render: 'video', ext: 'mp4', w: 1280, h: 720 } }));
+		expect(c.querySelector('a.c-videowrap video')!.getAttribute('poster')).toBe('/files/lp-cover');
+	});
+
+	it('draws an album as the chat\'s album grid with its caption', () => {
+		const { card: c } = chatWith(card({ type: 'album', desc: 'd', album: { caption: 'From the meetup', items: [
+			{ stored: true, url: '/files/al-1', thumb: '/files/al-1', render: 'image', w: 4, h: 3 },
+			null,
+			{ stored: true, url: '/files/al-2', thumb: PIC, poster: PIC, render: 'video', ext: 'mp4', w: 16, h: 9 },
+		] } }));
+		const grid = c.querySelector('.c-lp-album .c-album.n2')!;
+		expect(grid.querySelector('a[aria-label="Photo"]')!.getAttribute('href')).toBe('/files/al-1');
+		expect(grid.querySelector('a[aria-label="Video"]')!.getAttribute('href')).toBe('/files/al-2');
+		expect(within(c).getByText('From the meetup')).toBeTruthy();
+		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Album');
+	});
+
+	it('draws a background preview with the background swatch', () => {
+		const { card: c } = chatWith(card({ type: 'background', background: bgOf() }));
+		const sw = c.querySelector('.c-lp-bg .c-bgswatch')!;
+		expect(sw.getAttribute('aria-label')).toBe('Pattern over a gradient, 40% intensity');
+		expect(sw.querySelector('img')!.getAttribute('src')).toBe('/files/lp-bg');
+		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Chat background');
+	});
+
+	it('names a chat theme background', () => {
+		const { card: c } = chatWith(card({ type: 'background', background: bgOf({ type: 'chat_theme', image: null, fill: null, intensity: null, theme_name: '🎄' }) }));
+		expect(c.querySelector('.c-bgswatch')).toBeNull();
+		expect(c.querySelector('q.c-svcquote')!.textContent).toBe('🎄');
+	});
+
+	it('shows a sticker set\'s stickers, leaving out one not recorded', () => {
+		const { card: c } = chatWith(card({ type: 'sticker_set', stickers: [stk('/files/s1', 'webp', '😀'), null, stk('/files/s2.webm', 'webm')] }));
+		const row = c.querySelector('.c-lp-stickers')!;
+		expect(row.children).toHaveLength(2);
+		expect(row.querySelector('button.c-sticker-btn img')!.getAttribute('src')).toBe('/files/s1');
+		expect(row.querySelector('video.c-sticker')!.getAttribute('src')).toBe('/files/s2.webm');
+		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Sticker set');
+	});
+
+	it('draws a gift auction\'s gift with the gift card, its price and its rounds', () => {
+		const { card: c } = chatWith(card({ type: 'gift_auction', gift: { sticker: stk('/files/g1', 'webp', '🎁'), symbol_sticker: null, star_count: 2500, upgraded: null, auction: { start_date: '2026-12-01T10:00:00Z', end_date: null, gifts_per_round: 50 } } }));
+		expect(c.querySelector('.c-gift .c-giftstars')!.textContent).toBe('2,500 Stars');
+		const line = c.querySelector('.c-lp-auction')!;
+		expect(line.querySelector('time')!.getAttribute('dateTime')).toBe('2026-12-01T10:00:00Z');
+		expect(line.textContent).toContain('50 gifts per round');
+		expect(line.textContent).not.toContain('until');
+		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Gift auction');
+	});
+
+	it('draws an upgraded gift with its title linked to its page', () => {
+		const upgraded = { id: '1', regular_gift_id: null, title: 'Plush Pepe', name: 'PlushPepe-1', number: 1, owner: null, model: null, symbol: null, backdrop: null, original_details: null } as unknown as NonNullable<NonNullable<LP['gift']>['upgraded']>;
+		const { card: c } = chatWith(card({ type: 'upgraded_gift', gift: { sticker: stk('/files/g2', 'webp'), symbol_sticker: null, star_count: null, upgraded, auction: null } }));
+		expect(c.querySelector('a.c-gifttitle')!.getAttribute('href')).toBe('https://t.me/nft/PlushPepe-1');
+		expect(c.querySelector('.c-lp-auction')).toBeNull();
+	});
+
+	it('shows a story\'s poster and links the story on Telegram', () => {
+		const { card: c } = chatWith(card({ type: 'story', story: { poster: { id: 42, title: 'Some Poster', kind: 'user', photo: null }, story_id: 7, username: 'some_poster' } }));
+		const st = c.querySelector('.c-lp-story')!;
+		expect(st.querySelector('a.k-ref')!.getAttribute('href')).toBe('/users/42');
+		const open = within(st as HTMLElement).getByRole('link', { name: 'Open the story on Telegram' });
+		expect(open.getAttribute('href')).toBe('https://t.me/some_poster/s/7');
+		expect(open.getAttribute('target')).toBe('_blank');
+	});
+
+	it('links no story without a username, and keeps its card', () => {
+		const { card: c } = chatWith(card({ type: 'live_story', story: { poster: null, story_id: 7, username: null } }));
+		expect(c.querySelector('.c-lp-story')).toBeNull();
+		expect(c.querySelector('a.c-lp-main')!.getAttribute('href')).toBe('https://t.me/x/1');
+		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Live story');
+	});
+
+	it('draws a theme as a swatch of its colours', () => {
+		const { card: c } = chatWith(card({ type: 'theme', theme: { base_theme: 'night', accent_color: 0x3e88f7, background: { ...bgOf({ type: 'fill', image: null, intensity: null }), name: 'Midnight', dark: true }, outgoing_message_fill: { type: 'solid', colors: [0x2b5278], rotation_angle: 0 }, animate_outgoing_message_fill: false, outgoing_message_accent_color: null } }));
+		const sw = c.querySelector('.c-lp-theme') as HTMLElement;
+		expect(sw.getAttribute('aria-label')).toBe('Based on Night, accent #3e88f7');
+		expect(sw.classList.contains('dark')).toBe(true);
+		expect(sw.style.background).toContain('linear-gradient');
+		expect((sw.querySelector('.c-lp-theme-out') as HTMLElement).style.background).toMatch(/#2b5278|rgb\(43, 82, 120\)/);
+		expect(c.querySelector('.c-lp-themewrap')!.textContent).toContain('Midnight');
+	});
+
+	it('shows a text composition style\'s custom emoji, and none when unresolved', () => {
+		const e = { emoji: '🎉', format: 'webp' as const, url: '/files/ce-1', needs_repainting: false };
+		const { card: c } = chatWith(card({ type: 'text_composition_style', title: 'Party', custom_emoji_id: '1', custom_emoji: e }));
+		expect(c.querySelector('.c-lp-emoji img.ce')!.getAttribute('src')).toBe('/files/ce-1');
+		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Text style');
+	});
+
+	it('shows no icon for an unresolved custom emoji', () => {
+		const { card: c } = chatWith(card({ type: 'text_composition_style', custom_emoji_id: '1', custom_emoji: null }));
+		expect(c.querySelector('.c-lp-emoji')).toBeNull();
+	});
+
+	it.each([
+		['direct_messages_chat', 'Direct messages'], ['premium_gift_code', 'Premium gift code'],
+		['request_managed_bot', 'Managed bot request'], ['shareable_chat_folder', 'Chat folder'],
+		['gift_collection', 'Gift collection'], ['story_album', 'Story album'],
+	])('names a %s preview', (type, label) => {
+		const { card: c } = chatWith(card({ type }));
+		expect(c.querySelector('.c-lp-meta')!.textContent).toBe(label);
+	});
+
+	it('draws a type and fields it does not know as the plain card', () => {
+		const { card: c } = chatWith({ ...card({ type: 'some_future_kind', title: 'New' }), some_future_field: { x: 1 } } as LP);
+		expect(c.querySelector('.c-lp-meta')).toBeNull();
+		expect(c.children).toHaveLength(1);
+		expect(c.querySelector('a.c-lp-main')!.getAttribute('href')).toBe('https://t.me/x/1');
+	});
+});
+
 describe('a link preview on the message page', () => {
-	// The first sample message whose preview passes a test.
+	// The first sample message with a page whose preview passes a test.
 	const find = (ok: (lp: LP) => boolean) => fixture<GroupsProps>('/groups').props.rows
 		.flatMap((g) => fixture<ChatProps>(`/groups/${g.id}/chat`).props.messages)
-		.find((m) => m.link_preview && ok(m.link_preview))!;
+		.find((m) => m.link_preview && ok(m.link_preview) && fixture<MessageProps>(`/messages/group/${m.id}`).status === 200)!;
 
 	it('plays a video preview with the chat\'s video box', () => {
 		const m = find((lp) => lp.type === 'video' && !!lp.media?.url);
@@ -171,6 +344,13 @@ describe('a link preview on the message page', () => {
 		const card = document.querySelector('.c-lp')!;
 		expect(card.querySelector('a.c-videowrap video')!.getAttribute('poster')).toBe(m.link_preview!.media!.poster);
 		expect(card.querySelector('.c-lp-meta')!.textContent).toContain('Video');
+	});
+
+	it('draws a later type\'s fields, as the chat does', () => {
+		const m = find((lp) => !!lp.gift);
+		renderPage(`/messages/group/${m.id}`);
+		expect(document.querySelector('.c-lp .c-lp-gift .c-gift')).not.toBeNull();
+		expect(document.querySelector('.c-lp .c-lp-meta')!.textContent).toMatch(/^(Gift auction|Upgraded gift)$/);
 	});
 
 	it('links a Telegram message preview to the archived message', () => {

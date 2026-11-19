@@ -23,12 +23,12 @@ their curated `extra` keys and their media under role `preview_media`
 (message-types.md sections 4.8 and 4.3 list the names, keys and
 positions), and a video preview's cover, a document preview's file and
 a sticker preview's sticker, through the normal file path and fetched
-again by the MessageExtra source; for new and edited messages only.
+again by the MessageExtra source; for new and edited messages only. The Go service sends them
+on `link_preview` (ChatMessage and MessageFull) as the LinkPreview
+schema of webapi/openapi.yaml describes, with the type as stored
+(web/docs/message-kinds.md, "Link previews").
 Left:
 
-- Go (webapi): the new type names and their `extra` keys and media on
-  `link_preview` (ChatMessage and MessageFull); every type name the
-  web reads today keeps its meaning. OpenAPI and web/docs follow.
 - React (frontend): a card for each new type, drawn with the chat's
   media components; a type the app does not know keeps today's
   title-and-URL card.
@@ -55,4 +55,4 @@ Nothing.
   name, its `extra` keys and its media, covered by daemon tests over
   hand-built TDLib objects.
 - The web shows each new type with its media, and an `unsupported` row
-  still shows as before; Go and React tests cover both.
+  still shows as before; React tests cover both (the Go ones are in).

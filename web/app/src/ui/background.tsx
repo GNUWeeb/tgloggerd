@@ -9,7 +9,9 @@ import { Lightbox, plainClick } from '../routes/chat-media.tsx';
 import { FetchButton, needsFetch, useFetched } from './fetchfile.tsx';
 import type { S } from '../api/schema.ts';
 
-type Background = S['ServiceBackgroundDetail'];
+// A service line's background or a link preview's (keyed alike; a
+// preview's has no only_for_self and says dark only for a theme's).
+type Background = Omit<S['ServiceBackgroundDetail'], 'kind' | 'only_for_self' | 'dark'> & { dark?: boolean };
 type Fill = S['BackgroundFill'];
 
 // 0xRRGGBB as #rrggbb; null for anything that is not such an integer.

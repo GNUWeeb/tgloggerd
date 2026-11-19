@@ -194,17 +194,22 @@ type (
 		BasicGroup *chatRefJSON `json:"basic_group"`
 	}
 	serviceBackgroundJSON struct {
-		Kind        string          `json:"kind"`
-		OnlyForSelf bool            `json:"only_for_self"`
-		Type        *string         `json:"type"`
-		Dark        bool            `json:"dark"`
-		Image       *chatMediaJSON  `json:"image"`
-		Fill        *backgroundFill `json:"fill"`
-		Intensity   *int64          `json:"intensity"`
-		IsInverted  bool            `json:"is_inverted"`
-		IsMoving    bool            `json:"is_moving"`
-		IsBlurred   bool            `json:"is_blurred"`
-		ThemeName   *string         `json:"theme_name"`
+		Kind        string         `json:"kind"`
+		OnlyForSelf bool           `json:"only_for_self"`
+		Dark        bool           `json:"dark"`
+		Image       *chatMediaJSON `json:"image"`
+		backgroundLookJSON
+	}
+	// backgroundLookJSON is what a background looks like, as
+	// ServiceBackgroundDetail and LinkPreviewBackground give it.
+	backgroundLookJSON struct {
+		Type       *string         `json:"type"`
+		Fill       *backgroundFill `json:"fill"`
+		Intensity  *int64          `json:"intensity"`
+		IsInverted bool            `json:"is_inverted"`
+		IsMoving   bool            `json:"is_moving"`
+		IsBlurred  bool            `json:"is_blurred"`
+		ThemeName  *string         `json:"theme_name"`
 	}
 )
 
@@ -329,33 +334,41 @@ var (
 // own format (gzipped SVG) goes out as a file.
 var backgroundImageExts = map[string]bool{"jpg": true, "jpeg": true, "png": true}
 
+// backgroundImage is a background's file as media: an image when a
+// browser draws it, else a file.
+func (v view) backgroundImage(f logdb.FileRef) *chatMediaJSON {
+	ctype := "document"
+	if backgroundImageExts[strings.ToLower(f.Ext)] {
+		ctype = "photo"
+	}
+	return v.media(ctype, f, nil)
+}
+
 // serviceBackground is a chat_set_background's detail: the background
 // as content_extra keeps it, with its image, the message's file of
 // role background.
 func (v view) serviceBackground(m logdb.Message, x *serviceDetailExtra) serviceBackgroundJSON {
 	j := serviceBackgroundJSON{Kind: "background", OnlyForSelf: x.OnlyForSelf}
 	if f, ok := messageFile(m, "background", 0); ok {
-		ctype := "document"
-		if backgroundImageExts[strings.ToLower(f.Ext)] {
-			ctype = "photo"
-		}
-		j.Image = v.media(ctype, f, nil)
+		j.Image = v.backgroundImage(f)
 	}
-	b := x.Background
-	if b == nil {
-		return j
+	if b := x.Background; b != nil {
+		j.Dark = b.Dark
+		j.backgroundLookJSON = b.look()
 	}
+	return j
+}
+
+// look is what the background looks like; the keys its type does not
+// have are left zero.
+func (b *backgroundExtra) look() backgroundLookJSON {
+	var j backgroundLookJSON
 	if backgroundTypes[b.Type] {
 		t := b.Type
 		j.Type = &t
 	}
-	j.Dark = b.Dark
-	if fl := b.Fill; fl != nil && fillTypes[fl.Type] && (b.Type == "fill" || b.Type == "pattern") {
-		colors := make([]int64, 0, len(fl.Colors))
-		for _, c := range fl.Colors {
-			colors = append(colors, c&0xffffff)
-		}
-		j.Fill = &backgroundFill{Type: fl.Type, Colors: colors, RotationAngle: fl.RotationAngle}
+	if b.Type == "fill" || b.Type == "pattern" {
+		j.Fill = cleanFill(b.Fill)
 	}
 	switch b.Type {
 	case "pattern":
@@ -371,6 +384,19 @@ func (v view) serviceBackground(m logdb.Message, x *serviceDetailExtra) serviceB
 		}
 	}
 	return j
+}
+
+// cleanFill is a fill this service knows, its colours to 24 bits; nil
+// for none and for a fill type it does not know.
+func cleanFill(fl *backgroundFill) *backgroundFill {
+	if fl == nil || !fillTypes[fl.Type] {
+		return nil
+	}
+	colors := make([]int64, 0, len(fl.Colors))
+	for _, c := range fl.Colors {
+		colors = append(colors, c&0xffffff)
+	}
+	return &backgroundFill{Type: fl.Type, Colors: colors, RotationAngle: fl.RotationAngle}
 }
 
 // serviceTopicIcon is the custom emoji of the icon of the topic a

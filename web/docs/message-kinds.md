@@ -456,14 +456,18 @@ on the message page; null when it has none. The card has:
 - `type`, the preview's TDLib type (`article`, `video`,
   `embedded_video_player`, `message`, ...), `site`, `title`, `desc`,
   `url`, and `author` when the page names one.
-- `media`, as ChatMedia: the preview's own video, animation or audio
-  (telegram_message_files, role `preview_media`) when the daemon kept
-  one, its detail from the preview's `extra` (an embedded player's
-  from `extra.media`; an audio's title from `audio_title`), with the
-  preview's photo as its `poster` (video, animation) and `thumb`.
-  Without such a medium it is the photo, rendering as an image, sized
-  for article, photo, app and web_app previews. A card never carries a
-  `minithumb`.
+- `media`, as ChatMedia: the preview's own medium
+  (telegram_message_files, role `preview_media`, position 0) when the
+  daemon kept one: the video, animation, audio, document, sticker,
+  video note (round) or voice note of such a preview, the cached
+  medium of an embedded player, or a story album's video icon. Its
+  detail comes from the preview's `extra` (an embedded player's from
+  `extra.media`, a story album's from `extra.video`; an audio's title
+  from `audio_title`), with the preview's photo as its `poster` (video,
+  animation) and `thumb`; a video preview's kept cover (position 1) is
+  its poster before the photo. Without such a medium it is the photo,
+  rendering as an image, sized for article, photo, app, web_app and
+  story_album previews. A card never carries a `minithumb`.
 - `duration`, the length of a video, animation or audio preview or of
   an embedded player; `embed` ({url, w, h}) for an embedded player,
   whose URL the web opens in a new tab rather than running it.
@@ -477,9 +481,36 @@ on the message page; null when it has none. The card has:
   queries per window at most, by the usernames' unique key and the
   messages' (chat_id, message_id) key; nothing is asked of Telegram.
 
-The extras (`extra`, docs/design/message-types.md section 4.8) and the
-medium exist only for previews logged since the daemon kept them;
-older cards have the photo alone.
+- The types whose media are not one medium carry them in fields of
+  their own, each item the `preview_media` file at its position
+  (docs/design/message-types.md section 4.3), null when it is not
+  recorded: `album` ({caption, items}) for an album; `background`
+  (LinkPreviewBackground: the type, fill, intensity and flags as a
+  chat background service message has them, and its image) for a
+  background; `stickers` for a sticker set's first stickers and a gift
+  collection's icons; `gift` (LinkPreviewGift: the sticker, star count
+  and auction dates of a gift auction, or an upgraded gift with its
+  model and symbol stickers) for gift_auction and upgraded_gift. Their
+  `media` is the card's photo alone, when it has one.
+- `story` ({poster, story_id, username}) for a story or live_story
+  preview, the poster as a ref the viewer may see (null otherwise), as
+  StoryDetail has it; `theme` (LinkPreviewTheme: its base theme,
+  colours, background and outgoing message fill; the theme's files are
+  not kept) for a theme; `custom_emoji_id` and `custom_emoji` (resolved
+  for the page as text entities' are, null when not) for a text
+  composition style. The people an upgraded gift or a story names, and
+  that custom emoji, load with the page's other refs, in the same
+  batch.
+
+The type is sent as stored. Rows logged as `unsupported` before the
+daemon named video_note, voice_note, album, background, sticker_set,
+gift_collection, gift_auction, upgraded_gift, live_story, story_album,
+text_composition_style, theme, premium_gift_code,
+request_managed_bot, shareable_chat_folder and direct_messages_chat
+keep that type and show their title, URL and photo as before. The
+extras (`extra`, docs/design/message-types.md section 4.8) and the
+media exist only for previews logged since the daemon kept them; older
+cards have the photo alone.
 
 ## Search
 

@@ -13,7 +13,7 @@ import { TOTALS } from '../../mockup/src/data/totals.js';
 import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/data/admin.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { REGISTRY, SLOW, compile, fieldsOf, legacyQuery, type ListError } from './search.ts';
-import { ALL, kindsOf, sampleOf, topicOf, topicsOf, type View } from './kinds.ts';
+import { ALL, kindsOf, linkPreviewExtras, sampleOf, topicOf, topicsOf, type View } from './kinds.ts';
 import { engineAnswer, engineOf, profileAnswer, type EngineKind } from './engine.ts';
 import { MAX_Q, memberCount, memberFlags, membersPage } from './members.ts';
 export { membersApi, patchGroup } from './members.ts';
@@ -275,9 +275,36 @@ export function viewOf(persona: Persona, chatId?: number): View {
 // articles; by message id some become the other kinds a preview may be:
 // a video or an audio with its own medium (the preview's photo as its
 // poster and thumb), an embedded player, a Telegram message link (with
-// its target when the viewer may see the archived message's chat), and
-// a type the daemon does not know.
+// its target when the viewer may see the archived message's chat), a
+// type the daemon does not know, and one of each type named since
+// (docs/todo/msg-link-preview-types.md): a document, a sticker, a
+// video note and a voice note with their own medium, an album, a story
+// album, and the types whose fields kinds.ts gives.
 const LP_KINDS = ['article', 'video', 'audio', 'embedded_video_player', 'message', 'unsupported'];
+// The later types: their card (site, title, description, link), and
+// the medium of those that have one.
+const LP_LATER: Record<string, { site: string; title: string; desc?: string; url: string; media?: [string, object] }> = {
+	document: { site: 'Example Files', title: 'kernel-config.txt', url: 'https://files.example.org/kernel-config.txt', media: ['document', { name: 'kernel-config.txt', ext: 'txt', size: 210_000 }] },
+	sticker: { site: 'Telegram', title: 'Sticker', url: 'https://t.me/addstickers/ExamplePack', media: ['sticker', { emoji: '😀', w: 512, h: 512 }] },
+	video_note: { site: 'Telegram', title: 'Video message', url: 'https://t.me/examplechannel/41', media: ['video', { w: 384, h: 384, size: 900_000, duration: 21, round: true }] },
+	voice_note: { site: 'Telegram', title: 'Voice message', url: 'https://t.me/examplechannel/42', media: ['voice', { size: 120_000, duration: 14, wave: Array.from({ length: 40 }, (_, i) => ((i * 7) % 10) / 10) }] },
+	album: { site: 'Telegram', title: 'Example Channel', desc: 'Photos from the meetup', url: 'https://t.me/examplechannel/43' },
+	background: { site: 'Telegram', title: 'Chat background', url: 'https://t.me/bg/example-pattern' },
+	sticker_set: { site: 'Telegram', title: 'Example Pack', desc: 'Sticker set', url: 'https://t.me/addstickers/ExamplePack' },
+	gift_collection: { site: 'Telegram', title: 'Plush collection', url: 'https://t.me/addgifts/example' },
+	gift_auction: { site: 'Telegram', title: 'Winter gift auction', url: 'https://t.me/auction/example' },
+	upgraded_gift: { site: 'Telegram', title: 'Plush Pepe #1234', url: 'https://t.me/nft/PlushPepe-1234' },
+	story: { site: 'Telegram', title: 'Story', url: 'https://t.me/example/s/40' },
+	live_story: { site: 'Telegram', title: 'Live stream', url: 'https://t.me/example/s/41' },
+	story_album: { site: 'Telegram', title: 'Highlights', desc: 'A story album', url: 'https://t.me/example/a/2', media: ['photo', { w: 1080, h: 1920, size: 80_000 }] },
+	theme: { site: 'Telegram', title: 'Midnight', desc: 'A theme', url: 'https://t.me/addtheme/example' },
+	text_composition_style: { site: 'Telegram', title: 'Party style', url: 'https://t.me/addstyle/example' },
+	direct_messages_chat: { site: 'Telegram', title: 'Example Channel', desc: 'Direct messages', url: 'https://t.me/examplechannel?direct' },
+	premium_gift_code: { site: 'Telegram', title: 'Telegram Premium', desc: 'A gift code', url: 'https://t.me/giftcode/EXAMPLECODE' },
+	request_managed_bot: { site: 'Telegram', title: 'Example Bot', desc: 'Create a managed bot', url: 'https://t.me/examplebot?startbot' },
+	shareable_chat_folder: { site: 'Telegram', title: 'Linux folder', desc: 'A chat folder', url: 'https://t.me/addlist/example' },
+};
+const LATER = Object.keys(LP_LATER);
 function linkPreview(m, lp, v: View) {
 	const n = m.message_id % 1000;
 	const photo = (w = 1280, h = 720) => chatMedia({ fileId: 990000 + n, w, h, size: 52000 }, 'photo', v.fetch);
@@ -292,7 +319,18 @@ function linkPreview(m, lp, v: View) {
 		const pic = photo().url;
 		return { ...x, ...(md.title ? { title: md.title, performer: md.performer } : {}), thumb: pic, ...(type === 'audio' ? {} : { poster: pic }) };
 	};
-	switch (LP_KINDS[m.message_id % LP_KINDS.length]) {
+	// Every other preview (odd ids) is one of the later types, picked by
+	// id so the sample chats hold each of them; the even ones take the
+	// first kinds.
+	if (m.message_id % 2 === 1) {
+		const t = LATER[Math.floor(m.message_id / 18) % LATER.length]!;
+		const { media, ...card } = LP_LATER[t]!;
+		const md = media ? chatMedia({ fileId: 993000 + n, ...media[1] }, media[0], v.fetch) : null;
+		const own = md ? (({ minithumb: _m, ...x }) => ({ ...x, ...(t === 'video_note' ? { round: true } : {}) }))(md) : null;
+		const album = t === 'album' ? { album: { caption: 'Photos from the meetup', items: [photo(1280, 960), chatMedia({ fileId: 994000 + n, w: 1280, h: 720, size: 4_000_000, duration: 9 }, 'video', v.fetch), null] } } : {};
+		return { type: t, desc: '', ...card, ...(own ? { media: own } : {}), ...album, ...linkPreviewExtras(t, n, v) };
+	}
+	switch (LP_KINDS[Math.floor(m.message_id / 2) % LP_KINDS.length]) {
 		case 'video': return {
 			type: 'video', site: 'Example Video', title: 'Building the kernel in five minutes', desc: 'A quick walk through make menuconfig and a first boot.',
 			url: `https://video.example.org/watch/${n}`, author: 'Kernel Basics', duration: 312,

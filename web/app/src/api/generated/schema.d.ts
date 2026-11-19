@@ -3141,7 +3141,7 @@ export interface components {
         };
         /** @description A message's link preview card (telegram_link_previews): the site, the page's title and description, its URL, its media, and what the preview's type adds (docs/design/message-types.md section 4.8). Previews logged before the daemon kept a preview's extras have only type, site, title, desc, url and the photo as media. */
         LinkPreview: {
-            /** @description The preview's TDLib type, lower-cased without the prefix (article, photo, video, animation, audio, document, sticker, embedded_video_player, embedded_animation_player, embedded_audio_player, external_video, external_audio, chat, user, message, story, ...); unsupported when TDLib gave none the daemon knows. Open-ended: the daemon records new types as TDLib adds them. */
+            /** @description The preview's TDLib type, lower-cased without the prefix (article, photo, video, animation, audio, document, sticker, embedded_video_player, embedded_animation_player, embedded_audio_player, external_video, external_audio, chat, user, message, story, video_note, voice_note, album, background, sticker_set, gift_collection, gift_auction, upgraded_gift, live_story, story_album, theme, text_composition_style, direct_messages_chat, premium_gift_code, request_managed_bot, shareable_chat_folder, ...), as stored; unsupported when TDLib gave none the daemon knows, which rows logged before the daemon named the later types keep. Open-ended: the daemon records new types as TDLib adds them. */
             type: string;
             site: string;
             title: string;
@@ -3149,7 +3149,7 @@ export interface components {
             url?: string;
             /** @description The page's author; absent when none. */
             author?: string;
-            /** @description The preview's own video, animation or audio (telegram_message_files, role preview_media) when the daemon kept one: a video, animation or audio preview's medium, or the cached medium of an embedded player; render says which. Its poster (video and animation) and its thumb are then the preview's photo, when it has one. Without such a medium, the preview's photo, rendering as an image, with w and h for article, photo, app and web_app previews when known. Absent when the preview has neither. Never carries a minithumb. */
+            /** @description The preview's own medium (telegram_message_files, role preview_media, position 0) when the daemon kept one: the video, animation, audio, document, sticker, video note (round) or voice note of such a preview, the cached medium of an embedded player, or a story album's video icon; render says how it draws. Its thumb is then the preview's photo, when it has one, and so is its poster (video and animation), but for a video preview whose cover is kept (position 1), which is the poster then. Without such a medium, the preview's photo, rendering as an image, with w and h for article, photo, app, web_app and story_album previews when known. Absent when the preview has neither. The media of album, background, sticker_set, gift_collection, gift_auction and upgraded_gift previews are in their own fields, never here. Never carries a minithumb. */
             media?: components["schemas"]["ChatMedia"];
             /** @description Length in seconds of a video, animation or audio preview or of an embedded player; absent when unknown. */
             duration?: number;
@@ -3166,6 +3166,76 @@ export interface components {
                 /** Format: int64 */
                 message_id: number;
             };
+            /** @description An album preview: its caption and its items in order, item i the preview_media file at position i with its detail (render image for a photo, video for a video); null for an item TDLib left empty or whose file is not recorded. Absent for other types. */
+            album?: {
+                caption: string;
+                items: (components["schemas"]["ChatMedia"] | null)[];
+            };
+            /** @description A background preview (a t.me/bg/ link): the background and its image, the preview_media file at position 0. Absent for other types. */
+            background?: components["schemas"]["LinkPreviewBackground"];
+            /** @description A sticker_set preview's first stickers, or a gift_collection preview's icons, in order (at most five), each the preview_media file at its index with its emoji, format and size (render lottie, animation or image as for a sticker message); null for one whose file is not recorded. Absent for other types. */
+            stickers?: (components["schemas"]["ChatMedia"] | null)[];
+            /** @description A gift_auction or upgraded_gift preview's gift. Absent for other types. */
+            gift?: components["schemas"]["LinkPreviewGift"];
+            /** @description A story or live_story preview's story: whose it is, when the viewer may see them (null otherwise), its id, and the poster's active username as StoryDetail has it. Stories are not archived: the card links to url. Absent for other types and when not stored. */
+            story?: {
+                poster: components["schemas"]["ChatRef"] | null;
+                story_id: number;
+                username: string | null;
+            };
+            /** @description A theme preview's settings (the theme's files are not kept, so it is drawn from its colours). Absent for other types and when not stored. */
+            theme?: components["schemas"]["LinkPreviewTheme"];
+            /** @description A text_composition_style preview's custom emoji id (a decimal string). Absent for other types. */
+            custom_emoji_id?: string;
+            /** @description The custom emoji of custom_emoji_id, resolved for the page as for text entities; null when it is not resolved (the card shows no icon then). Present with custom_emoji_id only. */
+            custom_emoji?: components["schemas"]["CustomEmoji"] | null;
+        };
+        /** @description A background a link preview shows, keyed as ServiceBackgroundDetail: its type (null when not one this service knows), its image (wallpaper or pattern; null for a fill, a chat theme, when not recorded, and always for a theme's background, whose files are not kept), fill, intensity and the flags as there. A theme's background adds its name and dark. */
+        LinkPreviewBackground: {
+            /** @enum {string|null} */
+            type: "wallpaper" | "pattern" | "fill" | "chat_theme" | null;
+            image: components["schemas"]["ChatMedia"] | null;
+            fill: components["schemas"]["BackgroundFill"] | null;
+            intensity: number | null;
+            is_inverted: boolean;
+            is_moving: boolean;
+            is_blurred: boolean;
+            theme_name: string | null;
+            /** @description A theme's background's name; absent for the others. */
+            name?: string;
+            /** @description A theme's background is meant for a dark theme; absent for the others. */
+            dark?: boolean;
+        };
+        /** @description The gift of a gift_auction preview (a regular gift: its sticker, star_count and auction) or of an upgraded_gift preview (upgraded, with its model sticker as sticker and its symbol sticker as symbol_sticker, drawn as ServiceGiftDetail draws them). The stickers are the preview_media files at positions 0 and 1; each is null when not recorded. */
+        LinkPreviewGift: {
+            sticker: components["schemas"]["ChatMedia"] | null;
+            /** @description An upgraded gift's symbol sticker; null for the others. */
+            symbol_sticker: components["schemas"]["ChatMedia"] | null;
+            /**
+             * Format: int64
+             * @description A regular gift's price in Telegram Stars; null for the others.
+             */
+            star_count: number | null;
+            /** @description The upgraded gift; null for a gift auction. */
+            upgraded: components["schemas"]["UpgradedGift"] | null;
+            /** @description A gift auction's dates and the gifts each round gives, each null when not stored; null for an upgraded gift. */
+            auction: {
+                /** Format: date-time */
+                start_date: string | null;
+                /** Format: date-time */
+                end_date: string | null;
+                gifts_per_round: number | null;
+            } | null;
+        };
+        /** @description A theme a link preview shows: the built-in theme it is based on (classic, day, night, tinted or arctic; null when not one of them), its accent colour, its background (null without one), the fill of outgoing messages (null without one) and whether it animates, and the accent colour of outgoing messages (null when the theme has none). */
+        LinkPreviewTheme: {
+            /** @enum {string|null} */
+            base_theme: "classic" | "day" | "night" | "tinted" | "arctic" | null;
+            accent_color: components["schemas"]["RgbColor"];
+            background: components["schemas"]["LinkPreviewBackground"] | null;
+            outgoing_message_fill: components["schemas"]["BackgroundFill"] | null;
+            animate_outgoing_message_fill: boolean;
+            outgoing_message_accent_color: components["schemas"]["RgbColor"] | null;
         };
         /** @description Messages oldest first, and whether more lie either side. */
         ChatWindow: {

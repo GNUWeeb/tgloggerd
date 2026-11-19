@@ -238,6 +238,24 @@
 .app .c-lp-embed { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 12px; color: var(--c-link); text-decoration: none; }
 .app .c-lp-embed:hover { text-decoration: underline; }
 .app .c-lp-url { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 12px; color: var(--c-link); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+/* What the later preview types carry, below the link. */
+.app .c-lp-emoji { display: inline-block; margin-right: 4px; vertical-align: middle; }
+.app .c-lp-album, .app .c-lp-bg, .app .c-lp-stickers, .app .c-lp-story, .app .c-lp-themewrap { margin-top: 6px; }
+.app .c-lp-stickers { display: flex; flex-wrap: wrap; gap: 4px; }
+.app .c-lp-stickers .c-sticker { width: 64px; height: 64px; }
+.app .c-lp-stickers .c-sticker-emoji { font-size: 36px; display: grid; place-items: center; }
+.app .c-lp-gift { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.app .c-lp-gift .c-gift { margin: 6px 0 2px; }
+.app .c-lp-story { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.app .c-lp-themewrap { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+/* A theme's swatch: two bubbles and an accent dot on its background. */
+.app .c-lp-theme { position: relative; display: inline-block; flex: none; width: 72px; height: 54px; border: 1px solid rgb(0 0 0 / .12); border-radius: 6px; overflow: hidden; background: #e7ebf0; }
+.app .c-lp-theme.dark { background: #1f2630; }
+.app .c-lp-theme-in, .app .c-lp-theme-out { position: absolute; height: 12px; border-radius: 6px; }
+.app .c-lp-theme-in { left: 6px; top: 8px; width: 34px; background: #fff; }
+.app .c-lp-theme.dark .c-lp-theme-in { background: #2c3644; }
+.app .c-lp-theme-out { right: 6px; top: 26px; width: 40px; background: #d9f5c5; }
+.app .c-lp-theme-accent { position: absolute; left: 6px; bottom: 6px; width: 10px; height: 10px; border-radius: 50%; }
 .app .c-sign { font-size: 12.5px; font-style: italic; opacity: .7; margin-top: 2px; }
 .app .c-fwdlink { color: inherit; }
 .app .c-fwdlink:hover { text-decoration: underline; }
