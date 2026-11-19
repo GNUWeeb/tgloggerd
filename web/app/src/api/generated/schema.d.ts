@@ -2356,7 +2356,7 @@ export interface components {
             message_id: number | null;
         };
         /** @description A message kind's detail, from content_extra (docs/design/message-types.md section 4.2.2), the poll tables and telegram_message_files. Lists that can be long (poll options, checklist tasks, giveaway chats, group call participants) hold at most the first 20, with the full count in the matching *_total; a total counts the people and chats left out as hidden too, which says how many there were but not who. A user or a chat is a ChatRef (kind user or group). */
-        MessageDetail: components["schemas"]["LocationDetail"] | components["schemas"]["VenueDetail"] | components["schemas"]["ContactDetail"] | components["schemas"]["DiceDetail"] | components["schemas"]["GameDetail"] | components["schemas"]["PollDetail"] | components["schemas"]["ChecklistDetail"] | components["schemas"]["StoryDetail"] | components["schemas"]["InvoiceDetail"] | components["schemas"]["GiveawayDetail"] | components["schemas"]["CallDetail"] | components["schemas"]["PaidMediaDetail"] | components["schemas"]["PlaceholderDetail"];
+        MessageDetail: components["schemas"]["LocationDetail"] | components["schemas"]["VenueDetail"] | components["schemas"]["ContactDetail"] | components["schemas"]["DiceDetail"] | components["schemas"]["GameDetail"] | components["schemas"]["PollDetail"] | components["schemas"]["ChecklistDetail"] | components["schemas"]["StoryDetail"] | components["schemas"]["InvoiceDetail"] | components["schemas"]["GiveawayDetail"] | components["schemas"]["CallDetail"] | components["schemas"]["PaidMediaDetail"] | components["schemas"]["RichDetail"] | components["schemas"]["PlaceholderDetail"];
         /** @description A location, in degrees. A live location shows its latest position, with how many times it moved (its edit versions; the logger keeps at most one a minute), not a track. */
         LocationDetail: {
             /**
@@ -2577,13 +2577,108 @@ export interface components {
                 media: components["schemas"]["ChatMedia"] | null;
             }[];
         };
-        /** @description A kind the chat shows as a one-line placeholder: a rich message or a widget (not rendered by this archive), expired self-destructing media, or content TDLib itself could not read. */
+        /** @description A kind the chat shows as a one-line placeholder: a widget (not rendered by this archive), expired self-destructing media, or content TDLib itself could not read. */
         PlaceholderDetail: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            kind: "rich" | "widget" | "expired" | "unsupported";
+            kind: "widget" | "expired" | "unsupported";
+        };
+        /** @description A rich message (messageRichMessage): its page blocks, converted from the TDLib JSON the daemon keeps beside its curated keys (web/docs/message-kinds.md, "Rich messages"). blocks is null when the layout was not kept (a message whose JSON was over the daemon's cap, or a row stored before the mapping and not read again yet): the chat then shows the message text, which holds the plain text of every block either way. A client draws the blocks instead of the text when blocks is not null. */
+        RichDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "rich";
+            blocks: components["schemas"]["RichBlock"][] | null;
+            /** @description The page reads right to left. */
+            is_rtl: boolean;
+            /** @description false when TDLib had only the start of the message and the rest was not logged. */
+            is_full: boolean;
+        };
+        /** @description A run of a rich message's text with its formatting, in the shape of a message's text and entities (TextEntity, offsets in UTF-16 code units), so the text entities renderer draws it. Formatting maps onto the entity types bold, italic, underline, strikethrough, spoiler, code (fixed width, and a formula's source), text_url (a link, a button's URL), email, phone_number, mention (an @username), mention_name (user_id resolved through the scope as for message entities), hashtag, cashtag, bot_command, bank_card_number and custom_emoji, plus three a message's text never has: subscript, superscript and marked (highlighted). A custom emoji's text is its alternative text, a formula's its source; an icon and an anchor add no text. */
+        RichText: {
+            text: string;
+            entities: components["schemas"]["TextEntity"][];
+        };
+        /** @description A media block's caption and its credit line; either may be empty. */
+        RichCaption: {
+            text: components["schemas"]["RichText"];
+            credit: components["schemas"]["RichText"];
+        };
+        /** @description One page block of a rich message. type is TDLib's class in snake_case without its pageBlock prefix; the fields a type does not use are absent. By type: title, subtitle, header, subheader, kicker, paragraph, footer, thinking (a reasoning step): text. section_heading: text, size (1 the largest). author_date: text (the author), date. preformatted: text, language (may be empty). divider: nothing. mathematical_expression: expression (its source). anchor: name (a target of links inside the page). list: items. block_quote: blocks, credit. expandable_block_quote, pull_quote: text, credit. photo: media, caption, spoiler, url (where it links, if anywhere). video: media, caption, spoiler, autoplay, loop. animation: media, caption, spoiler, autoplay. audio, document, voice_note: media, caption. cover: blocks (the one block the page opens with). embedded: url, media (its poster), width, height, caption; the embed itself needs a third party's script and is drawn as a link. embedded_post: url, author, media (the author's photo), date, blocks, caption; drawn as a quote with a link. collage, slideshow: blocks, caption. chat_link: title, username. table: text (the caption), rows, bordered, striped. details (a collapsible block): text (its summary), blocks, open (shown open at first). related_articles: text (the header), articles. map: lat, lon, zoom, width, height, caption. button_row: buttons, align. unknown: name, the TDLib class in snake_case without its prefix (unsupported for a block TDLib itself could not read), for a block this archive does not draw; a client shows it as such. media is the block's file (telegram_message_files, role rich, by its position in the page), absent when none is known. */
+        RichBlock: {
+            /** @enum {string} */
+            type: "title" | "subtitle" | "author_date" | "header" | "subheader" | "section_heading" | "kicker" | "paragraph" | "preformatted" | "footer" | "thinking" | "divider" | "mathematical_expression" | "anchor" | "list" | "block_quote" | "expandable_block_quote" | "pull_quote" | "photo" | "video" | "animation" | "audio" | "document" | "voice_note" | "cover" | "embedded" | "embedded_post" | "collage" | "slideshow" | "chat_link" | "table" | "details" | "related_articles" | "map" | "button_row" | "unknown";
+            text?: components["schemas"]["RichText"];
+            credit?: components["schemas"]["RichText"];
+            caption?: components["schemas"]["RichCaption"];
+            size?: number;
+            language?: string;
+            /** @description ISO 8601; null when TDLib gives none. */
+            date?: string | null;
+            expression?: string;
+            name?: string;
+            blocks?: components["schemas"]["RichBlock"][];
+            items?: components["schemas"]["RichListItem"][];
+            media?: components["schemas"]["ChatMedia"];
+            spoiler?: boolean;
+            autoplay?: boolean;
+            loop?: boolean;
+            /** @description A link as stored (not checked); a client opens it with rel=noopener. */
+            url?: string;
+            author?: string;
+            title?: string;
+            /** @description A chat link's public username, for a t.me link; may be empty. */
+            username?: string;
+            width?: number;
+            height?: number;
+            rows?: components["schemas"]["RichTableCell"][][];
+            bordered?: boolean;
+            striped?: boolean;
+            open?: boolean;
+            articles?: components["schemas"]["RichArticle"][];
+            lat?: number;
+            lon?: number;
+            zoom?: number;
+            buttons?: components["schemas"]["RichButton"][];
+            /** @enum {string} */
+            align?: "left" | "center" | "right";
+        };
+        /** @description A list item: its label (a bullet, a number, a letter; may be empty), its blocks, and for a checklist item whether it has a checkbox and whether that is checked. */
+        RichListItem: {
+            label: string;
+            blocks: components["schemas"]["RichBlock"][];
+            checkbox: boolean;
+            checked: boolean;
+        };
+        /** @description A table cell. A cell of colspan or rowspan above 1 covers the cells it spans, which are not listed. */
+        RichTableCell: {
+            text: components["schemas"]["RichText"];
+            header: boolean;
+            colspan: number;
+            rowspan: number;
+            /** @enum {string} */
+            align: "left" | "center" | "right";
+            /** @enum {string} */
+            valign: "top" | "middle" | "bottom";
+        };
+        /** @description A related article. photo is absent when no file is known. */
+        RichArticle: {
+            url: string;
+            title: string;
+            description: string;
+            author: string;
+            /** @description ISO 8601; null when TDLib gives none. */
+            date: string | null;
+            photo?: components["schemas"]["ChatMedia"];
+        };
+        /** @description A button of a button row. url is where a link button goes; absent for the other buttons (callbacks and the like), which an archive cannot press. */
+        RichButton: {
+            text: components["schemas"]["RichText"];
+            url?: string;
         };
         /** @description A forum topic, as last seen (telegram_forum_topics). */
         ChatTopic: {
