@@ -26,6 +26,9 @@ one in the description.
 - [db-naming.md](db-naming.md) — database table naming convention: the
   per-platform prefixes (`telegram_`, `discord_`), what is and isn't prefixed,
   and the rule to follow when adding tables for a new messaging platform.
+- [group-tabs.md](group-tabs.md) — the group page's Files tab: who sees
+  it, what it lists and in which order, paging by message id, the kinds
+  and their counts, and how a page avoids a query per row.
 - [join-chat.md](join-chat.md) — the admin `/join-chat` page: preview and
   join a group or channel by invite link or username through the daemon's
   internal API, the outcomes it reports, and the `chat_join` audit rows.
