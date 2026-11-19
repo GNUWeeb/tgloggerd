@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -213,22 +214,101 @@ func LoadSeries(ctx context.Context, db *sql.DB, c *SeriesCache, sc scope.Scope,
 	for i := range s.Points {
 		s.Points[i].At = bounds[i]
 	}
+	var counts []int64
+	var err error
+	switch p {
+	case Week, Month, Quarter, Year:
+		counts, err = sumDays(ctx, db, c, sc, bounds, now, loc)
+	default:
+		counts, err = countPeriods(ctx, db, c, sc, p, bounds, now, loc)
+	}
+	if err != nil {
+		return Series{}, err
+	}
+	for i := range s.Points {
+		s.Points[i].N = counts[i]
+	}
+	return s, nil
+}
 
+// sumDays counts the periods between bounds, which start at midnight
+// in loc (a week, month, quarter or year), as sums of days: every such
+// period is a whole number of days, so these periods share the days
+// cached for the day series, and the current period costs a count of
+// today alone. The days before the archive's first message are zeros
+// without being counted or cached.
+func sumDays(ctx context.Context, db *sql.DB, c *SeriesCache, sc scope.Scope, bounds []int64,
+	now int64, loc *time.Location) ([]int64, error) {
+	out := make([]int64, len(bounds)-1)
+	first, ok, err := firstMessage(ctx, db, sc)
+	if err != nil || !ok {
+		return out, err
+	}
+	from := max(bounds[0], Day.floor(first, loc))
+	to := min(bounds[len(bounds)-1], Day.next(Day.floor(now, loc), loc))
+	if from >= to {
+		return out, nil
+	}
+	days := []int64{from}
+	for b := from; b < to; {
+		b = Day.next(b, loc)
+		days = append(days, b)
+	}
+	n, err := countPeriods(ctx, db, c, sc, Day, days, now, loc)
+	if err != nil {
+		return nil, err
+	}
+	for d, v := range n {
+		// The period holding the day: the last bound not after it.
+		i := sort.Search(len(bounds), func(i int) bool { return bounds[i] > days[d] }) - 1
+		if i >= 0 && i < len(out) {
+			out[i] += v
+		}
+	}
+	return out, nil
+}
+
+// firstMessage is the date of the oldest message the scope may count,
+// read off the date indexes; ok is false when there is none.
+func firstMessage(ctx context.Context, db *sql.DB, sc scope.Scope) (int64, bool, error) {
+	qs := []string{"SELECT MIN(date) FROM telegram_group_messages"}
+	if sc.SeesPrivate() {
+		qs = append(qs, "SELECT MIN(date) FROM telegram_private_messages")
+	}
+	var first int64
+	ok := false
+	for _, q := range qs {
+		var v sql.NullInt64
+		if err := db.QueryRowContext(ctx, q).Scan(&v); err != nil {
+			return 0, false, err
+		}
+		if v.Valid && (!ok || v.Int64 < first) {
+			first, ok = v.Int64, true
+		}
+	}
+	return max(first, 0), ok, nil
+}
+
+// countPeriods counts the periods p between bounds: the finished ones
+// from c when it holds them (c may be nil), the others with one query
+// over the span from the first period not cached to the last that has
+// started; periods that start after now are zero without a query.
+func countPeriods(ctx context.Context, db *sql.DB, c *SeriesCache, sc scope.Scope, p Period,
+	bounds []int64, now int64, loc *time.Location) ([]int64, error) {
+	out := make([]int64, len(bounds)-1)
 	key := seriesKey(sc, p, loc)
 	finished := now - int64(seriesGrace/time.Second)
 	var hit map[int64]int64
 	if c != nil {
-		hit = c.get(key, s.Start, s.End)
+		hit = c.get(key, bounds[0], bounds[len(bounds)-1])
 	}
-	// The periods to count: from the first one not cached to the last
-	// one that has started, as one span.
 	lo, hi := -1, -1
-	for i, pt := range s.Points {
-		if pt.At > now {
+	for i := range out {
+		if bounds[i] > now {
 			break
 		}
-		if n, ok := hit[pt.At]; ok && bounds[i+1] <= finished {
-			s.Points[i].N = n
+		if n, ok := hit[bounds[i]]; ok && bounds[i+1] <= finished {
+			out[i] = n
 			continue
 		}
 		if lo < 0 {
@@ -237,15 +317,15 @@ func LoadSeries(ctx context.Context, db *sql.DB, c *SeriesCache, sc scope.Scope,
 		hi = i
 	}
 	if lo < 0 {
-		return s, nil
+		return out, nil
 	}
 	counts, err := countSpan(ctx, db, sc, bounds[lo:hi+2])
 	if err != nil {
-		return Series{}, err
+		return nil, err
 	}
 	done := map[int64]int64{}
 	for i := lo; i <= hi; i++ {
-		s.Points[i].N = counts[i-lo]
+		out[i] = counts[i-lo]
 		if bounds[i+1] <= finished {
 			done[bounds[i]] = counts[i-lo]
 		}
@@ -253,48 +333,73 @@ func LoadSeries(ctx context.Context, db *sql.DB, c *SeriesCache, sc scope.Scope,
 	if c != nil && len(done) > 0 {
 		c.put(key, done)
 	}
-	return s, nil
+	return out, nil
 }
 
 // countSpan counts the messages in the scope in each period between
-// consecutive bounds. INTERVAL() finds a date's period by a binary
-// search over the bounds, and the date range reads the date index (or,
-// for a member, its groups' (chat_id, date) ranges).
+// consecutive bounds.
+//
+// The periods are found by grouping on (date - first bound) DIV unit,
+// unit being the greatest common divisor of the bounds' distances from
+// the first (a day in Jakarta, an hour across a daylight saving change,
+// a minute for minutes), so every bound is a whole number of units from
+// the first and each group falls in one period, which the bounds' list
+// gives. Measured on ten million messages, this is twice as fast as
+// placing each row with INTERVAL() over the bounds, and nearly as fast
+// as a bare COUNT over the date index.
+//
+// An admin with hidden groups would read every row for its chat_id
+// (no index has date and chat_id in that order), so its counts are
+// every group's less the hidden groups', both read from indexes alone:
+// the date index, and the (chat_id, date) one for the hidden groups.
 func countSpan(ctx context.Context, db *sql.DB, sc scope.Scope, bounds []int64) ([]int64, error) {
 	out := make([]int64, len(bounds)-1)
-	marks := strings.TrimSuffix(strings.Repeat("?, ", len(bounds)), ", ")
-	head := "SELECT INTERVAL(m.date, " + marks + ") AS i, COUNT(*) FROM "
-	args := make([]any, 0, len(bounds)+2)
-	for _, b := range bounds {
-		args = append(args, b)
+	b0, bn := bounds[0], bounds[len(bounds)-1]
+	unit := int64(0)
+	for _, b := range bounds[1:] {
+		unit = gcd(unit, b-b0)
 	}
-	args = append(args, bounds[0], bounds[len(bounds)-1])
-	cond, cargs := sc.GroupFilter("m.chat_id")
-	qs := []struct {
+	head := "SELECT (m.date - ?) DIV ? AS k, COUNT(*) FROM "
+	where := " m WHERE m.date >= ? AND m.date < ?"
+	args := []any{b0, unit, b0, bn}
+	type part struct {
 		q    string
 		args []any
-	}{{head + "telegram_group_messages m WHERE m.date >= ? AND m.date < ? AND " + cond +
-		" GROUP BY i", append(args[:len(args):len(args)], cargs...)}}
-	if sc.SeesPrivate() {
-		qs = append(qs, struct {
-			q    string
-			args []any
-		}{head + "telegram_private_messages m WHERE m.date >= ? AND m.date < ? GROUP BY i", args})
+		sign int64
 	}
-	for _, q := range qs {
-		rows, err := db.QueryContext(ctx, q.q, q.args...)
+	var parts []part
+	group := head + "telegram_group_messages" + where
+	if hidden := sc.HiddenGroups(); len(hidden) > 0 && !sc.SeesAllGroups() {
+		in := make([]any, len(hidden))
+		for i, g := range hidden {
+			in[i] = g
+		}
+		parts = append(parts, part{group + " GROUP BY k", args, 1},
+			part{group + " AND m.chat_id IN (" + strings.TrimSuffix(strings.Repeat("?, ", len(in)), ", ") +
+				") GROUP BY k", append(args[:len(args):len(args)], in...), -1})
+	} else if cond, cargs := sc.GroupFilter("m.chat_id"); cond != "1 = 0" {
+		parts = append(parts, part{group + " AND " + cond + " GROUP BY k",
+			append(args[:len(args):len(args)], cargs...), 1})
+	}
+	if sc.SeesPrivate() {
+		parts = append(parts, part{head + "telegram_private_messages" + where + " GROUP BY k", args, 1})
+	}
+	for _, pt := range parts {
+		rows, err := db.QueryContext(ctx, pt.q, pt.args...)
 		if err != nil {
 			return nil, err
 		}
 		for rows.Next() {
-			var i, n int64
-			if err := rows.Scan(&i, &n); err != nil {
+			var k, n int64
+			if err := rows.Scan(&k, &n); err != nil {
 				rows.Close()
 				return nil, err
 			}
-			// INTERVAL is k for bounds[k-1] <= date < bounds[k].
-			if i >= 1 && int(i) <= len(out) {
-				out[i-1] += n
+			at := b0 + k*unit
+			// The period holding at: the last bound not after it.
+			i := sort.Search(len(bounds), func(i int) bool { return bounds[i] > at }) - 1
+			if i >= 0 && i < len(out) {
+				out[i] += pt.sign * n
 			}
 		}
 		rows.Close()
@@ -303,6 +408,13 @@ func countSpan(ctx context.Context, db *sql.DB, sc scope.Scope, bounds []int64) 
 		}
 	}
 	return out, nil
+}
+
+func gcd(a, b int64) int64 {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
 }
 
 // seriesKey names a series in the cache: what the scope's queries

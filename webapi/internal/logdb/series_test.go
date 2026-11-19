@@ -222,6 +222,16 @@ func TestLoadSeries(t *testing.T) {
 		t.Errorf("admin without private: %v, want %v", counts(s), want)
 	}
 
+	// An admin with a hidden group: every group's less the hidden one's.
+	hid := scope.For(scope.Viewer{ID: 3, Role: scope.Admin, HideGroups: []int64{g2}})
+	s, err = LoadSeries(ctx, db, nil, hid, Day, at(24, 0, 0), at(26, 0, 0), false, now, be)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []int64{1, 6}; !sameInts(counts(s), want) {
+		t.Errorf("admin with a hidden group: %v, want %v", counts(s), want)
+	}
+
 	// Every other period over the same messages: all 8 in one point.
 	for _, p := range []Period{Week, Month, Quarter, Year} {
 		s, err = LoadSeries(ctx, db, nil, all, p, at(20, 0, 0), at(26, 0, 0), false, now, be)
