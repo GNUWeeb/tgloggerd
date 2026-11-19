@@ -289,7 +289,8 @@ public:
 	 * then as one of its other files), then the groups and users whose
 	 * current photo it is, then the user and group photo lists holding
 	 * it, then the custom emoji and the message effects whose file it
-	 * is. Deleted messages are left out: the server no longer has them.
+	 * is, then the accessible communities whose photo it is. Deleted
+	 * messages are left out: the server no longer has them.
 	 */
 	std::vector<models::FileSource> listFileSources(uint64_t files_id,
 							size_t limit);

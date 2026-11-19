@@ -4107,6 +4107,11 @@ Object TDLib::Impl::resolve_file(const models::FileSource &src,
 		q = td_api::make_object<td_api::getMessageEffect>(src.object_id);
 		want = td_api::messageEffect::ID;
 		break;
+	case Kind::Community:
+		q = td_api::make_object<td_api::getCommunityFullInfo>(
+			src.object_id);
+		want = td_api::communityFullInfo::ID;
+		break;
 	}
 
 	Object obj = request_wait(std::move(q), left());
@@ -4207,6 +4212,17 @@ Object TDLib::Impl::resolve_file(const models::FileSource &src,
 			if (x.file->remote_ &&
 			    x.file->remote_->unique_id_ == src.unique_id)
 				f = x.file;
+		break;
+	}
+	case Kind::Community: {
+		/* The photo size whose unique id is the row's: chatPhotoInfo's
+		 * big and small files are the full photo's "c" and "a". */
+		auto &fi = static_cast<const td_api::communityFullInfo &>(*obj);
+		if (fi.photo_)
+			for (const td_api::file *x : chat_photo_files(*fi.photo_))
+				if (x->remote_ &&
+				    x->remote_->unique_id_ == src.unique_id)
+					f = x;
 		break;
 	}
 	}

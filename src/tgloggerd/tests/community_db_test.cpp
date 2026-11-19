@@ -161,6 +161,24 @@ int main()
 		  { kId }) == "Renamed", "renamed");
 	CHECK(chats(raw) == "-1004:01", "an update keeps the chats");
 
+	printf("file sources:\n");
+	{
+		auto has = [&](void) {
+			for (const auto &src : db.listFileSources(big, 20))
+				if (src.kind == models::FileSource::Kind::Community &&
+				    src.object_id == kId &&
+				    src.unique_id == "community-db-test-u-big")
+					return true;
+			return false;
+		};
+		CHECK(has(), "the photo's file lists the community as a source");
+		c.have_access = false;
+		db.upsertCommunity(c, big);
+		CHECK(!has(), "an inaccessible community is no source");
+		c.have_access = true;
+		db.upsertCommunity(c, big);
+	}
+
 	printf("cascades:\n");
 	raw.execute("DELETE FROM telegram_files WHERE id = ?", { big });
 	CHECK(one(raw, "SELECT IFNULL(photo_file_id, 'NULL')"
