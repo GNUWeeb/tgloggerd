@@ -27,6 +27,8 @@ add_executable(discordd
 	ForwardQueue.hpp
 	TelegramSender.cpp
 	TelegramSender.hpp
+	VoiceNote.cpp
+	VoiceNote.hpp
 	# The generic MySQL layer is shared with tgloggerd. It is compiled in
 	# here rather than linked from the tgloggerd target, which is an
 	# executable; the two files are small and carry no daemon specifics.
@@ -102,3 +104,19 @@ set_target_properties(discordd_render_test PROPERTIES
 	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 target_compile_options(discordd_render_test PRIVATE -Wall -Wextra)
 target_link_libraries(discordd_render_test PRIVATE gwdiscord)
+
+# A voice message's recording as a Telegram voice note: which attachment is
+# sent, the base64 waveform decode and its 5-bit packing, the CDN URL split.
+# Not part of the default build;
+#   cmake --build build --target discordd_voice_note_test &&
+#   build/discordd_voice_note_test
+add_executable(discordd_voice_note_test EXCLUDE_FROM_ALL
+	tests/voice_note_test.cpp
+	VoiceNote.cpp
+	VoiceNote.hpp
+	RouteFilter.cpp
+	RouteFilter.hpp)
+set_target_properties(discordd_voice_note_test PROPERTIES
+	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+target_compile_options(discordd_voice_note_test PRIVATE -Wall -Wextra)
+target_link_libraries(discordd_voice_note_test PRIVATE gwdiscord)

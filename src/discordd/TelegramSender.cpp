@@ -19,6 +19,8 @@
 #include <thread>
 #include <utility>
 
+#include <unistd.h>
+
 namespace discordd {
 
 namespace td_api = td::td_api;
@@ -38,6 +40,13 @@ static inline int64_t to_tdlib_id(int64_t server_id)
 }
 
 enum { LOG_ERROR = 0, LOG_WARN = 1, LOG_INFO = 2, LOG_DEBUG = 3 };
+
+/* Remove @path, when there is one; a file already gone is fine. */
+static void remove_file(const std::string &path)
+{
+	if (!path.empty())
+		unlink(path.c_str());
+}
 
 struct Bot {
 	int32_t		client_id = 0;
@@ -80,9 +89,17 @@ struct TelegramSender::Impl {
 	 * via updateMessageSendSucceeded, so the id worth storing is not the
 	 * one the call returns. Keyed by (client, provisional id).
 	 */
+	struct PendingSend {
+		std::shared_ptr<std::promise<int64_t>>	confirmed;
+		/*
+		 * A local file the message uploads, removed once TDLib
+		 * reports the send done or failed: only then is it done
+		 * reading it, which may be after the caller gave up waiting.
+		 */
+		std::string				cleanup;
+	};
 	std::mutex	send_mtx;
-	std::map<std::pair<int32_t, int64_t>, std::shared_ptr<std::promise<int64_t>>>
-		pending_sends;
+	std::map<std::pair<int32_t, int64_t>, PendingSend>	pending_sends;
 
 	/* (client, chat) pairs already resolved by ensure_chat(). */
 	std::mutex				chat_mtx;
@@ -171,6 +188,24 @@ struct TelegramSender::Impl {
 		}
 		b->cv.notify_all();
 	}
+
+	/*
+	 * Send @content to @chat_id and wait for Telegram's final id, at most
+	 * @confirm_secs once TDLib accepted the message. @cleanup, if not
+	 * empty, is a file removed when TDLib is done with it. @accepted, if
+	 * set, says whether TDLib took the message, so a 0 after that means
+	 * it was not confirmed in time, not that it will not arrive.
+	 */
+	int64_t send_content(
+		const std::shared_ptr<Bot> &b, int64_t chat_id,
+		td_api::object_ptr<td_api::InputMessageContent> content,
+		int64_t reply_to_server_id, const std::string &cleanup,
+		int confirm_secs, std::string *err, bool *accepted = nullptr);
+
+	/* Run @req (an edit) and wait for its answer; false with @err set. */
+	bool run_edit(const std::shared_ptr<Bot> &b,
+		      td_api::object_ptr<td_api::Function> req,
+		      std::string *err);
 
 	void on_auth_state(const std::shared_ptr<Bot> &b,
 			   td_api::AuthorizationState &st);
@@ -276,36 +311,40 @@ void TelegramSender::Impl::on_update(int32_t client_id,
 	case td_api::updateMessageSendSucceeded::ID: {
 		auto u = td::move_tl_object_as<td_api::updateMessageSendSucceeded>(
 			obj);
-		std::shared_ptr<std::promise<int64_t>> pr;
+		PendingSend ps;
 		{
 			std::lock_guard<std::mutex> lk(send_mtx);
 			auto it = pending_sends.find(
 				{client_id, u->old_message_id_});
 			if (it != pending_sends.end()) {
-				pr = it->second;
+				ps = std::move(it->second);
 				pending_sends.erase(it);
 			}
 		}
-		if (pr && u->message_)
-			pr->set_value(to_server_id(u->message_->id_));
+		remove_file(ps.cleanup);
+		if (ps.confirmed && u->message_)
+			ps.confirmed->set_value(to_server_id(u->message_->id_));
 		break;
 	}
 	case td_api::updateMessageSendFailed::ID: {
 		auto u = td::move_tl_object_as<td_api::updateMessageSendFailed>(
 			obj);
-		std::shared_ptr<std::promise<int64_t>> pr;
+		PendingSend ps;
 		{
 			std::lock_guard<std::mutex> lk(send_mtx);
 			auto it = pending_sends.find(
 				{client_id, u->old_message_id_});
 			if (it != pending_sends.end()) {
-				pr = it->second;
+				ps = std::move(it->second);
 				pending_sends.erase(it);
 			}
 		}
-		if (pr)
-			pr->set_value(0);
-		log(LOG_WARN, "telegram: send failed");
+		remove_file(ps.cleanup);
+		if (ps.confirmed)
+			ps.confirmed->set_value(0);
+		log(LOG_WARN, "telegram: send failed" +
+				      (u->error_ ? ": " + u->error_->message_
+						 : std::string()));
 		break;
 	}
 	default:
@@ -531,24 +570,18 @@ std::string TelegramSender::botUsername(uint64_t key)
 	return b->username;
 }
 
-int64_t TelegramSender::sendText(uint64_t key, int64_t chat_id,
-				 const std::string &text,
-				 int64_t reply_to_server_id, std::string *err)
+int64_t TelegramSender::Impl::send_content(
+	const std::shared_ptr<Bot> &b, int64_t chat_id,
+	td_api::object_ptr<td_api::InputMessageContent> content,
+	int64_t reply_to_server_id, const std::string &cleanup,
+	int confirm_secs, std::string *err, bool *accepted)
 {
-	auto b = impl_->bot_for_key(key);
-	if (!b) {
-		if (err)
-			*err = "unknown bot";
+	if (accepted)
+		*accepted = false;
+	if (!ensure_chat(b->client_id, chat_id, err)) {
+		remove_file(cleanup);
 		return 0;
 	}
-
-	if (!impl_->ensure_chat(b->client_id, chat_id, err))
-		return 0;
-
-	auto content = td_api::make_object<td_api::inputMessageText>();
-	auto ft = td_api::make_object<td_api::formattedText>();
-	ft->text_ = text;
-	content->text_ = std::move(ft);
 
 	auto req = td_api::make_object<td_api::sendMessage>();
 	req->chat_id_ = chat_id;
@@ -566,17 +599,19 @@ int64_t TelegramSender::sendText(uint64_t key, int64_t chat_id,
 	auto fail = std::make_shared<std::promise<std::string>>();
 	auto fail_f = fail->get_future();
 
-	impl_->send_query(
+	send_query(
 		b->client_id, std::move(req),
-		[this, b, provisional, confirmed,
-		 fail](td_api::object_ptr<td_api::Object> o) {
+		[this, b, provisional, confirmed, fail,
+		 cleanup](td_api::object_ptr<td_api::Object> o) {
 			if (o && o->get_id() == td_api::error::ID) {
 				auto e = td::move_tl_object_as<td_api::error>(o);
+				remove_file(cleanup);
 				fail->set_value(e->message_);
 				provisional->set_value(0);
 				return;
 			}
 			if (!o || o->get_id() != td_api::message::ID) {
+				remove_file(cleanup);
 				fail->set_value("unexpected sendMessage reply");
 				provisional->set_value(0);
 				return;
@@ -584,9 +619,9 @@ int64_t TelegramSender::sendText(uint64_t key, int64_t chat_id,
 			auto m = td::move_tl_object_as<td_api::message>(o);
 			const int64_t temp_id = m->id_;
 			{
-				std::lock_guard<std::mutex> lk(impl_->send_mtx);
-				impl_->pending_sends[{b->client_id, temp_id}] =
-					confirmed;
+				std::lock_guard<std::mutex> lk(send_mtx);
+				pending_sends[{b->client_id, temp_id}] =
+					PendingSend{confirmed, cleanup};
 			}
 			provisional->set_value(temp_id);
 		});
@@ -606,9 +641,11 @@ int64_t TelegramSender::sendText(uint64_t key, int64_t chat_id,
 		}
 		return 0;
 	}
+	if (accepted)
+		*accepted = true;
 
 	/* Wait for Telegram to assign the real id. */
-	if (confirmed_f.wait_for(std::chrono::seconds(30)) !=
+	if (confirmed_f.wait_for(std::chrono::seconds(confirm_secs)) !=
 	    std::future_status::ready) {
 		if (err)
 			*err = "timed out waiting for send confirmation";
@@ -618,6 +655,95 @@ int64_t TelegramSender::sendText(uint64_t key, int64_t chat_id,
 	if (!server_id && err)
 		*err = "send was not confirmed";
 	return server_id;
+}
+
+bool TelegramSender::Impl::run_edit(const std::shared_ptr<Bot> &b,
+				    td_api::object_ptr<td_api::Function> req,
+				    std::string *err)
+{
+	auto done = std::make_shared<std::promise<std::string>>();
+	auto done_f = done->get_future();
+	send_query(b->client_id, std::move(req),
+		   [done](td_api::object_ptr<td_api::Object> o) {
+			   if (o && o->get_id() == td_api::error::ID) {
+				   auto e = td::move_tl_object_as<td_api::error>(o);
+				   done->set_value(e->message_);
+				   return;
+			   }
+			   done->set_value(std::string());
+		   });
+
+	if (done_f.wait_for(std::chrono::seconds(30)) !=
+	    std::future_status::ready) {
+		if (err)
+			*err = "timed out editing message";
+		return false;
+	}
+	const std::string e = done_f.get();
+	if (!e.empty()) {
+		if (err)
+			*err = e;
+		return false;
+	}
+	return true;
+}
+
+static td_api::object_ptr<td_api::formattedText> plain_text(
+	const std::string &text)
+{
+	auto ft = td_api::make_object<td_api::formattedText>();
+	ft->text_ = text;
+	return ft;
+}
+
+int64_t TelegramSender::sendText(uint64_t key, int64_t chat_id,
+				 const std::string &text,
+				 int64_t reply_to_server_id, std::string *err)
+{
+	auto b = impl_->bot_for_key(key);
+	if (!b) {
+		if (err)
+			*err = "unknown bot";
+		return 0;
+	}
+
+	auto content = td_api::make_object<td_api::inputMessageText>();
+	content->text_ = plain_text(text);
+	return impl_->send_content(b, chat_id, std::move(content),
+				   reply_to_server_id, std::string(), 30, err);
+}
+
+int64_t TelegramSender::sendVoiceNote(uint64_t key, int64_t chat_id,
+				      const std::string &path,
+				      int32_t duration,
+				      const std::string &waveform,
+				      const std::string &caption,
+				      int64_t reply_to_server_id,
+				      std::string *err, bool *accepted)
+{
+	if (accepted)
+		*accepted = false;
+	auto b = impl_->bot_for_key(key);
+	if (!b) {
+		remove_file(path);
+		if (err)
+			*err = "unknown bot";
+		return 0;
+	}
+
+	auto content = td_api::make_object<td_api::inputMessageVoiceNote>();
+	content->voice_note_ = td_api::make_object<td_api::inputVoiceNote>(
+		td_api::make_object<td_api::inputFileLocal>(path), duration,
+		waveform);
+	content->caption_ = plain_text(caption);
+	/*
+	 * The confirmation comes once the file is uploaded, so it gets
+	 * longer than a text's. If it does not come in time the file stays
+	 * until TDLib reports the send done or failed after all.
+	 */
+	return impl_->send_content(b, chat_id, std::move(content),
+				   reply_to_server_id, path, 120, err,
+				   accepted);
 }
 
 bool TelegramSender::editText(uint64_t key, int64_t chat_id,
@@ -635,41 +761,34 @@ bool TelegramSender::editText(uint64_t key, int64_t chat_id,
 		return false;
 
 	auto content = td_api::make_object<td_api::inputMessageText>();
-	auto ft = td_api::make_object<td_api::formattedText>();
-	ft->text_ = text;
-	content->text_ = std::move(ft);
+	content->text_ = plain_text(text);
 
 	auto req = td_api::make_object<td_api::editMessageText>();
 	req->chat_id_ = chat_id;
 	req->message_id_ = to_tdlib_id(server_message_id);
 	req->input_message_content_ = std::move(content);
+	return impl_->run_edit(b, std::move(req), err);
+}
 
-	auto done = std::make_shared<std::promise<std::string>>();
-	auto done_f = done->get_future();
-	impl_->send_query(b->client_id, std::move(req),
-			  [done](td_api::object_ptr<td_api::Object> o) {
-				  if (o && o->get_id() == td_api::error::ID) {
-					  auto e = td::move_tl_object_as<
-						  td_api::error>(o);
-					  done->set_value(e->message_);
-					  return;
-				  }
-				  done->set_value(std::string());
-			  });
-
-	if (done_f.wait_for(std::chrono::seconds(30)) !=
-	    std::future_status::ready) {
+bool TelegramSender::editCaption(uint64_t key, int64_t chat_id,
+				 int64_t server_message_id,
+				 const std::string &caption, std::string *err)
+{
+	auto b = impl_->bot_for_key(key);
+	if (!b) {
 		if (err)
-			*err = "timed out editing message";
+			*err = "unknown bot";
 		return false;
 	}
-	const std::string e = done_f.get();
-	if (!e.empty()) {
-		if (err)
-			*err = e;
+
+	if (!impl_->ensure_chat(b->client_id, chat_id, err))
 		return false;
-	}
-	return true;
+
+	auto req = td_api::make_object<td_api::editMessageCaption>();
+	req->chat_id_ = chat_id;
+	req->message_id_ = to_tdlib_id(server_message_id);
+	req->caption_ = plain_text(caption);
+	return impl_->run_edit(b, std::move(req), err);
 }
 
 } /* namespace discordd */

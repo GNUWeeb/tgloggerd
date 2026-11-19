@@ -9,13 +9,17 @@
 #include "ForwardQueue.hpp"
 #include "Render.hpp"
 #include "TelegramSender.hpp"
+#include "VoiceNote.hpp"
 
 #include <gwdiscord/Gateway.hpp>
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdio>
+#include <filesystem>
+#include <optional>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -92,6 +96,14 @@ struct DiscordD::Impl {
 	bool				legacy_running = false;
 	std::atomic<bool>		legacy_refused{false};
 
+	/*
+	 * Where a voice message's recording waits for TDLib to upload it
+	 * (absolute, as TDLib reads it), and the files written there, for
+	 * unique names.
+	 */
+	std::string			voice_dir;
+	std::atomic<uint64_t>		voice_seq{0};
+
 	std::thread			refresh_thr;
 	std::atomic<bool>		stopping{false};
 	std::mutex			wake_mtx;
@@ -125,6 +137,14 @@ struct DiscordD::Impl {
 	void reload_routes(const std::set<uint64_t> &live,
 			   std::vector<int64_t> user_ids);
 	void refresh_loop(void);
+
+	void init_voice_dir(void);
+	bool fetch_voice(const gwdiscord::Attachment &a, std::string *bytes,
+			 std::string *err) const;
+	int64_t send_voice_note(const Route &r, const gwdiscord::Message &m,
+				const gwdiscord::Attachment &a,
+				const std::string &bytes, int64_t reply_to,
+				std::string *err, bool *accepted);
 
 	void on_message(uint64_t bot, const gwdiscord::Message &m, bool edited);
 	void on_delete(uint64_t bot, const gwdiscord::MessageDelete &d);
@@ -436,6 +456,105 @@ static std::vector<std::string> split_for_telegram(const std::string &s)
 	return out;
 }
 
+/*
+ * Make the directory recordings wait in, and empty it: a file left there
+ * is one TDLib never reported done with before discordd stopped.
+ */
+void DiscordD::Impl::init_voice_dir(void)
+{
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	const fs::path dir = fs::absolute(fs::path(cfg.data_dir) / "voice-tmp",
+					  ec);
+	if (ec) {
+		log(LOG_WARN, "voice notes off: " + ec.message());
+		return;
+	}
+	fs::create_directories(dir, ec);
+	if (ec) {
+		log(LOG_WARN, "voice notes off: cannot create " +
+				      dir.string() + ": " + ec.message());
+		return;
+	}
+	for (const auto &e : fs::directory_iterator(dir, ec))
+		fs::remove(e.path(), ec);
+	voice_dir = dir.string();
+}
+
+/*
+ * Download a voice message's recording. At once: the CDN URL is signed and
+ * expires. Through gwdiscord's HTTP client, which also bounds how long each
+ * step of the exchange may take.
+ */
+bool DiscordD::Impl::fetch_voice(const gwdiscord::Attachment &a,
+				 std::string *bytes, std::string *err) const
+{
+	if (a.size > MAX_VOICE_NOTE_BYTES) {
+		*err = "recording too large (" + std::to_string(a.size) +
+		       " bytes)";
+		return false;
+	}
+	std::string host, target;
+	if (!split_https_url(a.url, &host, &target)) {
+		*err = "not an https URL: " + a.url;
+		return false;
+	}
+	auto http = gwdiscord::beast_transport().http();
+	gwdiscord::HttpResponse res = http->get(host, target, {});
+	if (!res.ok()) {
+		*err = res.status ? "HTTP " + std::to_string(res.status)
+				  : res.error;
+		return false;
+	}
+	if (res.body.empty() || res.body.size() > MAX_VOICE_NOTE_BYTES) {
+		*err = "recording of " + std::to_string(res.body.size()) +
+		       " bytes";
+		return false;
+	}
+	*bytes = std::move(res.body);
+	return true;
+}
+
+/*
+ * Send a voice message's recording to route @r as a Telegram voice note,
+ * captioned with the author line. The sender removes the file once TDLib
+ * is done uploading it. Returns the sent message's server id, or 0.
+ */
+int64_t DiscordD::Impl::send_voice_note(const Route &r,
+					const gwdiscord::Message &m,
+					const gwdiscord::Attachment &a,
+					const std::string &bytes,
+					int64_t reply_to, std::string *err,
+					bool *accepted)
+{
+	*accepted = false;
+	if (voice_dir.empty()) {
+		*err = "no directory for recordings";
+		return 0;
+	}
+	const std::string path = voice_dir + "/" + std::to_string(m.id) + "-" +
+				 std::to_string(r.id) + "-" +
+				 std::to_string(voice_seq++) + ".ogg";
+	FILE *f = fopen(path.c_str(), "wb");
+	if (!f) {
+		*err = "cannot write " + path;
+		return 0;
+	}
+	const bool written = fwrite(bytes.data(), 1, bytes.size(), f) ==
+			     bytes.size();
+	if (fclose(f) != 0 || !written) {
+		std::remove(path.c_str());
+		*err = "cannot write " + path;
+		return 0;
+	}
+	pacer.wait_turn(r.telegram_chat_id);
+	return tg->sendVoiceNote(r.telegram_bot_id, r.telegram_chat_id, path,
+				 (int32_t)std::lround(a.duration_secs),
+				 telegram_waveform(a.waveform),
+				 author_handle(m) + ":", reply_to, err,
+				 accepted);
+}
+
 void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 				 bool edited)
 {
@@ -527,6 +646,13 @@ void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 
 	if (edited) {
 		/*
+		 * A voice message cannot be edited on Discord, and what went
+		 * to Telegram is a voice note, whose text an edit cannot
+		 * replace: edit nothing, as for any other media.
+		 */
+		if (m.is_voice_message())
+			return;
+		/*
 		 * Apply the edit to what we already sent. One lookup for the
 		 * whole event: the per-route filter is applied to the one
 		 * result set, instead of re-running the identical query once
@@ -574,6 +700,10 @@ void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 		return;
 	}
 
+	/* A voice message's recording, once downloaded, for every route. */
+	std::optional<std::string> voice_bytes;
+	std::string voice_err;
+
 	for (const auto &r : routes) {
 		try {
 			/* Only the content types this route forwards. */
@@ -611,6 +741,65 @@ void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 					    "reply maps to telegram message " +
 						    std::to_string(reply_to));
 				}
+			}
+
+			/*
+			 * A voice message whose recording is all this route
+			 * takes goes as a voice note. It is downloaded once,
+			 * for every route; when that or the send fails, the
+			 * route gets the recording's link line instead. Once
+			 * TDLib has taken the voice note, an unconfirmed
+			 * upload may still arrive, so no link line follows:
+			 * it would post the message twice.
+			 */
+			const gwdiscord::Attachment *va =
+				voice_note_attachment(m, r.types);
+			if (va && render_message(m, r.types, va).empty()) {
+				std::string err;
+				int64_t sent = 0;
+				bool accepted = false;
+				if (!voice_bytes && voice_err.empty() &&
+				    !fetch_voice(*va, &voice_bytes.emplace(),
+						 &voice_err)) {
+					voice_bytes.reset();
+					if (voice_err.empty())
+						voice_err = "download failed";
+				}
+				if (voice_bytes)
+					sent = send_voice_note(r, m, *va,
+							       *voice_bytes,
+							       reply_to, &err,
+							       &accepted);
+				else
+					err = voice_err;
+				if (sent) {
+					db->recordForwarded(m.id, r.id,
+							    r.telegram_chat_id,
+							    sent);
+					log(LOG_INFO,
+					    "forwarded discord voice message " +
+						    std::to_string(m.id) +
+						    " -> telegram " +
+						    std::to_string(
+							    r.telegram_chat_id) +
+						    "/" + std::to_string(sent));
+					continue;
+				}
+				if (accepted) {
+					log(LOG_WARN,
+					    "voice note to chat " +
+						    std::to_string(
+							    r.telegram_chat_id) +
+						    " not confirmed in time; "
+						    "not sending its link: " +
+						    err);
+					continue;
+				}
+				log(LOG_WARN, "voice note to chat " +
+						      std::to_string(
+							      r.telegram_chat_id) +
+						      " failed, sending its "
+						      "link: " + err);
 			}
 
 			/*
@@ -678,9 +867,15 @@ void DiscordD::Impl::on_delete(uint64_t bot, const gwdiscord::MessageDelete &d)
 				continue; /* another bot's route */
 			std::string err;
 			pacer.wait_turn(f.telegram_chat_id);
+			/* A voice note has a caption instead of a text. */
+			std::string cap_err;
 			if (!tg->editText(f.telegram_bot_id, f.telegram_chat_id,
 					  f.telegram_message_id,
-					  "(deleted on Discord)", &err)) {
+					  "(deleted on Discord)", &err) &&
+			    !tg->editCaption(f.telegram_bot_id,
+					     f.telegram_chat_id,
+					     f.telegram_message_id,
+					     "(deleted on Discord)", &cap_err)) {
 				log(LOG_WARN, "tombstone failed: " + err);
 			}
 		}
@@ -736,6 +931,7 @@ int DiscordD::run(void)
 			m.log(lvl, "telegram: " + msg);
 		});
 	m.tg->start();
+	m.init_voice_dir();
 
 	gwdiscord::GatewayConfig gcfg;
 	gcfg.intents = gwdiscord::intents::MESSAGE_LOGGING;
