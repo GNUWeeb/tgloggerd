@@ -613,6 +613,89 @@ limit (and `q`) is reused for 2 minutes, except `flood_wait` and `error`. A
 successful page also stores the group's count. Errors: 400, 404, 503
 and 504 as for `/v1/chats/{chat_id}/refresh`.
 
+### POST /v1/chats/{chat_id}/recheck
+
+Queues a recheck of a chat's messages against Telegram around a message
+and answers at once, without waiting for it. The web asks for one when a
+chat is opened (the newest stretch) or an older page is loaded while
+scrolling up (from that page's newer edge, its `before`, down).
+
+    POST /v1/chats/-1001234567890/recheck
+    {"around": 4567}
+
+    202 {"queued": true}
+    200 {"queued": false, "reason": "recent"}
+
+`chat_id` is TDLib's chat id (a group's `telegram_groups.id`, or the
+peer's user id for a private chat). `around` is a server message id, as
+stored in `message_id`: the NEWER edge of the stretch to recheck (an
+older page's `before`, or a message page's own id), which is read
+mostly downwards from it. 0, the default (also for no body or `{}`), is
+the newest stretch. Anything but an integer from 0 up is a 400.
+
+| Answer | Meaning |
+|---|---|
+| 202 `{"queued": true}` | Queued now. |
+| 200 `"reason": "recent"` | That stretch was rechecked or queued too recently: the newest stretch of the chat within the last 60 seconds, an older one (the same chat and `around`) within the last 24 hours. |
+| 200 `"reason": "queued"` | That exact recheck is already waiting. |
+| 200 `"reason": "busy"` | The queue is full (1000 rechecks); try later. |
+
+Errors: 400 for a chat id that is not an integer or a bad `around`; 404
+when neither TDLib (`getChat`, from its cache) nor the database
+(`telegram_groups`, `telegram_users`) knows the chat; 503 when TDLib is
+not authorized.
+
+What a recheck does, on the TDLib loop:
+
+- One `getChatHistory(chat_id, from, offset, limit, only_local false)`:
+  for the newest stretch from 0 (the newest message), offset 0, limit
+  50; around a message from it (`around << 20`, TDLib's id), offset
+  -10, limit 60: up to 10 newer messages, the message itself and 49
+  older.
+- Every message returned is stored through the normal path, as if it
+  had just arrived: a missing one is inserted (`message.new` event),
+  one with a later `edit_date` gets its content replaced and the old
+  version kept (`message.edited`). None is forwarded to Discord: only
+  live new messages are.
+- Deletions: the stored live messages with an id strictly between the
+  lowest and highest id returned, but not returned, are marked deleted:
+  `deleted_at`, as for a live deletion, and `meta.deleted_on_recheck =
+  true`, which tells the two apart. Each sends `message.deleted` and
+  tombstones the message's Discord copy, as a live deletion does.
+  Nothing outside that range is concluded. Nothing at all is concluded
+  from an answer of fewer than two messages, nor from a short one:
+  fewer older messages than asked (50 for the newest stretch; around a
+  message, 50 at or below it) while an older message is stored, that
+  is, while the oldest returned is not the chat's first message. Fewer
+  than 10 newer around a message is normal near the newest end and is
+  not judged. TDLib can answer short while it loads a stretch; the
+  messages such an answer returns are still stored.
+- Each recheck logs, at info level, the chat, `around`, how many
+  messages came back and how many it marked deleted (a warning above
+  10).
+
+What `getChatHistory` can and cannot see: TDLib runs with its message
+database on, so it answers from its own database where it holds the
+stretch and asks Telegram only for the gaps. A recheck therefore finds
+messages TDLib has that the daemon never stored, and edits TDLib knows
+of; a message deleted on Telegram is caught only when TDLib's answer
+leaves it out, so deletions are concluded only from what TDLib returns,
+never from what the database alone holds.
+
+Pacing: rechecks share the Telegram budget of the media relink and the
+old-row repair (10 requests a second together), after the relink and
+before the repair, at most 2 a second and 2 awaiting their answer. A
+flood wait holds every recheck back for its time. Rechecks asked for
+run before the daemon's own.
+
+The daemon's own: about two minutes after TDLib is authorized, the
+newest stretch of every chat whose last message (from `updateNewChat`
+and `updateChatLastMessage`) is at most 48 hours old is queued, newest
+first, through the same queue and limits; they count as recent for the
+60-second rule. It covers the chats TDLib has announced by then, which
+is every chat in the chat lists when the history backfill, which loads
+them, is on. The log says how many were queued.
+
 ### GET /v1/users/{user_id}/photos
 
 A user's profile photos as Telegram has them (`getUserProfilePhotos`),

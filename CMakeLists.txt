@@ -115,6 +115,9 @@ add_executable(tgloggerd
 	src/tgloggerd/ChatApi.hpp
 	src/tgloggerd/ChatRecheck.cpp
 	src/tgloggerd/ChatRecheck.hpp
+	src/tgloggerd/RecheckApi.cpp
+	src/tgloggerd/RecheckApi.hpp
+	src/tgloggerd/RecheckBackend.cpp
 	src/tgloggerd/ContactLookup.cpp
 	src/tgloggerd/ContactLookup.hpp
 	src/tgloggerd/ContactApi.cpp
@@ -322,6 +325,23 @@ add_executable(chat_recheck_test EXCLUDE_FROM_ALL
 	src/tgloggerd/ChatRecheck.cpp)
 target_include_directories(chat_recheck_test PRIVATE src)
 target_compile_options(chat_recheck_test PRIVATE -Wall -Wextra)
+
+# POST /v1/chats/{chat_id}/recheck over a real loopback listener with
+# stand-ins for TDLib, the database and the queue's clock; not part of
+# the default build:
+#   cmake --build build --target recheck_api_test && build/recheck_api_test
+add_executable(recheck_api_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/recheck_api_test.cpp
+	src/tgloggerd/RecheckApi.cpp
+	src/tgloggerd/ChatRecheck.cpp
+	src/tgloggerd/InternalApi.cpp
+	src/tgloggerd/ThreadPool.cpp
+	src/tgloggerd/helpers/log.c)
+target_include_directories(recheck_api_test PRIVATE src
+	${SODIUM_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
+target_compile_options(recheck_api_test PRIVATE -Wall -Wextra)
+target_link_libraries(recheck_api_test PRIVATE connector-jdbc
+	${SODIUM_LIBRARIES} nlohmann_json::nlohmann_json Threads::Threads)
 
 # What a chat recheck reads and marks in the message tables, and the
 # plans of its reads, against a throwaway MySQL with every migration
