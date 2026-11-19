@@ -253,6 +253,23 @@ page the id and thumbnail cells link to the tokenized media download
 | `created_at` | Created | datetime | C | `= != < > <= >=` |
 | `updated_at` | Updated | datetime | C | `= != < > <= >=` |
 | `accessed_at` | Last access | datetime | C | `= != < > <= >=` — last use of the file (ingested again, served); eviction takes the least recent first |
+| `role` | Role in a message | enum | E | `= != in` — values `cover,live_video,paid,preview,poll,game,invoice,chat_photo,thumbnail,rich,gift,background,preview_media,link_preview` (Go service only, see below) |
+
+`role` is the role the file plays in a message beside being its own file:
+a `telegram_message_files.role` value as stored (docs/design/message-types.md
+section 4.3; `preview` is reserved and written by nothing yet), or
+`link_preview` for a link preview's picture
+(`telegram_link_previews.photo_file_id`). `=` and `in` match a file that plays
+one of the roles in some message the viewer sees, `!=` one that plays it in
+none; a file that is also another message's own file matches too. It is one
+or two EXISTS over the tables' file indexes (`idx_message_files_file`,
+`idx_link_previews_photo`), joined to the message for a viewer who does not see
+every chat, and counts as one EXISTS condition against the limit. The files
+page's rows (FileRow in webapi/openapi.yaml) say the role in `role`: a file
+that is no message's own file names the first visible message that carries it
+in a role, with `role: {role, message_kind}`, where `message_kind` is that
+message's content type; a message's own file has `role: null`. The Drogon
+search has no such field.
 
 Sortable keys: `id, file_type, name, ext, size, hits, created_at, updated_at,
 accessed_at`.

@@ -198,7 +198,7 @@ func TestListFiles(t *testing.T) {
 		"url":        e.file(880001), "thumb": e.file(880001),
 		"chat":    map[string]any{"id": -1001000000001, "title": "GNU/Weeb", "kind": "group"},
 		"sender":  map[string]any{"id": 9299000001, "name": "Dewi Kusuma"},
-		"message": map[string]any{"scope": "group", "id": 4}}
+		"message": map[string]any{"scope": "group", "id": 4}, "role": nil}
 	if js(byID["880001"]) != js(photo) {
 		t.Errorf("photo:\n got %s\nwant %s", js(byID["880001"]), js(photo))
 	}

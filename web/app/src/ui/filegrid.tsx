@@ -11,6 +11,7 @@ import { ago, bytes, dateTime, fmt } from '../format.ts';
 import type { Viewer } from '../page.ts';
 import type { FileRow } from '../types.ts';
 import { Lightbox, MediaOf, type Media, type MediaKind } from '../routes/chat-media.tsx';
+import { RoleDetail, roleOf } from './fileroles.tsx';
 
 const noop = () => {};
 
@@ -25,14 +26,14 @@ type ShownFile = Pick<FileRow, 'name' | 'ext' | 'size' | 'file_type' | 'stored' 
 
 // The grid's card: the file's picture or icon in a fixed box, its name,
 // size and a date (the files page: when it was first seen; a group's
-// files: when it was sent).
-export function FileCard({ f, at, v, onOpen }: { f: ShownFile; at: string; v: Viewer; onOpen: () => void }) {
+// files: when it was sent), and a tag under them (the file's role).
+export function FileCard({ f, at, v, onOpen, tag }: { f: ShownFile; at: string; v: Viewer; onOpen: () => void; tag?: ReactNode }) {
 	return (
 		<button type="button" className="a-filecard" onClick={onOpen}>
 			<span className="a-filecard-media"><Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={150} radius={0} fill />
 				{f.duration ? <span className="a-dur">{duration(f.duration)}</span> : null}
 			</span>
-			<span className="a-filecard-meta"><span className="a-ellipsis a-uname">{f.name}</span><span className="a-muted sm">{bytes(f.size)} . {ago(at, v)}</span></span>
+			<span className="a-filecard-meta"><span className="a-ellipsis a-uname">{f.name}</span><span className="a-muted sm">{bytes(f.size)} . {ago(at, v)}</span>{tag}</span>
 		</button>
 	);
 }
@@ -142,13 +143,16 @@ export function FilePreview({ f, v, details, links, onClose }: { f: ShownFile; v
 
 // A file of the files page, with all the archive has of it.
 export function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void }) {
+	const role = roleOf(f);
+	const msgHref = f.message ? `/messages/${f.message.scope}/${f.message.id}` : null;
 	return (
 		<FilePreview f={f} v={v} onClose={onClose}
 			links={f.message
-				? <Btn to={`/messages/${f.message.scope}/${f.message.id}`} ghost icon={MessageSquare}>Open message</Btn>
+				? <Btn to={msgHref!} ghost icon={MessageSquare}>Open message</Btn>
 				: <Btn ghost icon={MessageSquare} disabled title={`Sent in ${NO_MESSAGE}`}>Open message</Btn>}
 			details={[
 				[null, 'Type', f.file_type],
+				role ? [null, 'Role', <RoleDetail role={role} href={msgHref} />] : null,
 				[null, 'Size', `${bytes(f.size)} (${fmt(f.size)} bytes)`],
 				f.duration ? [null, 'Duration', duration(f.duration)] : null,
 				[null, 'Hits', fmt(f.hits)],

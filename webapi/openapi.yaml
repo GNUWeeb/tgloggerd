@@ -5668,8 +5668,9 @@ components:
         chat:
           description: >-
             The chat of the first message the viewer sees that carried
-            the file; null when there is none (a profile or group
-            photo, or a message the viewer may not see).
+            the file as its own, else of the first that carried it in
+            a role (see role); null when there is none (a profile or
+            group photo, or a message the viewer may not see).
           oneOf:
             - type: object
               required: [id, title, kind]
@@ -5692,6 +5693,47 @@ components:
           oneOf:
             - $ref: '#/components/schemas/MessageRef'
             - type: 'null'
+        role:
+          description: >-
+            What the file is to that message when it is not the
+            message's own file: a video's cover, a link preview's
+            picture. Null when it is the message's own file, and when
+            message is null. A file that is some message's own file
+            names that message and has null here, even when it plays
+            a role in another (the role filter still finds it). Always
+            sent; optional in this description.
+          oneOf:
+            - $ref: '#/components/schemas/FileRoleRef'
+            - type: 'null'
+    FileRoleRef:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/FileRole'
+        message_kind:
+          type: string
+          description: >-
+            The content kind (ContentType) of the message the file
+            plays the role in. Always sent; optional in this
+            description.
+    FileRole:
+      type: string
+      enum: [cover, live_video, paid, preview, poll, game, invoice, chat_photo, thumbnail, rich, gift, background, preview_media, link_preview]
+      description: >-
+        A role a file plays in a message beside its own file:
+        telegram_message_files.role as stored (docs/design/
+        message-types.md section 4.3): cover a video's cover,
+        live_video a live photo's video, paid an item of paid media,
+        poll the media of a poll or of its options, game a game's
+        photo or animation, invoice an invoice's photo, chat_photo the
+        new photo of a chat photo change, thumbnail a video's still
+        thumbnail, rich the media of a rich message, gift a gift's
+        sticker, background a chat background's document,
+        preview_media a link preview's video, animation or audio, and
+        preview, reserved and written by nothing yet. And
+        link_preview: a link preview's picture
+        (telegram_link_previews.photo_file_id).
     IdName:
       type: object
       required: [id, name]
@@ -7511,7 +7553,10 @@ components:
         them); name, ext and
         tg_file_id (contains, =, empty); stored (is yes or no); sha256
         (=, != a digest of 64 hex digits, either case); created_at,
-        updated_at and accessed_at (>, < a day, YYYY-MM-DD). Its sorts:
+        updated_at and accessed_at (>, < a day, YYYY-MM-DD); role (=,
+        != one of FileRole's values, or in a list of them: the file
+        plays that role in a message the viewer sees, whether or not
+        it is also another message's own file). Its sorts:
         id, name, file_type, ext, size, hits, created_at (the default)
         and accessed_at. The search text matches the name, and the id
         when it is a number.
