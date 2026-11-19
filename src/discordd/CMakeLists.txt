@@ -19,6 +19,8 @@ add_executable(discordd
 	DiscordBots.hpp
 	DB.cpp
 	DB.hpp
+	Render.cpp
+	Render.hpp
 	RouteFilter.cpp
 	RouteFilter.hpp
 	ForwardQueue.cpp
@@ -85,3 +87,18 @@ set_target_properties(discordd_route_filter_test PROPERTIES
 	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 target_compile_options(discordd_route_filter_test PRIVATE -Wall -Wextra)
 target_link_libraries(discordd_route_filter_test PRIVATE gwdiscord)
+
+# What a Discord message is rendered as for a route's content types; no
+# network, no database. Not part of the default build;
+#   cmake --build build --target discordd_render_test &&
+#   build/discordd_render_test
+add_executable(discordd_render_test EXCLUDE_FROM_ALL
+	tests/render_test.cpp
+	Render.cpp
+	Render.hpp
+	RouteFilter.cpp
+	RouteFilter.hpp)
+set_target_properties(discordd_render_test PROPERTIES
+	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+target_compile_options(discordd_render_test PRIVATE -Wall -Wextra)
+target_link_libraries(discordd_render_test PRIVATE gwdiscord)

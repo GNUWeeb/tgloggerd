@@ -7,6 +7,7 @@
 #include "DB.hpp"
 #include "DiscordBots.hpp"
 #include "ForwardQueue.hpp"
+#include "Render.hpp"
 #include "TelegramSender.hpp"
 
 #include <gwdiscord/Gateway.hpp>
@@ -127,9 +128,6 @@ struct DiscordD::Impl {
 
 	void on_message(uint64_t bot, const gwdiscord::Message &m, bool edited);
 	void on_delete(uint64_t bot, const gwdiscord::MessageDelete &d);
-
-	/* Render a Discord message as the Telegram text to send. */
-	std::string render(const gwdiscord::Message &m, unsigned types) const;
 };
 
 bool DiscordD::Impl::report_discord(const BotReport &r)
@@ -438,66 +436,6 @@ static std::vector<std::string> split_for_telegram(const std::string &s)
 	return out;
 }
 
-/*
- * Render the parts of `m` a route forwarding `types` (FWD_* bits) should get,
- * or "" when none of them is enabled and the route gets nothing at all.
- */
-std::string DiscordD::Impl::render(const gwdiscord::Message &m,
-				   unsigned types) const
-{
-	/*
-	 * Plain text: the author line then the content. Telegram entity
-	 * formatting is deliberately not attempted yet -- Discord markdown
-	 * would have to be translated, and getting that wrong is worse than
-	 * sending it verbatim.
-	 *
-	 * The author is identified by username#discriminator, not by the
-	 * display name: the display name is free text a user can set to
-	 * anything (and is often long), whereas username#discriminator is the
-	 * stable handle that actually identifies the account. Discord migrated
-	 * most accounts to a "0" discriminator, which is kept rather than
-	 * hidden so the rendering is uniform.
-	 */
-	std::string who = m.author.username;
-	if (who.empty())
-		who = "unknown";
-	if (!m.author.discriminator.empty())
-		who += "#" + m.author.discriminator;
-
-	std::string body;
-	if ((types & FWD_TEXT) && !m.content.empty())
-		body = m.content;
-
-	/* Media goes across as a link line each; the flags pick the lines. */
-	for (const auto &a : m.attachments) {
-		if (!(types & attachment_type(m, a)))
-			continue;
-		if (!body.empty() && body.back() != '\n')
-			body += "\n";
-		body += "[" + a.filename + "] " + a.url;
-	}
-	for (const auto &st : m.stickers) {
-		if (!(types & FWD_STICKER))
-			continue;
-		if (!body.empty() && body.back() != '\n')
-			body += "\n";
-		body += "[sticker: " + st.name + "] " + st.url();
-	}
-
-	/*
-	 * A message with nothing we render at all (an embed, a poll) is still
-	 * announced, as a text-less text message. That is different from a
-	 * message whose every part was filtered out, which must stay silent.
-	 */
-	if (body.empty()) {
-		if (!(types & FWD_TEXT) || !m.content.empty() ||
-		    !m.attachments.empty() || !m.stickers.empty())
-			return std::string();
-		body = "(no text)";
-	}
-	return who + ":\n" + body;
-}
-
 void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 				 bool edited)
 {
@@ -611,7 +549,7 @@ void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 				 * forwards, what was sent stays as it is.
 				 */
 				const std::string text =
-					render(m, route->types);
+					render_message(m, route->types);
 				if (text.empty())
 					continue;
 				/*
@@ -639,7 +577,7 @@ void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 	for (const auto &r : routes) {
 		try {
 			/* Only the content types this route forwards. */
-			const std::string text = render(m, r.types);
+			const std::string text = render_message(m, r.types);
 			if (text.empty()) {
 				log(LOG_DEBUG, "nothing in " +
 						       std::to_string(m.id) +
