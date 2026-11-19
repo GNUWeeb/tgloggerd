@@ -722,6 +722,16 @@ public:
 	void setRecheckHandler(std::function<void(const RecheckAnswer &)> cb);
 
 	/*
+	 * Set the callback for the messages a recheck found, called with
+	 * their server ids BEFORE they are stored, so a deletion an earlier
+	 * recheck concluded for one of them can be undone ahead of the
+	 * store. Runs on the loop thread; keep DB work off it.
+	 */
+	void setRecheckFoundHandler(
+		std::function<void(int64_t chat_id, bool is_group,
+				   const std::vector<int64_t> &ids)> cb);
+
+	/*
 	 * When enabled, issue a one-time optimizeStorage once the client
 	 * reaches the ready state, reclaiming files TDLib cached in a previous
 	 * run. Must be called before loop().

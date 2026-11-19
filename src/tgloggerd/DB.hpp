@@ -252,6 +252,16 @@ public:
 		const std::vector<int64_t> &message_ids);
 
 	/*
+	 * Undo markDeletedOnRecheck for those of @message_ids a later
+	 * recheck found again: deleted_at back to NULL and the flag removed,
+	 * for rows that carry the flag only (a deletion Telegram reported is
+	 * never undone). Returns the ids it restored.
+	 */
+	std::vector<int64_t> restoreRecheckDeleted(
+		int64_t chat_id, bool is_group,
+		const std::vector<int64_t> &message_ids);
+
+	/*
 	 * Whether the chat is stored: a telegram_groups row for a group, a
 	 * telegram_users row for a private chat (its id is the peer's).
 	 */

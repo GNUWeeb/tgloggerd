@@ -200,6 +200,22 @@ int main()
 	CHECK(db.markDeletedOnRecheck(kGroup, true, { 12, 13 }).empty(),
 	      "marking again changes nothing");
 	CHECK(db.markDeletedOnRecheck(kGroup, true, {}).empty(), "no ids: nothing");
+
+	printf("restore a recheck deletion:\n");
+	auto back = db.restoreRecheckDeleted(kGroup, true, { 12, 15, 16, 99 });
+	CHECK(ids(back) == "12",
+	      "only the recheck-flagged one comes back");
+	CHECK(one(raw, "SELECT CONCAT(deleted_at IS NULL, meta)"
+		  " FROM telegram_group_messages WHERE chat_id = ? AND message_id = 12",
+		  { kGroup }) == R"(1{"fact_check": {"text": "x"}})",
+	      "deleted_at cleared, the flag removed, other keys kept");
+	CHECK(one(raw, "SELECT deleted_at IS NOT NULL FROM telegram_group_messages"
+		  " WHERE chat_id = ? AND message_id = 15", { kGroup }) == "1",
+	      "a live deletion stays deleted");
+	CHECK(db.restoreRecheckDeleted(kGroup, true, { 12 }).empty(),
+	      "restoring again changes nothing");
+	CHECK(ids(db.markDeletedOnRecheck(kGroup, true, { 12 })) == "12",
+	      "it can be marked again");
 	s = db.listRecheckStored(kGroup, true, { 10, 20 });
 	CHECK(ids(s.between) == "11,14,16,17,18,19", "marked ones are no longer live");
 

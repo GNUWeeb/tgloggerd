@@ -993,6 +993,8 @@ struct TDLib::Impl {
 	 */
 	recheck::Queue					recheck_q_;
 	std::function<void(const RecheckAnswer &)>	recheck_handler_;
+	std::function<void(int64_t, bool, const std::vector<int64_t> &)>
+							recheck_found_handler_;
 	std::unordered_map<int64_t, int64_t>		chat_last_date_;
 	int						recheck_inflight_ = 0;
 	int						recheck_in_tick_ = 0;
@@ -3187,6 +3189,22 @@ void TDLib::Impl::on_recheck_page(const recheck::Item &it, Object obj)
 	a.page.around = it.around;
 
 	/*
+	 * A message found again that an earlier recheck marked deleted was
+	 * not gone after all: undo that first. The handler queues the undo
+	 * on the serial worker ahead of the stores below, which would
+	 * otherwise replace meta and drop the flag that tells it apart.
+	 */
+	if (recheck_found_handler_) {
+		std::vector<int64_t> found;
+		for (const auto &m : msgs->messages_)
+			if (m && m->chat_id_ == it.chat_id &&
+			    is_server_msg_id(m->id_))
+				found.push_back(to_server_msg_id(m->id_));
+		if (!found.empty())
+			recheck_found_handler_(it.chat_id, a.is_group, found);
+	}
+
+	/*
 	 * Oldest first through the same handlers as a live message, which
 	 * store what is missing and record an edit as a new version. Not
 	 * the forward handler: only updateNewMessage forwards, so nothing
@@ -4696,6 +4714,12 @@ recheck::Admit TDLib::recheckChat(int64_t chat_id, int64_t around)
 	std::lock_guard<std::mutex> lk(impl_->refetch_mtx_);
 	return impl_->recheck_q_.push({ chat_id, around, false },
 				      recheck::Clock::now());
+}
+
+void TDLib::setRecheckFoundHandler(
+	std::function<void(int64_t, bool, const std::vector<int64_t> &)> cb)
+{
+	impl_->recheck_found_handler_ = std::move(cb);
 }
 
 void TDLib::setRecheckHandler(std::function<void(const RecheckAnswer &)> cb)

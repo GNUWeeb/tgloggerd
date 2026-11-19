@@ -511,9 +511,32 @@ int TgLoggerd::start(void)
 	 * between the lowest and highest id returned that it did not return
 	 * are marked deleted, flagged as found on recheck, unless the answer
 	 * was too short to tell (recheck::selectDeleted). Each sends the
-	 * usual deletion event and tombstones its Discord copy, as a live
-	 * deletion does.
+	 * usual deletion event. Its Discord copy is NOT tombstoned: a
+	 * deletion concluded from a recheck is undone when a later recheck
+	 * finds the message (setRecheckFoundHandler), and a tombstone on
+	 * Discord could not be.
 	 */
+	tdlib_->setRecheckFoundHandler([this](int64_t chat_id, bool is_group,
+					      const std::vector<int64_t> &ids) {
+		serial_->post([this, chat_id, is_group, ids] {
+			try {
+				auto back = db_->restoreRecheckDeleted(
+					chat_id, is_group, ids);
+				for (int64_t id : back)
+					events_->messageEdited(chat_id, id);
+				if (!back.empty())
+					pr_warn(l_, "recheck: chat %lld: %zu"
+						" message(s) marked deleted on an"
+						" earlier recheck came back;"
+						" restored", (long long)chat_id,
+						back.size());
+			} catch (const std::exception &e) {
+				pr_error(l_, "recheck: chat %lld: restore"
+					 " failed: %s", (long long)chat_id,
+					 e.what());
+			}
+		});
+	});
 	tdlib_->setRecheckHandler([this](const RecheckAnswer &a) {
 		serial_->post([this, a] {
 			try {
@@ -533,7 +556,6 @@ int TgLoggerd::start(void)
 					publish_message(*events_, a.chat_id, id,
 							MsgChange::Deleted,
 							std::nullopt);
-					discord_->forward_delete(a.chat_id, id);
 				}
 				if (marked.size() > recheck::kWarnMarked)
 					pr_warn(l_, "recheck: chat %lld around %lld:"

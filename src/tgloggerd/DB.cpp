@@ -173,6 +173,26 @@ std::vector<int64_t> DB::markDeletedOnRecheck(
 	return marked;
 }
 
+std::vector<int64_t> DB::restoreRecheckDeleted(
+	int64_t chat_id, bool is_group, const std::vector<int64_t> &message_ids)
+{
+	const std::string sql = std::string("UPDATE ") + message_table(is_group) +
+		" SET deleted_at = NULL,"
+		" meta = JSON_REMOVE(meta, '$.deleted_on_recheck')"
+		" WHERE chat_id = ? AND message_id = ? AND deleted_at IS NOT NULL"
+		" AND JSON_EXTRACT(meta, '$.deleted_on_recheck') ="
+		" CAST('true' AS JSON)";
+	std::vector<int64_t> restored;
+	if (message_ids.empty())
+		return restored;
+	db_.transaction([&](mysql::Transaction &tx) {
+		for (int64_t id : message_ids)
+			if (tx.execute(sql, { chat_id, id }) > 0)
+				restored.push_back(id);
+	});
+	return restored;
+}
+
 bool DB::chatKnown(int64_t chat_id)
 {
 	return !db_.query(chat_id > 0

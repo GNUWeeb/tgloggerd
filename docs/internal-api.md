@@ -660,8 +660,11 @@ What a recheck does, on the TDLib loop:
 - Deletions: the stored live messages with an id strictly between the
   lowest and highest id returned, but not returned, are marked deleted:
   `deleted_at`, as for a live deletion, and `meta.deleted_on_recheck =
-  true`, which tells the two apart. Each sends `message.deleted` and
-  tombstones the message's Discord copy, as a live deletion does.
+  true`, which tells the two apart. Each sends `message.deleted`; its
+  Discord copy is left as it is. A later recheck that finds such a
+  message again undoes the deletion (`deleted_at` back to NULL, the
+  flag removed, `message.edited` sent, a warning logged); a deletion
+  Telegram reported is never undone.
   Nothing outside that range is concluded. Nothing at all is concluded
   from an answer of fewer than two messages, nor from a short one:
   fewer older messages than asked (50 for the newest stretch; around a
