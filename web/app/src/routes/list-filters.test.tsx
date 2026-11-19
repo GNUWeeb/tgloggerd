@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // The lists' kind filters: "Media" as the media kinds, one of a list
-// (the `in` operator), service rows in private chats, and every file
-// type on /files.
+// (the `in` operator), service rows in private chats, the service and
+// TDLib types as lists, and every file type on /files.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
@@ -56,6 +56,46 @@ describe('the private messages list', () => {
 		const rows = fixture<MessagesProps>(withConds('/private_messages', lastConds(calls))).props.rows;
 		expect(rows.length).toBeGreaterThan(0);
 		expect(rows.every((r) => r.content_type === 'service')).toBe(true);
+	});
+});
+
+describe('the service and TDLib type filters', () => {
+	type Row = MessagesProps['rows'][number] & { service_type?: string };
+	const services = fixture<MessagesProps>(withConds('/group_messages', [{ field: 'content_type', op: '=', value: 'service' }]) + '&per=1000').props.rows as Row[];
+	const added = services.filter((r) => r.service_type === 'chat_add_members');
+	const chat = added[0]!.chat.id;
+	const inChat = withConds('/group_messages', [{ field: 'chat_id', op: '=', value: String(chat) }]);
+	const pick = (key: string) => {
+		fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+		fireEvent.change(screen.getByRole('combobox', { name: 'Field' }), { target: { value: key } });
+	};
+
+	it('offer the service types as a list with labels, and find "Members added"', async () => {
+		const calls = fakeApi('superadmin');
+		renderPage(inChat);
+		pick('service_type');
+		const opts = [...valueSelect().options].map((o) => [o.value, o.textContent]);
+		expect(opts).toContainEqual(['chat_add_members', 'Members added']);
+		expect(opts).toContainEqual(['pin_message', 'Message pinned']);
+		fireEvent.change(valueSelect(), { target: { value: 'chat_add_members' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+		await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(1));
+		const conds = lastConds(calls);
+		expect(conds.at(-1)).toEqual({ field: 'service_type', op: '=', value: 'chat_add_members' });
+		const rows = fixture<MessagesProps>(withConds('/group_messages', conds)).props.rows as Row[];
+		expect(rows.map((r) => r.id).sort()).toEqual(added.filter((r) => r.chat.id === chat).map((r) => r.id).sort());
+	});
+
+	it('show a service type filter by its label', () => {
+		renderPage(withConds('/group_messages', [{ field: 'chat_id', op: '=', value: String(chat) }, { field: 'service_type', op: '=', value: 'chat_add_members' }]));
+		expect(document.querySelectorAll('.a-chip')[1]!.textContent).toContain('Members added');
+	});
+
+	it('offer the TDLib types as a list of their class names', () => {
+		fakeApi('superadmin');
+		renderPage(inChat);
+		pick('tdlib_type');
+		expect([...valueSelect().options].map((o) => o.textContent)).toContain('messageStakeDice');
 	});
 });
 

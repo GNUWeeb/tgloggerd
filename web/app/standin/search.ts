@@ -17,6 +17,12 @@ const BOOL = ['=', '!='];
 const NULLS = ['IS NULL', 'IS NOT NULL'];
 const OWN_OPS = ['=', '!=', '>', '<', '>=', '<=', 'contains', 'empty', 'is', 'in'];
 
+// The known service and TDLib types, as Go lists them: a sample of the
+// daemon's names (docs/design/message-types.md). A value not listed is
+// still taken, as Go takes a type newer than its list.
+const SERVICE_TYPES = ['chat_create', 'chat_change_title', 'chat_change_photo', 'chat_delete_photo', 'chat_add_members', 'chat_join_by_link', 'chat_join_by_request', 'chat_delete_member', 'chat_upgrade_to', 'chat_upgrade_from', 'pin_message', 'screenshot_taken', 'chat_set_message_auto_delete_time', 'forum_topic_created', 'forum_topic_edited', 'contact_registered', 'video_chat_started', 'video_chat_ended', 'gift', 'custom_service_action'];
+const TDLIB_TYPES = ['messageText', 'messagePhoto', 'messageVideo', 'messageVideoNote', 'messageDocument', 'messageAudio', 'messageVoiceNote', 'messageSticker', 'messageAnimation', 'messagePaidMedia', 'messageLocation', 'messageLiveLocation', 'messageVenue', 'messageContact', 'messageDice', 'messageStakeDice', 'messagePoll', 'messageChecklist', 'messageStory', 'messageCall', 'messageChatAddMembers', 'messagePinMessage'];
+
 // The registries: the fields each list's search offers.
 export const REGISTRY: Record<string, SField[]> = {
 	users: [
@@ -43,8 +49,8 @@ export const REGISTRY: Record<string, SField[]> = {
 	messages: [
 		{ key: 'text', label: 'Text', type: 'text', sortable: false, operators: ['matches', '%LIKE%', 'NOT %LIKE%', ...NULLS] },
 		{ key: 'message_id', label: 'Message ID', type: 'int', sortable: true, operators: CMP },
-		{ key: 'tdlib_type', label: 'TDLib type', type: 'text', sortable: false, operators: ['=', '!='], needs_chat: true },
-		{ key: 'service_type', label: 'Service type', type: 'text', sortable: false, operators: ['=', '!='], needs_chat: true },
+		{ key: 'tdlib_type', label: 'TDLib type', type: 'enum', sortable: false, operators: ['=', '!='], enum: TDLIB_TYPES.join(','), needs_chat: true },
+		{ key: 'service_type', label: 'Service type', type: 'enum', sortable: false, operators: ['=', '!='], enum: SERVICE_TYPES.join(','), needs_chat: true },
 	],
 };
 
@@ -112,7 +118,9 @@ export function compile(conds: Cond[], own: string[], fields: SField[]): ((r: Ro
 		// meaning (the message lists' text contains); else the registry's.
 		const f = own.includes(c.field) && OWN_OPS.includes(c.op) ? undefined : fields.find((x) => x.key === c.field);
 		if (f) {
-			if (!f.operators.includes(c.op)) return { code: 'bad_search', message: `${f.label} does not take ${c.op}.` };
+			// Go takes `in` on every enum field; it is not listed among the
+			// operators until the schema has it.
+			if (!f.operators.includes(c.op) && !(c.op === 'in' && f.type === 'enum')) return { code: 'bad_search', message: `${f.label} does not take ${c.op}.` };
 			if (f.type === 'int' && !NULLS.includes(c.op) && !/^-?\d+$/.test(String(c.value))) return { code: 'bad_search', message: `${f.label} takes a whole number.` };
 			if (f.type === 'datetime' && !/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(String(c.value))) return { code: 'bad_search', message: `${f.label} takes a date and time, YYYY-MM-DD HH:MM:SS.` };
 			tests.push((r) => searchMatch(f, r, c));

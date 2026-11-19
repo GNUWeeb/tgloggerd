@@ -8,6 +8,7 @@ import { Btn } from './primitives.tsx';
 import { ApiError, api, ok } from '../api/client.ts';
 import { Link, setQuery, useNav } from '../nav.tsx';
 import { fmt } from '../format.ts';
+import { serviceLabel } from './labels.ts';
 import type { Cond, FieldDef, FieldType, ListProps, Op, SearchField } from '../types.ts';
 
 const OPS: Record<FieldDef['type'], Op[]> = {
@@ -26,9 +27,12 @@ const OP_HINT: Partial<Record<Op, string>> = {
 };
 
 // A field of the advanced search, as the filter picker shows it.
+// A service type list shows each action by its label.
 export function searchField(f: SearchField): FieldDef {
 	const type: FieldType = f.type === 'int' ? 'number' : f.type === 'datetime' ? 'date' : f.type;
-	return { key: f.key, label: f.label, type, ops: f.operators as Op[], values: f.enum ? f.enum.split(',') : undefined, search: true, sortable: f.sortable, ...(f.needs_chat ? { needsChat: true } : {}) };
+	const values = f.enum ? f.enum.split(',') : undefined;
+	const labels = values && f.key === 'service_type' ? Object.fromEntries(values.map((v) => [v, serviceLabel(v)])) : undefined;
+	return { key: f.key, label: f.label, type, ops: f.operators as Op[], values, ...(labels ? { labels } : {}), search: true, sortable: f.sortable, ...(f.needs_chat ? { needsChat: true } : {}) };
 }
 
 // A list's filter fields: its own, then the search's that it lacks.
