@@ -4,7 +4,8 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { CloudDownload, CloudOff, Copy, Download, MessageSquare, Play } from 'lucide-react';
 import { Link } from '../nav.tsx';
-import { Btn, KV } from './primitives.tsx';
+import { Btn, KV, Pill } from './primitives.tsx';
+import { FetchButton, needsFetch, useFetched } from './fetchfile.tsx';
 import { Modal } from './Modal.tsx';
 import { Thumb, TypeIcon, drawableThumb, duration, isVideoType } from './media.tsx';
 import { ago, bytes, dateTime, fmt } from '../format.ts';
@@ -22,16 +23,34 @@ const chatHref = (c: NonNullable<FileRow['chat']>) => (c.kind === 'group' ? `/gr
 
 // What the card, the name cell and the preview draw of a file: a
 // FileRow, or a group's file (api/groupfiles.ts), which has these too.
-type ShownFile = Pick<FileRow, 'name' | 'ext' | 'size' | 'file_type' | 'stored' | 'fetchable' | 'url' | 'thumb' | 'minithumb' | 'duration'>;
+// A big unstored file has no url but a fetch path ("Fetch from
+// Telegram"); once fetched, every place shows it by the URL answered.
+type ShownFile = Pick<FileRow, 'name' | 'ext' | 'size' | 'file_type' | 'stored' | 'fetchable' | 'fetch' | 'url' | 'thumb' | 'minithumb' | 'duration'>;
+
+// The list's Stored cell: stored, the fetch button of a big file still
+// on Telegram, fetchable (opening it fetches it), or missing.
+export function StoredCell({ f: given }: { f: ShownFile }) {
+	const f = useFetched(given);
+	if (f.stored) return <Pill tone="ok">stored</Pill>;
+	if (needsFetch(f)) return <FetchButton path={f.fetch!} small />;
+	return f.url ? <Pill tone="info">fetchable</Pill> : <Pill tone="danger">missing</Pill>;
+}
+
+// The preview's Stored detail.
+export const storedText = (f: ShownFile) => (f.stored ? 'yes' : f.url || f.fetch ? 'no, can be fetched from Telegram' : 'no');
 
 // The grid's card: the file's picture or icon in a fixed box, its name,
 // size and a date (the files page: when it was first seen; a group's
 // files: when it was sent), and a tag under them (the file's role).
-export function FileCard({ f, at, v, onOpen, tag }: { f: ShownFile; at: string; v: Viewer; onOpen: () => void; tag?: ReactNode }) {
+export function FileCard({ f: given, at, v, onOpen, tag }: { f: ShownFile; at: string; v: Viewer; onOpen: () => void; tag?: ReactNode }) {
+	const f = useFetched(given);
+	// The card opens the preview, which holds the fetch button (a card is
+	// one button); a big file still on Telegram says so on its picture.
 	return (
 		<button type="button" className="a-filecard" onClick={onOpen}>
 			<span className="a-filecard-media"><Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={150} radius={0} fill />
 				{f.duration ? <span className="a-dur">{duration(f.duration)}</span> : null}
+				{needsFetch(f) && <span className="a-ontg" title="Not stored; open it to fetch it from Telegram"><CloudDownload size={12} />On Telegram</span>}
 			</span>
 			<span className="a-filecard-meta"><span className="a-ellipsis a-uname">{f.name}</span><span className="a-muted sm">{bytes(f.size)} . {ago(at, v)}</span>{tag}</span>
 		</button>
@@ -40,7 +59,8 @@ export function FileCard({ f, at, v, onOpen, tag }: { f: ShownFile; at: string; 
 
 // The list's name cell: a small thumbnail, the name and a line under it
 // (the files page: the chat).
-export function FileNameCell({ f, sub, onOpen }: { f: ShownFile; sub: ReactNode; onOpen: () => void }) {
+export function FileNameCell({ f: given, sub, onOpen }: { f: ShownFile; sub: ReactNode; onOpen: () => void }) {
+	const f = useFetched(given);
 	return (
 		<button type="button" className="a-usercell a-plain" onClick={onOpen}>
 			<Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={30} radius={6} />
@@ -101,7 +121,10 @@ type KVRows = Parameters<typeof KV>[0]['rows'];
 // The preview dialog: the file playing, its picture (or icon, or why it
 // is missing), its details beside it, and in the footer the caller's
 // links with the download.
-export function FilePreview({ f, v, details, links, onClose }: { f: ShownFile; v: Viewer; details: KVRows; links: ReactNode; onClose: () => void }) {
+export function FilePreview({ f: given, v, details, links, onClose }: { f: ShownFile; v: Viewer; details: KVRows; links: ReactNode; onClose: () => void }) {
+	const f = useFetched(given);
+	// Fetched here by its button: the URL the fetch answered with.
+	const fetched = f !== given;
 	const big = f.file_type === 'photo' || isVideoType(f.file_type) || f.file_type === 'sticker';
 	const [zoom, setZoom] = useState(false);
 	const pic = drawableThumb(f.thumb, { url: f.url, ext: f.ext, type: f.file_type });
@@ -119,10 +142,12 @@ export function FilePreview({ f, v, details, links, onClose }: { f: ShownFile; v
 			footer={<>
 				{links}
 				<span className="a-grow" />
-				{f.url && (f.stored
+				{f.url ? (f.stored || fetched
 					? <a className="a-btn a-btn-primary" href={f.url} download><Download size={14} />Download</a>
-					// Opening an unstored file's URL fetches it from Telegram.
-					: <a className="a-btn a-btn-primary" href={f.url} download><CloudDownload size={14} />Fetch from Telegram</a>)}
+					// Opening a small unstored file's URL fetches it from Telegram.
+					: <a className="a-btn a-btn-primary" href={f.url} download><CloudDownload size={14} />Fetch from Telegram</a>)
+					// A big one is fetched by asking for it first.
+					: needsFetch(f) && <FetchButton path={f.fetch!} primary />}
 			</>}>
 			<div className="a-previewgrid">
 				<div className={`a-preview ${big ? 'big' : ''}`}>
@@ -132,7 +157,7 @@ export function FilePreview({ f, v, details, links, onClose }: { f: ShownFile; v
 						: pic ? <PreviewImage f={f} src={pic} onZoom={zoomable && f.stored ? () => setZoom(true) : null} />
 						: f.stored || f.minithumb ? <Thumb type={f.file_type} thumb={null} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
 						: null}
-					{!f.stored && <div className="a-preview-missing"><CloudOff size={28} /><span>{f.url ? 'Not stored. Fetch from Telegram downloads it from there, if Telegram still has it.' : 'Not stored in the archive; only its details were kept.'}</span></div>}
+					{!f.stored && <div className="a-preview-missing"><CloudOff size={28} /><span>{fetched ? 'Not stored; fetched from Telegram for viewing.' : f.url || f.fetch ? 'Not stored. Fetch from Telegram downloads it from there, if Telegram still has it.' : 'Not stored in the archive; only its details were kept.'}</span></div>}
 				</div>
 				<KV rows={details} />
 			</div>
@@ -156,7 +181,7 @@ export function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () 
 				[null, 'Size', `${bytes(f.size)} (${fmt(f.size)} bytes)`],
 				f.duration ? [null, 'Duration', duration(f.duration)] : null,
 				[null, 'Hits', fmt(f.hits)],
-				[null, 'Stored', f.stored ? 'yes' : f.url ? 'no, can be fetched from Telegram' : 'no'],
+				[null, 'Stored', storedText(f)],
 				[null, 'Sent in', f.chat ? <Link to={chatHref(f.chat)} className="a-rowlink">{f.chat.title}</Link> : <span className="a-muted">{NO_MESSAGE}</span>],
 				[null, 'Sender', f.sender ? <Link to={`/users/${f.sender.id}`} className="a-rowlink">{f.sender.name}</Link> : ''],
 				[null, 'File ID', f.id, true],

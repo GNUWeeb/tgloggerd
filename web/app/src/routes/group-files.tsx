@@ -6,8 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LayoutGrid, List, LoaderCircle, MessageCircle, MessageSquare, TriangleAlert, ChevronsDown } from 'lucide-react';
 import { Link, setQuery, useNav, useQueryParams } from '../nav.tsx';
-import { Avatar, Btn, Empty, Pill } from '../ui/primitives.tsx';
-import { FileCard, FileNameCell, FilePreview } from '../ui/filegrid.tsx';
+import { Avatar, Btn, Empty } from '../ui/primitives.tsx';
+import { FileCard, FileNameCell, FilePreview, StoredCell, storedText } from '../ui/filegrid.tsx';
 import { TypeIcon, duration } from '../ui/media.tsx';
 import { useHistoryPages } from '../ui/history.tsx';
 import { ago, bytes, dateTime, fmt } from '../format.ts';
@@ -104,7 +104,7 @@ function Preview({ f, v, pub, onClose }: { f: GroupFileRow; v: Viewer; pub: bool
 				[null, 'Type', f.file_type],
 				[null, 'Size', `${bytes(f.size)} (${fmt(f.size)} bytes)`],
 				f.duration ? [null, 'Duration', duration(f.duration)] : null,
-				[null, 'Stored', f.stored ? 'yes' : f.url ? 'no, can be fetched from Telegram' : 'no'],
+				[null, 'Stored', storedText(f)],
 				f.sender ? [null, 'Sender', <SentBy s={f.sender} plain={pub} />] : null,
 				[null, 'Sent', dateTime(f.date, v)],
 			]} />
@@ -166,7 +166,7 @@ export function GroupFiles({ groupId, url, p, v, pub = false }: { groupId: numbe
 									<td className="c-name"><FileNameCell f={f} sub={dateTime(f.date, v)} onOpen={() => setOpen(f)} /></td>
 									<td><span className="a-typecell"><TypeIcon type={f.file_type} />{f.file_type}</span></td>
 									<td className="r"><span className="num">{bytes(f.size)}</span></td>
-									<td>{f.stored ? <Pill tone="ok">stored</Pill> : f.url ? <Pill tone="info">fetchable</Pill> : <Pill tone="danger">missing</Pill>}</td>
+									<td><StoredCell f={f} /></td>
 									<td><SentBy s={f.sender} plain={pub} /></td>
 									<td><span title={f.date}>{ago(f.date, v)}</span></td>
 									<td><MessageLinks r={f} pub={pub} /></td>
