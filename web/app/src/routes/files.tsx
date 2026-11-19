@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react';
 import { CloudDownload, CloudOff, Copy, Download, LayoutGrid, List, MessageSquare, Play } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, setQuery, useNav, useQueryParams } from '../nav.tsx';
@@ -10,6 +11,9 @@ import type { PageData, Viewer } from '../page.ts';
 import type { Cond, FieldDef, FileRow, ListProps } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
+import { Lightbox } from './chat-media.tsx';
+
+const noop = () => {};
 
 export type FilesProps = S['FilesProps'];
 
@@ -41,11 +45,14 @@ const chatHref = (c: NonNullable<FileRow['chat']>) => (c.kind === 'group' ? `/gr
 
 // The file's picture (a photo, or a video's poster) whole, at its own
 // shape: never cropped, within the pane and most of the window's height.
-function PreviewImage({ f }: { f: FileRow }) {
+// A stored picture opens bigger, in the chat's viewer, on a click.
+function PreviewImage({ f, onZoom }: { f: FileRow; onZoom: (() => void) | null }) {
 	const video = f.file_type === 'video' || f.file_type === 'animation';
+	const img = <img className="a-preview-img" src={f.thumb!} alt="" />;
+	if (onZoom) return <button type="button" className="a-preview-media a-preview-zoom" onClick={onZoom} aria-label="View bigger">{img}</button>;
 	return (
 		<span className="a-preview-media">
-			<img className="a-preview-img" src={f.thumb!} alt="" />
+			{img}
 			{video && <span className="a-thumb-play"><Play size={36} fill="currentColor" /></span>}
 		</span>
 	);
@@ -53,8 +60,12 @@ function PreviewImage({ f }: { f: FileRow }) {
 
 function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void }) {
 	const big = f.file_type === 'photo' || f.file_type === 'video' || f.file_type === 'animation' || f.file_type === 'sticker';
+	const [zoom, setZoom] = useState(false);
+	const zoomable = (f.file_type === 'photo' || f.file_type === 'sticker') && !!f.url;
+	const unzoom = useCallback(() => setZoom(false), []);
 	return (
-		<Modal wide title={f.name} icon={<TypeIcon type={f.file_type} />} onClose={onClose}
+		// While the bigger view is open, Esc and clicks belong to it.
+		<Modal wide title={f.name} icon={<TypeIcon type={f.file_type} />} onClose={zoom ? noop : onClose}
 			footer={<>
 				{f.message
 					? <Btn to={`/messages/${f.message.scope}/${f.message.id}`} ghost icon={MessageSquare}>Open message</Btn>
@@ -67,7 +78,7 @@ function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void
 			</>}>
 			<div className="a-previewgrid">
 				<div className={`a-preview ${big ? 'big' : ''}`}>
-					{f.stored && f.thumb ? <PreviewImage f={f} />
+					{f.stored && f.thumb ? <PreviewImage f={f} onZoom={zoomable ? () => setZoom(true) : null} />
 						: f.stored ? <Thumb type={f.file_type} thumb={null} stored ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
 						: <div className="a-preview-missing"><CloudOff size={28} /><span>{f.url ? 'Not stored. Fetch from Telegram downloads it from there, if Telegram still has it.' : 'Not stored in the archive; only its details were kept.'}</span></div>}
 				</div>
@@ -86,6 +97,7 @@ function Preview({ f, v, onClose }: { f: FileRow; v: Viewer; onClose: () => void
 					f.accessed_at ? [null, 'Last access', dateTime(f.accessed_at, v)] : null,
 				]} />
 			</div>
+			{zoom && <Lightbox m={f} kind="picture" onClose={unzoom} />}
 		</Modal>
 	);
 }

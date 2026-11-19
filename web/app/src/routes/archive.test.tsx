@@ -95,6 +95,40 @@ describe('files', () => {
 		expect(img.style.aspectRatio).toBe('');
 	});
 
+	it('opens a preview\'s photo bigger, and closes it by its button, Esc or a click beside it', async () => {
+		const p = fixture<FilesProps>('/files?view=list').props;
+		const f = { ...p.rows[0]!, id: 4246, name: 'big.jpg', file_type: 'photo' as const, stored: true, url: '/files/tok-big', thumb: '/files/tok-big' };
+		renderPage('/files?view=list&file=4246', 'superadmin', { props: { ...p, rows: [f], preview: f } });
+		const d = await screen.findByRole('dialog', { name: 'big.jpg' });
+		const viewer = () => screen.queryByRole('dialog', { name: 'Media viewer' });
+		const zoom = within(d).getByRole('button', { name: 'View bigger' });
+		fireEvent.click(zoom);
+		expect(viewer()!.querySelector('img')!.getAttribute('src')).toBe('/files/tok-big');
+		fireEvent.click(within(viewer()!).getByRole('button', { name: 'Close' }));
+		expect(viewer()).toBeNull();
+		// Esc closes the bigger view only; the preview stays.
+		fireEvent.click(zoom);
+		fireEvent.keyDown(document, { key: 'Escape' });
+		await waitFor(() => expect(viewer()).toBeNull());
+		expect(screen.getByRole('dialog', { name: 'big.jpg' })).toBeTruthy();
+		fireEvent.click(zoom);
+		fireEvent.mouseDown(viewer()!);
+		expect(viewer()).toBeNull();
+		expect(screen.getByRole('dialog', { name: 'big.jpg' })).toBeTruthy();
+		// With the viewer closed, Esc closes the preview again.
+		fireEvent.keyDown(document, { key: 'Escape' });
+		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'big.jpg' })).toBeNull());
+	});
+
+	it('offers no bigger view for a video\'s poster', async () => {
+		const p = fixture<FilesProps>('/files?view=list').props;
+		const f = { ...p.rows[0]!, id: 4247, name: 'clip.mp4', file_type: 'video' as const, stored: true, url: '/files/tok-clip', thumb: '/files/tok-clip-poster' };
+		renderPage('/files?view=list&file=4247', 'superadmin', { props: { ...p, rows: [f], preview: f } });
+		const d = await screen.findByRole('dialog', { name: 'clip.mp4' });
+		expect(d.querySelector('.a-preview img')!.getAttribute('src')).toBe('/files/tok-clip-poster');
+		expect(within(d).queryByRole('button', { name: 'View bigger' })).toBeNull();
+	});
+
 	it('shows a file seen in no visible message without links, and cannot open its message', async () => {
 		const p = fixture<FilesProps>('/files?view=list').props;
 		const orphan = { ...p.rows[0]!, id: 4242, name: 'lonely.pdf', chat: null, message: null, sender: null };

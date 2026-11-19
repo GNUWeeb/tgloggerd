@@ -51,3 +51,31 @@ test('the preview shows a photo whole, at its own shape', async ({ page }) => {
 	expect(Math.abs(m.w / m.h - m.nw / m.nh)).toBeLessThan(0.02);
 	expect(m.h).toBeLessThanOrEqual(800 * 0.7 + 1);
 });
+
+test('a preview\'s photo opens bigger, whole, and Esc closes only that', async ({ page }) => {
+	const q = encodeURIComponent(JSON.stringify([{ field: 'file_type', op: '=', value: 'photo' }, { field: 'stored', op: 'is', value: 'yes' }]));
+	const f = ((await (await page.request.get(`/api/page/files?f=${q}`)).json()).props.rows as { id: number; name: string }[]).find((r) => r.id % 3 === 1)!;
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto(`/files?file=${f.id}`);
+	const dialog = page.getByRole('dialog', { name: f.name });
+	await dialog.getByRole('button', { name: 'View bigger' }).click();
+	const viewer = page.getByRole('dialog', { name: 'Media viewer' });
+	const img = viewer.locator('img');
+	await expect(img).toBeVisible();
+	await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBeGreaterThan(0);
+	const m = await img.evaluate((i: HTMLImageElement) => {
+		const r = i.getBoundingClientRect();
+		return { fit: getComputedStyle(i).objectFit, w: r.width, h: r.height, nw: i.naturalWidth, nh: i.naturalHeight };
+	});
+	// Up to its natural size, at its own shape.
+	expect(m.fit).toBe('contain');
+	expect(Math.abs(m.w - m.nw)).toBeLessThan(1);
+	expect(Math.abs(m.h - m.nh)).toBeLessThan(1);
+	await page.keyboard.press('Escape');
+	await expect(viewer).toHaveCount(0);
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('button', { name: 'View bigger' }).click();
+	await viewer.getByRole('button', { name: 'Close' }).click();
+	await expect(viewer).toHaveCount(0);
+	await expect(dialog).toBeVisible();
+});

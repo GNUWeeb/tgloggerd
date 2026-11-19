@@ -531,6 +531,7 @@
 /* A type's icon tile fills the pane; a picture keeps its own shape. */
 .app .a-preview.big .a-thumb { width: 100% !important; height: auto !important; aspect-ratio: 4 / 3; }
 .app .a-preview-media { position: relative; display: block; max-width: 100%; border-radius: 12px; overflow: hidden; }
+.app button.a-preview-zoom { padding: 0; border: 0; background: none; cursor: zoom-in; }
 .app .a-preview-img { display: block; max-width: 100%; max-height: 70vh; width: auto; height: auto; object-fit: contain; }
 .app .a-preview-missing { display: grid; justify-items: center; gap: 8px; text-align: center; color: var(--fg-3); padding: 24px 8px; }
 .app .a-previewgrid .a-kv { grid-template-columns: 100px 1fr; }
