@@ -60,7 +60,9 @@ describe('public group tabs', () => {
 		const first = fixture<GroupFilesPage>(`/groups/${G.id}/files`, 'public').props;
 		expect(first.next_before).not.toBeNull();
 		const calls = fakeApi('public', { 'GET /api/groups/:id/files': (c) => groupTabApi('files', String(G.id), c.query, 'public')[1] });
-		renderPage(`/groups/${G.id}/files`, 'public');
+		// Loading on scroll off: the button is the way to the next page.
+		const v = fixture(`/groups/${G.id}/files`, 'public').viewer;
+		renderPage(`/groups/${G.id}/files`, 'public', { viewer: { ...v, chat: { ...v.chat, auto_load: false } } as typeof v });
 		fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
 		await waitFor(() => expect(document.querySelectorAll('.a-groupfile').length).toBeGreaterThan(first.rows.length));
 		expect(callsTo(calls, 'GET', `/api/groups/${G.id}/files`)[0]!.query.get('before')).toBe(String(first.next_before));

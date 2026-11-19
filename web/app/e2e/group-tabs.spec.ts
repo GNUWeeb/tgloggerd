@@ -10,6 +10,16 @@ async function sampleGroup(page: Page): Promise<number> {
 	return g!.id;
 }
 
+// Scrolls the Files tab to its end until it says all files are shown,
+// then checks the count it gives is what is on the page.
+async function scrollToEnd(page: Page) {
+	const all = page.getByText(/^All \d+ files shown$/);
+	await expect.poll(async () => { await page.mouse.wheel(0, 100000); return all.count(); }, { timeout: 20_000 }).toBe(1);
+	const n = Number((await all.textContent())!.match(/\d+/)![0]);
+	await expect(page.locator('.a-groupfile')).toHaveCount(n);
+	expect(await page.getByRole('button', { name: 'Load more' }).count()).toBe(0);
+}
+
 test('the Files tab lists, pages, previews and filters a group\'s files', async ({ page }) => {
 	const id = await sampleGroup(page);
 	await page.goto(`/groups/${id}`);
@@ -20,9 +30,10 @@ test('the Files tab lists, pages, previews and filters a group\'s files', async 
 	const cards = page.locator('.a-groupfile');
 	const first = await cards.count();
 	expect(first).toBeGreaterThanOrEqual(50);
-	// Load more appends the next page in place.
-	await page.getByRole('button', { name: 'Load more' }).click();
-	await expect.poll(() => cards.count()).toBeGreaterThan(first);
+	// Scrolling to the end appends the next pages in place, as on /files,
+	// until all are shown.
+	await scrollToEnd(page);
+	expect(await cards.count()).toBeGreaterThan(first > 50 ? 50 : first);
 	// A card opens its preview in place.
 	const name = (await cards.first().locator('.a-filecard .a-uname').textContent())!;
 	await cards.first().locator('.a-filecard').click();
@@ -81,8 +92,8 @@ test('signed out, an exposed group\'s Files and Polls tabs are public', async ({
 	expect(first).toBeGreaterThan(0);
 	await expect(cards.first().getByRole('link', { name: 'In the chat' })).toBeVisible();
 	await expect(page.locator('a[href^="/messages/"], a[href^="/users/"]')).toHaveCount(0);
-	await page.getByRole('button', { name: 'Load more' }).click();
-	await expect.poll(() => cards.count()).toBeGreaterThan(first);
+	await scrollToEnd(page);
+	expect(await cards.count()).toBeGreaterThanOrEqual(first);
 	await page.locator('.a-tabs').getByRole('link', { name: /^Polls/ }).click();
 	await expect(page.locator('.a-pollcard')).toHaveCount(2);
 	await expect(page.locator('.c-publicpage')).toBeVisible();

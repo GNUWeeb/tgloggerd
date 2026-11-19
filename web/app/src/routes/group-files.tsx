@@ -3,7 +3,7 @@
 // drawn as the files page draws them (ui/filegrid.tsx), each with its
 // sender and links to its message in the chat and to its message page.
 // Older files come a page at a time from GET /api/groups/{id}/files.
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { LayoutGrid, List, LoaderCircle, MessageCircle, MessageSquare, TriangleAlert, ChevronsDown } from 'lucide-react';
 import { Link, setQuery, useNav, useQueryParams } from '../nav.tsx';
 import { Avatar, Btn, Empty, Pill } from '../ui/primitives.tsx';
@@ -54,11 +54,31 @@ export function MessageLinks({ r, pub = false }: { r: GroupMessageRef; pub?: boo
 	);
 }
 
+// How near the window's bottom the list's end must come for the next
+// page to load by itself, as on the files page.
+const NEAR = 600;
+
 // The end of a backwards-paged list: a button for the next page, or
-// that all is shown.
-export function LoadMore({ h, noun }: { h: { hasMore: boolean; busy: boolean; err: string; more: () => Promise<void>; entries: unknown[] }; noun: string }) {
+// that all is shown. With auto the next page also loads by itself as
+// the end nears the window's bottom: on a scroll, a resize, and after
+// each page (one too short to fill the window gives no scroll). A
+// failed load stops that; the button tries again.
+export function LoadMore({ h, noun, auto = false }: { h: { hasMore: boolean; busy: boolean; err: string; more: () => Promise<void>; entries: unknown[] }; noun: string; auto?: boolean }) {
+	const foot = useRef<HTMLDivElement>(null);
+	const { hasMore, busy, err, more } = h;
+	useEffect(() => {
+		if (!auto || !hasMore || busy || err) return;
+		const check = () => {
+			const el = foot.current;
+			if (el && el.getBoundingClientRect().top - innerHeight < NEAR) void more();
+		};
+		check();
+		addEventListener('scroll', check, { passive: true });
+		addEventListener('resize', check);
+		return () => { removeEventListener('scroll', check); removeEventListener('resize', check); };
+	}, [auto, hasMore, busy, err, more, h.entries.length]);
 	return (
-		<div className="a-loadmore">
+		<div className="a-loadmore" ref={foot}>
 			{h.err && <span className="a-banner warn" role="alert"><TriangleAlert size={14} /><span>{h.err}</span></span>}
 			{h.hasMore
 				? <button type="button" className="a-btn a-btn-ghost" disabled={h.busy} onClick={() => void h.more()}>{h.busy ? <LoaderCircle size={14} className="a-spin" /> : <ChevronsDown size={14} />}{h.busy ? 'Loading...' : 'Load more'}</button>
@@ -157,7 +177,7 @@ export function GroupFiles({ groupId, url, p, v, pub = false }: { groupId: numbe
 				</div>
 			)}
 			{!h.entries.length && <Empty>{kind === 'all' ? 'No files in this group.' : `No ${KIND_LABEL[kind].toLowerCase()} in this group.`}</Empty>}
-			<LoadMore h={h} noun="files" />
+			<LoadMore h={h} noun="files" auto={v.chat?.auto_load !== false} />
 			{open && <Preview f={open} v={v} pub={pub} onClose={close} />}
 		</div>
 	);

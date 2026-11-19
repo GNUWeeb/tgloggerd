@@ -3,7 +3,7 @@
 // the files page draws it with its sender and both message links,
 // older pages appended from GET /api/groups/{id}/files, and the preview
 // opening in place.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
 import { groupTabApi } from '../../standin/fixtures.ts';
@@ -11,6 +11,9 @@ import { CHANNEL_GROUP, FILES_GROUP, SOME_KINDS_GROUP } from '../../standin/grou
 import type { GroupFilesPage } from '../api/groupfiles.ts';
 
 beforeEach(setup);
+afterEach(() => vi.restoreAllMocks());
+// The page's viewer with loading on scroll turned off.
+const noAuto = (url: string, persona: 'superadmin' | 'public' = 'superadmin') => { const v = fixture(url, persona).viewer; return { ...v, chat: { ...v.chat, auto_load: false } } as typeof v; };
 const pageCalls = (calls: ReturnType<typeof fakeApi>) => callsTo(calls, 'GET', /^\/api\/page\//);
 const filesUrl = (id: number, q = '') => `/groups/${id}/files${q}`;
 const kindNav = () => screen.getByRole('navigation', { name: 'File kinds' });
@@ -87,7 +90,8 @@ describe('group files tab', () => {
 		const first = fixture<GroupFilesPage>(filesUrl(FILES_GROUP.id)).props;
 		const [, second] = groupTabApi('files', String(FILES_GROUP.id), new URLSearchParams(`before=${first.next_before}`), 'superadmin');
 		const calls = fakeApi('superadmin', { 'GET /api/groups/:id/files': () => ({ ...(second as GroupFilesPage), next_before: null }) });
-		renderPage(filesUrl(FILES_GROUP.id));
+		// Loading on scroll off: the button is the way to the next page.
+		renderPage(filesUrl(FILES_GROUP.id), 'superadmin', { viewer: noAuto(filesUrl(FILES_GROUP.id)) });
 		expect(first.next_before).not.toBeNull();
 		expect(document.querySelectorAll('.a-groupfile')).toHaveLength(first.rows.length);
 		fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
@@ -98,6 +102,35 @@ describe('group files tab', () => {
 		expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
 		expect(screen.getByText(/^All \d+ files shown$/)).toBeTruthy();
 		expect(pageCalls(calls)).toHaveLength(0);
+	});
+
+	it('loads the next page by itself once its end nears the window\'s bottom', async () => {
+		const first = fixture<GroupFilesPage>(filesUrl(FILES_GROUP.id)).props;
+		const [, second] = groupTabApi('files', String(FILES_GROUP.id), new URLSearchParams(`before=${first.next_before}`), 'superadmin');
+		const calls = fakeApi('superadmin', { 'GET /api/groups/:id/files': () => ({ ...(second as GroupFilesPage), next_before: null }) });
+		// The list's end far below the window: nothing loads yet.
+		let top = 5000;
+		vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) { return { top: this.classList.contains('a-loadmore') ? top : 0 } as DOMRect; });
+		renderPage(filesUrl(FILES_GROUP.id));
+		const files = () => callsTo(calls, 'GET', `/api/groups/${FILES_GROUP.id}/files`);
+		await new Promise((r) => setTimeout(r, 30));
+		expect(files()).toHaveLength(0);
+		// Scrolled near the end: the next page loads, once.
+		top = 900;
+		fireEvent.scroll(window);
+		await waitFor(() => expect(document.querySelectorAll('.a-groupfile')).toHaveLength(first.rows.length + (second as GroupFilesPage).rows.length));
+		expect(files()).toHaveLength(1);
+		expect(files()[0]!.query.get('before')).toBe(String(first.next_before));
+		expect(screen.getByText(/^All \d+ files shown$/)).toBeTruthy();
+	});
+
+	it('waits for a click when loading on scroll is off', async () => {
+		const calls = fakeApi('superadmin', { 'GET /api/groups/:id/files': () => ({ rows: [], next_before: null }) });
+		renderPage(filesUrl(FILES_GROUP.id), 'superadmin', { viewer: noAuto(filesUrl(FILES_GROUP.id)) });
+		fireEvent.scroll(window);
+		await new Promise((r) => setTimeout(r, 30));
+		expect(callsTo(calls, 'GET', `/api/groups/${FILES_GROUP.id}/files`)).toHaveLength(0);
+		expect(screen.getByRole('button', { name: 'Load more' })).toBeTruthy();
 	});
 
 	it('opens a file\'s preview in place, with its sender and links, and closes it', async () => {
