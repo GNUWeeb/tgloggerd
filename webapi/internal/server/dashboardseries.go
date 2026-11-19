@@ -6,12 +6,16 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"tgloggerd/webapi/internal/i18n"
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/scope"
+	"tgloggerd/webapi/internal/settings"
 )
 
 // dashboardSeries answers GET /api/dashboard/series: the messages per
@@ -57,14 +61,52 @@ func (s *Server) dashboardSeries(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "dashboard series", err)
 		return
 	}
-	var limit *int64
-	if l := p.Limit(); l > 0 {
-		limit = &l
+	writeJSON(w, http.StatusOK, newSeriesJSON(se, live, loc))
+}
+
+// seriesJSON is the DashboardSeries schema.
+type seriesJSON struct {
+	Period logdb.Period        `json:"period"`
+	Start  int64               `json:"start"`
+	End    int64               `json:"end"`
+	Live   bool                `json:"live"`
+	TZ     string              `json:"tz"`
+	Limit  *int64              `json:"limit"`
+	Points []logdb.SeriesPoint `json:"points"`
+}
+
+func newSeriesJSON(se logdb.Series, live bool, loc *time.Location) seriesJSON {
+	out := seriesJSON{Period: se.Period, Start: se.Start, End: se.End, Live: live,
+		TZ: loc.String(), Points: se.Points}
+	if l := se.Period.Limit(); l > 0 {
+		out.Limit = &l
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"period": se.Period, "start": se.Start, "end": se.End, "live": live,
-		"tz": loc.String(), "limit": limit, "points": se.Points,
-	})
+	return out
+}
+
+// dashboardFirstSeries is the series the dashboard page opens with:
+// the one the viewer's preferences ask for (dashChoiceOf).
+func (s *Server) dashboardFirstSeries(ctx context.Context, uid uint64, sc scope.Scope,
+	now int64, loc *time.Location) (seriesJSON, error) {
+	var prefs settings.Prefs
+	if uid != 0 {
+		var err error
+		if prefs, err = s.viewerPrefs(ctx, uid); err != nil {
+			return seriesJSON{}, err
+		}
+	}
+	c := dashChoiceOf(prefs)
+	var se logdb.Series
+	var err error
+	if c.Last != nil {
+		se, err = logdb.LoadSeries(ctx, s.ro, s.series, sc, c.Period, max(now-*c.Last, 0), 0, true, now, loc)
+	} else {
+		se, err = logdb.LoadSeries(ctx, s.ro, s.series, sc, c.Period, *c.Start, *c.End, false, now, loc)
+	}
+	if err != nil {
+		return seriesJSON{}, err
+	}
+	return newSeriesJSON(se, c.Last != nil, loc), nil
 }
 
 // rangeText is a limit for the refusal's sentence: hours under two

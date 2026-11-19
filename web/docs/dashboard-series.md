@@ -71,10 +71,33 @@ its send time). The cache holds at most 200,000 periods, dropping the
 least recently used series first, and forgets a series an hour after it
 was first filled, so history logged late shows within the hour.
 
+## The page's first series
+
+The dashboard's page data carries `series`, the series this operation
+answers for the viewer's chart preferences (`dashboard_period` with
+`dashboard_start` and `dashboard_end`, or `dashboard_last` ending now;
+by default per hour over the last 48 hours, ending now; see
+[settings.md](settings.md)), so the server's render draws the chart at
+once.
+
 ## Cost
 
-Each request is one query per message table over the range's dates
-(`idx_group_messages_date`, or a member's `(chat_id, date, ...)`
-ranges), finding each message's period with `INTERVAL()` over the
-periods' starts. Only the span from the first period not in the cache
-to the current one is counted.
+Each request is one query per message table over the span from the
+first period not in the cache to the current one. A message's period
+is found by grouping on `(date - first start) DIV unit`, the unit being
+the greatest common divisor of the periods' distances from the first
+start (a day in a zone without daylight saving time, an hour across a
+change, a minute for minutes), which reads the date index alone. An
+admin with hidden groups counts every group's messages less the hidden
+groups' ones, as no index has the date before the chat id. Weeks,
+months, quarters and years start at midnight and are summed from the
+day series, sharing its cached days, so their current period costs a
+count of today alone; days before the archive's first message are not
+counted.
+
+Measured on ten million group and one million private messages over
+five years, uncached: the longest range per minute about 0.03 s, per
+hour 0.3 s, per 4 hours 1 s, per day, per week or per month over all
+time 3 to 4 s (a month, quarter or year series then answers in some
+20 ms from the cached days), and for a member with ten groups at most
+0.3 s; a cached series about 10 ms.

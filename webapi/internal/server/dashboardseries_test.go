@@ -12,53 +12,48 @@ import (
 	"time"
 )
 
-// GET /api/dashboard/series counts as the dashboard's per-day bars
-// count, for each role: its day series over the bars' 30 days is the
-// bars. It refuses an unknown period, a bad range and one over the
-// limit, and needs a session.
+// GET /api/dashboard/series counts as the dashboard counts, for each
+// role: today's point of a day series is the sum of the cards' today
+// counts of group and private messages, and the page opens with the
+// series of the default choice. It refuses an unknown period, a bad
+// range and one over the limit, and needs a session.
 func TestDashboardSeries(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t)
-	// The sample's messages are from the hours before this.
-	now := time.Unix(1794931200+5*3600, 0)
+	// 23:59 in Jakarta: the sample's messages are from the hours before.
+	now := time.Unix(1794931200-60, 0)
 	e.with(func(d *Deps) { d.clock = func() time.Time { return now } })
 	for _, who := range []string{"superadmin", "admin", "member"} {
 		_, p := e.page(who, "/")
 		props := p["props"].(map[string]any)
-		// The bars' first day, a date in the viewer's zone.
-		_, b0, _ := e.call(who, "GET", fmt.Sprintf("/api/dashboard/series?period=day&start=%d&end=now",
-			now.Unix()-60), nil)
-		loc, err := time.LoadLocation(b0["tz"].(string))
-		if err != nil {
-			t.Fatal(err)
+		var today float64
+		for _, k := range props["kpis"].([]any) {
+			k := k.(map[string]any)
+			if k["key"] == "group_messages" || k["key"] == "private_messages" {
+				today += k["today"].(float64)
+			}
 		}
-		day, err := time.ParseInLocation(time.DateOnly, props["per_day_start"].(string), loc)
-		if err != nil {
-			t.Fatal(err)
-		}
-		start := day.Unix()
 		st, b, h := e.call(who, "GET", fmt.Sprintf("/api/dashboard/series?period=day&start=%d&end=now",
-			start), nil)
+			now.Unix()-3*86400), nil)
 		if st != 200 || h.Get("Cache-Control") != "no-store" {
 			t.Fatalf("%s: %d %v", who, st, b)
 		}
-		var ns []any
-		for _, pt := range b["points"].([]any) {
-			ns = append(ns, pt.(map[string]any)["n"])
+		pts := b["points"].([]any)
+		if n := pts[len(pts)-1].(map[string]any)["n"]; n != today {
+			t.Errorf("%s: today %v, the cards %v", who, n, today)
 		}
-		if js(ns) != js(props["per_day"]) {
-			t.Errorf("%s: %s, want the bars %s", who, js(ns), js(props["per_day"]))
-		}
-		var sum float64
-		for _, n := range ns {
-			sum += n.(float64)
-		}
-		if who == "superadmin" && sum == 0 {
-			t.Errorf("superadmin: no messages counted")
+		if who == "superadmin" && today == 0 {
+			t.Errorf("superadmin: no messages today")
 		}
 		if b["live"] != true || b["period"] != "day" || b["limit"] != float64(1096*86400) ||
-			b["start"] != float64(start) || b["tz"] == "" {
+			b["tz"] == "" || len(pts) != 4 {
 			t.Errorf("%s: %v", who, b)
+		}
+		// The page's series is the default: per hour, the last 48 hours.
+		_, d, _ := e.call(who, "GET", fmt.Sprintf("/api/dashboard/series?period=hour&start=%d&end=now",
+			now.Unix()-48*3600), nil)
+		if js(props["series"]) != js(d) {
+			t.Errorf("%s: page series %s, want %s", who, js(props["series"]), js(d))
 		}
 	}
 	st, b, _ := e.call("superadmin", "GET", "/api/dashboard/series?period=year&start=0&end=now", nil)
@@ -66,7 +61,7 @@ func TestDashboardSeries(t *testing.T) {
 		t.Errorf("year: %d %v", st, b)
 	}
 	st, b, _ = e.call("superadmin", "GET", fmt.Sprintf("/api/dashboard/series?period=hour&start=%d&end=%d",
-		now.Unix()-7200, now.Unix()-3600), nil)
+		1794931200-7200, 1794931200-3600), nil)
 	if st != 200 || b["live"] != false || len(b["points"].([]any)) != 1 {
 		t.Errorf("fixed hour: %d %v", st, b)
 	}

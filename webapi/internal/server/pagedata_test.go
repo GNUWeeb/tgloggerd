@@ -49,9 +49,13 @@ func TestPageDashboard(t *testing.T) {
 			Key          string
 			Total, Today int64
 		}
-		PerDay      []int64 `json:"per_day"`
-		PerDayStart string  `json:"per_day_start"`
-		Busiest     []struct {
+		Series struct {
+			Period string
+			Start  int64
+			Live   bool
+			Points []struct{ At, N int64 }
+		}
+		Busiest []struct {
 			ID       int64
 			MsgCount int64 `json:"msg_count"`
 		}
@@ -77,17 +81,18 @@ func TestPageDashboard(t *testing.T) {
 		totals["private_messages"] != 6+8 || totals["files"] != 14 {
 		t.Errorf("totals %v", totals)
 	}
-	// Days are the viewer's, here the site's Asia/Jakarta: the clock
-	// (chatNow) is midnight there on 18 November, so the series runs
-	// from 20 October to that new, still empty day, and the sample's
-	// messages are on the days before it.
+	// The chart opens with the default series: per hour over the last
+	// 48 hours, ending now. The clock (chatNow) is the start of an
+	// hour, so the series has 48 finished hours and the current, still
+	// empty one; the sample's messages are in the hours before.
 	var sum int64
-	for _, n := range d.PerDay {
-		sum += n
+	for _, p := range d.Series.Points {
+		sum += p.N
 	}
-	if len(d.PerDay) != 30 || d.PerDayStart != "2026-10-20" || d.PerDay[29] != 0 ||
-		d.PerDay[28] == 0 || sum != 164 {
-		t.Errorf("per_day %s %v (sum %d)", d.PerDayStart, d.PerDay, sum)
+	pts := d.Series.Points
+	if d.Series.Period != "hour" || !d.Series.Live || d.Series.Start != chatNow.Unix()-48*3600 ||
+		len(pts) != 49 || pts[48].N != 0 || sum == 0 {
+		t.Errorf("series %+v (sum %d)", d.Series, sum)
 	}
 	for _, k := range d.KPIs {
 		if k.Today != 0 {
@@ -113,7 +118,8 @@ func TestPageDashboard(t *testing.T) {
 		}
 	}
 	if !slices.Equal(keys, []string{"users", "groups", "group_messages"}) || len(d.Busiest) != 0 ||
-		len(d.Deleted) != 0 || slices.Max(d.PerDay) != 0 {
+		len(d.Deleted) != 0 || len(d.Series.Points) != 49 || slices.ContainsFunc(d.Series.Points,
+		func(p struct{ At, N int64 }) bool { return p.N != 0 }) {
 		t.Errorf("member dashboard %+v", d)
 	}
 }

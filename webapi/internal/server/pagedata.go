@@ -68,13 +68,12 @@ type deletedJSON struct {
 }
 
 type dashboardProps struct {
-	KPIs   []kpiJSON `json:"kpis"`
-	PerDay []int64   `json:"per_day"`
-	// PerDayStart is the date of PerDay's first day in the viewer's
-	// timezone (YYYY-MM-DD); each count is one calendar day there.
-	PerDayStart string             `json:"per_day_start"`
-	Busiest     []groupCountedJSON `json:"busiest"`
-	Deleted     []deletedJSON      `json:"deleted"`
+	KPIs []kpiJSON `json:"kpis"`
+	// Series is the chart's first series, for the viewer's dashboard
+	// preferences (dashboardFirstSeries).
+	Series  seriesJSON         `json:"series"`
+	Busiest []groupCountedJSON `json:"busiest"`
+	Deleted []deletedJSON      `json:"deleted"`
 	// Status is the logger status card, only for a viewer that sees
 	// every group and private chat (status.go).
 	Status *statusJSON `json:"status,omitempty"`
@@ -93,10 +92,17 @@ func loadDashboard(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	var uid uint64
+	if pr.sess != nil {
+		uid = pr.sess.UID
+	}
+	series, err := pr.s.dashboardFirstSeries(ctx, uid, pr.scope, pr.now(), loc)
+	if err != nil {
+		return nil, err
+	}
 	v := pr.view()
-	p := dashboardProps{KPIs: []kpiJSON{}, PerDay: d.PerDay,
-		PerDayStart: time.Unix(d.PerDayStart, 0).In(loc).Format(time.DateOnly),
-		Busiest:     []groupCountedJSON{}, Deleted: []deletedJSON{}}
+	p := dashboardProps{KPIs: []kpiJSON{}, Series: series,
+		Busiest: []groupCountedJSON{}, Deleted: []deletedJSON{}}
 	for _, k := range d.KPIs {
 		p.KPIs = append(p.KPIs, kpiJSON(k))
 	}
