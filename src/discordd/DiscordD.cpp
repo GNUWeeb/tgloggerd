@@ -6,6 +6,7 @@
 
 #include "DB.hpp"
 #include "DiscordBots.hpp"
+#include "ForwardQueue.hpp"
 #include "TelegramSender.hpp"
 
 #include <gwdiscord/Gateway.hpp>
@@ -40,6 +41,19 @@ struct DiscordD::Impl {
 	std::unique_ptr<DB>		db;
 	std::unique_ptr<TelegramSender>	tg;
 	std::unique_ptr<DiscordBots>	bots;
+
+	/*
+	 * The gateway callbacks only queue an event here; a worker per
+	 * Discord bot archives and forwards it (ForwardQueue.hpp). The
+	 * bound is far above any normal backlog: a full queue means
+	 * something downstream is stuck.
+	 */
+	static constexpr size_t		kQueueCap = 10000;
+	std::unique_ptr<ForwardQueue>	fwdq;
+	/* Telegram allows a bot about 20 messages a minute in a group and
+	 * about one a second in a private chat. */
+	ChatPacer			pacer{ std::chrono::seconds(3),
+					       std::chrono::seconds(1) };
 
 	/*
 	 * Route cache, reloaded periodically so web/DB edits take effect,
@@ -607,6 +621,7 @@ void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 				 * originally sent.
 				 */
 				std::string err;
+				pacer.wait_turn(f.telegram_chat_id);
 				if (!tg->editText(f.telegram_bot_id,
 						  f.telegram_chat_id,
 						  f.telegram_message_id,
@@ -670,6 +685,7 @@ void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 			 */
 			const auto chunks = split_for_telegram(text);
 			std::string err;
+			pacer.wait_turn(r.telegram_chat_id);
 			const int64_t sent = tg->sendText(r.telegram_bot_id,
 							  r.telegram_chat_id,
 							  chunks[0], reply_to,
@@ -683,6 +699,7 @@ void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 			db->recordForwarded(m.id, r.id, r.telegram_chat_id,
 					    sent);
 			for (size_t ci = 1; ci < chunks.size(); ci++) {
+				pacer.wait_turn(r.telegram_chat_id);
 				if (!tg->sendText(r.telegram_bot_id,
 						  r.telegram_chat_id,
 						  chunks[ci], sent, &err))
@@ -722,6 +739,7 @@ void DiscordD::Impl::on_delete(uint64_t bot, const gwdiscord::MessageDelete &d)
 			if (!mine.count(f.route_id))
 				continue; /* another bot's route */
 			std::string err;
+			pacer.wait_turn(f.telegram_chat_id);
 			if (!tg->editText(f.telegram_bot_id, f.telegram_chat_id,
 					  f.telegram_message_id,
 					  "(deleted on Discord)", &err)) {
@@ -748,6 +766,8 @@ DiscordD::~DiscordD(void)
 		impl_->refresh_thr.join();
 	if (impl_->bots)
 		impl_->bots->stop_all();
+	if (impl_->fwdq)
+		impl_->fwdq->stop();
 }
 
 void DiscordD::stop(void)
@@ -782,11 +802,23 @@ int DiscordD::run(void)
 	gwdiscord::GatewayConfig gcfg;
 	gcfg.intents = gwdiscord::intents::MESSAGE_LOGGING;
 
+	/*
+	 * The gateway callbacks run on the thread that reads the gateway,
+	 * heartbeat acknowledgements included: they only queue a copy of
+	 * the event for the bot's worker, which archives and forwards it.
+	 */
+	m.fwdq = std::make_unique<ForwardQueue>(
+		Impl::kQueueCap,
+		[&m](const std::string &msg) { m.log(LOG_WARN, msg); });
 	DiscordBots::Handlers h;
 	h.message = [&m](uint64_t bot, const gwdiscord::Message &msg,
-			 bool edited) { m.on_message(bot, msg, edited); };
+			 bool edited) {
+		m.fwdq->push(bot, [&m, bot, msg, edited] {
+			m.on_message(bot, msg, edited);
+		});
+	};
 	h.deleted = [&m](uint64_t bot, const gwdiscord::MessageDelete &d) {
-		m.on_delete(bot, d);
+		m.fwdq->push(bot, [&m, bot, d] { m.on_delete(bot, d); });
 	};
 	m.bots = std::make_unique<DiscordBots>(
 		gcfg,
@@ -804,7 +836,9 @@ int DiscordD::run(void)
 
 	if (m.refresh_thr.joinable())
 		m.refresh_thr.join();
+	/* No new events first, then the workers, then their sender. */
 	m.bots->stop_all();
+	m.fwdq->stop();
 	m.tg->stop();
 	m.log(LOG_INFO, "shutting down");
 	return 0;
