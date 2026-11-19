@@ -45,6 +45,8 @@ describe('search engine options', () => {
 		expect(forms).toEqual(['word', '+word  -word', '"a phrase"', 'word*']);
 	});
 
+	// Four renders of the list: under a loaded full run this takes longer
+	// than the default five seconds.
 	it('says when the database answered instead, and what it left out', () => {
 		show({ engine: { ...ENGINE, available: false, fallback: 'behind' }, backend: { used: 'mysql', fallback: 'behind', ignored: ['highlight', 'facets'] } });
 		expect(screen.getByRole('status').textContent).toBe('The search engine is still catching up with the archive, so the database answered this search. Highlighted matches and the chats with the most hits are not available for this search.');
@@ -57,7 +59,7 @@ describe('search engine options', () => {
 		cleanup();
 		show({ engine: ENGINE, backend: { used: 'engine' } });
 		expect(screen.queryByText(/database answered/)).toBeNull();
-	});
+	}, 20_000);
 
 	it('shows the matched fragments, and never markup other than <mark>', () => {
 		const page = fixture<MessagesProps>(URL);

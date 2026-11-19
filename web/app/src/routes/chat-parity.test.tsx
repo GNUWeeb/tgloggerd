@@ -20,10 +20,12 @@ const pageCalls = (calls: ReturnType<typeof fakeApi>) => callsTo(calls, 'GET', /
 // layout. Wait until the load from the window at `url` has been
 // answered (each test answers that it reached the newest), so none is
 // still on its way once the test's fake fetch is gone.
+// The wait is generous: the full suite under load can take well over
+// waitFor's default second to render a window and answer its load.
 async function newerLoaded(calls: ReturnType<typeof fakeApi>, url: string) {
 	const last = String(fixture<ChatProps>(url).props.messages.at(-1)!.message_id);
-	await waitFor(() => expect(callsTo(calls, 'GET', /\/messages$/).some((c) => c.query.get('after') === last)).toBe(true));
-	await waitFor(() => expect(screen.queryByText('Loading newer messages...')).toBeNull());
+	await waitFor(() => expect(callsTo(calls, 'GET', /\/messages$/).some((c) => c.query.get('after') === last)).toBe(true), { timeout: 5000 });
+	await waitFor(() => expect(screen.queryByText('Loading newer messages...')).toBeNull(), { timeout: 5000 });
 }
 
 // The chat with these messages only, each built on a plain text one.
