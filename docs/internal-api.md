@@ -156,7 +156,8 @@ A file's cache state.
   fetched, or over the per-file cap; such a file can be fetched.
 - `size`: `file_size` in bytes (0 if unknown).
 - `type`: `telegram_files.file_type` (`photo`, `video`, `document`,
-  `audio`, `voice`, `sticker`, `animation`, `unknown`).
+  `audio`, `voice`, `sticker`, `animation`, `video_note`, `thumbnail`
+  (a video's still thumbnail), `unknown`).
 - `ext`: the lowercase extension without the dot, or null.
 - `alias_of`: the id of the row that holds the same bytes, or null.
   Readers follow it one hop (design section 3).
