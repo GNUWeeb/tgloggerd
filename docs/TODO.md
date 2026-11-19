@@ -126,7 +126,6 @@ Accounts, roles and federations:
 [design/web-accounts.md](design/web-accounts.md).
 
 - [`discord-forwarded-messages`](todo/discord-forwarded-messages.md): Forward Discord messages forwarded from another channel as "Forwarded:" text.
-- [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
 - [`video-thumbnails`](todo/video-thumbnails.md): Show a still thumbnail for every video before it is played, wherever the web shows one.
 - [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
 
