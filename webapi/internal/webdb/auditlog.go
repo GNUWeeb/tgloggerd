@@ -20,10 +20,21 @@ type AuditEntry struct {
 
 // AuditOf is the newest rows of one action, newest first.
 func AuditOf(ctx context.Context, db *sql.DB, action string, limit int) ([]AuditEntry, error) {
+	return AuditOfBy(ctx, db, action, nil, limit)
+}
+
+// AuditOfBy is AuditOf narrowed to the rows of one account when by is
+// not nil, read through idx_web_audit_user_action.
+func AuditOfBy(ctx context.Context, db *sql.DB, action string, by *uint64, limit int) ([]AuditEntry, error) {
+	where, args := "a.action = ?", []any{action}
+	if by != nil {
+		where += " AND a.web_user_id = ?"
+		args = append(args, *by)
+	}
 	rows, err := db.QueryContext(ctx, "SELECT COALESCE(u.username, ''), COALESCE(a.detail, ''), "+
 		"UNIX_TIMESTAMP(a.created_at) FROM web_audit a "+
 		"LEFT JOIN web_users u ON u.id = a.web_user_id "+
-		"WHERE a.action = ? ORDER BY a.id DESC LIMIT ?", action, limit)
+		"WHERE "+where+" ORDER BY a.id DESC LIMIT ?", append(args, limit)...)
 	if err != nil {
 		return nil, err
 	}

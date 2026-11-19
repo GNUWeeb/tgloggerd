@@ -100,7 +100,7 @@ func TestJoinChatJoin(t *testing.T) {
 	}
 
 	want := []string{
-		`1 chat_join joined @gnuweeb "GNU/Weeb"`,
+		`1 chat_join joined @gnuweeb "GNU/Weeb" chat=-1001000000001`,
 		`1 chat_join flood_wait @gnuweeb retry_after=300`,
 		`1 chat_join error @x1234`,
 		`1 chat_join http_504 @slowgroup`,
@@ -222,5 +222,62 @@ func TestJoinChatWithoutDaemon(t *testing.T) {
 	st, p := e.page("superadmin", "/join-chat")
 	if st != 200 || p["props"].(map[string]any)["api_configured"] != false {
 		t.Fatalf("page %d %v", st, p)
+	}
+}
+
+// The page's recent attempts: a superadmin sees every account's; an
+// admin granted join_chat only its own, never one at a chat hidden
+// from it, and no title where a row does not name its chat.
+func TestJoinChatRecentScope(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t)
+	if _, err := e.app.Exec("UPDATE web_users SET join_chat = 1 WHERE id = 3"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.app.Exec("INSERT INTO web_admin_hidden_groups (web_user_id, group_id) " +
+		"VALUES (3, -1001000000001)"); err != nil {
+		t.Fatal(err)
+	}
+	// An attempt of the admin's from before the rows named the chat.
+	if _, err := e.app.Exec("INSERT INTO web_audit (web_user_id, action, ip, detail, created_at) " +
+		"VALUES (3, 'chat_join', '203.0.113.9', 'joined @oldgroup \"Old Title\"', '2026-11-12 09:00:00')"); err != nil {
+		t.Fatal(err)
+	}
+	hidden := strings.Replace(previewChat, `"ok"`, `"joined"`, 1)
+	visible := strings.NewReplacer(`"ok"`, `"joined"`, "-1001000000001", "-1001000000002",
+		"GNU/Weeb", "Open Lab", "@gnuweeb", "@openlab").Replace(previewChat)
+	e.daemon.answer("/v1/chats/join", 200, "", hidden)
+	e.want(200, "admin", "POST", "/api/join-chat/join", map[string]any{"ref": "@gnuweeb"})
+	e.want(200, "superadmin", "POST", "/api/join-chat/join", map[string]any{"ref": "@gnuweeb"})
+	e.daemon.answer("/v1/chats/join", 200, "", visible)
+	e.want(200, "admin", "POST", "/api/join-chat/join", map[string]any{"ref": "@openlab"})
+
+	// The rows name their chats.
+	if got := e.audits(); len(got) != 4 || got[1] != `3 chat_join joined @gnuweeb "GNU/Weeb" chat=-1001000000001` {
+		t.Errorf("audit %q", got)
+	}
+
+	recent := func(role string) []string {
+		st, p := e.page(role, "/join-chat")
+		if st != 200 {
+			t.Fatalf("%s page %d", role, st)
+		}
+		var out []string
+		for _, r := range p["props"].(map[string]any)["recent"].([]any) {
+			r := r.(map[string]any)
+			out = append(out, r["by"].(string)+" "+r["ref"].(string)+" "+r["title"].(string))
+		}
+		return out
+	}
+	if got, want := strings.Join(recent("admin"), "\n"), strings.Join([]string{
+		"gw_admin @openlab Open Lab",
+		"gw_admin @oldgroup ",
+	}, "\n"); got != want {
+		t.Errorf("admin sees\n%s\nwant\n%s", got, want)
+	}
+	if got := recent("superadmin"); len(got) != 6 || got[0] != "gw_admin @openlab Open Lab" ||
+		got[1] != "admin @gnuweeb GNU/Weeb" || got[2] != "gw_admin @gnuweeb GNU/Weeb" ||
+		got[3] != "gw_admin @oldgroup Old Title" {
+		t.Errorf("superadmin sees %q", got)
 	}
 }
