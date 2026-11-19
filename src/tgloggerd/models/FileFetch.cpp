@@ -141,9 +141,22 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 		"  WHERE f.tg_unique_id IS NOT NULL AND"
 		"   (e.static_icon_file_id = f.id OR e.select_animation_file_id = f.id"
 		"    OR e.effect_animation_file_id = f.id OR e.sticker_file_id = f.id)"
+		"  LIMIT " + n + ")"
+		/*
+		 * A community's photo is found by asking for its full info
+		 * again and picking the photo size by its unique id
+		 * (idx_community_photo).
+		 */
+		" UNION ALL "
+		"(SELECT 13, c.id, 0, f.tg_unique_id, NULL"
+		"  FROM telegram_communities c"
+		"  JOIN telegram_files f ON f.id = c.photo_file_id"
+		"  WHERE c.photo_file_id = ? AND c.have_access = 1"
+		"   AND f.tg_unique_id IS NOT NULL"
 		"  LIMIT " + n + ")",
 		{ files_id, files_id, files_id, files_id, files_id, files_id,
-		  files_id, files_id, files_id, files_id, files_id, files_id });
+		  files_id, files_id, files_id, files_id, files_id, files_id,
+		  files_id });
 
 	std::vector<models::FileSource> out;
 	for (const auto &r : rows) {
@@ -182,6 +195,11 @@ std::vector<models::FileSource> DB::listFileSources(uint64_t files_id,
 			break;
 		case 12:
 			s.kind = Kind::MessageEffect;
+			s.object_id = std::stoll(*r[1]);
+			s.unique_id = r[3].value_or("");
+			break;
+		case 13:
+			s.kind = Kind::Community;
 			s.object_id = std::stoll(*r[1]);
 			s.unique_id = r[3].value_or("");
 			break;

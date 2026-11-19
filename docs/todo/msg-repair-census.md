@@ -30,6 +30,10 @@ again.
   counts of one deployment.
 - Update the items of this section whose "Why" or size depended on the
   old rows, and drop any gap the pass closed.
+- Rewrite the "Stored" column of message-types.md section 3.5
+  (payments, gifts, stars), which still shows the state before the
+  service detail and gift work, from what the counts show the classes
+  now keep (fully or partly), as sections 3.3 and 3.4 do.
 - Left out: doing anything with the rows that stay; if they need more
   than the placeholder `msg-kind-leftovers` gives them, that is a new
   item.

@@ -6353,17 +6353,36 @@ components:
     ServiceCommunityDetail:
       type: object
       description: >-
-        chat_added_to_community, chat_removed_from_community,
-        chat_join_from_community: the community, when the archive has
-        it as a group the viewer may see (link to /groups/{id}); no
-        detail otherwise. A community's id is not a chat's, so there is
-        none until the logger records communities as groups.
+        chat_added_to_community, chat_join_from_community: the community
+        the line names, as the logger records communities
+        (docs/design/message-types.md section 4.13), when the archive
+        has its name and the viewer may see at least one of its chats;
+        no detail otherwise. chat_removed_from_community has none: its
+        action gives no community.
       required: [kind, community]
       properties:
         kind:
           const: community
         community:
-          $ref: '#/components/schemas/ChatRef'
+          $ref: '#/components/schemas/ServiceCommunity'
+    ServiceCommunity:
+      type: object
+      description: >-
+        A Telegram community. It is not a chat and has no page here, so
+        there is nothing to link to.
+      required: [id, name, photo]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: TDLib's community id; not a chat id.
+        name:
+          type: string
+        photo:
+          type: [string, 'null']
+          description: >-
+            Its photo's /files/<token> URL; null when it has none, or
+            the file is neither stored nor fetchable for this viewer.
     ServiceTitleDetail:
       type: object
       description: >-

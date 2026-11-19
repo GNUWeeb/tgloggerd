@@ -256,7 +256,7 @@ names the viewer may not see:
 | gift, refunded_upgraded_gift, upgraded_gift, upgraded_gift_purchase_offer, upgraded_gift_purchase_offer_rejected, gifted_premium, gifted_stars, gifted_grams, giveaway_prize_stars | `{kind: "gift", sticker, symbol_sticker, star_count, price, sender, receiver, text, entities, upgraded}`: the gift (below) |
 | chat_set_theme | `{kind: "theme", theme_name, gift_id, gift_name}`: an emoji theme's name, or the upgraded gift a gift theme is made from |
 | forum_topic_* | `{kind: "topic", topic: {id, name, icon_color}}` |
-| chat_added_to_community, chat_removed_from_community, chat_join_from_community | `{kind: "community", community}`: a ChatRef |
+| chat_added_to_community, chat_join_from_community | `{kind: "community", community: {id, name, photo}}`: the community (ServiceCommunity) |
 | chat_create, chat_upgrade_from | `{kind: "title", title, basic_group}`: basic_group a ChatRef or null |
 | chat_set_background | `{kind: "background", only_for_self, type, dark, image, fill, intensity, is_inverted, is_moving, is_blurred, theme_name}`: the background (below) |
 
@@ -304,10 +304,16 @@ logged before their message id was recorded have none); a message
 without text is summarised as a reply's target is, so a story's poster
 the viewer may not see is not named ("Story"). A topic's `id` is the
 message's own forum topic, for a `?topic=` link; its name and colour
-are the action's, else the topic's as last seen. The community and the
-basic group are given only when the archive has the group and the
-viewer may see it. A community's id is not a chat's, so a community
-line has no detail until the logger records communities as groups.
+are the action's, else the topic's as last seen. The basic group is
+given only when the archive has the group and the viewer may see it.
+A community is not a chat: its `id` is TDLib's community id, it has no
+page to link to, and `photo` is its photo's `/files/<token>` URL or
+null. It comes from the communities the logger records
+(telegram_communities and telegram_community_chats,
+docs/design/message-types.md section 4.13) and is given once the
+archive has its name, to a viewer who may see at least one of its
+chats or every chat; chat_removed_from_community has none, since its
+action names no community.
 
 A background's `type` is `wallpaper`, `pattern`, `fill` or
 `chat_theme` (null on rows logged before the background was kept,

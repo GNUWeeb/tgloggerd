@@ -148,10 +148,10 @@ service messages keep `content_type = 'service'` and get the
 | messageChatAddMembers | partly | which users were added | chat_add_members |
 | messageChatJoinByLink | fully | - | chat_join_by_link |
 | messageChatJoinByRequest | fully | - | chat_join_by_request |
-| messageChatJoinFromCommunity | not | community id | chat_join_from_community |
+| messageChatJoinFromCommunity | fully | - (the community itself is in `telegram_communities`, section 4.13) | chat_join_from_community |
 | messageChatDeleteMember | partly | which user was removed | chat_delete_member |
-| messageChatAddedToCommunity | not | community id | chat_added_to_community |
-| messageChatRemovedFromCommunity | not | the event | chat_removed_from_community |
+| messageChatAddedToCommunity | fully | - (the community itself is in `telegram_communities`, section 4.13) | chat_added_to_community |
+| messageChatRemovedFromCommunity | fully | - (TDLib gives no community id) | chat_removed_from_community |
 | messageChatUpgradeTo | partly | supergroup id | chat_upgrade_to |
 | messageChatUpgradeFrom | partly | old title, basic group id | chat_upgrade_from |
 | messageChatOwnerLeft | not | new owner | chat_owner_left |
@@ -898,6 +898,57 @@ Rows are filled on demand from `getMessageEffect` through
 `POST /v1/message-effects`, like the custom emoji; each file is a
 metadata-only `telegram_files` row until someone views it, found again
 by asking for the effect afresh when its reference has expired.
+
+### 4.13 Communities
+
+A community groups supergroups, channels and chats with bots. The
+service lines `chat_join_from_community` and `chat_added_to_community`
+keep its id as `community_id` (section 4.2.3); a community id is not a
+chat id. TDLib has no `getCommunity`: a community's data arrives in
+`updateCommunity`, which TDLib sends before it hands out the id, and
+its chats and full photo in its full info (`getCommunityFullInfo`,
+`updateCommunityFullInfo`). Migration 000049 adds two tables:
+
+    telegram_communities (migration 000049)
+      id BIGINT PRIMARY KEY (TDLib community id),
+      name VARCHAR(255), have_access TINYINT(1),
+      photo_file_id (FK telegram_files, ON DELETE SET NULL),
+      administrator_count INT NULL, date BIGINT NULL,
+      created_at, updated_at
+
+    telegram_community_chats (migration 000049)
+      community_id (FK telegram_communities, ON DELETE CASCADE),
+      chat_id BIGINT, is_hidden TINYINT(1),
+      can_view_history TINYINT(1), created_at, updated_at,
+      PRIMARY KEY (community_id, chat_id), KEY (chat_id)
+
+- Every `updateCommunity` upserts the row: name, `have_access` (false:
+  only this row is known, and TDLib takes the id in no method), `date`
+  (Unix seconds: when the account joined, else when the community was
+  created) and the photo. The photo is `chatPhotoInfo`'s big file
+  (640x640), else its small one, recorded without its bytes like the
+  photo of a chat the account is not in.
+- A full info sets the photo to the full photo's "c" size, which is
+  the same Telegram file as `chatPhotoInfo`'s big one, sets
+  `administrator_count` (NULL unless the account administers the
+  community: TDLib reports 0 then) and replaces the community's chat
+  list; chats it no longer lists are deleted, except that an empty
+  list (nothing visible right now) keeps the stored ones. A full info
+  that comes before its community makes a nameless row.
+- `telegram_community_chats` has no foreign key to the chat tables: a
+  community's chats need not be stored.
+- When a logged message (either service line) or a supergroup's or
+  bot's full info (`community_id`) names an accessible community, the
+  daemon writes its row again from the last `updateCommunity` and, if
+  the row has no chats yet, asks `getCommunityFullInfo`, at a fixed
+  pace, once per run when it succeeds and not again within the hour
+  after it failed.
+- A community's photo whose file reference has expired is found again
+  by asking for its full info afresh (storage-cache.md section 8).
+
+There is no internal API route for communities: the rows are filled
+as the lines are logged. The web resolves a line's community from
+these tables (msg-communities).
 
 ## 5. Web impact (Go port)
 

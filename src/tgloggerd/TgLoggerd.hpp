@@ -52,6 +52,9 @@ private:
 	void onMessageFileLink(const MessageFileLink &lk);
 	void onPhotoLink(const PhotoLink &pl);
 	void onFileMeta(const FileMeta &m);
+	uint64_t recordCommunityPhoto(const std::optional<models::File> &f);
+	void onCommunity(const models::Community &c);
+	void onCommunityFullInfo(const models::CommunityFullInfo &fi);
 
 	/*
 	 * The log handle, owned through log_owner_ and used through l_.

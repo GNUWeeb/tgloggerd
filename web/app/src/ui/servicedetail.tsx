@@ -8,6 +8,7 @@ import { useState, type ReactNode } from 'react';
 import { CloudOff, Download, Play } from 'lucide-react';
 import { BackgroundDetail } from './background.tsx';
 import { Link } from '../nav.tsx';
+import { Avatar } from './primitives.tsx';
 import { Lightbox, plainClick } from '../routes/chat-media.tsx';
 import { TopicIcon } from '../routes/chat-kinds.tsx';
 import { GiftCard, ThemeDetail } from './servicegift.tsx';
@@ -99,8 +100,10 @@ export function ServiceDetailView({ service, text, v, topicHref, self = false, p
 			return <>: <q className="c-svcquote">{d.text}</q></>;
 		case 'topic':
 			return quoted(text, d) >= 0 ? null : <>: <TopicLink t={d.topic} hrefOf={topicHref} /></>;
+		// A community has no page of its own (its id is TDLib's, not a
+		// chat's): its name with its photo, unlinked.
 		case 'community':
-			return <>: <Link to={`/groups/${d.community.id}`} className="c-svcref">{d.community.title}</Link></>;
+			return <>: <span className="c-svccommunity"><Avatar id={d.community.id} name={d.community.name} photo={d.community.photo} size={16} />{d.community.name}</span></>;
 		case 'title': {
 			const name = d.title || d.basic_group?.title;
 			return name ? <> <q className="c-svcquote">{d.basic_group ? <Link to={`/groups/${d.basic_group.id}`} className="c-svcref">{name}</Link> : name}</q></> : null;

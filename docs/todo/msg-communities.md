@@ -17,11 +17,18 @@ get no detail.
 - Daemon (TDLib session): record each community a message or chat
   names (id, name, photo, username if any) in a new table, filled when
   the line is logged and on demand; a migration for it.
+  Done: migration 000049 (telegram_communities and
+  telegram_community_chats; a community has no username in TDLib),
+  described in message-types.md section 4.13.
 - Go (webapi): resolve the community detail from that table, under the
   same visibility rule the detail has now (a community whose chats the
   viewer may see); OpenAPI and web/docs/message-kinds.md follow.
-- React: nothing beyond what msg-service-detail draws, unless the
-  community gets a photo (a small avatar beside its name).
+  Done: ServiceCommunityDetail's community is a ServiceCommunity {id,
+  name, photo}, no longer a ChatRef; given once the name is known, to
+  a viewer who sees one of its chats or every chat.
+- React: draw the new ServiceCommunity: its name as plain text (a
+  community has no page, so no /groups link) with a small avatar from
+  its photo when there is one; service-detail.test.tsx follows.
 
 ## Depends on
 
@@ -32,4 +39,6 @@ Nothing.
 - A new community service line on real data shows the community's
   name.
 - Go tests resolve a stored community and hide one the viewer may not
-  see; the daemon stores the community when the line arrives.
+  see; the daemon stores the community when the line arrives (both
+  done).
+- The web app draws the community's name and photo.

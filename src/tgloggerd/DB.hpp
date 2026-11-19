@@ -19,6 +19,7 @@
 #include <tgloggerd/models/GroupAdmin.hpp>
 #include <tgloggerd/models/Backfill.hpp>
 #include <tgloggerd/models/Emoji.hpp>
+#include <tgloggerd/models/Community.hpp>
 
 #include <utility>
 #include <vector>
@@ -288,7 +289,8 @@ public:
 	 * then as one of its other files), then the groups and users whose
 	 * current photo it is, then the user and group photo lists holding
 	 * it, then the custom emoji and the message effects whose file it
-	 * is. Deleted messages are left out: the server no longer has them.
+	 * is, then the accessible communities whose photo it is. Deleted
+	 * messages are left out: the server no longer has them.
 	 */
 	std::vector<models::FileSource> listFileSources(uint64_t files_id,
 							size_t limit);
@@ -452,6 +454,24 @@ public:
 	 * the file the row has.
 	 */
 	void putMessageEffect(const models::MessageEffect &e);
+
+	/*
+	 * Insert or update a community from updateCommunity. @photo_file_id
+	 * is its photo's telegram_files row; 0 stores none.
+	 */
+	void upsertCommunity(const models::Community &c, uint64_t photo_file_id);
+
+	/*
+	 * Store a community's full info: its big photo (@photo_file_id, 0
+	 * none) and administrator count, and replace its chat list with
+	 * the one given (chats it no longer lists are deleted). Makes the
+	 * row, nameless, if it is missing.
+	 */
+	void putCommunityFullInfo(const models::CommunityFullInfo &fi,
+				  uint64_t photo_file_id);
+
+	/* Whether a community has no row, or a row without any chats. */
+	bool communityNeedsFullInfo(int64_t community_id);
 
 	/*
 	 * Replace a group's stored administrator set with a freshly fetched

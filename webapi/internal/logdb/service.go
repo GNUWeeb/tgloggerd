@@ -12,8 +12,9 @@ import (
 
 // What a service message's detail reads beyond its row
 // (docs/design/message-types.md section 4.2.3): the messages a page's
-// pins are about and the forum topics its topic lines name, each in
-// one batch per page of messages.
+// pins are about, the forum topics its topic lines name and the
+// communities its community lines name, each in one batch per page of
+// messages.
 
 // Target is a message another message of its chat is about (a pin's
 // message), as a one-line quote shows it.
@@ -90,4 +91,66 @@ func TopicsByID(ctx context.Context, db *sql.DB, chat int64, ids []int64) (map[i
 		out[t.ID] = t
 	}
 	return out, rows.Err()
+}
+
+// Community is a telegram_communities row (migration 000049) with the
+// chats its last full info listed.
+type Community struct {
+	ID    int64
+	Name  string
+	Photo FileRef
+	Chats []int64 // TDLib chat ids, ascending
+}
+
+// CommunitiesByID are the recorded communities among ids (TDLib
+// community ids, not chat ids) with their chats; missing ones are left
+// out.
+func CommunitiesByID(ctx context.Context, db *sql.DB, ids []int64) (map[int64]Community, error) {
+	ids = uniq(ids)
+	out := map[int64]Community{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	in, args := placeholders(len(ids)), int64Args(ids)
+	rows, err := db.QueryContext(ctx, "SELECT c.id, c.name, COALESCE(c.photo_file_id, 0), "+
+		fileColumnsOf("f")+" FROM telegram_communities c "+
+		"LEFT JOIN telegram_files f ON f.id = c.photo_file_id WHERE c.id IN ("+in+")", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			c     Community
+			photo uint64
+			f     nullFile
+		)
+		if err := rows.Scan(append([]any{&c.ID, &c.Name, &photo}, f.dest()...)...); err != nil {
+			return nil, err
+		}
+		if photo != 0 {
+			c.Photo = f.ref(photo)
+		}
+		out[c.ID] = c
+	}
+	if err := rows.Err(); err != nil || len(out) == 0 {
+		return out, err
+	}
+	crows, err := db.QueryContext(ctx, "SELECT community_id, chat_id FROM telegram_community_chats "+
+		"WHERE community_id IN ("+in+") ORDER BY community_id, chat_id", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer crows.Close()
+	for crows.Next() {
+		var id, chat int64
+		if err := crows.Scan(&id, &chat); err != nil {
+			return nil, err
+		}
+		if c, ok := out[id]; ok {
+			c.Chats = append(c.Chats, chat)
+			out[id] = c
+		}
+	}
+	return out, crows.Err()
 }
