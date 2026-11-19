@@ -21,6 +21,12 @@ No widget appears in the archive so far, so this is low priority.
   escaped source text.
 - Go (webapi): a `WidgetDetail` with the size and the HTML as a
   string, sent as text only; nothing serves it as a page.
+  Done: `WidgetDetail` in webapi/openapi.yaml and
+  web/docs/message-kinds.md; `html` is sent by the message page only
+  (null in the chat window and the lists, and over the daemon's cap).
+  The "widgets" fixture is the sample widget, and widget_test.go
+  checks that the served document and JSON carry the HTML as escaped
+  data only.
 - React (frontend): the widget's box at its size with a note, and on
   the message page the HTML as escaped source (a code block), never
   through innerHTML or an iframe.
