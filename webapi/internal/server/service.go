@@ -135,6 +135,9 @@ type serviceJSON struct {
 	// the names; absent where the stored text, which names nobody, is
 	// sent.
 	Parts []servicePartJSON `json:"parts,omitempty"`
+	// Detail is what the action's stored detail says beyond its line
+	// (service_detail.go); absent where there is none.
+	Detail any `json:"detail,omitempty"`
 }
 
 // servicePart is a piece of a rebuilt service text: plain text, or
@@ -305,6 +308,7 @@ func (v view) service(k kinds, m logdb.Message) *serviceJSON {
 	}
 	j := &serviceJSON{Type: m.ServiceType,
 		Refs: serviceRefsJSON{Users: []chatRefJSON{}, Chats: []chatRefJSON{}}}
+	j.Detail = v.serviceDetail(k, m)
 	x := k.service[m.RowID]
 	if x == nil {
 		return j

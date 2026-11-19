@@ -201,6 +201,12 @@ type kinds struct {
 	// mentions are the people the text entities name
 	// (textentities.go).
 	mentions textMentions
+	// serviceDetail, pins and topics are what the service messages'
+	// detail reads (service_detail.go): their content_extra by row,
+	// the messages pinned by message id, the forum topics by id.
+	serviceDetail map[uint64]*serviceDetailExtra
+	pins          map[int64]logdb.Target
+	topics        map[int64]logdb.Topic
 }
 
 // pollClosed is whether a poll is closed: stored as closed, or past its
@@ -216,9 +222,10 @@ func pollClosed(closed bool, closeDate, now int64) bool {
 // entities mention, as sc may see them.
 func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms []logdb.Message) (kinds, error) {
 	k := kinds{chat: chat, extra: map[uint64]*kindExtra{}, service: map[uint64]*serviceExtra{}}
-	var users, chats, polls []int64
+	var users, chats, polls, pins, topics []int64
 	for _, m := range ms {
 		if m.ContentType == "service" {
+			k.addServiceDetail(m, &chats, &pins, &topics)
 			if x := parseServiceExtra(m.Extra); x != nil {
 				k.service[m.RowID] = x
 				for _, id := range x.parties() {
@@ -255,6 +262,9 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 		if r := m.Reply; r != nil && r.Resolved && r.Snippet == "" {
 			k.addSummarised(r.RowID, r.ContentType, r.Extra, &users, &chats, &polls)
 		}
+	}
+	if err := s.loadServiceDetail(ctx, &k, pins, topics, &users, &chats, &polls); err != nil {
+		return k, err
 	}
 	var err error
 	if k.polls, err = logdb.PollsByID(ctx, s.ro, polls); err != nil {

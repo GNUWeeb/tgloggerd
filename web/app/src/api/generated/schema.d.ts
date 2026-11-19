@@ -2237,6 +2237,94 @@ export interface components {
             refs: components["schemas"]["ServiceRefs"];
             /** @description The rebuilt text piece by piece, for links: joined, the parts' texts are the message's text. A name is a part that points at its user or chat in refs; the rest is plain text. Absent where the text is the logger's own, which names nobody; draw the text then. A user or chat the viewer may not see is never a part, as it is never named. */
             parts?: components["schemas"]["ServicePart"][];
+            /** @description What the action's stored detail says beyond its line, by kind; absent (or null) where the type has none, nothing of it is stored, or what it names the viewer may not see. */
+            detail?: components["schemas"]["ServiceDetail"] | null;
+        };
+        /** @description A service action's detail beyond its line (docs/design/message-types.md section 4.2.3), from content_extra, the message's files and the rows it is about. A chat it names goes through the request scope as refs do. */
+        ServiceDetail: components["schemas"]["ServicePhotoDetail"] | components["schemas"]["ServiceVideoChatDetail"] | components["schemas"]["ServicePinDetail"] | components["schemas"]["ServicePollOptionDetail"] | components["schemas"]["ServiceTopicDetail"] | components["schemas"]["ServiceCommunityDetail"] | components["schemas"]["ServiceTitleDetail"] | components["schemas"]["ServiceBackgroundDetail"];
+        /** @description chat_change_photo: the new group photo; suggest_profile_photo: the photo suggested. The message's file of role chat_photo; no detail when it is not recorded. */
+        ServicePhotoDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "photo";
+            photo: components["schemas"]["ChatMedia"];
+        };
+        /** @description video_chat_ended: duration, how long the video chat ran, in seconds; video_chat_scheduled: start_date, when it is to start. The other is null. */
+        ServiceVideoChatDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "video_chat";
+            /** Format: int64 */
+            duration: number | null;
+            /** Format: date-time */
+            start_date: string | null;
+        };
+        /** @description pin_message: the pinned message (refs.message_id) as a one-line quote, as a reply quotes its target: the start of its text, or its kind summarised ("Story by ...", a poll's question), naming only whom the viewer may see. No detail when the archive does not have the message, as for pins logged before their message id was recorded. */
+        ServicePinDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "pin";
+            snippet: string;
+        };
+        /** @description poll_option_added, poll_option_deleted, the option's text. */
+        ServicePollOptionDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "poll_option";
+            text: string;
+        };
+        /** @description forum_topic_*, the topic the line is about. */
+        ServiceTopicDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "topic";
+            topic: components["schemas"]["ServiceTopic"];
+        };
+        /** @description A forum topic a service line names. id is the message's own forum topic (link to ?topic={id}); name and icon_color (an RGB colour) are the action's own, else the topic's as last seen. Each is null when not known. */
+        ServiceTopic: {
+            /** Format: int64 */
+            id: number | null;
+            name: string | null;
+            /** Format: int64 */
+            icon_color: number | null;
+        };
+        /** @description chat_added_to_community, chat_removed_from_community, chat_join_from_community: the community, when the archive has it as a group the viewer may see (link to /groups/{id}); no detail otherwise. A community's id is not a chat's, so there is none until the logger records communities as groups. */
+        ServiceCommunityDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "community";
+            community: components["schemas"]["ChatRef"];
+        };
+        /** @description chat_create: the title the group was created with; chat_upgrade_from: the basic group's title, and the basic group the supergroup was upgraded from when the archive has it and the viewer may see it (else null, as always for chat_create). */
+        ServiceTitleDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "title";
+            title: string;
+            basic_group: components["schemas"]["ChatRef"] | null;
+        };
+        /** @description chat_set_background: whether the background was set for the one who set it alone ("for themselves"). */
+        ServiceBackgroundDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "background";
+            only_for_self: boolean;
         };
         /** @description A piece of a service message's text: plain text when user and chat are both absent, else the name of refs.users[user] (link to /users/{id}) or refs.chats[chat] (link to /groups/{id}). */
         ServicePart: {
