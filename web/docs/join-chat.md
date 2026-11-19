@@ -71,9 +71,10 @@ When the daemon gives no outcome the answer is `{"ok": false, "error":
 Each `POST /join-chat/join` that passes CSRF writes one `web_audit` row,
 whatever came of it, with `action = 'chat_join'`, the admin's `web_user_id`,
 the client IP, and a `detail` of the outcome and the normalised ref, plus the
-chat title and the flood wait when known:
+chat title and the flood wait when known; the Go service also ends it with
+the chat's id when the daemon gave one:
 
-    joined @gnuweeb "GNU/Weeb"
+    joined @gnuweeb "GNU/Weeb" chat=-1001000000001
     flood_wait https://t.me/+AbCdEfGhIjKl "Some Group" retry_after=300
     no_answer @gnuweeb
 
@@ -105,7 +106,10 @@ page offers those. Filing the joined group into them comes with
 `join-chat-federations`; until then it is in Default, as when none is
 chosen. Each join writes the same `chat_join` row as above, so
 the page's list (`/join-chat`'s data, the last 20 attempts) reads the
-rows of both services.
+rows of both services. A superadmin's list holds every account's
+attempts; an admin's only its own, leaving out the attempts at chats
+hidden from it (`restrict.hide_groups`), which the `chat=` id tells,
+and giving no title where a row does not name its chat.
 
 ## Configuration
 

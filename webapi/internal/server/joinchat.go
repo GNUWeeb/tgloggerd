@@ -246,6 +246,11 @@ func (s *Server) joinChat(w http.ResponseWriter, r *http.Request) {
 		if a.RetryAfter != nil {
 			detail += " retry_after=" + strconv.FormatInt(*a.RetryAfter, 10)
 		}
+		// The chat's id, last, so the page can leave out the
+		// attempts at chats a viewer's scope hides.
+		if a.Chat != nil && a.Chat.ChatID != 0 {
+			detail += " chat=" + strconv.FormatInt(a.Chat.ChatID, 10)
+		}
 	} else {
 		switch {
 		case !s.daemon.Enabled():
@@ -272,14 +277,24 @@ type joinAttempt struct {
 	Ref     string `json:"ref"`
 	Title   string `json:"title"`
 	Outcome string `json:"outcome"`
+	// chatID is the chat the attempt named, 0 when the row does not
+	// say (the Drogon page's rows, and chats not resolved).
+	chatID int64
 }
 
 // parseJoinDetail reads a chat_join row's detail, "<outcome> <ref>",
-// then the chat's title in quotes and the flood wait when known.
+// then the chat's title in quotes, the flood wait and the chat's id
+// when known.
 func parseJoinDetail(e webdb.AuditEntry) joinAttempt {
 	j := joinAttempt{At: e.At.Format("2006-01-02T15:04:05Z"), By: e.By}
 	outcome, rest, _ := strings.Cut(e.Detail, " ")
 	j.Outcome = outcome
+	if i := strings.LastIndex(rest, " chat="); i >= 0 {
+		if id, err := strconv.ParseInt(rest[i+len(" chat="):], 10, 64); err == nil {
+			j.chatID = id
+			rest = rest[:i]
+		}
+	}
 	if i := strings.LastIndex(rest, " retry_after="); i >= 0 {
 		rest = rest[:i]
 	}
@@ -304,7 +319,17 @@ func loadJoinChat(ctx context.Context, pr *pageRequest) (any, error) {
 		return nil, err
 	}
 	s := pr.s
-	rows, err := webdb.AuditOf(ctx, s.app, "chat_join", joinRecent)
+	// A superadmin sees every account's attempts; an admin granted
+	// join_chat only its own, and none at a chat its scope hides. A
+	// row that does not name its chat cannot be checked, so it is
+	// shown to an admin without the title.
+	all := pr.scope.Role() == scope.Superadmin
+	var by *uint64
+	if !all {
+		v, _ := pr.scope.Viewer()
+		by = &v.ID
+	}
+	rows, err := webdb.AuditOfBy(ctx, s.app, "chat_join", by, joinRecent)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +339,16 @@ func loadJoinChat(ctx context.Context, pr *pageRequest) (any, error) {
 	}
 	p := joinChatProps{Federations: feds, Recent: []joinAttempt{}, APIConfigured: s.daemon != nil}
 	for _, e := range rows {
-		p.Recent = append(p.Recent, parseJoinDetail(e))
+		j := parseJoinDetail(e)
+		if !all {
+			if j.chatID != 0 && !pr.scope.SeesChat(j.chatID) {
+				continue
+			}
+			if j.chatID == 0 {
+				j.Title = ""
+			}
+		}
+		p.Recent = append(p.Recent, j)
 	}
 	return p, nil
 }
