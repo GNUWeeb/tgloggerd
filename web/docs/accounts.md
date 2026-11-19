@@ -374,9 +374,18 @@ resource, so more relations (sharing) can be added later:
 ### Assigning the existing resources (deployment)
 
 Everything that exists when ownership is introduced becomes owned by
-the first superadmin, the account named `superadmin`, except MCP
-tokens: each becomes owned by the account that minted it. Once, at the
-deployment that brings web migration 000008:
+the first superadmin, the account named `superadmin`, MCP tokens
+included
+([decision](../../docs/design/decisions/2026-11-20-mcp-tokens-to-superadmin.md)).
+Web migration 000015 gives every MCP token to that account by itself,
+when it exists with the superadmin role: a token owned by another
+account is transferred (`owner_transfer`, detail `mcp_token <id> from
+<old> to <new> superadmin-transfer`), one with no owner gets it
+(`owner_set`, detail `mcp_token <id> superadmin-transfer`), each audited
+by no account with `superadmin` as the target; the token's minter, which
+its requests are attributed to, stays as it was. Its down migration
+gives the tokens back the owners those rows name. For the other
+resources, once, at the deployment that brings web migration 000008:
 
 1. Restart the web service, which applies the web migrations, and the
    webapi service, which builds the new binary.
