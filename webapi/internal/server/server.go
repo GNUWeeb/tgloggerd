@@ -111,6 +111,9 @@ type Deps struct {
 	// logger replaces the keeper of the logging account's id
 	// (loggerAccount).
 	logger *loggerAccount
+	// emoji replaces the pages' custom emoji resolver
+	// (emojiResolver).
+	emoji *emojiResolver
 }
 
 // searchFunc is logdb.Search's signature.
@@ -173,6 +176,9 @@ type Server struct {
 	photoAsks *photoRefresher
 	// logger keeps the logging account's id (Viewer.logger).
 	logger *loggerAccount
+	// emoji resolves the custom emoji and message effects of a page
+	// (emoji.go).
+	emoji *emojiResolver
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -241,6 +247,10 @@ func New(d Deps) http.Handler {
 	s.logger = d.logger
 	if s.logger == nil {
 		s.logger = newLoggerAccount(d.Log, d.Daemon, s.clock)
+	}
+	s.emoji = d.emoji
+	if s.emoji == nil {
+		s.emoji = newEmojiResolver(d.Log, d.Daemon, s.clock)
 	}
 	s.search = logdb.Search
 	if d.search != nil {

@@ -553,11 +553,20 @@ type chatProps struct {
 }
 
 type topicJSON struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	IconColor int64  `json:"icon_color"`
-	Closed    bool   `json:"closed"`
-	Hidden    bool   `json:"hidden"`
+	ID          int64            `json:"id"`
+	Name        string           `json:"name"`
+	IconColor   int64            `json:"icon_color"`
+	IconEmojiID *string          `json:"icon_custom_emoji_id"`
+	IconEmoji   *customEmojiJSON `json:"icon_custom_emoji"`
+	Closed      bool             `json:"closed"`
+	Hidden      bool             `json:"hidden"`
+}
+
+// topic is a forum topic for the page, its icon's custom emoji as k
+// resolved it.
+func (v view) topic(k kinds, t logdb.Topic) topicJSON {
+	return topicJSON{ID: t.ID, Name: t.Name, IconColor: t.Color, IconEmojiID: idString(t.IconEmoji),
+		IconEmoji: v.customEmojiOf(k, t.IconEmoji), Closed: t.Closed, Hidden: t.Hidden}
 }
 
 // chatDateLayouts are the forms ?date= takes, read in the viewer's
@@ -683,7 +692,15 @@ func loadChat(ctx context.Context, pr *pageRequest, group bool) (any, error) {
 		first := w.Messages[0].MessageID
 		at = &first
 	}
-	k, err := pr.s.loadKinds(ctx, pr.scope, c.ID, w.Messages)
+	ts, err := c.Topics(ctx, pr.s.ro)
+	if err != nil {
+		return nil, err
+	}
+	var icons []int64
+	for _, t := range ts {
+		icons = append(icons, t.IconEmoji)
+	}
+	k, err := pr.s.loadKindsWith(ctx, pr.scope, c.ID, w.Messages, icons)
 	if err != nil {
 		return nil, err
 	}
@@ -693,13 +710,8 @@ func loadChat(ctx context.Context, pr *pageRequest, group bool) (any, error) {
 		t := c.Topic
 		p.Topic = &t
 	}
-	ts, err := c.Topics(ctx, pr.s.ro)
-	if err != nil {
-		return nil, err
-	}
 	for _, t := range ts {
-		p.Topics = append(p.Topics, topicJSON{ID: t.ID, Name: t.Name, IconColor: t.Color,
-			Closed: t.Closed, Hidden: t.Hidden})
+		p.Topics = append(p.Topics, v.topic(k, t))
 	}
 	if group {
 		pr.s.refreshMemberCount(c.GroupInfo)
@@ -806,7 +818,11 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, notFoundOr(err)
 	}
-	k, err := pr.s.loadKinds(ctx, pr.scope, d.ChatID, []logdb.Message{d.Message})
+	var icons []int64
+	if d.Topic != nil {
+		icons = append(icons, d.Topic.IconEmoji)
+	}
+	k, err := pr.s.loadKindsWith(ctx, pr.scope, d.ChatID, []logdb.Message{d.Message}, icons)
 	if err != nil {
 		return nil, err
 	}
@@ -825,8 +841,8 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 		messageExtraJSON: v.messageExtra(n, m), messageKindsJSON: v.messageKinds(k, m),
 	}
 	if t := d.Topic; t != nil {
-		j.Topic = &topicJSON{ID: t.ID, Name: t.Name, IconColor: t.Color, Closed: t.Closed,
-			Hidden: t.Hidden}
+		tj := v.topic(k, *t)
+		j.Topic = &tj
 	}
 	if m.EditDate > 0 {
 		j.EditedAt = isoPtr(m.EditDate)

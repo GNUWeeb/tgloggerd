@@ -588,7 +588,8 @@ func TestKindsInteractionAndTopics(t *testing.T) {
 		t.Fatalf("message 1 %v", m1)
 	}
 	if js(rs) != js([]map[string]any{{"count": 5, "emoji": "\U0001F44D"},
-		{"count": 2, "custom_emoji_id": "5368324170671202286"}, {"count": 1, "paid": true}}) {
+		{"count": 2, "custom_emoji_id": "5368324170671202286", "custom_emoji": nil},
+		{"count": 1, "paid": true}}) {
 		t.Errorf("reactions %s", js(rs))
 	}
 	// A group's own message has no view or forward count, even when 0
@@ -645,9 +646,9 @@ func TestKindsInteractionAndTopics(t *testing.T) {
 	if num(props["topic"]) != 5 || len(asList(props["messages"])) != 5 {
 		t.Errorf("page topic %v, %d messages", props["topic"], len(asList(props["messages"])))
 	}
-	want := `[{"closed":false,"hidden":false,"icon_color":7322096,"id":5,"name":"Releases"},` +
-		`{"closed":true,"hidden":false,"icon_color":16749490,"id":9,"name":"Off-topic"},` +
-		`{"closed":false,"hidden":true,"icon_color":0,"id":1,"name":"General"}]`
+	want := `[{"closed":false,"hidden":false,"icon_color":7322096,"icon_custom_emoji":null,"icon_custom_emoji_id":null,"id":5,"name":"Releases"},` +
+		`{"closed":true,"hidden":false,"icon_color":16749490,"icon_custom_emoji":null,"icon_custom_emoji_id":null,"id":9,"name":"Off-topic"},` +
+		`{"closed":false,"hidden":true,"icon_color":0,"icon_custom_emoji":null,"icon_custom_emoji_id":null,"id":1,"name":"General"}]`
 	if got := js(props["topics"]); got != want {
 		t.Errorf("topics %s", got)
 	}

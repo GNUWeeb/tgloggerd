@@ -10,19 +10,21 @@ import type { ChatProps } from './chat.tsx';
 beforeEach(setup);
 const url = `/groups/${FORUM_GROUP.id}/chat`;
 const strip = () => screen.getByRole('navigation', { name: 'Forum topics' });
+// An element's text without its hidden parts (a custom emoji icon).
+const shown = (el: Element) => { const c = el.cloneNode(true) as Element; c.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove()); return c.textContent; };
 
 describe('forum topics', () => {
 	it('lists the topics, and names each message\'s topic while all are shown', () => {
 		fakeApi('superadmin');
 		renderPage(url);
 		const links = within(strip()).getAllByRole('link');
-		expect(links.map((a) => a.textContent)).toEqual(['All topics', ...TOPICS.map((t) => t.name)]);
+		expect(links.map(shown)).toEqual(['All topics', ...TOPICS.map((t) => t.name)]);
 		expect(links[0]!.getAttribute('aria-current')).toBe('page');
-		expect(within(strip()).getByLabelText('closed').closest('a')!.textContent).toBe('Off-topic');
+		expect(shown(within(strip()).getByLabelText('closed').closest('a')!)).toBe('Off-topic');
 		const p = fixture<ChatProps>(url).props;
 		const m = p.messages.find((x) => x.content_type !== 'service' && x.topic_id !== null)!;
 		const tag = document.getElementById(`m${m.message_id}`)!.querySelector('.k-topictag')!;
-		expect(tag.textContent).toBe(TOPICS.find((t) => t.id === m.topic_id)!.name);
+		expect(shown(tag)).toBe(TOPICS.find((t) => t.id === m.topic_id)!.name);
 		expect(tag.getAttribute('href')).toBe(`${url}?topic=${m.topic_id}`);
 	});
 

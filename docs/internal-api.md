@@ -256,8 +256,9 @@ How it works, and its limits:
 
 - The file is found by its remote id; when that no longer downloads
   (an expired file reference), something referencing it is fetched
-  from Telegram again: the newest live message carrying it, or the
-  group or user whose current photo it is.
+  from Telegram again: the newest live message carrying it, the group
+  or user whose current photo it is, the photo list holding it, or the
+  custom emoji or message effect whose file it is.
 - Downloads of one file run one at a time; a request waits for the one
   in flight (within its own time limit). A file ingest is downloading
   is waited for, not requested again with another range.
@@ -659,6 +660,105 @@ current photo when no change message shows it (then `photo_id` and
 `date` are null). Each photo is recorded in `telegram_files` and
 `telegram_group_hist_photo` as above. 404 for a chat not in
 `telegram_groups`; otherwise as `/v1/users/{user_id}/photos`.
+
+### POST /v1/custom-emoji
+
+The stickers behind custom emoji ids, for drawing them (design
+`docs/design/message-types.md` section 4.11). The web sends the ids it
+is about to draw, taken from text entities, reactions, forum topic
+icons or emoji statuses:
+
+    {"ids": ["5368324170671202286", "5370870893004203704"]}
+
+    200 {
+      "outcome": "ok",
+      "message": "",
+      "asked": 1,
+      "emoji": [
+        {"custom_emoji_id": "5368324170671202286", "emoji": "❤",
+         "set_id": "773947703670341676", "format": "tgs",
+         "needs_repainting": false, "file_id": 123456}
+      ],
+      "missing": ["5370870893004203704"]
+    }
+
+- `ids`: at most 200 (`getCustomEmojiStickers`'s limit), each a
+  nonzero 64-bit integer, as a decimal string or a JSON number;
+  duplicates count once. Ids are answered as strings: they do not fit
+  a JavaScript number.
+- Ids with a `telegram_custom_emoji` row are answered from it. The
+  rest are asked of Telegram in one `getCustomEmojiStickers` call, and
+  each sticker it returns gets a row and a metadata-only
+  `telegram_files` row (`file_type` `sticker`, the format as
+  extension): the bytes are fetched like any unstored file, when
+  someone views it (`POST /v1/files/{id}/fetch`), under the storage
+  cache rules. A row once filled is kept; asking again costs no call
+  to Telegram.
+- `asked`: how many ids this request sent to Telegram (0 when all were
+  known).
+- `emoji`: a row per id known, in the order asked. `set_id` is null
+  when Telegram gave none, `format` (`webp`, `tgs`, `webm`) when it is
+  unknown, `file_id` when the sticker had no file to record.
+  `needs_repainting`: drawn in the text colour, like an emoji status.
+  `emoji` is the emoji it stands for, at most 16 characters.
+- `missing`: ids Telegram does not know. Such an id is answered as
+  missing for an hour without asking Telegram again.
+- `outcome`: `ok`, or how the call to Telegram failed: `flood_wait`
+  (with `retry_after`, seconds), `unavailable` (TDLib not authorized),
+  `timeout` (no answer within 15 seconds) or `error` (with Telegram's
+  `message`). The rows already stored are answered all the same; an id
+  in neither `emoji` nor `missing` was not resolved, and may be asked
+  for again later.
+
+A sticker whose file reference has expired is found again by asking
+for its custom emoji afresh.
+
+Errors: 400 if the body is not `{"ids": [...]}` with nonzero 64-bit
+ids, or carries more than 200 distinct ones.
+
+Tests: `emoji_api_test` (in `CMakeLists.txt`) serves this route and
+`POST /v1/message-effects` over a real listener on loopback, with
+stand-ins for the tables and for TDLib answering with hand-built
+objects.
+
+### POST /v1/message-effects
+
+The same for message effects (`meta.effect_id`; design section 4.12),
+stored in `telegram_message_effects`:
+
+    {"ids": ["5104841245755180586"]}
+
+    200 {
+      "outcome": "ok",
+      "message": "",
+      "asked": 1,
+      "effects": [
+        {"effect_id": "5104841245755180586", "emoji": "🔥",
+         "is_premium": false, "type": "emoji_reaction",
+         "static_icon_file_id": 123457,
+         "select_animation_file_id": 123458,
+         "effect_animation_file_id": 123459,
+         "sticker_file_id": null, "sticker_format": null}
+      ],
+      "missing": []
+    }
+
+- `ids`: at most 50, as for `/v1/custom-emoji`. An effect without a
+  row is asked of Telegram with `getMessageEffect`, one call per
+  effect, at most 20 seconds for all of them; a failure ends the calls
+  for the rest of the request.
+- `type`: `emoji_reaction` (its `select_animation_file_id` and
+  `effect_animation_file_id`, both TGS), `premium_sticker`
+  (`sticker_file_id` in `sticker_format`, and its premium animation,
+  TGS, as `effect_animation_file_id`), or null for a type the daemon
+  does not know. `static_icon_file_id` is the static icon (WEBP), null
+  when the effect has none; `emoji` stands in for it. Every file is a
+  metadata-only `telegram_files` row of type `sticker`, fetched as
+  above, and found again by asking for the effect afresh.
+- `asked`, `missing` (an effect Telegram answers 404 for) and
+  `outcome` as for `/v1/custom-emoji`.
+
+Errors: 400 as for `/v1/custom-emoji`, with at most 50 distinct ids.
 
 ### POST /v1/users/{id}/lookup-name
 

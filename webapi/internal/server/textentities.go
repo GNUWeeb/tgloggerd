@@ -8,6 +8,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"unicode/utf16"
@@ -51,6 +52,9 @@ type textEntityJSON struct {
 	Language       *string         `json:"language,omitempty"`
 	CustomEmojiID  string          `json:"custom_emoji_id,omitempty"`
 	MediaTimestamp *int64          `json:"media_timestamp,omitempty"`
+	// CustomEmoji is present (an object or null) exactly when
+	// CustomEmojiID is.
+	CustomEmoji json.RawMessage `json:"custom_emoji,omitempty"`
 }
 
 // malformedLogged is set once a malformed entities value was logged:
@@ -149,6 +153,9 @@ type mentionCollector struct {
 	s     *Server
 	ids   []int64
 	names []string
+	// emoji are the custom emoji the entities draw (emoji.go), which
+	// the collector gathers as it reads them.
+	emoji []int64
 }
 
 func (c *mentionCollector) add(text string, raw []byte, what string) {
@@ -161,6 +168,11 @@ func (c *mentionCollector) add(text string, raw []byte, what string) {
 		case "mention":
 			if n := mentionUsername(text, e); n != "" {
 				c.names = append(c.names, n)
+			}
+		case "custom_emoji":
+			id, _ := entityEmojiID(e.CustomEmojiID)
+			if n, err := strconv.ParseInt(id, 10, 64); err == nil {
+				c.emoji = append(c.emoji, n)
 			}
 		}
 	}
@@ -190,6 +202,9 @@ func (v view) entities(k kinds, text string, raw []byte, what string) []textEnti
 		j := textEntityJSON{Offset: *e.Offset, Length: *e.Length, Type: e.Type, URL: e.URL,
 			Language: e.Language, MediaTimestamp: e.MediaTimestamp}
 		j.CustomEmojiID, _ = entityEmojiID(e.CustomEmojiID)
+		if j.CustomEmojiID != "" {
+			j.CustomEmoji = jsonOrNull(v.customEmoji(k, j.CustomEmojiID))
+		}
 		switch e.Type {
 		case "mention_name":
 			j.UserID = json.RawMessage("null")

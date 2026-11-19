@@ -205,6 +205,19 @@
 .app .c-lottie-emoji { position: absolute; inset: 0; display: grid; place-items: center; }
 .app .c-lottie.wait .c-lottie-emoji { opacity: .55; }
 .app .c-sticker-emoji { width: auto; height: auto; font-size: 96px; line-height: 1.1; color: var(--fg-3); }
+/* Custom emoji (src/ui/customemoji.tsx), at the size of the text. */
+.app .ce { display: inline-block; width: 1.25em; height: 1.25em; vertical-align: -.28em; object-fit: contain; }
+.app .ce-tgs { position: relative; }
+.app .ce-box { position: absolute; inset: 0; }
+.app .ce-box svg { display: block; width: 100% !important; height: 100% !important; }
+.app .ce-alt { position: absolute; inset: 0; display: grid; place-items: center; font-size: .9em; line-height: 1; }
+/* Repainted in the text colour: see CustomEmoji for why each way. */
+.app .ce-mask { background: currentColor; mask: center / contain no-repeat; -webkit-mask: center / contain no-repeat; }
+.app .ce-repaint.ce-tgs svg [fill]:not([fill="none"]) { fill: currentColor; }
+.app .ce-repaint.ce-tgs svg [stroke]:not([stroke="none"]) { stroke: currentColor; }
+.app .ce-repaint.ce-webm { filter: brightness(0); }
+:root[data-theme="dark"] .app .ce-repaint.ce-webm { filter: brightness(0) invert(1); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .app .ce-repaint.ce-webm { filter: brightness(0) invert(1); } }
 .app .c-wave span.on { opacity: 1; }
 .app .c-play:disabled { cursor: default; opacity: .6; }
 .app .c-lightbox { position: fixed; inset: 0; z-index: 1000; background: rgb(0 0 0 / .88); display: grid; place-items: center; padding: 56px 16px 16px; }
@@ -312,6 +325,7 @@
 .app .k-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
 .app .k-reaction { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 12px; font-size: 13px; background: color-mix(in srgb, var(--c-accent) 14%, transparent); }
 .app .k-reaction svg { color: #e9a700; }
+.app .k-reaction .ce svg { color: inherit; }
 .app .k-count { display: inline-flex; align-items: center; gap: 2px; }
 .app .c-videowrap.round { width: 220px; max-width: 70vw; border-radius: 50%; overflow: hidden; background: #24303c; }
 .app .c-videowrap.round .c-dur { left: 50%; right: auto; bottom: 12px; top: auto; transform: translateX(-50%); }
@@ -323,6 +337,9 @@
 .app .k-topics a:hover { background: var(--hover); }
 .app .k-topics a.on { background: color-mix(in srgb, var(--c-accent) 16%, transparent); color: var(--fg); }
 .app .k-topicdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.app .k-topicicon { display: inline-flex; flex: none; line-height: 1; }
+.app .k-effect { display: inline-flex; align-items: center; line-height: 1; }
+.app .k-effect .ce { width: 14px; height: 14px; vertical-align: middle; }
 .app .k-topictag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-2); text-decoration: none; margin-bottom: 2px; }
 .app .k-topictag:hover { text-decoration: underline; }
 /* An earlier version's detail in an edit list (src/ui/editdetail.tsx). */

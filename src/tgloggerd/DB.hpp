@@ -17,6 +17,7 @@
 #include <tgloggerd/models/ForumTopic.hpp>
 #include <tgloggerd/models/GroupAdmin.hpp>
 #include <tgloggerd/models/Backfill.hpp>
+#include <tgloggerd/models/Emoji.hpp>
 
 #include <utility>
 #include <vector>
@@ -299,8 +300,9 @@ public:
 	 * afresh for a valid file reference, best first: the newest live
 	 * messages carrying it (as attachment, then as link preview image,
 	 * then as one of its other files), then the groups and users whose
-	 * current photo it is. Deleted
-	 * messages are left out: the server no longer has them.
+	 * current photo it is, then the user and group photo lists holding
+	 * it, then the custom emoji and the message effects whose file it
+	 * is. Deleted messages are left out: the server no longer has them.
 	 */
 	std::vector<models::FileSource> listFileSources(uint64_t files_id,
 							size_t limit);
@@ -441,6 +443,29 @@ public:
 	/* Whether the user or the group has a row. */
 	bool userExists(int64_t user_id);
 	bool groupExists(int64_t group_id);
+
+	/*
+	 * The telegram_custom_emoji rows of @ids (ids without one are left
+	 * out), in no particular order.
+	 */
+	std::vector<models::CustomEmoji>
+	getCustomEmoji(const std::vector<int64_t> &ids);
+
+	/*
+	 * Insert or replace a custom emoji's row. A file_id of 0 keeps the
+	 * file the row has.
+	 */
+	void putCustomEmoji(const models::CustomEmoji &e);
+
+	/* The telegram_message_effects rows of @ids, as getCustomEmoji. */
+	std::vector<models::MessageEffect>
+	getMessageEffects(const std::vector<int64_t> &ids);
+
+	/*
+	 * Insert or replace a message effect's row. Each file id of 0 keeps
+	 * the file the row has.
+	 */
+	void putMessageEffect(const models::MessageEffect &e);
 
 	/*
 	 * Replace a group's stored administrator set with a freshly fetched

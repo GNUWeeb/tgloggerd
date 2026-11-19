@@ -220,6 +220,9 @@ type kinds struct {
 	// for a version of another kind).
 	rich      map[uint64]*richDoc
 	richEdits map[uint64][]*richDoc
+	// emoji are the custom emoji and message effects the page shows
+	// (emoji.go).
+	emoji pageEmoji
 }
 
 // pollClosed is whether a poll is closed: stored as closed, or past its
@@ -231,9 +234,18 @@ func pollClosed(closed bool, closeDate, now int64) bool {
 
 // loadKinds parses the content_extra of the messages that have a
 // detail and loads, in one batch for all of them, the polls they show
-// and the users and groups they name, and the people their text
-// entities mention, as sc may see them.
+// and the users and groups they name, the people their text entities
+// mention, as sc may see them, and the custom emoji and effects they
+// show.
 func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms []logdb.Message) (kinds, error) {
+	return s.loadKindsWith(ctx, sc, chat, ms, nil)
+}
+
+// loadKindsWith is loadKinds for a page that shows the custom emoji
+// of emoji besides its messages' (its forum topics' icons), resolved
+// with theirs.
+func (s *Server) loadKindsWith(ctx context.Context, sc scope.Scope, chat int64, ms []logdb.Message,
+	emoji []int64) (kinds, error) {
 	k := kinds{chat: chat, extra: map[uint64]*kindExtra{}, edits: map[uint64][]*kindExtra{},
 		service: map[uint64]*serviceExtra{}, rich: map[uint64]*richDoc{},
 		richEdits: map[uint64][]*richDoc{}}
@@ -347,7 +359,27 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 		mc.add(p.Question, p.QuestionEntities, "poll question")
 		mc.add(p.Explanation, p.ExplanationEntities, "poll explanation")
 	}
-	k.mentions, err = mc.load(ctx, sc)
+	if k.mentions, err = mc.load(ctx, sc); err != nil {
+		return k, err
+	}
+	var effects []int64
+	emoji = append(emoji, mc.emoji...)
+	for _, m := range ms {
+		for _, r := range reactions(m.Reactions) {
+			if id, err := strconv.ParseInt(r.CustomEmojiID, 10, 64); err == nil {
+				emoji = append(emoji, id)
+			}
+		}
+		if m.EffectID != 0 {
+			effects = append(effects, m.EffectID)
+		}
+		if m.ContentType == "service" && isTopicType(m.ServiceType) {
+			if x := k.serviceDetail[m.RowID]; x != nil {
+				emoji = append(emoji, serviceTopicIcon(k, m, x))
+			}
+		}
+	}
+	k.emoji, err = s.emoji.resolve(ctx, s.ro, emoji, effects)
 	return k, err
 }
 

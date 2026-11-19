@@ -2154,6 +2154,8 @@ export interface components {
             language?: string;
             /** @description A custom_emoji's id, as a string (it does not fit a double). */
             custom_emoji_id?: string;
+            /** @description Present exactly when custom_emoji_id is: the sticker behind it, or null while the archive does not know it (the entity's text, its fallback emoji, stands in). */
+            custom_emoji?: components["schemas"]["CustomEmoji"] | null;
             /** @description A media_timestamp's offset into the message's media, in seconds, when stored; the daemon does not store it yet, so a client reads it from the entity's text (h:mm:ss). */
             media_timestamp?: number;
         };
@@ -2245,11 +2247,32 @@ export interface components {
             replies: number | null;
             /** @description The latest reaction totals, most first as Telegram orders them; empty when there are none or none were observed. */
             reactions: components["schemas"]["Reaction"][];
+            /** @description The message effect Telegram showed when the message was sent (meta.effect_id), as a string; null for none. */
+            effect_id: string | null;
+            /** @description The effect of effect_id, or null: for none, and while the archive does not know it. */
+            effect: components["schemas"]["MessageEffect"] | null;
         };
-        /** @description One reaction's total: an emoji, a custom emoji (its id; the web does not have its image), or the paid star reaction. */
+        /** @description The sticker behind a custom emoji id (telegram_custom_emoji), resolved for the page (web/docs/message-kinds.md, "Custom emoji"). emoji is its fallback emoji. url is the sticker's /files/<token> URL in format, null when the archive has no file for it, its format is not known, or the viewer may not have it fetched; the fallback emoji is shown then. needs_repainting: the sticker is drawn in the text colour. */
+        CustomEmoji: {
+            emoji: string;
+            /** @enum {string|null} */
+            format: "webp" | "tgs" | "webm" | null;
+            url: string | null;
+            needs_repainting: boolean;
+        };
+        /** @description A message effect (telegram_message_effects), resolved for the page as custom emoji are. emoji is the effect's emoji. url is a small picture of it in format: its static icon (webp), else a premium sticker effect's sticker, else an emoji reaction effect's select animation (tgs); null when there is none the viewer may have, and the emoji is shown then. The full-screen animation is not sent. */
+        MessageEffect: {
+            emoji: string;
+            /** @enum {string|null} */
+            format: "webp" | "tgs" | "webm" | null;
+            url: string | null;
+        };
+        /** @description One reaction's total: an emoji, a custom emoji (its id, and its sticker when known), or the paid star reaction. */
         Reaction: {
             emoji?: string;
             custom_emoji_id?: string;
+            /** @description Present exactly when custom_emoji_id is: the sticker behind it, or null while the archive does not know it. */
+            custom_emoji?: components["schemas"]["CustomEmoji"] | null;
             paid?: boolean;
             count: number;
         };
@@ -2313,13 +2336,17 @@ export interface components {
             kind: "topic";
             topic: components["schemas"]["ServiceTopic"];
         };
-        /** @description A forum topic a service line names. id is the message's own forum topic (link to ?topic={id}); name and icon_color (an RGB colour) are the action's own, else the topic's as last seen. Each is null when not known. */
+        /** @description A forum topic a service line names. id is the message's own forum topic (link to ?topic={id}); name, icon_color (an RGB colour) and icon_custom_emoji_id are the action's own, else the topic's as last seen. Each is null when not known. */
         ServiceTopic: {
             /** Format: int64 */
             id: number | null;
             name: string | null;
             /** Format: int64 */
             icon_color: number | null;
+            /** @description The icon's custom emoji, as a string; null for a topic drawn with icon_color alone, and when not known. */
+            icon_custom_emoji_id: string | null;
+            /** @description The sticker of icon_custom_emoji_id; null for none and while the archive does not know it. */
+            icon_custom_emoji: components["schemas"]["CustomEmoji"] | null;
         };
         /** @description chat_added_to_community, chat_removed_from_community, chat_join_from_community: the community, when the archive has it as a group the viewer may see (link to /groups/{id}); no detail otherwise. A community's id is not a chat's, so there is none until the logger records communities as groups. */
         ServiceCommunityDetail: {
@@ -2699,6 +2726,10 @@ export interface components {
             name: string;
             /** @description The icon's colour, RGB. */
             icon_color: number;
+            /** @description The icon's custom emoji, as a string; null for a topic drawn with icon_color alone. */
+            icon_custom_emoji_id: string | null;
+            /** @description The sticker of icon_custom_emoji_id; null for none and while the archive does not know it. */
+            icon_custom_emoji: components["schemas"]["CustomEmoji"] | null;
             closed: boolean;
             /** @description The General topic is hidden from the topic list. */
             hidden: boolean;

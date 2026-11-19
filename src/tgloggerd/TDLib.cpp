@@ -4,6 +4,7 @@
  */
 #include <tgloggerd/TDLib.hpp>
 #include <tgloggerd/MessageExtract.hpp>
+#include <tgloggerd/EmojiExtract.hpp>
 
 #include <td/telegram/Client.h>
 #include <td/telegram/td_api.h>
@@ -3950,6 +3951,15 @@ Object TDLib::Impl::resolve_file(const models::FileSource &src,
 			td_api::make_object<td_api::searchMessagesFilterChatPhoto>());
 		want = td_api::foundChatMessages::ID;
 		break;
+	case Kind::CustomEmoji:
+		q = td_api::make_object<td_api::getCustomEmojiStickers>(
+			std::vector<int64_t>{ src.object_id });
+		want = td_api::stickers::ID;
+		break;
+	case Kind::MessageEffect:
+		q = td_api::make_object<td_api::getMessageEffect>(src.object_id);
+		want = td_api::messageEffect::ID;
+		break;
 	}
 
 	Object obj = request_wait(std::move(q), left());
@@ -4033,6 +4043,23 @@ Object TDLib::Impl::resolve_file(const models::FileSource &src,
 					    c.photo_->sizes_, src.unique_id))
 					f = x;
 		}
+		break;
+	}
+	case Kind::CustomEmoji: {
+		auto &list = static_cast<const td_api::stickers &>(*obj);
+		for (const auto &st : list.stickers_)
+			if (st && st->sticker_ &&
+			    sticker_custom_emoji_id(*st) == src.object_id)
+				f = st->sticker_.get();
+		break;
+	}
+	case Kind::MessageEffect: {
+		/* The effect's file whose unique id is the row's. */
+		auto &e = static_cast<const td_api::messageEffect &>(*obj);
+		for (const auto &x : message_effect_files(e))
+			if (x.file->remote_ &&
+			    x.file->remote_->unique_id_ == src.unique_id)
+				f = x.file;
 		break;
 	}
 	}
