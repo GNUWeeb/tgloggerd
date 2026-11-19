@@ -366,6 +366,18 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		res.end(JSON.stringify(out));
 		return;
 	}
+	// "Fetch from Telegram" (fetchFile): for accounts that may fetch; the
+	// daemon takes a moment, long enough here to see the button wait.
+	const ff = url.pathname.match(/^\/api\/files\/([^/]+)\/fetch$/);
+	if (ff && req.method === 'POST') {
+		if (who === 'public') { send(res, 401, { error: 'unauthenticated' }); return; }
+		if (!csrfOk(req)) { send(res, 403, { error: 'csrf' }); return; }
+		if (!fx.canFetch(who)) { send(res, 403, { error: 'fetch_not_allowed', message: 'This account may not fetch files from Telegram.' }); return; }
+		const [status, out] = fx.fetchFileApi(decodeURIComponent(ff[1]!));
+		await new Promise((r) => setTimeout(r, TEST ? 300 : 1200));
+		send(res, status, out);
+		return;
+	}
 	// Signed out is 401, even for an exposed group's photos.
 	const ph = url.pathname.match(/^\/api\/(users|groups)\/(-?\d+)\/photos$/);
 	if (ph && req.method === 'GET') {

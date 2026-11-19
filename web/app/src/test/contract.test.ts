@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { setEngine, viewOf, adminApi, federationGroups, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { setEngine, viewOf, adminApi, federationGroups, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, fetchFileApi, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 import { FORUM_GROUP, KINDS_GROUP, TOPICS, sampleOf } from '../../standin/kinds.ts';
 import { chatStream, privateMessages } from '../../../mockup/src/data/messages.js';
@@ -255,6 +255,23 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		const answers = [adminApi('PATCH', `mcp/groups/${id}`, {}, 'superadmin')[0], adminApi('PATCH', 'mcp/groups/-1', { note: '' }, 'superadmin')[0]];
 		expect(answers).toEqual([400, 404]);
 		for (const st of [204, ...answers]) expect(op.responses).toHaveProperty(String(st));
+	});
+
+	it('a fetch from Telegram, of a big file (partial) and of a small one (stored)', () => {
+		const rows = (pageData('/files?view=list&per=200&f=' + encodeURIComponent('[{"field":"stored","op":"is","value":"no"}]'), 'superadmin').props as { rows: { url: string | null; fetch?: string | null; size: number }[] }).rows;
+		const token = (r: { fetch?: string | null }) => r.fetch!.split('/')[3]!;
+		const answers = (r: { fetch?: string | null }) => !!r.fetch && fetchFileApi(token(r))[0] === 200;
+		const big = rows.find((r) => r.url === null && answers(r));
+		const small = rows.find((r) => r.url !== null && answers(r));
+		expect(big && small).toBeTruthy();
+		for (const [r, state] of [[big!, 'partial'], [small!, 'stored']] as const) {
+			const [status, body] = fetchFileApi(token(r));
+			ok(status, body, '/api/files/{token}/fetch', 'post');
+			expect((body as { state: string }).state).toBe(state);
+		}
+		expect(fetchFileApi('nope')[0]).toBe(404);
+		// Some file is gone from Telegram.
+		expect(rows.some((r) => r.fetch && fetchFileApi(token(r))[0] === 410)).toBe(true);
 	});
 
 	it('a name lookup', () => {
