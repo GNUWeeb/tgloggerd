@@ -347,6 +347,7 @@ func (s *Server) routes() []route {
 		{"POST /api/forwarding/discord-telegram", s.RequireSession(s.createD2T)},
 		{"PATCH /api/forwarding/discord-telegram/{id}", s.RequireSession(s.updateD2T)},
 		{"DELETE /api/forwarding/discord-telegram/{id}", s.RequireSession(s.deleteD2T)},
+		{"GET /api/forwarding/federations", s.RequireSession(s.fwdFederations)},
 		{"GET /api/bots", s.RequireSession(s.listBots)},
 		{"POST /api/bots", s.RequireSession(s.createBot)},
 		{"PATCH /api/bots/{id}", s.RequireSession(s.updateBot)},

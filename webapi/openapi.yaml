@@ -2933,7 +2933,6 @@ paths:
 
   /api/forwarding/federations:
     get:
-      x-tgd-status: planned
       operationId: fwdFederations
       tags: [forwarding]
       summary: The federations a new configuration of a chat may go into

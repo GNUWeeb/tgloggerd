@@ -377,7 +377,10 @@ resource, so more relations (sharing) can be added later:
   it (platform-forwarding.md, Bots). Forwarding configurations: a
   member with `forward` sees and changes only its own, in its granted
   groups; admins and superadmins see every configuration of the chats
-  they see. Transferring them is `forwarding-per-user`'s.
+  they see. Each configuration is also in a federation, stored beside
+  the owner in `web_resource_federations` (web migration 000018; no
+  row is Default), and dropped with it (platform-forwarding.md).
+  Transferring them is `forwarding-per-user`'s.
 
 ### Assigning the existing resources (deployment)
 

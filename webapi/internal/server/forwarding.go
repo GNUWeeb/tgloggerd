@@ -33,9 +33,9 @@ import (
 // Each configuration is owned by the account that created it
 // (ownership.go), as is each bot (bots.go); one without an owner, made before
 // ownership existed or by the Drogon pages, counts as the superadmins'
-// and is answered as shared. The federation of a configuration is not
-// stored yet: every one is in Default, and transferring is not served
-// (forwarding-per-user). An admin or superadmin with the ability sees
+// and is answered as shared. Each is in the federation chosen when it
+// was created (fwdfederations.go), Default for those made before. An
+// admin or superadmin with the ability sees
 // every configuration of the chats it sees; a member with forward sees
 // and changes only those it owns (web-accounts.md section 6): any other
 // does not exist for it (fwdVisible).
@@ -117,30 +117,49 @@ type owned struct {
 	TransferCandidates []fwdPerson `json:"transfer_candidates"`
 }
 
-// fwdOwners is the owners of a list's configurations of type t, read
-// in one query.
-func (s *Server) fwdOwners(ctx context.Context, t webdb.ResourceType, ids []uint64) (map[int64]webdb.OwnerInfo, error) {
+// fwdMeta is what the answers of a list's configurations of one type
+// need beside their rows: their owners and federations, each read in
+// one query, and the federations' names.
+type fwdMeta struct {
+	owners map[int64]webdb.OwnerInfo
+	feds   map[int64]uint64
+	names  map[uint64]string
+}
+
+// fwdMetaOf reads the fwdMeta of the configurations ids of type t.
+func (s *Server) fwdMetaOf(ctx context.Context, v scope.Viewer, t webdb.ResourceType,
+	ids []uint64) (fwdMeta, error) {
 	keys := make([]int64, len(ids))
 	for i, id := range ids {
 		keys[i] = int64(id)
 	}
-	return webdb.Owners(ctx, s.app, t, keys)
+	var (
+		m   fwdMeta
+		err error
+	)
+	if m.owners, err = webdb.Owners(ctx, s.app, t, keys); err != nil {
+		return m, err
+	}
+	if m.feds, err = webdb.ResourceFederations(ctx, s.app, t, keys); err != nil {
+		return m, err
+	}
+	m.names, err = s.fedNames(ctx, v)
+	return m, err
 }
 
 // ownership is a configuration's owner and federation: its owner from
-// owners, or shared (id 0, active) when it has none. The federation is
-// Default and there is nobody to transfer to until forwarding-per-user
-// stores federations and serves transfers.
-func (s *Server) ownership(ctx context.Context, v scope.Viewer, id uint64,
-	owners map[int64]webdb.OwnerInfo) owned {
+// m, or shared (id 0, active) when it has none, and its federation,
+// Default when it has no row.
+func (s *Server) ownership(ctx context.Context, v scope.Viewer, id uint64, m fwdMeta) owned {
 	owner := fwdPerson{ID: 0, Name: s.textFor(ctx, v, "fwd.shared"), Active: true}
-	if o, ok := owners[int64(id)]; ok {
+	if o, ok := m.owners[int64(id)]; ok {
 		owner = fwdPerson{ID: o.ID, Name: o.Name(), Role: o.Role, Active: o.Active}
 	}
+	fed := m.feds[int64(id)]
 	return owned{
 		ID:                 id,
 		Owner:              owner,
-		Federation:         fedRef{scope.DefaultFederation, s.textFor(ctx, v, "federation.default")},
+		Federation:         fedRef{fed, m.names[fed]},
 		TransferCandidates: []fwdPerson{},
 	}
 }
@@ -168,9 +187,8 @@ type t2dRoute struct {
 	LastSent  *string  `json:"last_sent"`
 }
 
-func (s *Server) t2dJSON(ctx context.Context, v scope.Viewer, h logdb.T2DWebhook,
-	owners map[int64]webdb.OwnerInfo) t2dRoute {
-	return t2dRoute{owned: s.ownership(ctx, v, h.ID, owners), Chat: s.fwdPick(h.Chat),
+func (s *Server) t2dJSON(ctx context.Context, v scope.Viewer, h logdb.T2DWebhook, m fwdMeta) t2dRoute {
+	return t2dRoute{owned: s.ownership(ctx, v, h.ID, m), Chat: s.fwdPick(h.Chat),
 		URLMasked: maskWebhook(h.URL), Types: logdb.T2D.List(h.Types),
 		Enabled: h.Enabled, Sent: h.Sent, LastSent: isoPtr(h.LastSent)}
 }
@@ -207,8 +225,8 @@ func (s *Server) botsByID(ctx context.Context) (map[uint64]logdb.BotRow, error) 
 // d2tJSON is route d as the page shows it; profiles is the visible
 // bot users (botProfiles).
 func (s *Server) d2tJSON(ctx context.Context, v scope.Viewer, d logdb.D2TRoute,
-	owners map[int64]webdb.OwnerInfo, bots map[uint64]logdb.BotRow, profiles map[int64]bool) d2tRoute {
-	out := d2tRoute{owned: s.ownership(ctx, v, d.ID, owners),
+	m fwdMeta, bots map[uint64]logdb.BotRow, profiles map[int64]bool) d2tRoute {
+	out := d2tRoute{owned: s.ownership(ctx, v, d.ID, m),
 		// A snowflake does not fit a JavaScript number exactly.
 		ChannelID: strconv.FormatUint(d.ChannelID, 10), ChannelName: d.ChannelName,
 		Chat:        s.fwdPick(d.Chat),
@@ -313,22 +331,10 @@ func (s *Server) getD2T(ctx context.Context, sc scope.Scope, id uint64) (logdb.D
 	return d, vis(d.ID), nil
 }
 
-// fwdTarget checks the chat and federation of a new configuration: the
-// chat must be one the logger has seen and the scope sees, the
-// federation one the viewer administers. Either missing answers 404.
+// fwdTarget checks the chat of a configuration: one the logger has
+// seen and the scope sees, else 404.
 func (s *Server) fwdTarget(w http.ResponseWriter, r *http.Request, sc scope.Scope,
-	chat int64, fed *uint64) (logdb.FwdChat, bool) {
-	if fed != nil {
-		ok, err := s.filesInto(r.Context(), sc, *fed)
-		if err != nil {
-			s.internalError(w, "forwarding federation", err)
-			return logdb.FwdChat{}, false
-		}
-		if !ok {
-			notFound(w)
-			return logdb.FwdChat{}, false
-		}
-	}
+	chat int64) (logdb.FwdChat, bool) {
 	c, ok, err := logdb.ResolveChat(r.Context(), s.ro, sc, chat)
 	if err != nil {
 		s.internalError(w, "forwarding chat", err)
@@ -338,6 +344,15 @@ func (s *Server) fwdTarget(w http.ResponseWriter, r *http.Request, sc scope.Scop
 		notFound(w)
 	}
 	return c, ok
+}
+
+// fedDetail is the federation of a new configuration as its audit row
+// names it: nothing for Default.
+func fedDetail(fed uint64) string {
+	if fed == scope.DefaultFederation {
+		return ""
+	}
+	return fmt.Sprintf(" federation=%d", fed)
 }
 
 // fwdTypes reads a types list of direction d: an unknown type or an
@@ -386,7 +401,11 @@ func (s *Server) createT2D(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	chat, ok := s.fwdTarget(w, r, sc, *in.ChatID, in.Federation)
+	chat, ok := s.fwdTarget(w, r, sc, *in.ChatID)
+	if !ok {
+		return
+	}
+	fed, ok := s.fwdFederation(w, r, sc, v, chat.ID, in.Federation)
 	if !ok {
 		return
 	}
@@ -395,9 +414,11 @@ func (s *Server) createT2D(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "create webhook", err)
 		return
 	}
-	s.auditAdmin(r, v.ID, "fwd_t2d_create", fmt.Sprintf("webhook %d chat %d enabled=%t types=%s",
-		id, chat.ID, *in.Enabled, strings.Join(logdb.T2D.List(types), ",")))
-	s.recordOwner(r, webdb.Resource{Type: webdb.ResT2DWebhook, ID: int64(id)}, v.ID)
+	s.auditAdmin(r, v.ID, "fwd_t2d_create", fmt.Sprintf("webhook %d chat %d enabled=%t types=%s%s",
+		id, chat.ID, *in.Enabled, strings.Join(logdb.T2D.List(types), ","), fedDetail(fed)))
+	res := webdb.Resource{Type: webdb.ResT2DWebhook, ID: int64(id)}
+	s.recordOwner(r, res, v.ID)
+	s.fileConfig(r, res, fed)
 	writeJSON(w, http.StatusCreated, map[string]uint64{"id": id})
 }
 
@@ -449,7 +470,7 @@ func (s *Server) updateT2D(w http.ResponseWriter, r *http.Request) {
 			s.refuse(w, r, v, http.StatusBadRequest, "bad_request", "fwd.chat_kind")
 			return
 		}
-		chat, ok := s.fwdTarget(w, r, sc, *in.ChatID, nil)
+		chat, ok := s.fwdTarget(w, r, sc, *in.ChatID)
 		if !ok {
 			return
 		}
@@ -626,7 +647,11 @@ func (s *Server) createD2T(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.usableBot(w, r, sc, v, *in.TelegramBot, logdb.KindTelegram); !ok {
 		return
 	}
-	chat, ok := s.fwdTarget(w, r, sc, *in.ChatID, in.Federation)
+	chat, ok := s.fwdTarget(w, r, sc, *in.ChatID)
+	if !ok {
+		return
+	}
+	fed, ok := s.fwdFederation(w, r, sc, v, chat.ID, in.Federation)
 	if !ok {
 		return
 	}
@@ -641,10 +666,12 @@ func (s *Server) createD2T(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAdmin(r, v.ID, "fwd_d2t_create", fmt.Sprintf("route %d channel %d chat %d "+
-		"discord_bot %d telegram_bot %d enabled=%t types=%s", id, channel, chat.ID,
+		"discord_bot %d telegram_bot %d enabled=%t types=%s%s", id, channel, chat.ID,
 		*in.DiscordBot, *in.TelegramBot, *in.Enabled,
-		strings.Join(logdb.D2T.List(types), ",")))
-	s.recordOwner(r, webdb.Resource{Type: webdb.ResD2TRoute, ID: int64(id)}, v.ID)
+		strings.Join(logdb.D2T.List(types), ","), fedDetail(fed)))
+	res := webdb.Resource{Type: webdb.ResD2TRoute, ID: int64(id)}
+	s.recordOwner(r, res, v.ID)
+	s.fileConfig(r, res, fed)
 	writeJSON(w, http.StatusCreated, map[string]uint64{"id": id})
 }
 
@@ -729,7 +756,7 @@ func (s *Server) updateD2T(w http.ResponseWriter, r *http.Request) {
 		changed = append(changed, fmt.Sprintf("telegram_bot=%d", d.TelegramBotID))
 	}
 	if in.ChatID != nil {
-		chat, ok := s.fwdTarget(w, r, sc, *in.ChatID, nil)
+		chat, ok := s.fwdTarget(w, r, sc, *in.ChatID)
 		if !ok {
 			return
 		}
@@ -859,13 +886,13 @@ func loadT2D(ctx context.Context, pr *pageRequest) (any, error) {
 	for i, w := range ws {
 		ids[i] = w.ID
 	}
-	owners, err := s.fwdOwners(ctx, webdb.ResT2DWebhook, ids)
+	m, err := s.fwdMetaOf(ctx, v, webdb.ResT2DWebhook, ids)
 	if err != nil {
 		return nil, err
 	}
 	p := t2dProps{Routes: []t2dRoute{}, TypeOptions: logdb.T2D.Keys, Federations: feds}
 	for _, w := range ws {
-		p.Routes = append(p.Routes, s.t2dJSON(ctx, v, w, owners))
+		p.Routes = append(p.Routes, s.t2dJSON(ctx, v, w, m))
 	}
 	return p, nil
 }
@@ -896,7 +923,7 @@ func loadD2T(ctx context.Context, pr *pageRequest) (any, error) {
 	for i, r := range rs {
 		ids[i] = r.ID
 	}
-	owners, err := s.fwdOwners(ctx, webdb.ResD2TRoute, ids)
+	m, err := s.fwdMetaOf(ctx, v, webdb.ResD2TRoute, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -915,7 +942,7 @@ func loadD2T(ctx context.Context, pr *pageRequest) (any, error) {
 	}
 	p := d2tProps{Routes: []d2tRoute{}, TypeOptions: logdb.D2T.Keys, Federations: feds}
 	for _, r := range rs {
-		p.Routes = append(p.Routes, s.d2tJSON(ctx, v, r, owners, bots, profiles))
+		p.Routes = append(p.Routes, s.d2tJSON(ctx, v, r, m, bots, profiles))
 	}
 	return p, nil
 }
