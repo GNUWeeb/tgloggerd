@@ -209,3 +209,21 @@ describe('a gift\'s message page', () => {
 		expect(text().querySelector('q')!.textContent).toBe('🎄');
 	});
 });
+
+describe('a giveaway', () => {
+	it('shows its prize sticker on its card, and no sticker when none was recorded', () => {
+		const raw = (chatStream(KINDS_GROUP) as Raw[]).find((m) => sampleOf(m)?.content_type === 'giveaway')!;
+		fakeApi('superadmin');
+		renderPage(`/messages/group/${raw.id}`, 'superadmin');
+		const box = document.querySelector('.a-msgkind .k-giftsticker') as HTMLElement;
+		expect(within(box).getByRole('img', { name: 'sticker 🎉' })).toBeTruthy();
+		expect(playTgs).toHaveBeenCalledWith(expect.any(HTMLElement), '/files/standin-988009.tgs', expect.any(Function), expect.any(Function));
+		document.body.innerHTML = '';
+		const page = fixture<MessageProps>(`/messages/group/${raw.id}`);
+		const m = page.props.message;
+		fakeApi('superadmin');
+		renderPage(`/messages/group/${raw.id}`, 'superadmin', { props: { ...page.props, message: { ...m, detail: { ...(m.detail as S['GiveawayDetail']), sticker: null } } } });
+		expect(document.querySelector('.a-msgkind .k-card')).toBeTruthy();
+		expect(document.querySelector('.k-giftsticker')).toBeNull();
+	});
+});

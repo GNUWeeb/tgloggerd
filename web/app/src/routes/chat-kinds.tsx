@@ -14,7 +14,7 @@ import { TypeIcon, duration, type ContentType } from '../ui/media.tsx';
 import { contentLabel } from '../ui/labels.ts';
 import { PaidMedia } from './chat-paid.tsx';
 import { VcardExtra } from './chat-vcard.tsx';
-import { Animation, Picture, type Media } from './chat-media.tsx';
+import { Animation, Picture, Sticker, type Media } from './chat-media.tsx';
 import type { Viewer } from '../page.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
 import { RichBlocks } from '../ui/richblocks.tsx';
@@ -269,6 +269,7 @@ export function KindDetail({ d, text, entities, chat, v, tdlib, full = false }: 
 			const prize = !d.prize ? 'A giveaway' : 'premium_months' in d.prize ? `Telegram Premium for ${d.prize.premium_months} month${d.prize.premium_months === 1 ? '' : 's'}` : `${fmt(d.prize.stars)} Stars`;
 			return (
 				<div className="k-card">
+					{d.sticker && <div className="k-giftsticker"><Sticker m={d.sticker} /></div>}
 					<Head icon={Gift}>{prize}</Head>
 					<div>{fmt(d.winner_count)} winner{d.winner_count === 1 ? '' : 's'}{d.winners_selection_date ? `, chosen ${dateTime(d.winners_selection_date, v)}` : ''}{d.only_new_members ? ', new members only' : ''}</div>
 					{d.prize_description && <div className="c-sub">{d.prize_description}</div>}

@@ -340,6 +340,10 @@
 .app .k-checklist li.done > svg { color: var(--ok); }
 .app .k-checklist li.done .k-task { text-decoration: line-through; color: var(--fg-2); }
 .app .k-amount { font-weight: 700; font-size: 15px; }
+/* A giveaway's prize sticker, above its card. */
+.app .k-giftsticker { align-self: center; }
+.app .k-giftsticker .c-sticker { width: 120px; height: 120px; }
+.app .k-giftsticker .c-sticker-emoji { font-size: 72px; }
 .app .k-call { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 4px; }
 .app .k-callicon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--c-accent); color: #fff; flex: none; }
 .app .k-call.missed .k-callicon, .app .k-call.declined .k-callicon, .app .k-call.disconnected .k-callicon { background: var(--danger); }
