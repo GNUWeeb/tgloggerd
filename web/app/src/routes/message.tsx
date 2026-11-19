@@ -18,6 +18,7 @@ import { RichText } from '../ui/richtext.tsx';
 import { ServiceText, partsOf } from '../ui/serviceparts.tsx';
 import { EditDetail, useEditList } from '../ui/editdetail.tsx';
 import { ServiceDetailView, topicInText } from '../ui/servicedetail.tsx';
+import { deletedBanner, deletedField, deletedTag } from '../ui/deletion.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
@@ -96,9 +97,9 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 				{m.forwarded && <Pill tone="info"><Forward size={11} />forwarded</Pill>}
 				{m.edited && <Pill><Pencil size={11} />edited</Pill>}
 				{m.pinned && <Pill tone="accent"><Pin size={11} />pinned</Pill>}
-				{m.deleted_at && <Pill tone="danger"><Trash2 size={11} />deleted</Pill>}
+				{m.deleted_at && <Pill tone="danger"><Trash2 size={11} />{deletedTag(m)}</Pill>}
 			</div>
-			{m.deleted_at && <div className="a-banner warn"><Trash2 size={15} /><span>Deleted on Telegram at {dateTime(m.deleted_at, v)}. The archive keeps the last version it saw.</span></div>}
+			{m.deleted_at && <div className="a-banner warn"><Trash2 size={15} /><span>{deletedBanner(m, dateTime(m.deleted_at, v))}</span></div>}
 			<div className="a-cols">
 				<div className="a-stack">
 					<Card>
@@ -172,7 +173,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						[null, 'Type', contentLabel(m.content_type)],
 						[null, 'Sent', dateTime(m.date, v)],
 						m.edited_at ? [null, 'Edited', dateTime(m.edited_at, v)] : null,
-						m.deleted_at ? [null, 'Deleted', dateTime(m.deleted_at, v)] : null,
+						m.deleted_at ? [null, deletedField(m), dateTime(m.deleted_at, v)] : null,
 						m.media ? [null, 'File', <Link to={`/files?view=list&file=${m.media.file_id}`} className="a-rowlink">file #{fmt(m.media.file_id)}</Link>] : null,
 						m.forwarded ? [null, 'Forwarded from', fromLink] : null,
 						m.author_signature ? [null, 'Signature', m.author_signature] : null,

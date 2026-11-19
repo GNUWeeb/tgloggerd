@@ -12,6 +12,7 @@ import { useScrollLock } from '../ui/scrollLock.ts';
 import { playTgs } from '../ui/lottie.ts';
 import { bytes } from '../format.ts';
 import { FetchButton, needsFetch, useFetched } from '../ui/fetchfile.tsx';
+import { deletedTag, deletedTitle } from '../ui/deletion.ts';
 import type { ChatMedia, ChatMessage } from '../types.ts';
 
 export type MediaKind = 'photo' | 'video' | 'animation' | 'sticker' | 'voice' | 'audio' | 'document';
@@ -95,7 +96,7 @@ function Missing({ m, ratio, label, children }: { m: Media; ratio?: string; labe
 }
 
 function DeletedMark({ m }: { m: Media }) {
-	return m.deleted_at ? <span className="c-itemdel" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span> : null;
+	return m.deleted_at ? <span className="c-itemdel" title={deletedTitle(m, m.deleted_at)}><Trash2 size={11} /><span>{deletedTag(m)}</span></span> : null;
 }
 
 // A photo: the picture at its real shape; a click opens the viewer.

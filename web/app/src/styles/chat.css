@@ -190,6 +190,9 @@
 .app .c-media.natural > img { height: auto; max-height: 520px; object-fit: contain; }
 .app .c-fetch { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); background: rgb(0 0 0 / .55); color: #fff; font-size: 12px; padding: 2px 9px; border-radius: 9px; white-space: nowrap; pointer-events: none; }
 .app .c-itemdel { position: absolute; right: 6px; top: 6px; display: inline-flex; align-items: center; gap: 3px; background: rgb(0 0 0 / .55); color: #ffb4b4; font-size: 11px; padding: 1px 6px; border-radius: 8px; }
+/* A narrow album cell cuts the longer recheck words; the title has them. */
+.app .c-itemdel { max-width: calc(100% - 12px); }
+.app .c-itemdel > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app .c-docwrap { position: relative; }
 .app .c-docwrap .c-itemdel { position: static; display: inline-flex; margin: 0 0 4px 54px; background: none; color: var(--danger); padding: 0; }
 .app .c-docwrap.deleted .c-doc { opacity: .62; }
