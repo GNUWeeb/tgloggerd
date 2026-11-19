@@ -820,6 +820,7 @@ func (s *Server) getChatMessages(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "chat window kinds", err)
 		return
 	}
+	s.rechecks.window(c.ID, a, win, sess != nil)
 	writeJSON(w, http.StatusOK, s.viewFor(sc, sess != nil).window(c, win, k))
 }
 

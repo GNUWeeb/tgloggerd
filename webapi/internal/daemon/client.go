@@ -486,3 +486,30 @@ func (c *Client) ChatMembers(ctx context.Context, chatID int64, q string, offset
 	}
 	return m, r, true
 }
+
+// RecheckResult is the answer of POST /v1/chats/{id}/recheck: whether
+// the recheck was queued, and when not, the daemon's reason ("recent":
+// that stretch was rechecked lately; "busy": its queue is full;
+// "queued": the same recheck waits already; or a reason added later).
+type RecheckResult struct {
+	Queued bool   `json:"queued"`
+	Reason string `json:"reason"`
+}
+
+// Recheck is POST /v1/chats/{id}/recheck {"around": around}: have the
+// daemon read the stretch of a chat around a message id (0 = the
+// newest messages) from Telegram again, storing what it lacked or
+// missed changing and marking what Telegram no longer has as deleted
+// (docs/internal-api.md). The daemon answers at once and does the
+// work later; what it finds reaches the pages as the usual message
+// events. ok is false when the client is off or no such answer came
+// within timeout (r says why: 404 for a chat it does not know, 503
+// while it is not logged in).
+func (c *Client) Recheck(ctx context.Context, chatID, around int64, timeout time.Duration) (res RecheckResult, r Reply, ok bool) {
+	r = c.Call(ctx, http.MethodPost, "/v1/chats/"+strconv.FormatInt(chatID, 10)+"/recheck",
+		map[string]any{"around": around}, timeout)
+	if !r.OK() || r.Body == nil || json.Unmarshal(r.Body, &res) != nil {
+		return RecheckResult{}, r, false
+	}
+	return res, r, true
+}

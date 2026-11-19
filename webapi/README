@@ -605,6 +605,43 @@ admin, and then by name and photo only: no counts, contact name, bio,
 history or other groups (logdb.VisibleUsers). Users and groups the
 pages show come with the same rule.
 
+## Recheck
+
+The logger learns of messages from TDLib's updates and a one-time
+history walk, so what happened while it was away can be missing: after
+a restart Telegram may answer a busy chat's catch-up with "too much
+changed" instead of the missed messages, and edits and deletions made
+meanwhile are lost the same way. So serving a chat window (GET
+/api/chats/.../messages), a chat page or a message page asks the
+daemon to read that stretch of the chat from Telegram again (POST
+/v1/chats/{id}/recheck {"around": <message id>}, internal/server/
+recheck.go). The daemon answers at once, stores what it lacked or
+missed changing, marks what Telegram no longer has as deleted, and
+sends the usual message events, which the live updates relay to the
+open pages. The answer never waits for the ask, and its outcome (a
+refusal, a daemon away) is only logged at debug.
+
+A stretch is a chat and a message id: 0 for the newest messages, which
+a window without an anchor shows (its forum topic aside); otherwise the
+anchor's message id (before, after or around, the chat page's ?at= or
+the message its date found, the message page's own message, and for
+the oldest messages, after=0, the window's first), so the same page
+always names the same stretch, as the daemon's own limits key it. Each
+stretch is asked at most once per WEBAPI_RECHECK_NEWEST_SECS (newest)
+or WEBAPI_RECHECK_OLDER_SECS (any other), whoever asks. Signed-out
+visitors, who may be anyone in any number (an exposed group's public
+archive and its crawlers), all draw from one token bucket of
+WEBAPI_RECHECK_PUBLIC_BURST tokens refilled at
+WEBAPI_RECHECK_PUBLIC_PER_MIN; an older stretch takes a token only
+while more than WEBAPI_RECHECK_PUBLIC_RESERVE are left, so under a
+burst the newest messages stay fresh first. At most
+WEBAPI_RECHECK_MAX_IN_FLIGHT asks wait for the daemon at once; one more
+is dropped without counting against its stretch. The times live in
+memory (at most 20000 stretches): a restart may ask once more. A
+deletion found this way carries deleted_on_recheck: true wherever the
+deletion is sent (openapi.yaml), read from the daemon's
+meta.deleted_on_recheck.
+
 # Search
 
     GET /api/search/{entity}   the advanced search of the Drogon web's
@@ -1336,6 +1373,22 @@ and its own:
                          default 4096
     WEBAPI_LIVE_RECHECK  seconds between two session checks of an open
                          stream, default 30
+    WEBAPI_RECHECK       "0" asks the daemon for no chat rechecks
+                         (Chats, "Recheck"); they also need
+                         WEB_TGLOGGERD_API
+    WEBAPI_RECHECK_NEWEST_SECS, WEBAPI_RECHECK_OLDER_SECS
+                         the least seconds between two asks for a
+                         chat's newest messages, default 60, and for
+                         the stretch around one message, default 3600
+    WEBAPI_RECHECK_PUBLIC_PER_MIN, _PUBLIC_BURST, _PUBLIC_RESERVE
+                         the signed-out visitors' shared bucket: tokens
+                         a minute, default 20 (0: they ask for none);
+                         tokens at most, default 20; tokens older
+                         stretches leave to the newest, default 10,
+                         under the burst
+    WEBAPI_RECHECK_TIMEOUT  milliseconds one ask may take, default 5000
+    WEBAPI_RECHECK_MAX_IN_FLIGHT  asks waiting for the daemon at once,
+                         default 8
     WEBAPI_COUNT_CACHE_SECS  seconds whole-table and list counts are
                          kept (logdb.CountCache: per exact query, so the
                          same for every viewer that runs it), default

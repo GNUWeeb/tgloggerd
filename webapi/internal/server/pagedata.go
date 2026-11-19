@@ -714,6 +714,7 @@ func loadChat(ctx context.Context, pr *pageRequest, group bool) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	pr.s.rechecks.window(c.ID, a, w, pr.sess != nil)
 	v := pr.view()
 	p := chatProps{chatWindowJSON: v.window(c, w, k), At: at, Topics: []topicJSON{}}
 	if c.Topic != 0 {
@@ -842,6 +843,9 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The stretch around the message, as the chat opened at it
+	// (?at=) names it.
+	pr.s.rechecks.ask(d.ChatID, d.Message.MessageID, pr.sess != nil)
 	v := pr.view()
 	n := names{d.Users, d.Groups}
 	m := d.Message
