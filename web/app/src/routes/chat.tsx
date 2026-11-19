@@ -10,7 +10,7 @@ import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
 import { Counts, KindDetail, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
-import type { MemberCount } from '../api/members.ts';
+import { fetchMembers, seesMembers, type MemberCount } from '../api/members.ts';
 import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
 import { bytes, fmt } from '../format.ts';
@@ -247,6 +247,14 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 		const h = /^#msg-(\d+)$/.exec(location.hash);
 		if (h) navigate(setQuery(page.url, { at: Number(h[1]), date: undefined, after: undefined, after_ts: undefined }), { replace: true, scroll: false });
 	}, []);
+
+	// Ask for the group's member list in the background, once per chat
+	// opened, so the service has it at hand when the group page's
+	// Members tab is opened next. Nobody waits for it: not tracked, not
+	// aborted, answer and errors ignored.
+	useEffect(() => {
+		if (isGroup && seesMembers(v)) fetchMembers(chatId).catch(() => {});
+	}, [isGroup, chatId]);
 
 	// A new page (another chat, or ?at=) replaces the window.
 	useEffect(() => {
