@@ -504,4 +504,16 @@ bool DB::ensurePhotoHistory(int64_t owner_id, bool is_group,
 	return added;
 }
 
+bool DB::userExists(int64_t user_id)
+{
+	return !db_.query("SELECT 1 FROM telegram_users WHERE id = ?",
+			  { user_id }).empty();
+}
+
+bool DB::groupExists(int64_t group_id)
+{
+	return !db_.query("SELECT 1 FROM telegram_groups WHERE id = ?",
+			  { group_id }).empty();
+}
+
 } /* namespace tgloggerd */

@@ -414,6 +414,10 @@ public:
 	bool ensurePhotoHistory(int64_t owner_id, bool is_group,
 				uint64_t file_id, int64_t date);
 
+	/* Whether the user or the group has a row. */
+	bool userExists(int64_t user_id);
+	bool groupExists(int64_t group_id);
+
 	/*
 	 * Replace a group's stored administrator set with a freshly fetched
 	 * one, recording added/removed/privilege-change events in

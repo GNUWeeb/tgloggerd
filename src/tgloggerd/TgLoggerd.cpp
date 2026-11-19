@@ -12,6 +12,7 @@
 #include <tgloggerd/StatusApi.hpp>
 #include <tgloggerd/FileFetcher.hpp>
 #include <tgloggerd/ChatApi.hpp>
+#include <tgloggerd/PhotoApi.hpp>
 #include <tgloggerd/ContactApi.hpp>
 #include <tgloggerd/BotWatch.hpp>
 #include <tgloggerd/EventBus.hpp>
@@ -892,6 +893,7 @@ int TgLoggerd::start(void)
 		registerFileApi(*api_, *db_, fetcher_.get());
 		registerStorageApi(*api_, *db_, *janitor_);
 		registerChatApi(*api_, *tdlib_);
+		registerPhotoApi(*api_, *tdlib_, *db_);
 		registerContactApi(*api_, *contacts_);
 		registerEventApi(*api_, *events_);
 		registerStatusApi(*api_, [t = tdlib_.get()] {

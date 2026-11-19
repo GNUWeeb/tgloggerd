@@ -519,6 +519,20 @@ extract_forward_info(const td_api::message &message)
 	return fi;
 }
 
+/* The size among @sizes whose file has Telegram unique id @unique_id. */
+const td_api::file *chat_photo_size_with_unique_id(
+	const std::vector<td_api::object_ptr<td_api::photoSize>> &sizes,
+	const std::string &unique_id)
+{
+	if (unique_id.empty())
+		return nullptr;
+	for (const auto &sz : sizes)
+		if (sz && sz->photo_ && sz->photo_->remote_ &&
+		    sz->photo_->remote_->unique_id_ == unique_id)
+			return sz->photo_.get();
+	return nullptr;
+}
+
 const td_api::file *thumb_file(const td_api::thumbnail *t)
 {
 	return (t && t->file_) ? t->file_.get() : nullptr;
@@ -3855,6 +3869,17 @@ Object TDLib::Impl::resolve_file(const models::FileSource &src,
 		q = td_api::make_object<td_api::getUser>(src.chat_id);
 		want = td_api::user::ID;
 		break;
+	case Kind::UserPhotoHistory:
+		q = td_api::make_object<td_api::getUserProfilePhotos>(
+			src.chat_id, 0, 100);
+		want = td_api::chatPhotos::ID;
+		break;
+	case Kind::GroupPhotoHistory:
+		q = td_api::make_object<td_api::searchChatMessages>(
+			src.chat_id, nullptr, std::string(), nullptr, 0, 0, 100,
+			td_api::make_object<td_api::searchMessagesFilterChatPhoto>());
+		want = td_api::foundChatMessages::ID;
+		break;
 	}
 
 	Object obj = request_wait(std::move(q), left());
@@ -3903,6 +3928,31 @@ Object TDLib::Impl::resolve_file(const models::FileSource &src,
 		auto &u = static_cast<const td_api::user &>(*obj);
 		if (u.profile_photo_)
 			f = u.profile_photo_->big_.get();
+		break;
+	}
+	case Kind::UserPhotoHistory: {
+		/* The photo whose size is the file: matched by unique id. */
+		auto &list = static_cast<const td_api::chatPhotos &>(*obj);
+		for (const auto &ph : list.photos_)
+			if (ph)
+				if (auto *x = chat_photo_size_with_unique_id(
+					    ph->sizes_, src.unique_id))
+					f = x;
+		break;
+	}
+	case Kind::GroupPhotoHistory: {
+		auto &found = static_cast<const td_api::foundChatMessages &>(*obj);
+		for (const auto &m : found.messages_) {
+			if (!m || !m->content_ ||
+			    m->content_->get_id() != td_api::messageChatChangePhoto::ID)
+				continue;
+			auto &c = static_cast<const td_api::messageChatChangePhoto &>(
+				*m->content_);
+			if (c.photo_)
+				if (auto *x = chat_photo_size_with_unique_id(
+					    c.photo_->sizes_, src.unique_id))
+					f = x;
+		}
 		break;
 	}
 	}

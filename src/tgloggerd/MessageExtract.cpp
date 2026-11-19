@@ -3076,4 +3076,21 @@ extract_interaction(const td_api::messageInteractionInfo *info)
 	return ia;
 }
 
+const td_api::file *chat_photo_best_size_of(
+	const std::vector<td_api::object_ptr<td_api::photoSize>> &sizes)
+{
+	const td_api::file *best = nullptr;
+	int64_t best_px = -1;
+	for (const auto &sz : sizes) {
+		if (!sz || !sz->photo_)
+			continue;
+		const int64_t px = (int64_t)sz->width_ * sz->height_;
+		if (px > best_px) {
+			best_px = px;
+			best = sz->photo_.get();
+		}
+	}
+	return best;
+}
+
 } /* namespace tgloggerd */
