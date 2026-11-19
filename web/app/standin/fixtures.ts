@@ -17,6 +17,7 @@ import { engineAnswer } from './engine.ts';
 import { MAX_Q, memberCount, memberFlags, membersPage } from './members.ts';
 export { membersApi, patchGroup } from './members.ts';
 import { groupFiles, groupPolls } from './groupfiles.ts';
+import { D2T_OPTIONS, T2D_OPTIONS, checkTypes, migrated } from './fwdtypes.ts';
 export { engineOf, setEngine } from './engine.ts';
 import { queryRows } from '../../mockup/src/data/seed.js';
 import type { PageData, Viewer } from '../src/page.ts';
@@ -24,6 +25,18 @@ import type { Logger } from '../src/ui/logger.ts';
 
 const NOW = '2026-11-17T16:00:00Z';
 const iso = (s: string) => s.replace(' ', 'T') + 'Z';
+
+// The mockup's routes carry the six types of before: widen them as the
+// migration does, then give two routes the sets the list summary names
+// ("Messages and media"; all but a few).
+for (const r of t2d) r.types = migrated('t2d', r.types);
+for (const r of d2t) r.types = migrated('d2t', r.types);
+{
+	const media = new Set(['story', 'paid_media', 'invoice', 'service', 'other']);
+	const ctf = t2d.find((r) => r.id === 3), asm = t2d.find((r) => r.id === 5);
+	if (ctf) ctf.types = T2D_OPTIONS.filter((t) => !media.has(t));
+	if (asm) asm.types = T2D_OPTIONS.filter((t) => t !== 'service' && t !== 'sticker');
+}
 
 // noemail is the sample superadmin "ops", which has no email address:
 // email is optional, and nothing asks for one.
@@ -671,13 +684,13 @@ export function load(url: string, persona: Persona): Loaded {
 		const myFeds = s.role === 'superadmin' ? allFeds() : s.role === 'admin' ? s.manageableFeds : allFeds().filter((f) => s.acct.grants.some((g) => g.fed === f.id));
 		const fedList = myFeds.map((f) => ({ id: f.id, name: f.name }));
 		if (path === '/platform-fwd/telegram-discord') {
-			return { route: 'fwd_telegram_discord', status: 200, props: { federations: fedList, routes: vis(t2d).map((r) => ({ ...owned(r), chat: { ...pick(r.chat), photo: photoOf(r.chat.id) }, url_masked: r.url.slice(0, r.url.lastIndexOf('/') + 5) + '...', types: r.types, enabled: r.enabled, sent: r.sent, last_sent: r.last ? iso(r.last) : null })) } };
+			return { route: 'fwd_telegram_discord', status: 200, props: { federations: fedList, type_options: T2D_OPTIONS, routes: vis(t2d).map((r) => ({ ...owned(r), chat: { ...pick(r.chat), photo: photoOf(r.chat.id) }, url_masked: r.url.slice(0, r.url.lastIndexOf('/') + 5) + '...', types: r.types, enabled: r.enabled, sent: r.sent, last_sent: r.last ? iso(r.last) : null })) } };
 		}
 		if (path === '/platform-fwd/bots') {
 			return { route: 'bots', status: 200, props: { bots: botsFor(persona).map((b) => botRow(b, persona)), show_owner: s.role !== 'member' } };
 		}
 		if (path === '/platform-fwd/discord-telegram') {
-			return { route: 'fwd_discord_telegram', status: 200, props: { federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: { ...pick(r.chat), photo: photoOf(r.chat.id) }, channel_id: r.channel, channel_name: r.channel_name, discord_bot: botRefOf(r.discord_bot_id, persona), telegram_bot: botRefOf(r.telegram_bot_id, persona), types: r.types, enabled: r.enabled, sent: r.sent })) } };
+			return { route: 'fwd_discord_telegram', status: 200, props: { federations: fedList, type_options: D2T_OPTIONS, routes: vis(d2t).map((r) => ({ ...owned(r), chat: { ...pick(r.chat), photo: photoOf(r.chat.id) }, channel_id: r.channel, channel_name: r.channel_name, discord_bot: botRefOf(r.discord_bot_id, persona), telegram_bot: botRefOf(r.telegram_bot_id, persona), types: r.types, enabled: r.enabled, sent: r.sent })) } };
 		}
 		return notFound;
 	}
@@ -1157,6 +1170,13 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		// a Discord webhook, on test as on save.
 		const badHook = (u) => u !== undefined && m[1] === 'telegram-discord' && !DISCORD_WEBHOOK.test(String(u));
 		if (badHook(body.webhook_url)) return [400, { error: 'bad_webhook', message: 'That is not a Discord webhook URL.' }];
+		// A write takes the whole set, stored in option order.
+		const dir = m[1] === 'telegram-discord' ? 't2d' : 'd2t';
+		if (m[2] !== 'test' && !m[3] && (method === 'POST' || (method === 'PATCH' && body.types !== undefined))) {
+			const t = checkTypes(dir, body.types);
+			if ('error' in t) return t.error;
+			body = { ...body, types: t.types };
+		}
 		if (m[2] === 'test') {
 			if (body.id !== undefined && !vis(list).some((r) => r.id === body.id)) return [404, { error: 'not_found' }];
 			return [204, null];
