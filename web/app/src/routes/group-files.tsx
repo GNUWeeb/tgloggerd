@@ -21,12 +21,13 @@ const KIND_LABEL: Record<'all' | FileKind, string> = {
 
 // Who sent it: a user's page, or for a post as a chat that chat's; a
 // sender without an id (a hidden chat, a signature only) is named but
-// not linked.
-export function SentBy({ s }: { s: GroupSender }) {
-	if (s.id === null) {
+// not linked, and so is every sender on a public tab (plain), whose
+// visitor cannot open user pages.
+export function SentBy({ s, plain = false }: { s: GroupSender; plain?: boolean }) {
+	if (s.id === null || plain) {
 		return (
-			<span className="a-usercell a-sentby a-muted">
-				<Avatar id={0} name={s.name} photo={null} size={20} />
+			<span className={`a-usercell a-sentby ${s.id === null ? 'a-muted' : ''}`}>
+				<Avatar id={s.id ?? 0} name={s.name} photo={s.id === null ? null : s.photo} size={20} square={(s.id ?? 0) < 0} />
 				<span className="a-uname a-ellipsis">{s.name}</span>
 			</span>
 		);
@@ -39,12 +40,14 @@ export function SentBy({ s }: { s: GroupSender }) {
 	);
 }
 
-// The two ways to the message: its place in the chat and its page.
-export function MessageLinks({ r }: { r: GroupMessageRef }) {
+// The two ways to the message: its place in the chat and its page. A
+// public tab has only the chat (an exposed group's chat is public; its
+// message pages are not).
+export function MessageLinks({ r, pub = false }: { r: GroupMessageRef; pub?: boolean }) {
 	return (
 		<span className="a-msglinks">
 			<Link to={r.chat_link} className="a-link"><MessageCircle size={13} />In the chat</Link>
-			<Link to={`/messages/group/${r.message_row_id}`} className="a-link"><MessageSquare size={13} />Message</Link>
+			{!pub && <Link to={`/messages/group/${r.message_row_id}`} className="a-link"><MessageSquare size={13} />Message</Link>}
 		</span>
 	);
 }
@@ -68,25 +71,27 @@ export const cursorOf = (n: number | null) => (n === null ? null : String(n));
 // Each row's key: a message can carry more than one file.
 const keyOf = (f: GroupFileRow, i: number) => `${f.message_id}:${i}`;
 
-function Preview({ f, v, onClose }: { f: GroupFileRow; v: Viewer; onClose: () => void }) {
+function Preview({ f, v, pub, onClose }: { f: GroupFileRow; v: Viewer; pub: boolean; onClose: () => void }) {
 	return (
 		<FilePreview f={f} v={v} onClose={onClose}
 			links={<>
 				<Btn to={f.chat_link} ghost icon={MessageCircle}>In the chat</Btn>
-				<Btn to={`/messages/group/${f.message_row_id}`} ghost icon={MessageSquare}>Message</Btn>
+				{!pub && <Btn to={`/messages/group/${f.message_row_id}`} ghost icon={MessageSquare}>Message</Btn>}
 			</>}
 			details={[
 				[null, 'Type', f.file_type],
 				[null, 'Size', `${bytes(f.size)} (${fmt(f.size)} bytes)`],
 				f.duration ? [null, 'Duration', duration(f.duration)] : null,
 				[null, 'Stored', f.stored ? 'yes' : f.url ? 'no, can be fetched from Telegram' : 'no'],
-				[null, 'Sender', <SentBy s={f.sender} />],
+				[null, 'Sender', <SentBy s={f.sender} plain={pub} />],
 				[null, 'Sent', dateTime(f.date, v)],
 			]} />
 	);
 }
 
-export function GroupFiles({ groupId, url, p, v }: { groupId: number; url: string; p: GroupFilesPage; v: Viewer }) {
+// pub: a public tab of an exposed group (a visitor who may not open its
+// message pages or user pages).
+export function GroupFiles({ groupId, url, p, v, pub = false }: { groupId: number; url: string; p: GroupFilesPage; v: Viewer; pub?: boolean }) {
 	const { navigate } = useNav();
 	const q = useQueryParams();
 	const grid = q.get('view') !== 'list';
@@ -125,7 +130,7 @@ export function GroupFiles({ groupId, url, p, v }: { groupId: number; url: strin
 					<div className="a-filegrid">{h.entries.map((f, i) => (
 						<div key={keyOf(f, i)} className="a-groupfile">
 							<FileCard f={f} at={f.date} v={v} onOpen={() => setOpen(f)} />
-							<div className="a-groupfile-from"><SentBy s={f.sender} /><MessageLinks r={f} /></div>
+							<div className="a-groupfile-from"><SentBy s={f.sender} plain={pub} /><MessageLinks r={f} pub={pub} /></div>
 						</div>
 					))}</div>
 				</div>
@@ -140,9 +145,9 @@ export function GroupFiles({ groupId, url, p, v }: { groupId: number; url: strin
 									<td><span className="a-typecell"><TypeIcon type={f.file_type} />{f.file_type}</span></td>
 									<td className="r"><span className="num">{bytes(f.size)}</span></td>
 									<td>{f.stored ? <Pill tone="ok">stored</Pill> : f.url ? <Pill tone="info">fetchable</Pill> : <Pill tone="danger">missing</Pill>}</td>
-									<td><SentBy s={f.sender} /></td>
+									<td><SentBy s={f.sender} plain={pub} /></td>
 									<td><span title={f.date}>{ago(f.date, v)}</span></td>
-									<td><MessageLinks r={f} /></td>
+									<td><MessageLinks r={f} pub={pub} /></td>
 								</tr>
 							))}</tbody>
 						</table>
@@ -151,7 +156,7 @@ export function GroupFiles({ groupId, url, p, v }: { groupId: number; url: strin
 			)}
 			{!h.entries.length && <Empty>{kind === 'all' ? 'No files in this group.' : `No ${KIND_LABEL[kind].toLowerCase()} in this group.`}</Empty>}
 			<LoadMore h={h} noun="files" />
-			{open && <Preview f={open} v={v} onClose={close} />}
+			{open && <Preview f={open} v={v} pub={pub} onClose={close} />}
 		</div>
 	);
 }

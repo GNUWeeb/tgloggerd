@@ -12,7 +12,8 @@ import { dateTime } from '../format.ts';
 import type { Viewer } from '../page.ts';
 import { fetchGroupPolls, type GroupPollsPage } from '../api/groupfiles.ts';
 
-export function GroupPolls({ groupId, p, v }: { groupId: number; p: GroupPollsPage; v: Viewer }) {
+// pub: a public tab of an exposed group, as GroupFiles takes it.
+export function GroupPolls({ groupId, p, v, pub = false }: { groupId: number; p: GroupPollsPage; v: Viewer; pub?: boolean }) {
 	const load = useCallback(async (before: string) => {
 		const r = await fetchGroupPolls(groupId, Number(before));
 		return { entries: r.rows, next: cursorOf(r.next_before) };
@@ -23,11 +24,11 @@ export function GroupPolls({ groupId, p, v }: { groupId: number; p: GroupPollsPa
 			{h.entries.length > 0 && <ul className="a-pollcards">{h.entries.map((r) => (
 				<li key={r.message_id} className="a-card a-pollcard">
 					<div className="a-pollcard-head">
-						<SentBy s={r.sender} />
+						<SentBy s={r.sender} plain={pub} />
 						<time className="a-muted sm" dateTime={r.date}>{dateTime(r.date, v)}</time>
 					</div>
 					{r.poll ? <KindDetail d={r.poll} text="" v={v} /> : <p className="a-muted">This poll was not stored.</p>}
-					<MessageLinks r={r} />
+					<MessageLinks r={r} pub={pub} />
 				</li>
 			))}</ul>}
 			{!h.entries.length && <Empty>No polls in this group.</Empty>}

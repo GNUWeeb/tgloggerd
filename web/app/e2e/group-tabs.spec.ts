@@ -53,3 +53,26 @@ test('the Polls tab shows a group\'s polls with links to their messages', async 
 	await expect(page).toHaveURL(/\/messages\/group\/\d+$/);
 	await expect(page.locator('.k-poll')).toBeVisible();
 });
+
+test('signed out, an exposed group\'s Files and Polls tabs are public', async ({ page, as }) => {
+	const rows = (await (await page.request.get('/api/page/groups?q=CTF')).json()).props.rows as { id: number; title: string; exposed?: boolean }[];
+	const g = rows.find((r) => r.title === 'CTF Practice' && r.exposed);
+	expect(g, 'an exposed sample group with polls in the stand-in').toBeTruthy();
+	await as('public');
+	await page.goto(`/groups/${g!.id}`);
+	await expect(page.locator('.c-publicpage')).toBeVisible();
+	await page.locator('.a-tabs').getByRole('link', { name: /^Files/ }).click();
+	await expect(page).toHaveURL(new RegExp(`/groups/${g!.id}/files$`));
+	const cards = page.locator('.a-groupfile');
+	const first = await cards.count();
+	expect(first).toBeGreaterThan(0);
+	await expect(cards.first().getByRole('link', { name: 'In the chat' })).toBeVisible();
+	await expect(page.locator('a[href^="/messages/"], a[href^="/users/"]')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Load more' }).click();
+	await expect.poll(() => cards.count()).toBeGreaterThan(first);
+	await page.locator('.a-tabs').getByRole('link', { name: /^Polls/ }).click();
+	await expect(page.locator('.a-pollcard')).toHaveCount(2);
+	await expect(page.locator('.c-publicpage')).toBeVisible();
+	await page.locator('.a-pollcard').first().getByRole('link', { name: 'In the chat' }).click();
+	await expect(page).toHaveURL(new RegExp(`/groups/${g!.id}/chat\\?at=\\d+$`));
+});
