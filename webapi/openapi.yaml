@@ -2077,9 +2077,13 @@ paths:
         non-empty list is for an admin as hide_private is, a group the
         archive does not have answers 400 bad_request with field
         hide_groups, and the list is cleared when an admin becomes
-        another role. Exposed groups stay public. Until join_chat
-        exists, it is accepted only off, and on answers 400
-        not_supported.
+        another role. Exposed groups stay public. restrict.join_chat
+        grants an admin Join chat (off by default): from its next
+        request the join_chat page and menu entry are its, and
+        previewJoin and joinChat answer it; without it they answer 404.
+        It is for an admin as hide_private is, and it is cleared when an
+        admin becomes another role. Superadmins always may join chats,
+        and an admin cannot grant it, as it sends no restrict at all.
 
 
         The address is an account's own to change (changeEmail); an
@@ -2120,7 +2124,9 @@ paths:
             federation's (bad_request, field grants), an unknown
             ability (bad_request, field abilities), bad_name,
             bad_email, a federation that does not exist
-            (bad_federation), or join_chat on (not_supported).
+            (bad_federation), or a restriction (hide_private, a
+            hidden group or join_chat) for an account that does not
+            end as an admin (bad_request).
           content:
             application/json:
               schema:
@@ -3123,8 +3129,8 @@ paths:
       tags: [join-chat]
       summary: Join a group or channel
       description: >-
-        For superadmins and admins holding join_chat; anyone else gets
-        404. Writes one chat_join audit row whatever comes of it, once
+        For superadmins and admins holding join_chat (restrict.join_chat,
+        granted by a superadmin); anyone else gets 404. Writes one chat_join audit row whatever comes of it, once
         the request passes its checks (web/docs/join-chat.md). A joined
         group is added to the chosen federations, which must be ones
         the viewer administers (404 otherwise, before anything is
@@ -8915,7 +8921,10 @@ components:
             $ref: '#/components/schemas/PickItem'
         join_chat:
           type: boolean
-          description: Whether the admin may join chats; off by default.
+          description: >-
+            Whether the admin may join chats (the join_chat page,
+            previewJoin and joinChat); off by default, granted by a
+            superadmin.
     AccountRow:
       type: object
       required: [id, username, name, email, email_verified, invited, role, active, last_signin, last_superadmin, admin_of, restrict, grants, abilities, audit]
@@ -9143,12 +9152,11 @@ components:
             page offers only those. federations (admin_of, and the
             federations of grants), group_grants (the groups inside a
             grant) and abilities (a member's forward and fetch_files)
-            are true. restrictions turns true when join_chat lands;
-            until then PATCH accepts join_chat only off and answers 400
-            not_supported to on. restrict_private and restrict_groups
-            are true: of an admin's restrictions, hide_private and
-            hide_groups can be set already, so while restrictions is
-            false the page offers those two only.
+            are true. restrictions is true: every admin restriction
+            (hide_private, hide_groups and the join_chat grant) can be
+            set. restrict_private and restrict_groups stay true as well;
+            they named the restrictions that could be set while
+            restrictions was still false.
           required: [federations, group_grants, restrictions, restrict_private, restrict_groups, abilities]
           properties:
             federations:
