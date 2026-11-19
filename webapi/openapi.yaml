@@ -682,7 +682,10 @@ paths:
         pages, of the administration pages accounts, federations,
         federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram,
         join_chat, mcp, mcp_groups and mcp_tokens (each only for a
-        viewer whose menu has it, not_found otherwise), of the three
+        viewer whose menu has it, not_found otherwise; the menu's mcp
+        entry is for viewers holding mcp_tokens, and mcp_groups only for
+        those holding mcp as well, so a member given mcp_tokens has mcp
+        and mcp_tokens but not mcp_groups), of the three
         link pages (whose props are empty), and not_found. A signed-out
         visitor asking for the group_chat, group_files or group_polls
         of a group that is not exposed is asked to sign in (401 here, the redirect for the
@@ -2060,7 +2063,7 @@ paths:
         (web-accounts.md section 5). A grant goes when its group leaves
         the federation (for Default: joins another federation), when
         the member leaves the federation, and when the account stops
-        being a member. abilities (forward, fetch_files) replace a
+        being a member. abilities (forward, fetch_files, mcp_tokens) replace a
         member's abilities; they are for an account that is, or this
         change makes, a member (400 bad_request otherwise), and an
         unknown one answers 400 bad_request with field abilities. A
@@ -3366,10 +3369,19 @@ paths:
       tags: [mcp]
       summary: Create an MCP bearer token
       description: >-
-        The token (tgmcp_ and 64 hex digits) is in this answer only; it
-        is stored as its SHA-256 and in no log or audit row. The name,
-        1 to 64 characters after trimming, tells tokens apart. Owned by
-        the viewer. Audited as mcp_token_create, with the name.
+        For viewers holding mcp_tokens: superadmins, admins, and members
+        given it; anyone else gets 404. The token (tgmcp_ and 64 hex
+        digits) is in this answer only; it is stored as its SHA-256 and
+        in no log or audit row. The name, 1 to 64 characters after
+        trimming, tells tokens apart. owner_id names the account that
+        will own it, one of McpTokensProps.owners (the viewer when left
+        out): a superadmin mints for any active account that may hold
+        tokens, an admin for itself or an active member it manages that
+        holds mcp_tokens, a member only for itself; any other owner_id
+        is 400 bad_request. The token is always minted by the viewer,
+        which stays the account its requests are attributed to
+        (minted_by): disabling that account disables the token. Audited
+        as mcp_token_create, with the name, and owner_set.
       security:
         - session: []
           csrf: []
@@ -3383,6 +3395,9 @@ paths:
               properties:
                 name:
                   type: string
+                owner_id:
+                  type: integer
+                  format: int64
       responses:
         '201':
           description: Created.
@@ -3406,15 +3421,60 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/mcp/tokens/{id}:
+    patch:
+      x-tgd-status: planned
+      operationId: renameMcpToken
+      tags: [mcp]
+      summary: Rename an MCP bearer token
+      description: >-
+        For whoever manages the token (see revokeMcpToken); a token the
+        viewer does not manage is 404 like an unknown one. The name is
+        trimmed and cut to 64 characters and must not end up empty (400
+        bad_request). A revoked token can be renamed too. An unchanged
+        name answers 204 and audits nothing; a change is audited as
+        mcp_token_rename, with the old and the new name.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '204':
+          description: Renamed.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/mcp/tokens/{id}/revoke:
     post:
       operationId: revokeMcpToken
       tags: [mcp]
       summary: Revoke an MCP bearer token
       description: >-
-        Stamps the token revoked; the row stays for the audit trail.
-        Revoking a revoked token changes nothing and answers 204 too.
-        Audited as mcp_token_revoke.
+        For whoever manages the token: its owner, an admin when the
+        owner is a member it manages (filed in a federation it
+        administers), and any superadmin. A token the viewer does not
+        manage is 404 like an unknown one, and every token is 404 to an
+        account without mcp_tokens. A token without an owner record
+        counts as the superadmins'. Stamps the token revoked; the row
+        stays for the audit trail. Revoking a revoked token changes
+        nothing and answers 204 too. Audited as mcp_token_revoke.
       security:
         - session: []
           csrf: []
@@ -3423,6 +3483,45 @@ paths:
       responses:
         '204':
           description: Revoked.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/mcp/tokens/{id}/transfer:
+    post:
+      x-tgd-status: planned
+      operationId: transferMcpToken
+      tags: [mcp]
+      summary: Give an MCP bearer token to another owner
+      description: >-
+        Superadmins only (McpTokensProps.can_transfer); anyone else gets
+        404. owner_id is one of McpTokensProps.owners: an active account
+        that may hold tokens (a superadmin, an admin, or a member
+        holding mcp_tokens); any other is 400 bad_request. A revoked
+        token can be transferred too. The token keeps working and keeps
+        minted_by, the account its requests are attributed to.
+        Transferring to the owner it has changes nothing and audits
+        nothing. Audited as mcp_token_transfer and owner_transfer
+        (owner_set for a token that had no owner record).
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Transfer'
+      responses:
+        '204':
+          description: Transferred.
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -8890,7 +8989,7 @@ components:
     # Accounts and federations.
     Ability:
       type: string
-      enum: [forward, fetch_files]
+      enum: [forward, fetch_files, mcp_tokens]
     Fed:
       type: object
       required: [id, name, default]
@@ -9121,8 +9220,11 @@ components:
           description: >-
             A member's abilities, replacing its list: forward (set up
             forwarding of its groups, seeing only its own
-            configurations) and fetch_files (have the daemon fetch
-            files the store does not hold). [] removes them.
+            configurations), fetch_files (have the daemon fetch
+            files the store does not hold) and mcp_tokens (mint and
+            manage its own MCP tokens). [] removes them; removing
+            mcp_tokens leaves the member's tokens working until they
+            are revoked.
           items:
             $ref: '#/components/schemas/Ability'
     AccountsProps:
@@ -9142,7 +9244,8 @@ components:
             Which parts of an account the server can change today; the
             page offers only those. federations (admin_of, and the
             federations of grants), group_grants (the groups inside a
-            grant) and abilities (a member's forward and fetch_files)
+            grant) and abilities (a member's forward, fetch_files and
+            mcp_tokens)
             are true. restrictions turns true when join_chat lands;
             until then PATCH accepts join_chat only off and answers 400
             not_supported to on. restrict_private and restrict_groups
@@ -9883,6 +9986,10 @@ components:
     # MCP administration.
     McpIndexProps:
       type: object
+      description: >-
+        exposed_groups and exposed_messages count the exposed groups the
+        viewer sees; active_tokens and last_used are over the tokens
+        not revoked that the viewer manages (McpTokensProps).
       required: [exposed_groups, exposed_messages, active_tokens, last_used, endpoint]
       properties:
         exposed_groups:
@@ -9916,13 +10023,31 @@ components:
                 type: string
     McpTokensProps:
       type: object
-      required: [tokens]
+      description: >-
+        The tokens the viewer manages, newest first: a superadmin's are
+        every token, an admin's its own and those of the members it
+        manages, a member's its own (createMcpToken). owners is who the
+        viewer may mint for and, with can_transfer, transfer to: for a
+        superadmin every active account that may hold tokens (a
+        superadmin, an admin, or a member holding mcp_tokens), for an
+        admin itself and the active members it manages that hold
+        mcp_tokens, for a member itself. can_transfer is true for
+        superadmins only (transferMcpToken).
+
+
+        A token's owner is the owning account, with its role and
+        whether it is active; a token without an owner record counts as
+        the superadmins' and is answered as shared (owner id 0, named
+        "Shared", active). minted_by is the account that minted it,
+        which its requests are attributed to: when that account is
+        disabled the token stops working, whoever owns it.
+      required: [tokens, owners, can_transfer]
       properties:
         tokens:
           type: array
           items:
             type: object
-            required: [id, name, owner, created, last_used, revoked]
+            required: [id, name, owner, minted_by, created, last_used, revoked]
             properties:
               id:
                 type: integer
@@ -9930,16 +10055,21 @@ components:
               name:
                 type: string
               owner:
-                type: string
-                description: >-
-                  The owning account's username; for a token without
-                  an owner record, the account it was made by.
+                $ref: '#/components/schemas/FwdPerson'
+              minted_by:
+                $ref: '#/components/schemas/FwdPerson'
               created:
                 type: string
               last_used:
                 type: [string, 'null']
               revoked:
                 type: [string, 'null']
+        owners:
+          type: array
+          items:
+            $ref: '#/components/schemas/FwdPerson'
+        can_transfer:
+          type: boolean
     # The MCP endpoint (web/docs/mcp.md).
     McpMessage:
       type: object
