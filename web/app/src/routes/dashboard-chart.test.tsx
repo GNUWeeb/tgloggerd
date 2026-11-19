@@ -3,7 +3,7 @@
 // clamp to the period's limit, the account's remembered choice, the
 // first series from the page data, and the bars with their tooltip.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, json, renderPage, setup, type Call } from '../test/page.tsx';
 import { clampRange } from './dashboard-chart.tsx';
 import type { DashboardProps } from './dashboard.tsx';
@@ -221,6 +221,118 @@ describe('dashboard chart drawings', () => {
 		const img = await chart();
 		expect(img.querySelector('.a-sc-area')).not.toBeNull();
 		expect((control('Show as') as unknown as HTMLSelectElement).value).toBe('area');
+	});
+});
+
+// A stand-in for the browser's EventSource: the page's live stream.
+class FakeSource {
+	static last: FakeSource | null = null;
+	readyState = 0;
+	onopen: ((ev: Event) => unknown) | null = null;
+	onerror: ((ev: Event) => unknown) | null = null;
+	private ls = new Map<string, ((ev: { data: string }) => void)[]>();
+	constructor(public url: string) { FakeSource.last = this; }
+	addEventListener(kind: string, fn: (ev: { data: string }) => void) { this.ls.set(kind, [...(this.ls.get(kind) ?? []), fn]); }
+	removeEventListener() {}
+	close() { this.readyState = 2; }
+	open() { this.readyState = 1; this.onopen?.(new Event('open')); }
+	emit(e: Record<string, unknown>) { for (const fn of this.ls.get(String(e.kind)) ?? []) fn({ data: JSON.stringify(e) }); }
+}
+
+describe('dashboard chart, live', () => {
+	beforeEach(() => {
+		FakeSource.last = null;
+		vi.stubGlobal('EventSource', FakeSource);
+		vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+		vi.setSystemTime(NOW * 1000);
+	});
+	// Timers are fake here: let promises and due timers run.
+	const flush = (ms = 0) => act(() => vi.advanceTimersByTimeAsync(ms));
+	// The series as the server counts it at the (fake) time of the call:
+	// three messages in every period, the current one included.
+	const SECS = { minute: 60, hour: 3600 } as Record<string, number>;
+	const serve = (q: URLSearchParams) => {
+		const p = q.get('period')!, d = SECS[p]!, start = Number(q.get('start'));
+		const now = Math.floor(Date.now() / 1000), live = q.get('end') === 'now';
+		const from = start - (start % d), to = (live ? now - (now % d) : Number(q.get('end')) - 1 - ((Number(q.get('end')) - 1) % d)) + d;
+		const points = Array.from({ length: (to - from) / d }, (_, i) => ({ at: from + i * d, n: 3 }));
+		return { period: p, start: from, end: to, live, tz: 'UTC', limit: p === 'minute' ? 86400 : 45 * 86400, points };
+	};
+	const server = { 'GET /api/dashboard/series': (c: Call) => serve(c.query), 'PATCH /api/account/preferences': () => ({ prefs: {} }) };
+	// The page data for these chart preferences, its first series as served.
+	const page = (extra: Record<string, unknown>, q: Record<string, string>) => viewer(extra, serve(new URLSearchParams(q)));
+	const hours48 = { period: 'hour', start: String(NOW - 48 * 3600), end: 'now' };
+	const open = async () => {
+		// The stream opens once its subscriptions settle.
+		await flush(1000);
+		expect(FakeSource.last?.url).toMatch(/topics=[^&]*messages/);
+		act(() => FakeSource.last!.open());
+		return FakeSource.last!;
+	};
+	const lastCount = () => {
+		fireEvent.keyDown(screen.getByRole('img', { name: /^Messages per/ }), { key: 'End' });
+		return document.querySelector('.a-sc-tip')!.textContent;
+	};
+
+	it('counts each new message into the last period', async () => {
+		fakeApi('superadmin', server);
+		renderPage('/', 'superadmin', page({}, hours48));
+		const s = await open();
+		expect(lastCount()).toContain('3 messages');
+		act(() => { s.emit({ seq: 1, kind: 'message.new', chat_id: -100123, message_id: 1 }); s.emit({ seq: 2, kind: 'message.new', chat_id: 4567, message_id: 1 }); });
+		act(() => s.emit({ seq: 3, kind: 'message.edited', chat_id: -100123, message_id: 1 }));
+		expect(lastCount()).toContain('5 messages');
+	});
+
+	it('starts a new period when the clock passes the last one, keeping the start below the limit', async () => {
+		const calls = fakeApi('superadmin', server);
+		renderPage('/', 'superadmin', page({}, hours48));
+		await open();
+		const first = series(calls).length;
+		expect(first).toBe(0);
+		const before = screen.getByRole('img', { name: /^Messages per/ }).querySelectorAll('.a-sc-bar').length;
+		await flush(3599 * 1000);
+		expect(series(calls)).toHaveLength(first);
+		await flush(2000);
+		await flush();
+		expect(series(calls)).toHaveLength(first + 1);
+		expect(lastQuery(calls)).toEqual({ period: 'hour', start: String(NOW - 48 * 3600), end: 'now' });
+		expect(screen.getByRole('img', { name: /^Messages per/ }).querySelectorAll('.a-sc-bar')).toHaveLength(before + 1);
+	});
+
+	it('moves the start with the end once the range is at the limit', async () => {
+		const calls = fakeApi('superadmin', server);
+		renderPage('/', 'superadmin', page({ dashboard_period: 'minute', dashboard_last: 86400 }, { period: 'minute', start: String(NOW - 86400), end: 'now' }));
+		await open();
+		await flush(61 * 1000);
+		await flush();
+		expect(Number(lastQuery(calls).start)).toBe(NOW + 60 - 86400);
+		await flush(60 * 1000);
+		await flush();
+		expect(Number(lastQuery(calls).start)).toBe(NOW + 120 - 86400);
+		// Each new start is fetched once.
+		expect(series(calls).map((c) => c.query.get('start'))).toEqual([NOW + 60 - 86400, NOW + 120 - 86400].map(String));
+	});
+
+	it('is not live with a fixed end', async () => {
+		const calls = fakeApi('superadmin', server);
+		renderPage('/', 'superadmin', page({ dashboard_start: NOW - 7200, dashboard_end: NOW - 3600, dashboard_last: undefined }, { period: 'hour', start: String(NOW - 7200), end: String(NOW - 3600) }));
+		const s = await open();
+		const before = lastCount();
+		act(() => s.emit({ seq: 1, kind: 'message.new', chat_id: -100123, message_id: 1 }));
+		expect(lastCount()).toBe(before);
+		await flush(3 * 3600 * 1000);
+		expect(series(calls)).toHaveLength(0);
+	});
+
+	it('fetches again after a resync', async () => {
+		const calls = fakeApi('superadmin', server);
+		renderPage('/', 'superadmin', page({}, hours48));
+		const s = await open();
+		act(() => s.emit({ seq: 9, kind: 'resync' }));
+		await flush();
+		expect(series(calls)).toHaveLength(1);
+		expect(lastQuery(calls)).toEqual(hours48);
 	});
 });
 

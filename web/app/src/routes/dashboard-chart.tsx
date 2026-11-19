@@ -6,7 +6,16 @@
 // back in the viewer: a period, and either a fixed range
 // (dashboard_start and dashboard_end) or the last dashboard_last seconds
 // to now. The first series comes with the page data, so the server
-// render draws it; the browser fetches only when the choice changes.
+// render draws it; the browser fetches when the choice changes, and as
+// below.
+//
+// With the end at Now the chart is live: each new message the stream
+// announces counts into the last period, and once the clock passes that
+// period's end the series is fetched again, so the server starts the new
+// period and recounts the finished one. When the range has grown past
+// the period's limit, that fetch moves the start forward by as much.
+// Fetching again rather than shifting the points here keeps the period
+// boundaries (months, clock changes) the server's alone.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Card } from '../ui/primitives.tsx';
 import { SeriesChart, VARIANTS, isVariant, type Variant } from '../ui/serieschart.tsx';
@@ -15,6 +24,8 @@ import { savePrefs } from '../api/prefs.ts';
 import { dashboardSeries, type Series } from '../api/dashboard.ts';
 import { ApiError } from '../api/client.ts';
 import { LIMIT, PERIODS, PERIOD_LABEL, PERIOD_NOUN, PRECISION, ROUGH, fromInput, isPeriod, periodLabel, toInput, unitEnd, type Period, type Precision } from '../periods.ts';
+import { useLive } from '../live/react.tsx';
+import type { LiveEvent } from '../live/events.ts';
 import type { Viewer } from '../page.ts';
 import type { S } from '../api/schema.ts';
 
@@ -101,11 +112,13 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 	const limits = useRef<Partial<Record<Period, number | null>>>({ [first.period]: first.limit });
 	const limitOf = (p: Period) => (p in limits.current ? limits.current[p]! : LIMIT[p]);
 
+	// Bumped to fetch the same view again: a new period, a resync.
+	const [tick, setTick] = useState(0);
 	const seq = useRef(0);
 	// The view the series shown answers: the page data's first.
-	const shown = useRef(keyOf(period, range));
+	const shown = useRef(`${keyOf(period, range)} 0`);
 	useEffect(() => {
-		const key = keyOf(period, range);
+		const key = `${keyOf(period, range)} ${tick}`;
 		if (key === shown.current) return;
 		const n = ++seq.current;
 		const ac = new AbortController();
@@ -120,7 +133,38 @@ export function MessagesChart({ viewer: v, first }: { viewer: Viewer; first: Ser
 			setLoad((l) => ({ ...l, state: 'ok', error: e instanceof ApiError ? e.message : 'The chart could not be loaded.' }));
 		});
 		return () => ac.abort();
-	}, [period, range.live, range.start, range.live ? 0 : range.end]);
+	}, [period, range.live, range.start, range.live ? 0 : range.end, tick]);
+
+	useLive(['messages'], (e: LiveEvent) => {
+		if (e.kind === 'resync') { setTick((t) => t + 1); return; }
+		if (e.kind !== 'message.new' || !e.chat_id) return;
+		const t = now();
+		setLoad((l) => {
+			const d = l.data;
+			// Past the last period's end the message is the next period's,
+			// which the coming fetch counts.
+			if (!d || !d.live || !d.points.length || t >= d.end) return l;
+			const points = d.points.slice();
+			const last = points[points.length - 1]!;
+			points[points.length - 1] = { ...last, n: last.n + 1 };
+			return { ...l, data: { ...d, points } };
+		});
+	});
+
+	// The clock passing the live series' end: a new period starts, and the
+	// start moves forward once the range is over the limit.
+	const liveEnd = load.data?.live ? load.data.end : null;
+	useEffect(() => {
+		if (liveEnd === null || load.state !== 'ok') return;
+		const wait = Math.max(1000, (liveEnd - (Date.now() + skew.current!) / 1000) * 1000 + 250);
+		const id = setTimeout(() => {
+			// The time it fired, not the time React gets to the update.
+			const t = now();
+			setView((x) => (x.range.live ? { ...x, range: clampRange(x.range, x.period, limitOf(x.period), t) } : x));
+			setTick((t) => t + 1);
+		}, wait);
+		return () => clearTimeout(id);
+	}, [liveEnd, load.state]);
 
 	const save = (patch: Prefs) => {
 		setSaveErr(false);
