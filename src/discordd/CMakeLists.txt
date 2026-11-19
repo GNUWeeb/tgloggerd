@@ -19,6 +19,8 @@ add_executable(discordd
 	DiscordBots.hpp
 	DB.cpp
 	DB.hpp
+	RouteFilter.cpp
+	RouteFilter.hpp
 	TelegramSender.cpp
 	TelegramSender.hpp
 	# The generic MySQL layer is shared with tgloggerd. It is compiled in
@@ -55,3 +57,16 @@ set_target_properties(discordd_bots_test PROPERTIES
 	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 target_compile_options(discordd_bots_test PRIVATE -Wall -Wextra)
 target_link_libraries(discordd_bots_test PRIVATE gwdiscord Threads::Threads)
+
+# Which forwarding flag each Discord attachment follows; no network, no
+# database. Not part of the default build;
+#   cmake --build build --target discordd_route_filter_test &&
+#   build/discordd_route_filter_test
+add_executable(discordd_route_filter_test EXCLUDE_FROM_ALL
+	tests/route_filter_test.cpp
+	RouteFilter.cpp
+	RouteFilter.hpp)
+set_target_properties(discordd_route_filter_test PROPERTIES
+	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+target_compile_options(discordd_route_filter_test PRIVATE -Wall -Wextra)
+target_link_libraries(discordd_route_filter_test PRIVATE gwdiscord)
