@@ -8,6 +8,9 @@ import type { ReactElement } from 'react';
 import { MessageMedia, kindOf, type Media } from './chat-media.tsx';
 import { PLAIN_KINDS } from '../test/kinds.ts';
 import { TypeIcon } from '../ui/media.tsx';
+import { KindDetail } from './chat-kinds.tsx';
+import type { Viewer } from '../page.ts';
+import type { S } from '../api/schema.ts';
 import { fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
 import { KINDS_GROUP } from '../../standin/kinds.ts';
 import type { ChatProps } from './chat.tsx';
@@ -137,5 +140,31 @@ describe('a contact', () => {
 		const card = document.getElementById(`m${c.message_id}`)!.querySelector('.k-contact')!;
 		expect(card.querySelector('img')!.getAttribute('src')).toBe(c.detail.user.photo);
 		expect(card.querySelector('a')!.getAttribute('href')).toBe(`/users/${c.detail.user.id}`);
+	});
+});
+
+const viewer = { signed_in: true, now: '2026-11-19T10:00:00Z' } as Viewer;
+const card = (d: NonNullable<S['MessageDetail']>) => show(<KindDetail d={d} text="" v={viewer} />);
+
+describe('a venue', () => {
+	it('names its type and links its Foursquare page', () => {
+		const venue = sample(showChat(), (m) => m.detail?.kind === 'venue');
+		if (venue.detail?.kind !== 'venue') throw new Error('no venue sample');
+		const b = bubble(venue);
+		expect(b.getByText('arts entertainment / monument')).toBeTruthy();
+		const a = b.getByRole('link', { name: 'On Foursquare' });
+		expect(a.getAttribute('href')).toBe(`https://foursquare.com/v/${venue.detail.venue_id}`);
+		expect(a.getAttribute('rel')).toContain('noopener');
+	});
+
+	it('links a Google Places venue, and none without a provider or an id', () => {
+		const base = { kind: 'venue', lat: 1, lon: 2, title: 'Cafe', address: '', venue_type: 'cafe' } as const;
+		const r = card({ ...base, provider: 'gplaces', venue_id: 'ChIJ_abc' });
+		expect(screen.getByRole('link', { name: 'On Google Maps' }).getAttribute('href')).toBe('https://www.google.com/maps/place/?q=place_id:ChIJ_abc');
+		expect(screen.getByText('cafe')).toBeTruthy();
+		r.unmount();
+		card({ ...base, provider: 'foursquare', venue_id: '' });
+		card({ ...base, provider: '', venue_id: 'x1' });
+		expect(screen.queryByRole('link', { name: /^On / })).toBeNull();
 	});
 });

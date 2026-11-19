@@ -45,6 +45,16 @@ function Head({ icon: I, children }: { icon: LucideIcon; children: ReactNode }) 
 
 const osm = (lat: number, lon: number) => `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
 const coords = (lat: number, lon: number) => `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+// A venue's page at its provider, for the two Telegram uses.
+function providerPage(provider: string, id: string): [string, string] | null {
+	if (!id) return null;
+	if (provider === 'foursquare') return [`https://foursquare.com/v/${encodeURIComponent(id)}`, 'Foursquare'];
+	if (provider === 'gplaces') return [`https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(id)}`, 'Google Maps'];
+	return null;
+}
+// A venue's type as words: Foursquare's "arts_entertainment/default"
+// reads "arts entertainment".
+const venueType = (t: string) => t.replace(/\/default$/, '').replace(/_/g, ' ').replace(/\//g, ' / ');
 const FOREVER = 0x7fffffff;
 function period(s: number): string {
 	if (s >= FOREVER) return 'until stopped';
@@ -152,14 +162,18 @@ export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; t
 					)}
 				</div>
 			);
-		case 'venue':
+		case 'venue': {
+			const page = providerPage(d.provider, d.venue_id);
 			return (
 				<div className="k-card k-place">
 					<Head icon={Building2}>{d.title || 'Venue'}</Head>
+					{d.venue_type && <div className="c-sub">{venueType(d.venue_type)}</div>}
 					{d.address && <div>{d.address}</div>}
 					<a href={osm(d.lat, d.lon)} target="_blank" rel="noopener noreferrer" className="k-coords mono">{coords(d.lat, d.lon)}</a>
+					{page && <a href={page[0]} target="_blank" rel="noopener noreferrer" className="a-link">On {page[1]}</a>}
 				</div>
 			);
+		}
 		case 'contact': {
 			const name = [d.first_name, d.last_name].filter(Boolean).join(' ') || 'Contact';
 			return (
