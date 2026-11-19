@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { NavProvider, useNav } from './nav.tsx';
 import { LiveProvider } from './live/react.tsx';
 import { PageLive } from './live/PageLive.tsx';
@@ -6,6 +6,7 @@ import { EntityProvider } from './live/useEntities.tsx';
 import { routes } from './routes/index.tsx';
 import { LoadingPill } from './ui/LoadingPill.tsx';
 import { UnknownRoute, type PageData } from './page.ts';
+import { applyHead } from './head.ts';
 import './styles/base.css';
 import './styles/app.css';
 import './styles/chat.css';
@@ -23,7 +24,11 @@ function LiveRoot({ children }: { children: ReactNode }) {
 
 function Current() {
 	const { page } = useNav();
-	const { Page } = routeOf(page);
+	const route = routeOf(page);
+	// The server writes the first page's head; a page the app moves to
+	// without a reload, or back to, gets its own here.
+	useEffect(() => applyHead(route.head(page)), [page]);
+	const { Page } = route;
 	return <Page page={page} />;
 }
 
