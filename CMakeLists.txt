@@ -79,6 +79,9 @@ add_executable(tgloggerd
 	src/tgloggerd/ThreadPool.hpp
 	src/tgloggerd/PhotoApi.cpp
 	src/tgloggerd/PhotoApi.hpp
+	src/tgloggerd/EmojiApi.cpp
+	src/tgloggerd/EmojiApi.hpp
+	src/tgloggerd/EmojiBackend.cpp
 	src/tgloggerd/MessageExtract.cpp
 	src/tgloggerd/MessageExtract.hpp
 	src/tgloggerd/EmojiExtract.cpp
@@ -212,6 +215,24 @@ target_include_directories(rich_message_test PRIVATE src)
 target_compile_options(rich_message_test PRIVATE -Wall -Wextra)
 target_link_libraries(rich_message_test PRIVATE Td::TdStatic tdjson_private
 	nlohmann_json::nlohmann_json Threads::Threads)
+
+# The custom emoji and message effect routes over a real listener, with
+# stand-ins for the tables and TDLib; not part of the default build:
+#   cmake --build build --target emoji_api_test && build/emoji_api_test
+add_executable(emoji_api_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/emoji_api_test.cpp
+	src/tgloggerd/EmojiApi.cpp
+	src/tgloggerd/EmojiExtract.cpp
+	src/tgloggerd/ChatRef.cpp
+	src/tgloggerd/InternalApi.cpp
+	src/tgloggerd/ThreadPool.cpp
+	src/tgloggerd/helpers/log.c)
+target_include_directories(emoji_api_test PRIVATE src
+	${SODIUM_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
+target_compile_options(emoji_api_test PRIVATE -Wall -Wextra)
+target_link_libraries(emoji_api_test PRIVATE Td::TdStatic tdjson_private
+	connector-jdbc ${SODIUM_LIBRARIES} nlohmann_json::nlohmann_json
+	Threads::Threads)
 
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
 # Telegram). Added last: it links Td::TdStatic and connector-jdbc from the
