@@ -222,7 +222,7 @@ page the id and thumbnail cells link to the tokenized media download
 | key | label | type | kind | operators |
 |-----|-------|------|------|-----------|
 | `id` | File ID | int | C | `= != < > <= >=` |
-| `file_type` | Type | enum | C | `= !=` — values `photo,video,document,audio,voice,sticker,animation,unknown` |
+| `file_type` | Type | enum | C | `= !=` — values `photo,video,document,audio,voice,sticker,animation,video_note,thumbnail,unknown` |
 | `name` | Name | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` — the original Telegram file name (may be empty) |
 | `ext` | Extension | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
 | `size` | Size | int | C | `= != < > <= >=` — bytes (displayed human-readable) |

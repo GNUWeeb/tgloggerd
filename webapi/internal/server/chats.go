@@ -161,15 +161,32 @@ type chatMediaJSON struct {
 	DeletedAt *string `json:"deleted_at,omitempty"`
 }
 
-// poster adds a video's cover photo to its media, which is then also
-// its thumb.
+// poster adds the picture a video (an animation, a video note, a
+// video sticker) shows before it plays to its media, which is then
+// also its thumb: its cover when stored, else Telegram's thumbnail of
+// it when stored, else its cover when it may be fetched. The minithumb
+// stays as it is, for a blurred placeholder.
 func (v view) poster(md *chatMediaJSON, m logdb.Message) {
-	if md == nil || m.Cover.ID == 0 {
+	if md == nil || (md.Render != "video" && md.Render != "animation") {
 		return
 	}
-	if u := v.photo(m.Cover); u != nil {
+	var u *string
+	switch {
+	case storedFile(m.Cover):
+		u = v.photo(m.Cover)
+	case storedFile(m.Thumbnail):
+		u = v.photo(m.Thumbnail)
+	case m.Cover.ID != 0:
+		u = v.photo(m.Cover)
+	}
+	if u != nil {
 		md.Poster, md.Thumb = u, u
 	}
+}
+
+// storedFile is whether a file's bytes are in the store.
+func storedFile(f logdb.FileRef) bool {
+	return f.ID != 0 && f.Exists && f.OnDisk
 }
 
 // media is a message's media: its file and its detail. thumb is the

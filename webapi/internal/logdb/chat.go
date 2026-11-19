@@ -160,6 +160,10 @@ type Message struct {
 	// Cover is a video's cover photo (telegram_message_files, role
 	// cover, since migration 000036); ID 0 = none.
 	Cover FileRef
+	// Thumbnail is the still thumbnail Telegram sent with a video,
+	// an animation, a video note or a video sticker (role
+	// thumbnail); ID 0 = none.
+	Thumbnail FileRef
 	// Files are the message's other files (telegram_message_files)
 	// for the kinds whose detail shows them: a game's photo, an
 	// invoice's, paid media's items.
@@ -619,14 +623,18 @@ type MessageFile struct {
 // filesKinds are the content types whose other files the chat shows,
 // and the roles it reads for each.
 var filesKinds = map[string]string{
-	"video":      "'cover'",
+	"video":      "'cover', 'thumbnail'",
+	"animation":  "'thumbnail'",
+	"video_note": "'thumbnail'",
+	"sticker":    "'thumbnail'",
 	"game":       "'game'",
 	"invoice":    "'invoice'",
 	"paid_media": "'paid'",
 }
 
-// completeCovers adds the cover photos of the videos among ms and the
-// files of the other kinds filesKinds names, in one query.
+// completeCovers adds the cover photos and the thumbnails of the
+// videos among ms and the files of the other kinds filesKinds names,
+// in one query.
 func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uint64]*Message, ms []Message) error {
 	var with []Message
 	for _, m := range ms {
@@ -639,7 +647,7 @@ func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uin
 	}
 	rows, err := db.QueryContext(ctx, "SELECT mf."+t.fk+", mf.role, mf.position, mf.file_id, "+
 		fileColumnsOf("f")+" FROM telegram_message_files mf JOIN telegram_files f ON f.id = mf.file_id "+
-		"WHERE mf."+t.fk+" IN ("+idList(with)+") AND mf.role IN ('cover', 'game', 'invoice', 'paid') "+
+		"WHERE mf."+t.fk+" IN ("+idList(with)+") AND mf.role IN ('cover', 'thumbnail', 'game', 'invoice', 'paid') "+
 		"ORDER BY mf."+t.fk+", mf.role, mf.position")
 	if err != nil {
 		return err
@@ -661,9 +669,15 @@ func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uin
 			continue
 		}
 		mf.File = f.ref(fileID)
-		if mf.Role == "cover" {
+		switch mf.Role {
+		case "cover":
 			if mf.Position == 0 {
 				m.Cover = mf.File
+			}
+			continue
+		case "thumbnail":
+			if mf.Position == 0 {
+				m.Thumbnail = mf.File
 			}
 			continue
 		}

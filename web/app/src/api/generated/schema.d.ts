@@ -1933,8 +1933,11 @@ export interface components {
         FileRow: {
             /** Format: int64 */
             id: number;
-            /** @enum {string} */
-            file_type: "photo" | "video" | "document" | "audio" | "voice" | "sticker" | "animation" | "unknown";
+            /**
+             * @description telegram_files.file_type, but for a video's still thumbnail (file_type thumbnail, filtered as such), which is answered as photo: it is a picture like one.
+             * @enum {string}
+             */
+            file_type: "photo" | "video" | "document" | "audio" | "voice" | "sticker" | "animation" | "video_note" | "unknown";
             name: string;
             ext: string;
             /** Format: int64 */
@@ -1953,8 +1956,10 @@ export interface components {
             sha256?: string | null;
             /** @description The /files/<token> URL when the bytes are stored or fetchable, else null (an unstored file the viewer may not have fetched, or fetching from Telegram is off). */
             url: string | null;
-            /** @description The same URL for a stored photo or sticker, else null; an unstored picture has none, so a list never fetches. A video (.webm) or animated (.tgs) sticker has none either: its bytes are not an image. */
+            /** @description An image to show for the file, a /files/<token> URL of stored bytes only, so a list never fetches: the same URL for a stored photo, .webp sticker or thumbnail; for a video, animation, video note or video (.webm) sticker, stored or not, the stored cover, else the stored Telegram thumbnail, of a message the viewer sees that carried it (never the video's own URL); else null. An animated (.tgs) sticker has none. */
             thumb: string | null;
+            /** @description A video's, animation's, video note's or video sticker's blurred preview (TDLib's minithumbnail) as a data: URL (a JPEG), when a message the viewer sees that carried it records one; absent otherwise. For a placeholder while thumb is null or loading. */
+            minithumb?: string;
             /** @description The chat of the first message the viewer sees that carried the file; null when there is none (a profile or group photo, or a message the viewer may not see). */
             chat: {
                 /** Format: int64 */
@@ -2063,7 +2068,7 @@ export interface components {
             performer?: string;
             /** @description TDLib's tiny blurred preview as a data: URL (a JPEG), shown even when the file is not stored. */
             minithumb?: string;
-            /** @description A video's cover photo (telegram_message_files, role cover), its /files/<token> URL, when it is stored or may be fetched. */
+            /** @description The picture a video, animation, video note or video (.webm) sticker shows before it plays, a /files/<token> URL: its cover photo (telegram_message_files, role cover) when stored, else the still thumbnail Telegram sent with it (role thumbnail) when stored, else its cover when it may be fetched. Absent when there is none; minithumb then stays the placeholder. */
             poster?: string;
             /** @description Present (true) for a video note, which Telegram shows as a round video (content_type video_note). */
             round?: boolean;
