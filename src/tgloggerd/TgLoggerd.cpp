@@ -504,6 +504,57 @@ int TgLoggerd::start(void)
 			}
 		});
 	});
+	/*
+	 * A chat recheck's answer, once its messages are stored (they were
+	 * posted to serial_ first): the stored live messages strictly
+	 * between the lowest and highest id returned that it did not return
+	 * are marked deleted, flagged as found on recheck, unless the answer
+	 * was too short to tell (recheck::selectDeleted). Each sends the
+	 * usual deletion event and tombstones its Discord copy, as a live
+	 * deletion does.
+	 */
+	tdlib_->setRecheckHandler([this](const RecheckAnswer &a) {
+		serial_->post([this, a] {
+			try {
+				std::vector<int64_t> marked;
+				const char *why = "fewer than two messages returned";
+				if (auto span = recheck::spanOf(a.page)) {
+					auto v = recheck::selectDeleted(a.page,
+						db_->listRecheckStored(a.chat_id,
+							a.is_group, *span));
+					why = v.why;
+					if (v.concluded)
+						marked = db_->markDeletedOnRecheck(
+							a.chat_id, a.is_group,
+							v.deleted);
+				}
+				for (int64_t id : marked) {
+					publish_message(*events_, a.chat_id, id,
+							MsgChange::Deleted,
+							std::nullopt);
+					discord_->forward_delete(a.chat_id, id);
+				}
+				if (marked.size() > recheck::kWarnMarked)
+					pr_warn(l_, "recheck: chat %lld around %lld:"
+						" %zu returned, %zu marked deleted",
+						(long long)a.chat_id,
+						(long long)a.page.around,
+						a.page.total, marked.size());
+				else
+					pr_info(l_, "recheck: chat %lld around %lld:"
+						" %zu returned, %zu marked deleted%s%s",
+						(long long)a.chat_id,
+						(long long)a.page.around,
+						a.page.total, marked.size(),
+						*why ? "; none concluded: " : "",
+						why);
+			} catch (const std::exception &e) {
+				pr_error(l_, "recheck: chat %lld around %lld: %s",
+					 (long long)a.chat_id,
+					 (long long)a.page.around, e.what());
+			}
+		});
+	});
 	tdlib_->setContentVersionHandler(
 		[this](int64_t chat_id, int64_t message_id,
 		       const models::MessageContent &mc, bool is_group) {
