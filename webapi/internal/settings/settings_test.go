@@ -15,6 +15,7 @@ import (
 func str(s string) *string { return &s }
 func num(n int) *int       { return &n }
 func yes(b bool) *bool     { return &b }
+func i64(n int64) *int64   { return &n }
 
 // Every key takes what it should and refuses the rest, naming itself.
 func TestCheckEachKey(t *testing.T) {
@@ -42,6 +43,22 @@ func TestCheckEachKey(t *testing.T) {
 		{"dashboard_numbers",
 			[]Prefs{{DashNumbers: str("exact")}, {DashNumbers: str("compact")}},
 			[]Prefs{{DashNumbers: str("")}, {DashNumbers: str("short")}, {DashNumbers: str("Exact")}}},
+		{"dashboard_period",
+			[]Prefs{{DashPeriod: str("minute")}, {DashPeriod: str("4h")}, {DashPeriod: str("year")}},
+			[]Prefs{{DashPeriod: str("")}, {DashPeriod: str("fortnight")}, {DashPeriod: str("Hour")}}},
+		{"dashboard_variant",
+			[]Prefs{{DashVariant: str("bars")}, {DashVariant: str("line")}, {DashVariant: str("area")},
+				{DashVariant: str("total")}},
+			[]Prefs{{DashVariant: str("")}, {DashVariant: str("pie")}}},
+		{"dashboard_start",
+			[]Prefs{{DashStart: i64(0)}, {DashStart: i64(1794931200)}, {DashStart: i64(MaxDashTime)}},
+			[]Prefs{{DashStart: i64(-1)}, {DashStart: i64(MaxDashTime + 1)}}},
+		{"dashboard_end",
+			[]Prefs{{DashEnd: i64(0)}, {DashEnd: i64(1794931200)}},
+			[]Prefs{{DashEnd: i64(-1)}, {DashEnd: i64(MaxDashTime + 1)}}},
+		{"dashboard_last",
+			[]Prefs{{DashLast: i64(1)}, {DashLast: i64(172800)}},
+			[]Prefs{{DashLast: i64(0)}, {DashLast: i64(-60)}, {DashLast: i64(MaxDashTime + 1)}}},
 		{"sidebar",
 			[]Prefs{{Sidebar: str("open")}, {Sidebar: str("collapsed")}},
 			[]Prefs{{Sidebar: str("")}, {Sidebar: str("closed")}, {Sidebar: str("OPEN")}}},
@@ -81,6 +98,22 @@ func TestCheckEachKey(t *testing.T) {
 	}
 }
 
+// With takes only the keys named from the other preferences, null
+// ones included.
+func TestWith(t *testing.T) {
+	t.Parallel()
+	stored := Prefs{Theme: str("dark"), DashPeriod: str("day"), DashStart: i64(10), DashEnd: i64(20)}
+	got := stored.With(Prefs{DashPeriod: str("hour"), DashLast: i64(3600), Lang: str("id")},
+		[]string{"dashboard_period", "dashboard_last", "dashboard_start", "dashboard_end"})
+	if *got.Theme != "dark" || *got.DashPeriod != "hour" || *got.DashLast != 3600 ||
+		got.DashStart != nil || got.DashEnd != nil || got.Lang != nil {
+		t.Errorf("%+v", got)
+	}
+	if *stored.DashPeriod != "day" || *stored.DashStart != 10 {
+		t.Errorf("stored changed: %+v", stored)
+	}
+}
+
 // The JSON names are the API's, and an unset key is null.
 func TestJSON(t *testing.T) {
 	t.Parallel()
@@ -104,7 +137,7 @@ func TestDefaults(t *testing.T) {
 	// system's theme; everything else on.
 	e := Resolve(Prefs{}, Defaults{})
 	want := Effective{Timezone: "Asia/Jakarta", DateFormat: "24h", Lang: "en", Theme: "system",
-		Sidebar: "open", DashNumbers: "exact", RowsPerPage: 25, Landing: "/", Chat: Chat{AutoLoad: true, Live: true, Media: "auto",
+		Sidebar: "open", DashNumbers: "exact", DashVariant: "bars", RowsPerPage: 25, Landing: "/", Chat: Chat{AutoLoad: true, Live: true, Media: "auto",
 			ShowDeleted: true, ShowEdited: true, ShowService: true}}
 	if e != want {
 		t.Errorf("site defaults %+v", e)
