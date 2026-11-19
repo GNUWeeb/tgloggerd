@@ -18,13 +18,14 @@ preview's sticker.
 
 ## Scope
 
-- Daemon (TDLib session): a `type` name for each of these TDLib
-  classes, curated `extra` keys for what each carries (message-types.md
-  section 4.8 lists them), and their media in `telegram_message_files`
-  under role `preview_media` (a video note, a voice note, an album's
-  items by position, a sticker set's first stickers, a background's
-  document, a video preview's cover), through the normal file path and
-  fetched again by the existing MessageExtra source.
+Done: the daemon stores a `type` name for each of these TDLib classes,
+their curated `extra` keys and their media under role `preview_media`
+(message-types.md sections 4.8 and 4.3 list the names, keys and
+positions), and a video preview's cover, a document preview's file and
+a sticker preview's sticker, through the normal file path and fetched
+again by the MessageExtra source; for new and edited messages only.
+Left:
+
 - Go (webapi): the new type names and their `extra` keys and media on
   `link_preview` (ChatMessage and MessageFull); every type name the
   web reads today keeps its meaning. OpenAPI and web/docs follow.
@@ -41,8 +42,8 @@ message-types.md section 4.8 and decision
 The `type` column is a VARCHAR, so new names need no migration; rows
 stored as `unsupported` keep that type (only new and edited messages
 get the new names), so readers must keep handling it. The media use
-the `preview_media` role of migration 000045 with positions past the
-preview's own video, animation or audio (position 0).
+the `preview_media` role of migration 000045, by position as
+message-types.md section 4.3 gives them.
 
 ## Depends on
 
