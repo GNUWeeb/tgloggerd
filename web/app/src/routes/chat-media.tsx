@@ -87,13 +87,17 @@ export function Picture({ m, single, onClick = false }: { m: Media; single?: boo
 	const [shown, setShown] = useState(!onClick);
 	const [open, setOpen] = useState(false);
 	const ratio = ratioOf(m);
-	const cls = `c-media ${single ? 'single' : ''} ${m.deleted_at ? 'deleted' : ''}`;
+	// Most older photos come without their size. A lone photo of unknown
+	// shape takes the picture's own shape once it loads instead of a 4:3
+	// box that would crop it; an album's cells keep the grid's shape.
+	const natural = !!single && !(m.w && m.h);
+	const cls = `c-media ${single ? 'single' : ''} ${natural ? 'natural' : ''} ${m.deleted_at ? 'deleted' : ''}`;
 	if (!m.url) return <Missing m={m} ratio={ratio} />;
 	// "Load media on click": a placeholder until asked for.
 	if (!shown) return <button type="button" className={`${cls} c-missing c-reveal`} style={{ aspectRatio: ratio }} onClick={() => setShown(true)}><Download size={20} /><span>Show</span></button>;
 	return (
 		<>
-			<a className={cls} style={{ aspectRatio: ratio }} href={m.url} target="_blank" rel="noopener" aria-label="Photo"
+			<a className={cls} style={natural ? undefined : { aspectRatio: ratio }} href={m.url} target="_blank" rel="noopener" aria-label="Photo"
 				onClick={(e) => { if (plainClick(e)) { e.preventDefault(); setOpen(true); } }}>
 				<img src={m.thumb ?? m.url} alt="" loading="lazy" />
 				<DeletedMark m={m} />

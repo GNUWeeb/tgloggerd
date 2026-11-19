@@ -54,6 +54,76 @@ test('without the stream the chat polls, and goes live again when it returns', a
 	await expect(page.locator('.a-livestate.is-live')).toBeVisible({ timeout: 15_000 });
 });
 
+test('a lone photo whose size is not stored is drawn whole, at its own shape', async ({ page }) => {
+	// A lone photo that is not 4:3, the box an unknown size used to get.
+	type M = { message_id: number; content_type: string; album: unknown[]; media: { w?: number; h?: number; render?: string } | null };
+	const msgs = (await (await page.request.get(`/api/page/groups/${G}/chat`)).json()).props.messages as M[];
+	const m = msgs.find((x) => x.content_type === 'photo' && !x.album.length && x.media?.render === 'image' && x.media.w && x.media.h && Math.abs(x.media.w / x.media.h - 4 / 3) > 0.1)!;
+	expect(m, 'a lone photo that is not 4:3').toBeTruthy();
+	// Most older photos come without their size: take the sizes out of
+	// the page data the chat opens with.
+	const strip = async (route: import('@playwright/test').Route) => {
+		const res = await route.fetch();
+		await route.fulfill({ response: res, body: (await res.text()).replace(/"w":\d+,"h":\d+,/g, '') });
+	};
+	// Open it in the app (not a document load: the stand-in's server
+	// render would bring the sizes along), from page data without them.
+	await page.goto('/users');
+	await expect(page.getByRole('heading', { name: 'Users', level: 1 })).toBeVisible();
+	// Page data and chat windows only: the live event stream never ends.
+	await page.route((u) => u.pathname.startsWith('/api/page/') || u.pathname.startsWith('/api/chats/'), strip);
+	await page.evaluate((to) => { history.pushState(null, '', to); dispatchEvent(new PopStateEvent('popstate')); }, `/groups/${G}/chat?at=${m.message_id}`);
+	const box = page.locator(`#m${m.message_id}`).getByRole('link', { name: 'Photo' });
+	const img = box.locator('img');
+	await expect(img).toHaveJSProperty('complete', true);
+	expect(await box.getAttribute('style') ?? '').not.toContain('aspect-ratio');
+	const [natural, drawn] = await img.evaluate((i: HTMLImageElement) => [i.naturalWidth / i.naturalHeight, i.clientWidth / i.clientHeight]);
+	expect(natural).toBeGreaterThan(0);
+	expect(Math.abs(drawn - natural) / natural).toBeLessThan(0.02);
+});
+
+test('on its message page, a lone photo whose size is not stored is drawn whole', async ({ page }) => {
+	type M = { id: number; content_type: string; album: unknown[]; media: { w?: number; h?: number; render?: string } | null };
+	const msgs = (await (await page.request.get(`/api/page/groups/${G}/chat`)).json()).props.messages as M[];
+	const m = msgs.find((x) => x.content_type === 'photo' && !x.album.length && x.media?.render === 'image' && x.media.w && x.media.h && Math.abs(x.media.w / x.media.h - 4 / 3) > 0.1)!;
+	expect(m, 'a lone photo that is not 4:3').toBeTruthy();
+	await page.goto('/users');
+	await expect(page.getByRole('heading', { name: 'Users', level: 1 })).toBeVisible();
+	await page.route((u) => u.pathname.startsWith('/api/page/'), async (route) => {
+		const res = await route.fetch();
+		await route.fulfill({ response: res, body: (await res.text()).replace(/"w":\d+,"h":\d+,/g, '') });
+	});
+	await page.evaluate((to) => { history.pushState(null, '', to); dispatchEvent(new PopStateEvent('popstate')); }, `/messages/group/${m.id}`);
+	const box = page.locator('.a-msgmedia').getByRole('link', { name: 'Photo' });
+	const img = box.locator('img');
+	await expect(img).toHaveJSProperty('complete', true);
+	expect(await box.getAttribute('style') ?? '').not.toContain('aspect-ratio');
+	const [natural, drawn] = await img.evaluate((i: HTMLImageElement) => [i.naturalWidth / i.naturalHeight, i.clientWidth / i.clientHeight]);
+	expect(Math.abs(drawn - natural) / natural).toBeLessThan(0.02);
+});
+
+test('an album\'s photos sit in cells of one size, each drawn whole', async ({ page }) => {
+	await page.goto(`/groups/${G}/chat?at=555422`);
+	const cells = page.locator('#m555422 .c-album .c-media');
+	await expect(cells.first().locator('img')).toHaveJSProperty('complete', true);
+	const boxes = await cells.evaluateAll((els) => els.map((e) => {
+		const r = e.getBoundingClientRect();
+		const img = e.querySelector('img:not(.c-mini)');
+		return { w: Math.round(r.width), h: Math.round(r.height), fit: img ? getComputedStyle(img).objectFit : '' };
+	}));
+	expect(boxes.length).toBeGreaterThan(1);
+	for (const b of boxes) expect(b).toEqual({ w: boxes[0]!.w, h: boxes[0]!.w, fit: 'contain' });
+});
+
+test('on a wide screen the chat column leaves half the side margins of a 760px one', async ({ page }) => {
+	await page.setViewportSize({ width: 1600, height: 900 });
+	await page.goto(`/groups/${G}/chat`);
+	const [outer, feed] = await page.locator('.c-feed').evaluate((f) => [f.parentElement!.clientWidth, f.getBoundingClientRect().width]);
+	expect(outer).toBeGreaterThan(1000);
+	// Each margin is half of what a 760px column would leave.
+	expect(Math.abs((outer - feed) / 2 - (outer - 760) / 4)).toBeLessThan(2);
+});
+
 test('a photo opens full size in the viewer above the chat; Esc closes it', async ({ page }) => {
 	await page.goto(`/groups/${G}/chat?at=555422`);
 	await expect(page.locator('.a-livestate')).toBeVisible();
