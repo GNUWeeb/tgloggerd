@@ -17,7 +17,7 @@ the card shows only the name and one number.
 
 ## Depends on
 
-`msg-kind-leftovers` (the same contact card).
+Nothing.
 
 ## Done when
 

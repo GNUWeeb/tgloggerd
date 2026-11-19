@@ -51,7 +51,7 @@ has re-read them (`msg-repair-census`).
 
 ## Depends on
 
-`msg-service-links` (the same ServiceInfo and the same lines).
+Nothing.
 
 ## Done when
 

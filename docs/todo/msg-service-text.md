@@ -35,7 +35,7 @@ details are `msg-gifts`.
 
 ## Depends on
 
-`msg-service-links` (the parts).
+Nothing.
 
 ## Done when
 
