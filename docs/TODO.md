@@ -112,7 +112,6 @@ Storing every kind of Telegram message faithfully:
 - [`msg-repair-census`](todo/msg-repair-census.md): Count what the repair pass left without a kind or detail, turn it off, and adjust these items.
 - [`msg-rich-store`](todo/msg-rich-store.md): Store a rich message's plain text, a short summary and the media in its page blocks.
 - [`msg-custom-emoji-store`](todo/msg-custom-emoji-store.md): Fill the custom emoji table on demand from a daemon endpoint, with each sticker's file.
-- [`msg-service-lines`](todo/msg-service-lines.md): Make service lines read as sentences: "You" for the logging account, no actor before a plain notice.
 - [`msg-service-links`](todo/msg-service-links.md): Link the people and chats a service line names, from text parts the API sends.
 - [`msg-service-detail`](todo/msg-service-detail.md): Show a service action's stored detail: the new photo, durations, the pinned snippet, the topic, the community.
 - [`msg-service-text`](todo/msg-service-text.md): Rebuild with names the service types whose stored line names nobody, such as gifts and auto-delete changes.

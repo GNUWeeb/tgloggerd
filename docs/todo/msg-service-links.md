@@ -39,7 +39,7 @@ counts how many stay without).
 
 ## Depends on
 
-`msg-service-lines` (the same lines in the chat).
+Nothing.
 
 ## Done when
 
