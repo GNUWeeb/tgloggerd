@@ -123,11 +123,31 @@ export const photoOf = (id: number): string | null => (id === groups[2].id ? nul
 
 const pick = (c) => ({ id: c.id, title: c.title || c.name, kind: c.kind === 'user' ? 'user' : 'group', sub: c.kind === 'user' ? 'private chat' : c.type, photo: null });
 const DISCORD_WEBHOOK = /^https:\/\/(?:(?:canary|ptb)\.)?discord(?:app)?\.com\/api(?:\/v\d+)?\/webhooks\/\d+\/[\w-]+$/;
+// The join attempts, newest first, with the chat id each names (0: none;
+// Go keeps it in the audit row, the page never shows it). The gw_admin
+// one in Security is in a group gw_admin's scope hides.
 const JOIN_LOG = [
-	{ at: '2026-11-17T13:00:00Z', by: 'gw_admin', ref: '@asm_lounge', title: 'Assembly Lounge', outcome: 'joined' },
-	{ at: '2026-11-16T14:00:00Z', by: 'admin', ref: 'https://t.me/+AbCdEfGhIjKl', title: 'Homelab & Self-hosting', outcome: 'request_sent' },
-	{ at: '2026-11-13T16:00:00Z', by: 'admin', ref: '@some_big_channel', title: 'Some Big Channel', outcome: 'flood_wait' },
+	{ at: '2026-11-17T13:00:00Z', by: 'gw_admin', ref: '@asm_lounge', title: 'Assembly Lounge', outcome: 'joined', chat_id: -1001999000031 },
+	{ at: '2026-11-17T09:00:00Z', by: 'gw_admin', ref: '@kernel_newbies_id', title: 'Kernel Newbies ID', outcome: 'request_sent', chat_id: -1001999000077 },
+	{ at: '2026-11-16T18:00:00Z', by: 'gw_admin', ref: `@${groups[9].username || 'sec_hidden'}`, title: groups[9].title, outcome: 'already_member', chat_id: groups[9].id },
+	{ at: '2026-11-16T14:00:00Z', by: 'admin', ref: 'https://t.me/+AbCdEfGhIjKl', title: 'Homelab & Self-hosting', outcome: 'request_sent', chat_id: 0 },
+	{ at: '2026-11-13T16:00:00Z', by: 'admin', ref: '@some_big_channel', title: 'Some Big Channel', outcome: 'flood_wait', chat_id: 0 },
 ];
+// Held filings (JoinChatProps.pending), oldest first: a group whose join
+// waits for approval, and a federation it goes into once the account is
+// a member. Homelab's chat id is not known yet (an invite link).
+const JOIN_PENDING = [
+	{ id: 1, ref: 'https://t.me/+AbCdEfGhIjKl', title: 'Homelab & Self-hosting', chat_id: 0, federation: { id: 2, name: 'Rust and systems' }, by: 'admin', at: '2026-11-16T14:00:00Z' },
+	{ id: 2, ref: 'https://t.me/+AbCdEfGhIjKl', title: 'Homelab & Self-hosting', chat_id: 0, federation: { id: 3, name: 'Security' }, by: 'admin', at: '2026-11-16T14:00:00Z' },
+	{ id: 3, ref: '@kernel_newbies_id', title: 'Kernel Newbies ID', chat_id: -1001999000077, federation: { id: 1, name: 'GNU/Weeb network' }, by: 'gw_admin', at: '2026-11-17T09:00:00Z' },
+];
+// What Join chat shows `s`: a superadmin every attempt and filing, an
+// admin only its own, and never an attempt in a chat its scope hides
+// (one naming no chat id loses its title instead).
+const joinRecent = (s) => JOIN_LOG
+	.filter((r) => s.role === 'superadmin' || (r.by === s.acct.username && (!r.chat_id || s.group({ id: r.chat_id }))))
+	.map(({ chat_id, ...r }) => ({ ...r, title: s.role === 'superadmin' || chat_id ? r.title : '' }));
+const joinPending = (s) => JOIN_PENDING.filter((f) => s.role === 'superadmin' || f.by === s.acct.username);
 
 const groupSummary = (g) => ({ id: g.id, title: g.title, username: g.username, type: g.type, photo: null, exposed: g.exposed });
 
@@ -746,7 +766,7 @@ export function load(url: string, persona: Persona): Loaded {
 	if (path === '/join-chat') {
 		if (!allowed(s, 'join_chat')) return notFound;
 		const feds = s.role === 'superadmin' ? federations : s.manageableFeds.filter((f) => f.id !== 0);
-		return { route: 'join_chat', status: 200, props: { federations: feds.map((f) => ({ id: f.id, name: f.name })), recent: JOIN_LOG, api_configured: true } };
+		return { route: 'join_chat', status: 200, props: { federations: feds.map((f) => ({ id: f.id, name: f.name })), recent: joinRecent(s), pending: joinPending(s), api_configured: true } };
 	}
 	if (path.startsWith('/mcp-admin')) {
 		if (!allowed(s, 'mcp')) return notFound;
@@ -1299,9 +1319,31 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		const ref = String(body.ref || '').trim();
 		if (!ref) return [400, { error: 'bad_request', message: 'Enter an invite link or a username.' }];
 		const chat = { chat_id: -1001999000001, title: 'Compiler Nerds ID', type: 'supergroup', member_count: 1843, username: ref.replace(/^@|^https?:\/\/t\.me\//, ''), is_member: false, needs_approval: false };
+		// A ref naming "request" is a chat that asks to approve joiners:
+		// the join sends a request and the filing is held.
+		const asks = /request/i.test(ref);
+		if (asks) Object.assign(chat, { chat_id: -1001999000088, title: 'Approval Club', needs_approval: true });
 		if (p === 'join-chat/preview') return [200, { outcome: 'ok', message: '', chat }];
-		JOIN_LOG.unshift({ at: NOW, by: s.acct.username, ref, title: chat.title, outcome: 'joined' });
-		return [200, { outcome: 'joined', message: `Joined. The chat is now logged, media included${(body.federation_ids || []).length ? ', and added to the chosen federations' : ''}.`, chat: { ...chat, is_member: true } }];
+		// Only federations the viewer administers, checked before joining;
+		// 0 (Default) and none leave the group in Default.
+		const ids = [...new Set<number>((body.federation_ids || []).map(Number))];
+		const feds = s.role === 'superadmin' ? federations : s.manageableFeds;
+		if (ids.some((id) => id !== 0 && !feds.some((f) => f.id === id))) return [404, { error: 'not_found', message: 'No such federation.' }];
+		const chosen = ids.filter((id) => id !== 0).map((id) => fedById(id));
+		const outcome = asks ? 'request_sent' : 'joined';
+		JOIN_LOG.unshift({ at: NOW, by: s.acct.username, ref, title: chat.title, outcome, chat_id: chat.chat_id });
+		if (asks) {
+			for (const f of chosen) JOIN_PENDING.push({ id: Math.max(0, ...JOIN_PENDING.map((x) => x.id)) + 1, ref, title: chat.title, chat_id: chat.chat_id, federation: { id: f.id, name: f.name }, by: s.acct.username, at: NOW });
+			return [200, { outcome, message: 'Join request sent. The chat is logged once an admin approves it.', ref, chat, federation_ids: chosen.map((f) => f.id), filing_pending: chosen.length > 0 }];
+		}
+		return [200, { outcome, message: 'Joined. The chat is now logged, media included.', ref, chat: { ...chat, is_member: true }, federation_ids: chosen.map((f) => f.id), filing_pending: false }];
+	}
+	if ((m = p.match(/^join-chat\/pending\/(\d+)$/)) && method === 'DELETE') {
+		if (!allowed(s, 'join_chat')) return [404, { error: 'not_found' }];
+		const i = JOIN_PENDING.findIndex((f) => String(f.id) === m[1] && (s.role === 'superadmin' || f.by === s.acct.username));
+		if (i < 0) return [404, { error: 'not_found', message: 'No such held filing.' }];
+		JOIN_PENDING.splice(i, 1);
+		return [204, null];
 	}
 	if ((m = p.match(/^mcp\/groups(?:\/(-?\d+))?$/))) {
 		// Go routes only these methods here; ServeMux answers any other
