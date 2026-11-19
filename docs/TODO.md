@@ -109,7 +109,6 @@ Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
 - [`msg-repair-census`](todo/msg-repair-census.md): Count what the repair pass left without a kind or detail, turn it off, and adjust these items.
-- [`msg-chat-backgrounds`](todo/msg-chat-backgrounds.md): Keep and show a background change's wallpaper and fill, and an animated chat photo's video.
 - [`msg-gifts`](todo/msg-gifts.md): Keep and show a gift's sticker, an upgraded gift's model, symbol and backdrop, and prize stickers.
 - [`msg-communities`](todo/msg-communities.md): Store the communities service lines name, so their lines give the community's name.
 - [`msg-widgets`](todo/msg-widgets.md): Show a widget message's size and, once a sandbox is chosen, its HTML (optional).
