@@ -37,7 +37,7 @@ the flag can move there.
 
 ## Depends on
 
-`msg-type-labels`.
+Nothing.
 
 ## Done when
 

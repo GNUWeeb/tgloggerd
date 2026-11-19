@@ -42,7 +42,7 @@ that work today.
 
 ## Depends on
 
-`msg-type-labels`.
+Nothing.
 
 ## Done when
 

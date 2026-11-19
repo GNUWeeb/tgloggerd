@@ -62,7 +62,7 @@ nothing either way.
 
 ## Depends on
 
-`msg-type-labels`.
+Nothing.
 
 ## Done when
 
