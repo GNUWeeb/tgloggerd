@@ -49,6 +49,13 @@ struct Attachment {
 	std::string	proxy_url;
 	int		width = 0;	/* images only; 0 if not applicable */
 	int		height = 0;
+	/*
+	 * Set on a voice message's recording only: its length, and its
+	 * waveform as Discord sends it (base64 of up to 256 one-byte
+	 * amplitude samples), kept undecoded.
+	 */
+	double		duration_secs = 0;
+	std::string	waveform;
 };
 
 /*
@@ -98,6 +105,17 @@ struct MessageReference {
 };
 
 struct Message {
+	/* The message types a bridge tells apart; the full list is Discord's. */
+	enum Type {
+		TYPE_DEFAULT = 0,
+		TYPE_REPLY   = 19,
+	};
+
+	/* Message flags (a bit field); only those a caller reads. */
+	enum Flag : uint64_t {
+		FLAG_IS_VOICE_MESSAGE = 1ULL << 13,
+	};
+
 	Snowflake	id = 0;
 	Snowflake	channel_id = 0;
 	Snowflake	guild_id = 0;	/* 0 for a DM */
@@ -113,12 +131,22 @@ struct Message {
 	std::string	content;	/* empty without the MESSAGE_CONTENT intent */
 	std::string	timestamp;	/* ISO-8601, as sent */
 	std::string	edited_timestamp; /* empty when never edited */
+	/*
+	 * The message type: anything but TYPE_DEFAULT and TYPE_REPLY is
+	 * mostly a system message (a member joining, a pin, a boost, ...).
+	 */
+	int		type = TYPE_DEFAULT;
+	uint64_t	flags = 0;	/* Flag bits */
 	std::vector<Attachment>		attachments;
 	std::vector<Sticker>		stickers;
 	std::optional<MessageReference>	reference;
 
 	bool from_webhook(void) const { return webhook_id != 0; }
 	bool is_reply(void) const { return reference.has_value(); }
+	bool is_voice_message(void) const
+	{
+		return (flags & FLAG_IS_VOICE_MESSAGE) != 0;
+	}
 };
 
 /*

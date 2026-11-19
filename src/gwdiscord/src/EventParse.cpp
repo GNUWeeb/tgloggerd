@@ -66,6 +66,9 @@ Attachment parse_attachment(const Json::Value &v)
 		a.width = v["width"].asInt();
 	if (v.isMember("height") && v["height"].isIntegral())
 		a.height = v["height"].asInt();
+	if (v.isMember("duration_secs") && v["duration_secs"].isNumeric())
+		a.duration_secs = v["duration_secs"].asDouble();
+	a.waveform = json_str(v, "waveform");
 	return a;
 }
 
@@ -95,6 +98,10 @@ Message parse_message(const Json::Value &v)
 	m.content = json_str(v, "content");
 	m.timestamp = json_str(v, "timestamp");
 	m.edited_timestamp = json_str(v, "edited_timestamp");
+	if (v.isMember("type") && v["type"].isInt())
+		m.type = v["type"].asInt();
+	if (v.isMember("flags") && v["flags"].isUInt64())
+		m.flags = v["flags"].asUInt64();
 
 	if (v.isMember("attachments") && v["attachments"].isArray()) {
 		for (const auto &a : v["attachments"])

@@ -18,6 +18,7 @@
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 using namespace gwdiscord;
 
@@ -59,9 +60,54 @@ static const char *MSG = R"({"op":0,"s":2,"t":"MESSAGE_CREATE","d":{
 	"sticker_items":[{"id":"749054660769218631","name":"Wave",
 	                  "format_type":4}]}})";
 
+/* A voice message: the flag, and the recording's duration and waveform. */
+static const char *VOICE = R"({"op":0,"s":3,"t":"MESSAGE_CREATE","d":{
+	"id":"1541191219416399923",
+	"channel_id":"1541156106343161896",
+	"type":0,"flags":8192,"content":"",
+	"author":{"id":"1","username":"alice","discriminator":"0"},
+	"attachments":[{"id":"1000","filename":"voice-message.ogg",
+	                "content_type":"audio/ogg","size":5012,
+	                "url":"https://cdn.discordapp.com/a/voice-message.ogg",
+	                "duration_secs":3.52,
+	                "waveform":"AAAAEhQXGBYUEA0="}]}})";
+
+/* A system message: a member joining, with no content. */
+static const char *JOIN = R"({"op":0,"s":4,"t":"MESSAGE_CREATE","d":{
+	"id":"1541191219416399924",
+	"channel_id":"1541156106343161896",
+	"type":7,"flags":0,"content":"",
+	"author":{"id":"2","username":"bob","discriminator":"0"}}})";
+
 static LogSink quiet_log(void)
 {
 	return [](LogLevel, const std::string &) {};
+}
+
+/* Run HELLO, READY and `frames`, and return the messages created. */
+static std::vector<Message> run_messages(const std::vector<std::string> &frames)
+{
+	auto script = std::make_shared<MockScript>();
+	script->frames = {HELLO, READY};
+	script->frames.insert(script->frames.end(), frames.begin(),
+			      frames.end());
+	/* If a frame is not dispatched, end on a fatal close, not a hang. */
+	script->close_when_done = true;
+	script->close_code = 4004;
+	auto rec = std::make_shared<MockRecord>();
+
+	GatewayConfig cfg;
+	cfg.token = "test-token";
+
+	Gateway gw(cfg, mock_transport(script, rec), quiet_log());
+	std::vector<Message> out;
+	gw.on_message_create([&](const Message &m) {
+		out.push_back(m);
+		if (out.size() == frames.size())
+			gw.stop();
+	});
+	gw.run();
+	return out;
 }
 
 /* Happy path: HELLO -> IDENTIFY -> READY -> MESSAGE_CREATE. */
@@ -102,6 +148,9 @@ static void test_happy_path(void)
 	CHECK(seen.id == 1541191219416399922ULL, "snowflake parsed from string");
 	CHECK(seen.channel_id == 1541156106343161896ULL, "channel_id parsed");
 	CHECK(seen.content == "hello from the mock", "content parsed");
+	CHECK(seen.type == Message::TYPE_DEFAULT && seen.flags == 0,
+	      "type and flags default when absent");
+	CHECK(!seen.is_voice_message(), "not a voice message");
 	CHECK(seen.from_webhook(), "webhook_id detected (loop suppression)");
 	CHECK(seen.webhook_id == 1541156222617649172ULL, "webhook_id value");
 	CHECK(seen.is_reply(), "reply detected");
@@ -133,6 +182,33 @@ static void test_happy_path(void)
 	}
 	CHECK(!sent.empty(), "client sent at least one frame");
 	CHECK(identified, "IDENTIFY sent with intents=33281");
+}
+
+/* The voice message flag and recording, and a system message's type. */
+static void test_message_kinds(void)
+{
+	printf("test: voice and system messages\n");
+
+	const auto msgs = run_messages({VOICE, JOIN});
+	CHECK(msgs.size() == 2, "both messages dispatched");
+	if (msgs.size() != 2)
+		return;
+
+	const Message &v = msgs[0];
+	CHECK(v.is_voice_message(), "IS_VOICE_MESSAGE flag parsed");
+	CHECK(v.type == Message::TYPE_DEFAULT, "voice message type");
+	CHECK(v.attachments.size() == 1, "voice attachment parsed");
+	if (!v.attachments.empty()) {
+		const Attachment &a = v.attachments[0];
+		CHECK(a.duration_secs > 3.51 && a.duration_secs < 3.53,
+		      "attachment duration_secs");
+		CHECK(a.waveform == "AAAAEhQXGBYUEA0=",
+		      "waveform kept as sent");
+	}
+
+	const Message &j = msgs[1];
+	CHECK(j.type == 7, "system message type parsed");
+	CHECK(!j.is_voice_message(), "system message is no voice message");
 }
 
 /*
@@ -209,6 +285,7 @@ static void test_recoverable_close_retries(void)
 int main(void)
 {
 	test_happy_path();
+	test_message_kinds();
 	test_fatal_close_does_not_reconnect();
 	test_auth_failure();
 	test_recoverable_close_retries();
