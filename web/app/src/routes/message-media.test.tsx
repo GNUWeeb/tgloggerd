@@ -53,6 +53,18 @@ describe('the message page\'s media', () => {
 		expect(viewer()!.querySelector('video')!.getAttribute('src')).toBe(m.media!.url);
 	});
 
+	it('shows a video\'s poster and blurred preview, loading none of the video until it is played', () => {
+		const m = find((x) => x.content_type === 'video' && x.media!.render === 'video' && stored(x));
+		open(m, { media: { ...m.media!, poster: '/files/tok-poster', minithumb: 'data:image/jpeg;base64,AA', thumb: '/files/tok-poster' } });
+		const a = box().querySelector('a.c-media[aria-label="Video"]')!;
+		const v = a.querySelector('video')!;
+		expect(v.getAttribute('poster')).toBe('/files/tok-poster');
+		expect(v.getAttribute('preload')).toBe('none');
+		expect(v.getAttribute('src')).toBeNull();
+		expect(a.querySelector('img.c-mini')!.getAttribute('src')).toBe('data:image/jpeg;base64,AA');
+		expect(a.querySelector('.c-playbig')).toBeTruthy();
+	});
+
 	it('plays an animation muted and looping, and opens it in the viewer', () => {
 		const m = find((x) => x.media!.render === 'animation' && x.content_type !== 'sticker' && stored(x));
 		open(m);

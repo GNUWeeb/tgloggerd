@@ -191,3 +191,103 @@ describe('chat media', () => {
 		expect(r.container.querySelector('.c-albumwrap')!.getAttribute('aria-label')).toBe('album . 3 items');
 	});
 });
+
+// What a video waits to play behind: Go's poster and blurred preview.
+describe('video posters', () => {
+	const POSTER = '/files/tok-poster';
+	const MINI = 'data:image/jpeg;base64,AA';
+	const still = { poster: POSTER, minithumb: MINI, thumb: POSTER };
+	// The box's video: the poster, and none of the video's bytes.
+	const waits = (v: HTMLVideoElement | null) => {
+		expect(v).toBeTruthy();
+		expect(v!.getAttribute('poster')).toBe(POSTER);
+		expect(v!.getAttribute('src')).toBeNull();
+		expect(v!.getAttribute('preload')).toBe('none');
+	};
+	const mini = (el: Element) => el.querySelector('img.c-mini')?.getAttribute('src');
+
+	it('shows a stored video\'s poster with the play mark, over its blurred preview, and plays it in the viewer', () => {
+		show(<MessageMedia msg={msg('video', media({ ...still, w: 16, h: 9, duration: 42 }))} onClick={false} />);
+		const box = screen.getByRole('link', { name: 'Video' });
+		waits(box.querySelector('video'));
+		expect(box.querySelector('.c-playbig')).toBeTruthy();
+		expect(mini(box)).toBe(MINI);
+		// Not the old <img> of thumb: the video element carries the poster.
+		expect(box.querySelector(`img[src="${POSTER}"]`)).toBeNull();
+		fireEvent.click(box);
+		const v = viewer()!.querySelector('video')!;
+		expect(v.getAttribute('src')).toBe(URL1);
+		expect(v.getAttribute('poster')).toBe(POSTER);
+	});
+
+	it('shows the blurred preview alone when a video has no poster', () => {
+		const r = show(<MessageMedia msg={msg('video', media({ stored: false, fetchable: true, minithumb: MINI, thumb: MINI }))} onClick={false} />);
+		const box = screen.getByRole('link', { name: 'Video' });
+		expect(mini(box)).toBe(MINI);
+		expect(box.querySelector('video')!.hasAttribute('poster')).toBe(false);
+		expect(box.querySelector('.c-playbig')).toBeTruthy();
+		r.unmount();
+		// Without either, a stored video still shows its first frame.
+		show(<MessageMedia msg={msg('video', media())} onClick={false} />);
+		const v = screen.getByRole('link', { name: 'Video' }).querySelector('video')!;
+		expect(v.getAttribute('preload')).toBe('metadata');
+		expect(document.querySelector('img.c-mini')).toBeNull();
+	});
+
+	it('fetches no poster when media load on click: only the inline blurred preview shows', () => {
+		show(<MessageMedia msg={msg('video', media(still))} onClick />);
+		const box = screen.getByRole('link', { name: 'Video' });
+		const v = box.querySelector('video')!;
+		expect(v.hasAttribute('poster')).toBe(false);
+		expect(v.getAttribute('preload')).toBe('none');
+		expect(mini(box)).toBe(MINI);
+	});
+
+	it('shows a video note\'s and an album video\'s poster without loading the video', () => {
+		const r = show(<MessageMedia msg={msg('video_note', media({ ...still, round: true, render: 'video' }))} onClick={false} />);
+		const note = screen.getByRole('link', { name: 'Video' });
+		expect(note.className).toContain('round');
+		waits(note.querySelector('video'));
+		r.unmount();
+		show(<MessageMedia msg={msg('photo', media({ kind: 'photo', thumb: URL1 }), [media({ kind: 'video', url: '/files/tok-2', ...still }), media({ kind: 'animation', url: '/files/tok-3', ...still })])} onClick={false} />);
+		const grid = document.querySelector('.c-album') as HTMLElement;
+		waits(within(grid).getByRole('link', { name: 'Video' }).querySelector('video'));
+		waits(within(grid).getByRole('link', { name: 'Animation' }).querySelector('video'));
+	});
+
+	it('plays a stored animation inline over its poster and blurred preview', () => {
+		show(<MessageMedia msg={msg('animation', media(still))} onClick={false} />);
+		const box = screen.getByRole('link', { name: 'Animation' });
+		const v = box.querySelector('video')!;
+		expect(v.getAttribute('src')).toBe(URL1);
+		expect(v.getAttribute('poster')).toBe(POSTER);
+		expect(mini(box)).toBe(MINI);
+	});
+
+	it('gives a .webm sticker its still: as the playing video\'s poster, and as the picture of an unstored one', () => {
+		const r = show(<MessageMedia msg={msg('sticker', media({ format: 'webm', emoji: '🔥', ...still }))} onClick={false} />);
+		expect(r.container.querySelector('video.c-sticker')!.getAttribute('poster')).toBe(POSTER);
+		r.unmount();
+		show(<MessageMedia msg={msg('sticker', media({ format: 'webm', emoji: '🔥', stored: false, url: null, ...still }))} onClick={false} />);
+		expect(screen.getByRole('img', { name: 'sticker 🔥' }).getAttribute('src')).toBe(POSTER);
+	});
+
+	it('reads an older server\'s thumb as the poster or the blurred preview, never the video itself', () => {
+		const r = show(<MessageMedia msg={msg('video', media({ thumb: POSTER }))} onClick={false} />);
+		waits(screen.getByRole('link', { name: 'Video' }).querySelector('video'));
+		r.unmount();
+		const r2 = show(<MessageMedia msg={msg('video', media({ thumb: MINI }))} onClick={false} />);
+		expect(mini(screen.getByRole('link', { name: 'Video' }))).toBe(MINI);
+		r2.unmount();
+		show(<MessageMedia msg={msg('video', media({ thumb: URL1 }))} onClick={false} />);
+		const v = screen.getByRole('link', { name: 'Video' }).querySelector('video')!;
+		expect(v.hasAttribute('poster')).toBe(false);
+		expect(document.querySelector(`img[src="${URL1}"]`)).toBeNull();
+	});
+
+	it('shows an unstored video\'s blurred preview rather than fetching its poster', () => {
+		const r = show(<MessageMedia msg={msg('video', media({ ...still, stored: false, url: null }))} onClick={false} />);
+		const box = r.container.querySelector('.c-missing') as HTMLElement;
+		expect(box.style.backgroundImage).toContain(MINI);
+	});
+});

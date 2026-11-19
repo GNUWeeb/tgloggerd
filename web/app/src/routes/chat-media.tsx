@@ -16,6 +16,16 @@ export type Media = ChatMedia;
 
 const ratioOf = (m: Pick<Media, 'w' | 'h'>, def = '4 / 3') => (m.w && m.h ? `${m.w} / ${m.h}` : def);
 
+// What a video, animation, video note or .webm sticker shows before it
+// plays: its poster (the cover, else Telegram's still thumbnail) and its
+// blurred preview (minithumb, inline). An older server sent only thumb,
+// which held one or the other; it never names the video itself.
+export function stillOf(m: Pick<Media, 'poster' | 'minithumb' | 'thumb' | 'url'>): { poster?: string; mini?: string } {
+	const t = m.thumb && m.thumb !== m.url && !/\.(webm|tgs)$/i.test(m.thumb) ? m.thumb : undefined;
+	const inline = !!t?.startsWith('data:');
+	return { poster: m.poster ?? (inline ? undefined : t), mini: m.minithumb ?? (inline ? t : undefined) };
+}
+
 // A plain left click opens the viewer; other clicks (new tab, middle
 // button) follow the link to the file itself.
 const plainClick = (e: MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
@@ -23,7 +33,7 @@ const plainClick = (e: MouseEvent) => e.button === 0 && !e.metaKey && !e.ctrlKey
 // The full-size viewer: a picture or a playing video over the page.
 // Esc, the close button or a click beside the media closes it. It needs
 // only the file's URL, name and size, so a file row can open it too.
-export function Lightbox({ m, kind, onClose }: { m: Pick<Media, 'url' | 'name' | 'w' | 'h'>; kind: 'picture' | 'video'; onClose: () => void }) {
+export function Lightbox({ m, kind, onClose }: { m: Pick<Media, 'url' | 'name' | 'w' | 'h' | 'poster'>; kind: 'picture' | 'video'; onClose: () => void }) {
 	const close = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
 		const on = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -43,7 +53,7 @@ export function Lightbox({ m, kind, onClose }: { m: Pick<Media, 'url' | 'name' |
 			</div>
 			{kind === 'picture'
 				? <img className="c-lb-media" src={url} alt="" style={{ aspectRatio: ratioOf(m, 'auto') }} />
-				: <video className="c-lb-media" src={url} controls autoPlay playsInline style={{ aspectRatio: ratioOf(m, 'auto') }} />}
+				: <video className="c-lb-media" src={url} poster={m.poster ?? undefined} controls autoPlay playsInline style={{ aspectRatio: ratioOf(m, 'auto') }} />}
 		</div>
 	);
 	// Into the app root, so a transformed ancestor cannot trap the overlay.
@@ -51,10 +61,12 @@ export function Lightbox({ m, kind, onClose }: { m: Pick<Media, 'url' | 'name' |
 }
 
 function Missing({ m, ratio, label = 'Not stored', children }: { m: Media; ratio?: string; label?: string; children?: ReactNode }) {
-	// A blurred preview (TDLib's minithumb) shows even without the bytes.
-	const bg = m.thumb ? { backgroundImage: `url("${m.thumb}")` } : {};
+	// A blurred preview (TDLib's minithumb) shows even without the bytes;
+	// it is inline, so it is preferred to a video's poster.
+	const pic = m.minithumb ?? m.thumb;
+	const bg = pic ? { backgroundImage: `url("${pic}")` } : {};
 	return (
-		<div className={`c-media c-missing ${m.thumb ? 'c-blurred' : ''}`} style={{ ...(ratio ? { aspectRatio: ratio } : {}), ...bg }} title="Not stored, only metadata kept">
+		<div className={`c-media c-missing ${pic ? 'c-blurred' : ''}`} style={{ ...(ratio ? { aspectRatio: ratio } : {}), ...bg }} title="Not stored, only metadata kept">
 			<CloudOff size={22} /><span>{label}</span>
 			{m.size ? <span className="c-sub">{bytes(m.size)}</span> : null}
 			{children}
@@ -87,9 +99,15 @@ export function Picture({ m, single, onClick = false }: { m: Media; single?: boo
 	);
 }
 
+// The blurred preview under a video's poster or first frame, while it
+// loads, and alone when there is neither.
+const Mini = ({ src }: { src?: string }) => (src ? <img className="c-mini" src={src} alt="" aria-hidden="true" /> : null);
+
 // A video, or an animation when the viewer must ask for it: a still box
-// that fetches nothing until clicked, then plays in the viewer. A stored
-// video shows its first frame unless media load on click.
+// that fetches nothing of the video until clicked, then plays in the
+// viewer. It shows the video's poster; without one, a stored video shows
+// its first frame unless media load on click. Loading on click fetches
+// no poster either: only the inline blurred preview shows.
 export function VideoBox({ m, single, animation = false, onClick = false }: { m: Media; single?: boolean; animation?: boolean; onClick?: boolean }) {
 	const [open, setOpen] = useState(false);
 	// A video note is round, as Telegram shows it.
@@ -97,20 +115,21 @@ export function VideoBox({ m, single, animation = false, onClick = false }: { m:
 	const cls = `c-media c-videowrap ${single ? 'single' : ''} ${m.round ? 'round' : ''} ${m.deleted_at ? 'deleted' : ''}`;
 	const info = <span className="c-dur">{animation ? 'GIF' : m.duration ? duration(m.duration) : ''}{m.size ? `${animation || m.duration ? ' . ' : ''}${bytes(m.size)}` : ''}</span>;
 	if (!m.url) return <Missing m={m} ratio={ratio}>{m.duration ? <span className="c-sub">{duration(m.duration)}</span> : null}</Missing>;
-	const lazy = !m.stored || onClick;
+	const still = stillOf(m);
+	const poster = onClick ? undefined : still.poster;
+	const lazy = !m.stored || onClick || !!poster;
 	return (
 		<>
 			<a className={cls} style={{ aspectRatio: ratio }} href={m.url} target="_blank" rel="noopener" aria-label={animation ? 'Animation' : 'Video'}
 				onClick={(e) => { if (plainClick(e)) { e.preventDefault(); setOpen(true); } }}>
-				{m.thumb
-					? <img src={m.thumb} alt="" loading="lazy" />
-					: <video src={lazy ? undefined : m.url} preload={lazy ? 'none' : 'metadata'} muted playsInline tabIndex={-1} />}
+				<Mini src={still.mini} />
+				<video src={lazy ? undefined : m.url} poster={poster} preload={lazy ? 'none' : 'metadata'} muted playsInline tabIndex={-1} />
 				<span className="c-playbig">{m.stored ? <Play size={22} fill="currentColor" /> : <CloudDownload size={22} />}</span>
 				{!m.stored && <span className="c-fetch">Load from Telegram</span>}
 				{info}
 				<DeletedMark m={m} />
 			</a>
-			{open && <Lightbox m={m} kind="video" onClose={() => setOpen(false)} />}
+			{open && <Lightbox m={{ ...m, poster }} kind="video" onClose={() => setOpen(false)} />}
 		</>
 	);
 }
@@ -120,11 +139,13 @@ export function VideoBox({ m, single, animation = false, onClick = false }: { m:
 export function Animation({ m, onClick = false }: { m: Media; onClick?: boolean }) {
 	const [open, setOpen] = useState(false);
 	if (!m.url || !m.stored || onClick) return <VideoBox m={m} single animation onClick={onClick} />;
+	const { poster, mini } = stillOf(m);
 	return (
 		<>
 			<a className="c-media single c-videowrap" style={{ aspectRatio: ratioOf(m, '1 / 1') }} href={m.url} target="_blank" rel="noopener" aria-label="Animation"
 				onClick={(e) => { if (plainClick(e)) { e.preventDefault(); setOpen(true); } }}>
-				<video src={m.url} autoPlay loop muted playsInline tabIndex={-1} />
+				<Mini src={mini} />
+				<video src={m.url} poster={poster} autoPlay loop muted playsInline tabIndex={-1} />
 				<span className="c-dur">GIF</span>
 			</a>
 			{open && <Lightbox m={m} kind="video" onClose={() => setOpen(false)} />}
@@ -158,9 +179,12 @@ function LottieSticker({ m }: { m: Media }) {
 export function Sticker({ m }: { m: Media }) {
 	const [open, setOpen] = useState(false);
 	const f = stickerFormat(m);
+	const poster = f === 'webm' ? stillOf(m).poster : undefined;
 	if (m.url && f === 'tgs') return <LottieSticker m={m} />;
+	// An unstored video sticker still shows its still picture.
+	if (!m.url && poster) return <img className="c-sticker" src={poster} alt={`sticker ${m.emoji ?? ''}`.trim()} title="Not stored" loading="lazy" />;
 	if (!m.url || f === 'tgs') return <div className="c-sticker c-sticker-emoji" role="img" aria-label={`sticker ${m.emoji ?? ''}`.trim()} title={m.url ? undefined : 'Not stored'}>{m.emoji || <CloudOff size={40} />}</div>;
-	if (f === 'webm') return <video className="c-sticker" src={m.url} autoPlay loop muted playsInline aria-label={`sticker ${m.emoji ?? ''}`.trim()} />;
+	if (f === 'webm') return <video className="c-sticker" src={m.url} poster={poster} autoPlay loop muted playsInline aria-label={`sticker ${m.emoji ?? ''}`.trim()} />;
 	return (
 		<>
 			<button type="button" className="c-sticker c-sticker-btn" onClick={() => setOpen(true)} aria-label={`sticker ${m.emoji ?? ''}`.trim()}>
