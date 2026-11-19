@@ -12,7 +12,7 @@ import { KindDetail } from './chat-kinds.tsx';
 import type { Viewer } from '../page.ts';
 import type { S } from '../api/schema.ts';
 import { fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
-import { KINDS_GROUP } from '../../standin/kinds.ts';
+import { ALL, KINDS_GROUP, kindsOf } from '../../standin/kinds.ts';
 import type { ChatProps } from './chat.tsx';
 import type { MessageProps } from './message.tsx';
 import type { ChatMessage } from '../types.ts';
@@ -187,5 +187,32 @@ describe('a poll and a checklist', () => {
 		r.unmount();
 		card({ ...base, others_can_add: false, others_can_mark: false });
 		expect(screen.queryByText(/others can/)).toBeNull();
+	});
+});
+
+describe('a story', () => {
+	type Story = S['StoryDetail'] & { username?: string | null };
+	const stories = (msgs: ChatMessage[]) => msgs.filter((m) => m.detail?.kind === 'story').map((m) => ({ m, d: m.detail as Story }));
+
+	it('links t.me when its poster has a public username, else shows its id', () => {
+		const list = stories(showChat());
+		const pub = list.find((x) => x.d.username)!;
+		const a = bubble(pub.m).getByRole('link', { name: `t.me/${pub.d.username}/s/${pub.d.story_id}` });
+		expect(a.getAttribute('href')).toBe(`https://t.me/${pub.d.username}/s/${pub.d.story_id}`);
+		expect(a.getAttribute('rel')).toContain('noopener');
+		const plain = list.find((x) => !x.d.username && x.d.poster)!;
+		expect(bubble(plain.m).getByText(`story #${plain.d.story_id}`)).toBeTruthy();
+		expect(bubble(plain.m).queryByRole('link', { name: /t\.me/ })).toBeNull();
+	});
+
+	it('gives no username of a poster the viewer may not see, as Go does', () => {
+		const msgs = stories(samples());
+		expect(msgs.some((x) => x.d.username)).toBe(true);
+		for (const { m } of msgs) {
+			const raw = { chat: { id: KINDS_GROUP.id, kind: 'group' }, message_id: m.message_id, content_type: 'story' };
+			const d = kindsOf(raw, { ...ALL, user: () => false }).base.detail as Story;
+			expect(d.poster).toBeNull();
+			expect(d.username).toBeNull();
+		}
 	});
 });

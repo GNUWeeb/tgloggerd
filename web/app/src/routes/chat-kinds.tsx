@@ -236,13 +236,18 @@ export function KindDetail({ d, text, entities, chat, v, tdlib }: { d: Detail; t
 				</div>
 			);
 		}
-		case 'story':
+		case 'story': {
+			// A public poster's story has a link; else only its id is known.
+			const u = d.username;
 			return (
 				<div className="k-card">
 					<Head icon={CircleDashed}>{d.poster ? <>Story by <RefLink r={d.poster} /></> : 'A story'}</Head>
+					{u ? <a href={`https://t.me/${encodeURIComponent(u)}/s/${d.story_id}`} target="_blank" rel="noopener noreferrer" className="a-link">t.me/{u}/s/{d.story_id}</a>
+						: <div className="c-sub">story #{d.story_id}</div>}
 					<div className="c-sub">Stories are not archived.</div>
 				</div>
 			);
+		}
 		case 'invoice':
 			return (
 				<div className="k-card">

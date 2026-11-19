@@ -115,6 +115,11 @@ function samples(): Sample[] {
 	// Posters and strangers with a username, for the @mentions.
 	const ha = posters().find((id) => handleOf(id))!;
 	const hx = strangers().find((id) => handleOf(id))!;
+	// A poster without one.
+	const plain = posters().find((id) => !handleOf(id)) ?? (() => { throw new Error('kinds: every poster has a username'); })();
+	// A story, with its poster's username for a viewer who may see them,
+	// as Go sends it.
+	const story = (v: View, poster: number, id: number) => ({ kind: 'story', poster: refOf(v, poster), story_id: id, username: v.user(poster) ? handleOf(poster) || null : null });
 	const formatted = `Release notes: https://example.org/notes and the changelog. Ping @${handleOf(ha)}, @${handleOf(hx)} or @nobody_here_x, `
 		+ `and ${nameOf(b!)} and ${nameOf(y!)}. #release $TGD /status@tgd_bot mail team@example.org or call +62 812 0000 0199. `
 		+ 'Bold with italic inside, underlined, struck, a hidden ending, inline code, a 🎉 custom emoji, at 1:05, card 4242 4242 4242 4242, a future kind, a sneaky link, and bold to the end';
@@ -130,6 +135,8 @@ function samples(): Sample[] {
 		// its place was: no detail.
 		{ content_type: 'poll' },
 		{ content_type: 'location' },
+		// A story by a poster without a public username: no link.
+		{ content_type: 'story', detail: (v) => story(v, plain, 7) },
 		{ content_type: 'text', text: formatted, entities: (v) => entitiesIn(formatted, [
 			['https://example.org/notes', 'url'], ['the changelog', 'text_url', { url: 'https://example.org/changelog' }],
 			[`@${handleOf(ha)}`, 'mention', v.user(ha) ? { user_id: ha } : {}], [`@${handleOf(hx)}`, 'mention', v.user(hx) ? { user_id: hx } : {}], ['@nobody_here_x', 'mention'],
@@ -169,7 +176,7 @@ function samples(): Sample[] {
 				{ id: 4, text: 'Announce it in #news', done: false, done_by: null, done_at: null, entities: entitiesIn('Announce it in #news', [['#news', 'hashtag']]) },
 			],
 		}) },
-		{ content_type: 'story', detail: (v) => ({ kind: 'story', poster: refOf(v, c!), story_id: 42 }) },
+		{ content_type: 'story', detail: (v) => story(v, ha, 42) },
 		{ content_type: 'paid_media', text: 'Behind the scenes', detail: () => ({ kind: 'paid_media', star_count: 50, items: PAID_ITEMS }) },
 		{ content_type: 'invoice', detail: () => ({ kind: 'invoice', title: 'Conference ticket', description: 'One seat at the 2026 meetup.', currency: 'IDR', total_amount: 15000000, is_test: true, photo: INVOICE_PHOTO }) },
 		{ content_type: 'giveaway', detail: (v) => ({ kind: 'giveaway', prize: { premium_months: 3 }, winner_count: 5, winners_selection_date: '2026-12-01T12:00:00Z', only_new_members: false, prize_description: '', chats: refs(v, [KINDS_GROUP.id, groups[9]!.id]), chats_total: 2 }) },
