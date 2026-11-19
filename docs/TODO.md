@@ -133,6 +133,7 @@ Accounts, roles and federations:
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
 - [`search-engine-profiles`](todo/search-engine-profiles.md): Index users' bios and groups' descriptions in the optional search engine (optional).
 - [`video-thumbnails`](todo/video-thumbnails.md): Show a still thumbnail for every video before it is played, wherever the web shows one.
+- [`dashboard-stats`](todo/dashboard-stats.md): Chart messages per minute to per year over a chosen range ending at a date or now, as bars, line, area or running total.
 - [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
 
 ## Operations
