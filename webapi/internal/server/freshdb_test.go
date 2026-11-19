@@ -61,16 +61,21 @@ func migrateAppDB(t *testing.T, db *sql.DB, upto string) {
 
 // downAppDB applies the down migrations of the web migrations after
 // the one numbered downto ("000006"), newest first, as golang-migrate
-// steps down to it.
+// steps down to it: only those migrateAppDB applied, so a test that
+// migrated up to an older version is not handed the down migration of
+// a newer one.
 func downAppDB(t *testing.T, db *sql.DB, downto string) {
 	t.Helper()
 	downs, err := filepath.Glob("../../../web/migrations/*.down.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
+	var applied string
+	_ = db.QueryRow("SELECT v FROM test_migrated").Scan(&applied)
 	sort.Sort(sort.Reverse(sort.StringSlice(downs)))
 	for _, f := range downs {
-		if filepath.Base(f)[:6] <= downto {
+		n := filepath.Base(f)[:6]
+		if n <= downto || (applied != "" && n > applied) {
 			continue
 		}
 		q, err := os.ReadFile(f)
@@ -79,6 +84,11 @@ func downAppDB(t *testing.T, db *sql.DB, downto string) {
 		}
 		if _, err := db.Exec(string(q)); err != nil {
 			t.Fatalf("%s: %v", filepath.Base(f), err)
+		}
+	}
+	if applied != "" && applied > downto {
+		if _, err := db.Exec("UPDATE test_migrated SET v = ?", downto); err != nil {
+			t.Fatal(err)
 		}
 	}
 }
