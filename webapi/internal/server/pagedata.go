@@ -496,8 +496,7 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 type chatGroupJSON struct {
 	groupSummaryJSON
 	// Members is how many people the archive has seen in the group
-	// (logdb.Chat.KnownMembers): the logger does not record Telegram's
-	// own count.
+	// (logdb.Chat.KnownMembers); Telegram's own count is MemberCount.
 	Members  int64  `json:"members"`
 	MsgCount uint64 `json:"msg_count"`
 }

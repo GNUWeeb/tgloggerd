@@ -1673,6 +1673,13 @@ export interface components {
             photo: string | null;
             msg_count?: number;
             exposed?: boolean;
+            /** @description Telegram's member count of the group, as the daemon last stored it (from the group's full info and its updates); null before it has one. Every viewer of the group gets it. Always sent by the service; required where the schemas that extend this one say so. */
+            member_count?: number | null;
+            /**
+             * Format: date-time
+             * @description When the daemon stored member_count; null with it. Always sent by the service.
+             */
+            member_count_at?: string | null;
         };
         GroupCounted: components["schemas"]["GroupSummary"] & {
             msg_count: number;
@@ -1686,7 +1693,7 @@ export interface components {
              */
             photo_file_id: number | null;
             description: string;
-            /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators, as in the chat page's header. The logger does not record Telegram's own member count. */
+            /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators, as in the chat page's header. Telegram's own count is member_count. */
             members: number;
             msg_count: number;
             admin_count: number;
@@ -2650,7 +2657,7 @@ export interface components {
                 /** @constant */
                 kind: "group";
                 group: components["schemas"]["GroupSummary"] & {
-                    /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators. The logger does not record Telegram's own member count. */
+                    /** @description How many people the archive has seen in the group: the distinct users who sent a message there and its administrators. Telegram's own count is member_count. */
                     members: number;
                     msg_count: number;
                 };

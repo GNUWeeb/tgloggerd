@@ -872,6 +872,10 @@ type listGroup struct {
 	Description string  `json:"description"`
 	CreatedAt   string  `json:"created_at"`
 	UpdatedAt   string  `json:"updated_at"`
+	// As GroupSummary's: Telegram's count, null before the daemon has
+	// stored one.
+	MemberCount   *int64  `json:"member_count"`
+	MemberCountAt *string `json:"member_count_at"`
 }
 
 // groupsProps are the groups page's (GroupsProps).
@@ -894,6 +898,11 @@ func loadGroups(ctx context.Context, pr *pageRequest) (any, error) {
 			MsgCount: r.Int("msg_count"), Exposed: r.Bool("exposed"),
 			AdminCount: r.Int("admin_count"), Description: r.Str("description"),
 			CreatedAt: dbTime(r.Str("created_at")), UpdatedAt: dbTime(r.Str("updated_at"))})
+		if !r.Null("member_count") {
+			n := r.Int("member_count")
+			p.Rows[len(p.Rows)-1].MemberCount = &n
+			p.Rows[len(p.Rows)-1].MemberCountAt = dbTimePtr(r, "member_count_at")
+		}
 	}
 	return p, nil
 }

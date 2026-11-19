@@ -540,9 +540,11 @@ the chat window. web/docs/message-kinds.md describes it.
 The chat page's query also takes Drogon's links: ?after=, ?after_ts=
 and ?limit=, and ?date= as a day or a day and time in the viewer's
 timezone. Its header counts the members the archive has seen
-(senders and admins), since the logger does not record Telegram's
-count. /messages/{group|private}?chat_id= redirects to the message
-list filtered by that chat.
+(senders and admins), and gives Telegram's own count (member_count,
+member_count_at) as the daemon last stored it in telegram_groups;
+every group summary, the group pages and the groups list carry it too
+(null before the daemon has one). /messages/{group|private}?chat_id=
+redirects to the message list filtered by that chat.
 
 Signed-out visitors may read the chats of exposed groups
 (telegram_public_groups), as the public chat page does, and get 401

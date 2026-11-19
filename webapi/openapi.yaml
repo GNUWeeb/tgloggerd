@@ -4691,6 +4691,20 @@ components:
           type: integer
         exposed:
           type: boolean
+        member_count:
+          type: [integer, 'null']
+          description: >-
+            Telegram's member count of the group, as the daemon last
+            stored it (from the group's full info and its updates);
+            null before it has one. Every viewer of the group gets it.
+            Always sent by the service; required where the schemas
+            that extend this one say so.
+        member_count_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When the daemon stored member_count; null with it. Always
+            sent by the service.
     GroupCounted:
       allOf:
         - $ref: '#/components/schemas/GroupSummary'
@@ -4703,7 +4717,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/GroupSummary'
         - type: object
-          required: [description, members, msg_count, admin_count, created_at, updated_at, usernames, photo_file_id]
+          required: [description, members, msg_count, admin_count, created_at, updated_at, usernames, photo_file_id, member_count, member_count_at]
           properties:
             usernames:
               type: array
@@ -4726,8 +4740,8 @@ components:
               description: >-
                 How many people the archive has seen in the group: the
                 distinct users who sent a message there and its
-                administrators, as in the chat page's header. The logger
-                does not record Telegram's own member count.
+                administrators, as in the chat page's header. Telegram's
+                own count is member_count.
             msg_count:
               type: integer
             admin_count:
@@ -6614,7 +6628,7 @@ components:
                 allOf:
                   - $ref: '#/components/schemas/GroupSummary'
                   - type: object
-                    required: [msg_count, admin_count, description, created_at, updated_at]
+                    required: [msg_count, admin_count, description, created_at, updated_at, member_count, member_count_at]
                     properties:
                       msg_count:
                         type: integer
@@ -6646,7 +6660,7 @@ components:
           allOf:
             - $ref: '#/components/schemas/GroupSummary'
             - type: object
-              required: [usernames, description, members, msg_count, created_at]
+              required: [usernames, description, members, msg_count, created_at, member_count, member_count_at]
               properties:
                 usernames:
                   type: array
@@ -6803,16 +6817,15 @@ components:
                   allOf:
                     - $ref: '#/components/schemas/GroupSummary'
                     - type: object
-                      required: [members, msg_count]
+                      required: [members, msg_count, member_count, member_count_at]
                       properties:
                         members:
                           type: integer
                           description: >-
                             How many people the archive has seen in the
                             group: the distinct users who sent a
-                            message there and its administrators. The
-                            logger does not record Telegram's own
-                            member count.
+                            message there and its administrators.
+                            Telegram's own count is member_count.
                         msg_count:
                           type: integer
             - type: object

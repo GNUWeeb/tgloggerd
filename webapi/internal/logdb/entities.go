@@ -96,6 +96,13 @@ type Group struct {
 	Exposed     bool // in telegram_public_groups
 	CreatedAt   int64
 	UpdatedAt   int64
+	// The member count Telegram last gave the daemon, and when (unix
+	// time); nil and 0 before it has. CanGetMembers is whether
+	// Telegram lets the logging account list the members, nil when
+	// not known.
+	MemberCount   *uint64
+	MemberCountAt int64
+	CanGetMembers *bool
 }
 
 // placeholders is "?, ?, ..." for n values.
@@ -292,7 +299,8 @@ var groupQuery = "SELECT g.id, g.type, g.title, " +
 	"(SELECT gu.username FROM telegram_group_usernames gu WHERE gu.group_id = g.id " +
 	" AND gu.kind = 'active' ORDER BY gu.position LIMIT 1), " +
 	"COALESCE(g.photo_file_id, 0), " + fileColumnsOf("f") + ", g.description, g.msg_count, " +
-	"pg.group_id IS NOT NULL, UNIX_TIMESTAMP(g.created_at), UNIX_TIMESTAMP(g.updated_at) " +
+	"pg.group_id IS NOT NULL, UNIX_TIMESTAMP(g.created_at), UNIX_TIMESTAMP(g.updated_at), " +
+	"g.member_count, COALESCE(UNIX_TIMESTAMP(g.member_count_at), 0), g.can_get_members " +
 	"FROM telegram_groups g LEFT JOIN telegram_files f ON f.id = g.photo_file_id " +
 	"LEFT JOIN telegram_public_groups pg ON pg.group_id = g.id "
 
@@ -305,12 +313,23 @@ func scanGroups(rows *sql.Rows) ([]Group, error) {
 			username sql.NullString
 			photo    uint64
 			f        nullFile
+			members  sql.NullInt64
+			canGet   sql.NullBool
 		)
 		dest := []any{&g.ID, &g.Type, &g.Title, &username, &photo}
 		dest = append(dest, f.dest()...)
-		dest = append(dest, &g.Description, &g.MsgCount, &g.Exposed, &g.CreatedAt, &g.UpdatedAt)
+		dest = append(dest, &g.Description, &g.MsgCount, &g.Exposed, &g.CreatedAt, &g.UpdatedAt,
+			&members, &g.MemberCountAt, &canGet)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, err
+		}
+		if members.Valid {
+			n := uint64(members.Int64)
+			g.MemberCount = &n
+		}
+		if canGet.Valid {
+			b := canGet.Bool
+			g.CanGetMembers = &b
 		}
 		g.Username = username.String
 		if g.Title == "" {
