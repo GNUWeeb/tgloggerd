@@ -33,6 +33,14 @@ deletions made while the daemon was away are lost the same way.
 
 ## Scope
 
+Done: the daemon half. POST /v1/chats/{chat_id}/recheck queues a
+recheck and answers at once; the recheck stores what getChatHistory
+returns through the normal path and marks deletions within the
+returned stretch with `meta.deleted_on_recheck` (no migration: the
+flag lives in the existing `meta` column); the restart catch-up runs
+two minutes after authorization; docs/internal-api.md has the contract.
+Left: the Go and React halves.
+
 - Daemon (TDLib session): an internal endpoint that queues a recheck
   of a chat around a message id (0 = the newest), answering at once;
   the recheck reads that stretch from Telegram (getChatHistory), stores
