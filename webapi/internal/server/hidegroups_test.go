@@ -151,7 +151,7 @@ func TestHiddenGroupReferences(t *testing.T) {
 	if f := v.forwardName(n, m); *f != hiddenChat {
 		t.Errorf("forward name %q", *f)
 	}
-	if r := v.reply(n, gnuWeeb, m); r.SenderID != 0 || r.SenderName != hiddenChat {
+	if r := v.reply(n, kinds{}, gnuWeeb, m); r.SenderID != 0 || r.SenderName != hiddenChat {
 		t.Errorf("reply %+v", r)
 	}
 	// Visible to a superadmin.

@@ -245,6 +245,17 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 			polls = append(polls, x.pollID())
 		}
 	}
+	shown := map[int64]bool{}
+	for _, id := range polls {
+		shown[id] = true
+	}
+	// A reply to a message without text quotes its summary
+	// (snippets.go), which may need its poll or its story's poster.
+	for _, m := range ms {
+		if r := m.Reply; r != nil && r.Resolved && r.Snippet == "" {
+			k.addSummarised(r.RowID, r.ContentType, r.Extra, &users, &chats, &polls)
+		}
+	}
 	var err error
 	if k.polls, err = logdb.PollsByID(ctx, s.ro, polls); err != nil {
 		return k, err
@@ -270,7 +281,10 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 			}
 		}
 	}
-	for _, p := range k.polls {
+	for id, p := range k.polls {
+		if !shown[id] {
+			continue
+		}
 		mc.add(p.Question, p.QuestionEntities, "poll question")
 		mc.add(p.Explanation, p.ExplanationEntities, "poll explanation")
 	}

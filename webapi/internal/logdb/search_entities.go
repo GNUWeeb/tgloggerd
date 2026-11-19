@@ -498,6 +498,13 @@ func nameCols(r Row, first, last string) string {
 
 func sentAt(r Row) string { return r.Str("sent_at") }
 
+// kindSummaryCols are what the message lists summarise a row without
+// text by: its content_extra (kind_extra) and its file's name
+// (kind_file), read only for such a row.
+const kindSummaryCols = "IF(COALESCE(m.text, '') = '', m.content_extra, NULL) AS kind_extra, " +
+	"IF(COALESCE(m.text, '') = '', (SELECT kf.orig_file_name FROM telegram_files kf " +
+	"WHERE kf.id = m.file_id), NULL) AS kind_file"
+
 // PrivateMessages are the private chats' messages: all of them for a
 // scope that sees private chats, and nothing (ErrNotFound) for one
 // that does not.
@@ -514,7 +521,7 @@ var PrivateMessages = &Entity{
 		"(SELECT un.username FROM telegram_user_usernames un " +
 		"WHERE un.user_id = m.chat_id AND un.kind='active' " +
 		"ORDER BY un.position LIMIT 1) AS peer_username",
-	pageSel:  "m.date AS date_unix, m.edit_date, u.type AS peer_type",
+	pageSel:  "m.date AS date_unix, m.edit_date, u.type AS peer_type, " + kindSummaryCols,
 	idCol:    "m.id",
 	defSort:  "m.date",
 	defOrder: "DESC",
@@ -587,7 +594,7 @@ var GroupMessages = &Entity{
 	pageSel: "m.date AS date_unix, m.edit_date, su.type AS su_type, " +
 		"(SELECT gu.username FROM telegram_group_usernames gu " +
 		"WHERE gu.group_id = m.sender_chat_id AND gu.kind='active' " +
-		"ORDER BY gu.position LIMIT 1) AS sg_username",
+		"ORDER BY gu.position LIMIT 1) AS sg_username, " + kindSummaryCols,
 	idCol:          "m.id",
 	defSort:        "m.date",
 	defOrder:       "DESC",

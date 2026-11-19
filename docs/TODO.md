@@ -118,7 +118,6 @@ Storing every kind of Telegram message faithfully:
 - [`msg-service-detail`](todo/msg-service-detail.md): Show a service action's stored detail: the new photo, durations, the pinned snippet, the topic, the community.
 - [`msg-service-text`](todo/msg-service-text.md): Rebuild with names the service types whose stored line names nobody, such as gifts and auto-delete changes.
 - [`msg-kind-leftovers`](todo/msg-kind-leftovers.md): Close the small gaps in the cards of kinds that have a detail, and in their placeholders and fallbacks.
-- [`msg-kind-snippets`](todo/msg-kind-snippets.md): Summarise a textless message by its detail in reply quotes and list snippets instead of "[poll]".
 - [`msg-list-filters`](todo/msg-list-filters.md): Filter the message and file lists by kind as expected: private service rows, real media, typed service types.
 - [`msg-edit-detail`](todo/msg-edit-detail.md): Show the detail of a message's earlier versions, such as a live location's earlier positions.
 - [`msg-contact-vcard`](todo/msg-contact-vcard.md): Show the numbers, addresses and organisation in a shared contact's vCard (optional).

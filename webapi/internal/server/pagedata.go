@@ -106,6 +106,10 @@ func loadDashboard(ctx context.Context, pr *pageRequest) (any, error) {
 		p.Busiest = append(p.Busiest, groupCountedJSON{groupSummaryJSON: gj, MsgCount: g.MsgCount})
 	}
 	n := names{d.Users, d.Groups}
+	sk, err := pr.s.loadSummaries(ctx, pr.scope, d.Deleted)
+	if err != nil {
+		return nil, err
+	}
 	for _, m := range d.Deleted {
 		g, ok := d.Groups[m.ChatID]
 		if !ok {
@@ -116,8 +120,8 @@ func loadDashboard(ctx context.Context, pr *pageRequest) (any, error) {
 			s = &userSummaryJSON{Name: "(unknown)", Type: "unknown"}
 		}
 		p.Deleted = append(p.Deleted, deletedJSON{ID: m.RowID, Scope: "group", Chat: v.group(g),
-			Sender: *s, Snippet: snippetOf(m.Text, m.ContentType), DeletedAt: iso(m.DeletedAt),
-			MessageID: m.MessageID})
+			Sender: *s, Snippet: v.snippetOf(sk, m.Text, m.RowID, m.ContentType, m.File.Name),
+			DeletedAt: iso(m.DeletedAt), MessageID: m.MessageID})
 	}
 	if probe != nil {
 		if p.Status, err = pr.s.loggerStatus(ctx, pr.scope, probe); err != nil {
@@ -785,16 +789,11 @@ type messageProps struct {
 // snippetLen is how much of a message's text a snippet shows.
 const snippetLen = 200
 
-func snippet(m logdb.Message) string {
-	t := []rune(m.Text)
-	if len(t) > snippetLen {
-		t = t[:snippetLen]
-	}
-	s := string(t)
-	if s == "" && m.File.Name != "" {
-		s = m.File.Name
-	}
-	return snippetOf(s, m.ContentType)
+// snippet is the message's text, or its summary when it has none
+// (snippets.go), cut to snippetLen runes.
+func (v view) snippet(k kinds, m logdb.Message) string {
+	s, _ := cutRunes(v.snippetOf(k, m.Text, m.RowID, m.ContentType, m.File.Name), snippetLen)
+	return s
 }
 
 func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
@@ -820,7 +819,7 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	m.Text = v.text(k, m)
 	j := messageFullJSON{
 		ID: m.RowID, Scope: scopeName(group), MessageID: m.MessageID, Date: iso(m.Date),
-		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Snippet: snippet(m),
+		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Snippet: v.snippet(k, m),
 		Forwarded: v.forwardName(n, m), Edited: m.EditDate > 0, DeletedAt: isoPtr(m.DeletedAt),
 		Text: m.Text, Entities: entities, Edits: v.edits(k, m), LinkPreview: v.linkPreview(m),
 		messageExtraJSON: v.messageExtra(n, m), messageKindsJSON: v.messageKinds(k, m),
@@ -840,7 +839,7 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 			Photo: v.photo(d.ChatUser.Photo)}
 	}
 	if r := m.Reply; r != nil && r.Resolved && (r.ChatID == m.ChatID || pr.scope.SeesChat(r.ChatID)) {
-		rep := v.reply(n, m.ChatID, m)
+		rep := v.reply(n, k, m.ChatID, m)
 		j.ReplyTo = &messageReplyJSON{Scope: scopeName(group), ID: r.RowID,
 			SenderName: rep.SenderName, Snippet: rep.Snippet}
 	}

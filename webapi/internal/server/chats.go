@@ -500,17 +500,13 @@ func (v view) forwardFrom(n names, m logdb.Message) *forwardJSON {
 	return j
 }
 
-func snippetOf(text, ctype string) string {
-	if text == "" && ctype != "" && ctype != "text" {
-		return "[" + ctype + "]"
-	}
-	return text
-}
+// replySnippetRunes is how much of its target a reply quotes.
+const replySnippetRunes = 120
 
 // reply is what a message replies to, as the viewer may see it: a
 // target in another chat is shown only to a viewer that sees that
 // chat, and otherwise not at all.
-func (v view) reply(n names, chatID int64, m logdb.Message) *chatReplyJSON {
+func (v view) reply(n names, k kinds, chatID int64, m logdb.Message) *chatReplyJSON {
 	r := m.Reply
 	if r == nil {
 		return nil
@@ -537,7 +533,9 @@ func (v view) reply(n names, chatID int64, m logdb.Message) *chatReplyJSON {
 	case r.Outgoing:
 		j.SenderName = "You"
 	}
-	j.Snippet = snippetOf(r.Snippet, r.ContentType)
+	// As much of a summary as of a text (messageSelect).
+	j.Snippet, _ = cutRunes(v.snippetOf(k, r.Snippet, r.RowID, r.ContentType, r.FileName),
+		replySnippetRunes)
 	return j
 }
 
@@ -557,7 +555,7 @@ func (v view) chatMessage(n names, k kinds, group bool, chatID int64, m logdb.Me
 		Sender: v.sender(n, m), ContentType: chatType(m.ContentType), Text: v.text(k, m),
 		Entities: v.messageEntities(k, m, m.Text, m.Entities),
 		Media:    v.media(m.ContentType, m.File, m.Extra), Album: []chatMediaJSON{},
-		ReplyTo: v.reply(n, chatID, m), Forward: v.forwardName(n, m), Edits: v.edits(k, m),
+		ReplyTo: v.reply(n, k, chatID, m), Forward: v.forwardName(n, m), Edits: v.edits(k, m),
 		DeletedAt: isoPtr(m.DeletedAt), messageExtraJSON: v.messageExtra(n, m),
 		messageKindsJSON: v.messageKinds(k, m),
 	}

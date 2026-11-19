@@ -58,6 +58,36 @@ tells how many there were but not who.
 Rows logged before migration 000034 have no `content_extra`. They keep
 the kinds they had and get no detail, so they render as before.
 
+## Summaries
+
+Where one line stands for a message (a reply's quote in the chat and
+on the message page, the message page's `snippet`, the message lists'
+`snippet` on /group_messages and /private_messages, the dashboard's
+deleted messages), a message without text is summarised by its kind
+(webapi/internal/server/snippets.go):
+
+- `poll`: the question (a quiz's too);
+- `venue`: its title; `location`: "Location" or "Live location";
+- `contact`: the contact's name as the message carries it;
+- `call`: the call and its outcome, with the duration when it lasted,
+  e.g. "Video call, missed", "Voice call, ended (1:23)", "Voice chat,
+  ongoing" for a group call;
+- `dice`: the emoji and the value rolled, separated by a space;
+- `game`, `invoice`: the title;
+- `story`: "Story by <poster>", the poster named through the request
+  scope like any name, so a poster the viewer may not see leaves
+  "Story";
+- `giveaway`: "Giveaway: " and the prize (Premium months or Stars) and
+  any extra prize;
+- any other kind with a file: the file's name.
+
+A kind without a summary, a row without its detail (logged before
+migration 000034) and a poll whose poll was never stored keep the
+placeholder `[<content_type>]`. A message with text shows its text, as
+before. The summaries read the same detail as the chat; the reply
+query reads the target's `content_extra` and file name only for a
+target without text, and the lists read them only for such rows.
+
 ## People and chats named
 
 A detail or a service message names users and chats by id: a
