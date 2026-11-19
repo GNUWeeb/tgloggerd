@@ -12,21 +12,15 @@ import { Counts, KindDetail, Reactions, TEXT_INSIDE, topicColor } from './chat-k
 import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
 import { RichText } from '../ui/richtext.tsx';
-import type { ChatMessage, MessageFull } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
 export type MessageProps = S['MessageProps'];
 
-// The link preview and the forum topic, as the chat gives them. Until
-// openapi.yaml has them on MessageFull they are typed here; drop this
-// once it does.
-type PageMessage = MessageFull & { link_preview?: ChatMessage['link_preview']; topic?: S['ChatTopic'] | null };
-
 const ORIGIN = { user: 'a user', hidden_user: 'a user who hides their account', chat: 'a group', channel: 'a channel' } as const;
 
 function MessagePage({ page }: { page: PageData<MessageProps> }) {
-	const m: PageMessage = page.props.message;
+	const m = page.props.message;
 	const v = page.viewer;
 	const chatHref = m.chat.kind === 'group' ? `/groups/${m.chat.id}` : `/users/${m.chat.id}`;
 	// Hashtags search the message's chat.
