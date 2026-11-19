@@ -21,10 +21,10 @@ function chatMessage(groupId: number, ok: (m: ChatProps['messages'][number]) => 
 describe('message page parity with the chat', () => {
 	it('draws the link preview of a message that has one', () => {
 		const groups = fixture<GroupsProps>('/groups').props.rows;
-		const m = groups.map((g) => chatMessage(g.id, (x) => x.link_preview !== null)).find((x) => x)!;
+		const m = groups.map((g) => chatMessage(g.id, (x) => x.link_preview !== null && !x.link_preview.target)).find((x) => x)!;
 		expect(m).toBeTruthy();
 		renderPage(page(m.id));
-		const a = document.querySelector('a.c-lp')!;
+		const a = document.querySelector('.c-lp a.c-lp-main')!;
 		expect(a.getAttribute('href')).toBe(m.link_preview!.url);
 		expect(a.textContent).toContain(m.link_preview!.title);
 	});
