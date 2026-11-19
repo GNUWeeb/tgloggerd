@@ -115,3 +115,22 @@ describe('Join chat pending filings', () => {
 		expect((await within(card('Pending filings')).findByRole('alert')).textContent).toBe('No such held filing.');
 	});
 });
+
+describe('Join chat recent attempts', () => {
+	// Every outcome a join can end in, in words: the daemon's, and the
+	// audit's own when the daemon gave none.
+	const WORDS: [string, string][] = [
+		['joined', 'joined'], ['already_member', 'already a member'], ['request_sent', 'request sent'],
+		['approval_required', 'approval required'], ['declined', 'declined'], ['not_a_group', 'not a group'],
+		['not_found', 'not found'], ['link_invalid', 'invalid link'], ['flood_wait', 'rate limited'],
+		['banned', 'banned'], ['too_many_chats', 'too many chats'], ['error', 'error'],
+		['api_off', 'API not set up'], ['no_answer', 'no answer'], ['http_502', 'API error 502'],
+	];
+	it('names each outcome in words', () => {
+		const p = fixture<JoinChatProps>('/join-chat').props;
+		const recent = WORDS.map(([outcome], i) => ({ at: '2026-11-17T10:00:00Z', by: 'admin', ref: `@chat_${i}`, title: `Chat ${i}`, outcome }));
+		renderPage('/join-chat', 'superadmin', { props: { ...p, recent } });
+		const rows = within(card('Recent join attempts')).getAllByRole('listitem');
+		expect(rows.map((r) => r.querySelector('.a-pill')!.textContent)).toEqual(WORDS.map(([, w]) => w));
+	});
+});

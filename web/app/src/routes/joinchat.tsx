@@ -19,10 +19,23 @@ type Filing = S['JoinFiling'];
 
 export type JoinChatProps = S['JoinChatProps'];
 
-const OUTCOME: Record<string, [string, Tone]> = {
+// Every outcome a join can end in: the daemon's (JoinOutcome.outcome,
+// whose description lists them; the schema types it as a plain string,
+// so this list is kept by hand) and the two the audit records when the
+// daemon gave none. A recent attempt can also read http_<status>.
+type JoinResult = 'joined' | 'already_member' | 'request_sent' | 'approval_required' | 'declined' | 'not_a_group' | 'not_found'
+	| 'link_invalid' | 'flood_wait' | 'banned' | 'too_many_chats' | 'error' | 'api_off' | 'no_answer';
+const OUTCOME: Record<JoinResult, [string, Tone]> = {
 	joined: ['joined', 'ok'], already_member: ['already a member', ''], request_sent: ['request sent', 'info'],
-	approval_required: ['approval required', 'info'], flood_wait: ['rate limited', 'danger'], link_invalid: ['invalid link', 'danger'],
-	not_found: ['not found', 'danger'], banned: ['banned', 'danger'], error: ['error', 'danger'],
+	approval_required: ['approval required', 'info'], declined: ['declined', 'danger'], not_a_group: ['not a group', 'danger'],
+	flood_wait: ['rate limited', 'danger'], link_invalid: ['invalid link', 'danger'], not_found: ['not found', 'danger'],
+	banned: ['banned', 'danger'], too_many_chats: ['too many chats', 'danger'], error: ['error', 'danger'],
+	api_off: ['API not set up', 'danger'], no_answer: ['no answer', 'danger'],
+};
+const outcomeOf = (o: string): [string, Tone] => {
+	if (Object.hasOwn(OUTCOME, o)) return OUTCOME[o as JoinResult];
+	const http = o.match(/^http_(\d{3})$/);
+	return http ? [`API error ${http[1]}`, 'danger'] : [o, ''];
 };
 
 function JoinChat({ page }: { page: PageData<JoinChatProps> }) {
@@ -94,7 +107,7 @@ function JoinChat({ page }: { page: PageData<JoinChatProps> }) {
 									<span className="a-field-hint">{feds.length ? 'The group joins these federations once the account is a member.' : 'None chosen: the group stays in Default.'}</span>
 								</div>
 							)}
-							{result ? <div className={`a-banner ${OUTCOME[result.outcome]?.[1] === 'danger' ? 'warn' : ''}`}><CircleCheck size={15} /><span>{result.message}</span></div>
+							{result ? <div className={`a-banner ${outcomeOf(result.outcome)[1] === 'danger' ? 'warn' : ''}`}><CircleCheck size={15} /><span>{result.message}</span></div>
 								: !c.is_member && <div className="a-btnrow"><Btn primary icon={LogIn} disabled={busy} onClick={() => void join()}>Join</Btn><Btn ghost onClick={() => setPreview(null)}>Cancel</Btn></div>}
 							{filed.length > 0 && (
 								<div className="a-field">
@@ -124,7 +137,7 @@ function JoinChat({ page }: { page: PageData<JoinChatProps> }) {
 					)}
 					<Card title="Recent join attempts">
 						<ol className="a-audit">{page.props.recent.map((r, i) => {
-							const [label, tone] = OUTCOME[r.outcome] ?? [r.outcome, ''];
+							const [label, tone] = outcomeOf(r.outcome);
 							return (
 								<li key={i}>
 									{tone === 'danger' ? <TriangleAlert size={14} /> : r.outcome === 'request_sent' ? <Clock size={14} /> : <CircleCheck size={14} />}
