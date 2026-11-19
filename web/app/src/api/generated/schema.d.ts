@@ -2352,6 +2352,8 @@ export interface components {
             hidden: boolean;
         };
         MessageFull: components["schemas"]["MessageRow"] & components["schemas"]["MessageExtra"] & components["schemas"]["MessageKinds"] & {
+            /** @description The other items of the message's album, in message order, as ChatMessage.album gives them beside the first (each with its own message_id, kind and deleted_at); empty when the message is not in an album. */
+            album?: components["schemas"]["ChatMedia"][];
             text: string;
             reply_to: {
                 scope: components["schemas"]["MessageScope"];

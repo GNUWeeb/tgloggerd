@@ -374,7 +374,15 @@ type MessageDetail struct {
 	ChatUser  User
 	Users     map[int64]User
 	Groups    map[int64]Group
+	// Album is the other messages of the message's album, in message
+	// order (none when it is not in one).
+	Album []Message
 }
+
+// albumSpan bounds the message ids an album's other items are looked
+// for in: an album's items are sent together, so their ids are close,
+// and the (chat_id, message_id) index then reads a short range.
+const albumSpan = int64(albumEdge*4) << 20
 
 // LoadMessage is the message with this row id, within the scope: a
 // group message of a visible group, a private message when the scope
@@ -402,10 +410,23 @@ func LoadMessage(ctx context.Context, db *sql.DB, sc scope.Scope, group bool, ro
 	if len(ms) == 0 {
 		return MessageDetail{}, ErrNotFound
 	}
+	if a := ms[0].AlbumID; a != 0 {
+		rows, err := db.QueryContext(ctx, t.messageSelect()+"WHERE m.chat_id = ? AND m.message_id BETWEEN ? AND ? "+
+			"AND m.media_album_id = ? AND m.id <> ? ORDER BY m.message_id LIMIT ?",
+			ms[0].ChatID, ms[0].MessageID-albumSpan, ms[0].MessageID+albumSpan, a, ms[0].RowID, albumEdge)
+		if err != nil {
+			return MessageDetail{}, err
+		}
+		more, err := scanMessages(rows)
+		if err != nil {
+			return MessageDetail{}, err
+		}
+		ms = append(ms, more...)
+	}
 	if err := completeMessages(ctx, db, group, ms); err != nil {
 		return MessageDetail{}, err
 	}
-	d := MessageDetail{Message: ms[0], Group: group}
+	d := MessageDetail{Message: ms[0], Group: group, Album: ms[1:]}
 	c := Chat{Group: group, ID: d.ChatID}
 	var w Window
 	w.Messages = ms

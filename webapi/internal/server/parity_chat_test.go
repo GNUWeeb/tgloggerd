@@ -453,6 +453,20 @@ func TestPageMessageParity(t *testing.T) {
 		m.TdlibType != "messageVideo" {
 		t.Errorf("video %+v", m.Media)
 	}
+	// An album's message page gives its own media and the album's
+	// other items, in message order, each with its message, kind and
+	// deletion, as the chat's album bubble does; a message outside an
+	// album has an empty album.
+	if m := msg(3010); m.Media == nil || m.Media.FileID != 860010 || len(m.Album) != 2 ||
+		m.Album[0].Kind != "photo" || m.Album[0].Render != "image" || m.Album[0].W != 800 ||
+		m.Album[0].DeletedAt != nil || m.Album[0].MessageID == 0 ||
+		m.Album[1].Kind != "document" || m.Album[1].Name != "notes.pdf" ||
+		m.Album[1].MessageID <= m.Album[0].MessageID {
+		t.Errorf("album page %+v %+v", m.Media, m.Album)
+	}
+	if m := msg(3001); m.Album == nil || len(m.Album) != 0 {
+		t.Errorf("no album: %+v", m.Album)
+	}
 	if m := msg(3004); m.Media == nil || m.Media.Emoji != "❤" || m.Media.Format != "webp" {
 		t.Errorf("sticker %+v", m.Media)
 	}

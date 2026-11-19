@@ -741,6 +741,7 @@ type messageFullJSON struct {
 	Edits       []editJSON        `json:"edits"`
 	EditedAt    *string           `json:"edited_at"`
 	Media       *messageMediaJSON `json:"media"`
+	Album       []chatMediaJSON   `json:"album"`
 	messageExtraJSON
 	messageKindsJSON
 }
@@ -810,6 +811,18 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 		v.poster(md, m)
 		j.Media = &messageMediaJSON{FileID: m.File.ID, Name: md.Name, Size: md.Size,
 			Stored: md.Stored, Thumb: md.Thumb, URL: md.URL, mediaDetailJSON: md.mediaDetailJSON}
+	}
+	// The album's other items, as the chat shows them beside the first:
+	// each with its own message id, kind and deletion.
+	j.Album = []chatMediaJSON{}
+	for _, it := range d.Album {
+		if it.File.ID == 0 {
+			continue
+		}
+		md := v.media(it.ContentType, it.File, it.Extra)
+		v.poster(md, it)
+		md.MessageID, md.Kind, md.DeletedAt = it.MessageID, chatType(it.ContentType), isoPtr(it.DeletedAt)
+		j.Album = append(j.Album, *md)
 	}
 	return messageProps{Message: j}, nil
 }

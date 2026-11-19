@@ -6057,6 +6057,15 @@ components:
         - type: object
           required: [text, reply_to, edits, edited_at, media]
           properties:
+            album:
+              type: array
+              description: >-
+                The other items of the message's album, in message
+                order, as ChatMessage.album gives them beside the first
+                (each with its own message_id, kind and deleted_at);
+                empty when the message is not in an album.
+              items:
+                $ref: '#/components/schemas/ChatMedia'
             text:
               type: string
             reply_to:
