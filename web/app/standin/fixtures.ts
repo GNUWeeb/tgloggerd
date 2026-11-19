@@ -621,7 +621,7 @@ export function load(url: string, persona: Persona): Loaded {
 		const c = chatMessage(x, viewOf(persona, x.chat.kind === 'user' ? undefined : x.chat.id));
 		// A video note sample (kinds.ts) has a file of its own.
 		const media = c.media ? { ...c.media, file_id: x.media?.fileId ?? 970000 + (x.message_id % 10000), name: x.media?.name || '', size: x.media?.size || c.media.size || 0 } : null;
-		const extra = Object.fromEntries(['entities', 'sender_chat', 'forward_from', 'author_signature', 'is_channel_post', 'service_type', 'tdlib_type', 'detail', 'service', 'topic_id', 'pinned', 'views', 'forwards', 'replies', 'reactions', 'album'].filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
+		const extra = Object.fromEntries(['entities', 'sender_chat', 'forward_from', 'author_signature', 'is_channel_post', 'service_type', 'tdlib_type', 'detail', 'service', 'topic_id', 'pinned', 'views', 'forwards', 'replies', 'reactions', 'effect_id', 'effect', 'album'].filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
 		return {
 			route: 'message', status: 200, props: {
 				message: {

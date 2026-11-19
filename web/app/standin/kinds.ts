@@ -41,9 +41,9 @@ export const FORUM_GROUP = groups[2]!;
 export const PUBLIC_POLLS_GROUP = groups[9]!;
 
 export const TOPICS = [
-	{ id: 1, name: 'General', icon_color: 0x6fb9f0, closed: false, hidden: false },
-	{ id: 12, name: 'Help and questions', icon_color: 0xffd67e, closed: false, hidden: false },
-	{ id: 25, name: 'Off-topic', icon_color: 0xcb86db, closed: true, hidden: false },
+	{ id: 1, name: 'General', icon_color: 0x6fb9f0, icon_custom_emoji_id: null, icon_custom_emoji: null, closed: false, hidden: false },
+	{ id: 12, name: 'Help and questions', icon_color: 0xffd67e, icon_custom_emoji_id: null, icon_custom_emoji: null, closed: false, hidden: false },
+	{ id: 25, name: 'Off-topic', icon_color: 0xcb86db, icon_custom_emoji_id: null, icon_custom_emoji: null, closed: true, hidden: false },
 ];
 export const topicsOf = (chat: { id: number; kind: string }) => (chat.kind === 'group' && chat.id === FORUM_GROUP.id ? TOPICS : []);
 export const topicOf = (m: { chat: { id: number; kind: string }; message_id: number }): number | null => {
@@ -73,7 +73,7 @@ const PAID_ITEMS = [
 const GAME_COVER = { stored: true, fetchable: false, url: '/files/standin-986001', thumb: '/files/standin-986101', poster: '/files/standin-986101', render: 'animation', ext: 'mp4', w: 640, h: 360, duration: 3, name: '', size: 310000 };
 const INVOICE_PHOTO = { stored: true, fetchable: false, url: '/files/standin-986002', thumb: '/files/standin-986002', render: 'image', ext: 'jpg', w: 800, h: 600, name: '', size: 64000 };
 
-type Entity = { offset: number; length: number; type: string; url?: string; user_id?: number | null; language?: string; custom_emoji_id?: string };
+type Entity = { offset: number; length: number; type: string; url?: string; user_id?: number | null; language?: string; custom_emoji_id?: string; custom_emoji?: CustomEmoji | null };
 type Edit = { at: string; text: string; content_type: string; entities: Entity[]; detail: unknown };
 type Sample = { content_type: string; text?: string; entities?: (v: View) => Entity[]; edits?: (v: View) => Edit[]; edited_at?: string; detail?: (v: View) => unknown; service?: (v: View) => Service; media?: { round?: boolean }; tdlib_type?: string; kinds?: Partial<Kinds> };
 // A service message's action as Go sends it. parts spell the text, a
@@ -82,7 +82,10 @@ type Sample = { content_type: string; text?: string; entities?: (v: View) => Ent
 type ServicePart = { text: string; user?: number; chat?: number };
 // detail is the action's stored detail, absent when there is none.
 type Service = { type: string; text: string; parts?: ServicePart[]; refs: { users: Ref[]; chats: Ref[]; message_id: number | null }; detail?: unknown };
-type Kinds = { pinned: boolean; views: number | null; forwards: number | null; replies: number | null; reactions: { emoji?: string; custom_emoji_id?: string; paid?: boolean; count: number }[] };
+type Kinds = { pinned: boolean; views: number | null; forwards: number | null; replies: number | null; reactions: { emoji?: string; custom_emoji_id?: string; custom_emoji?: CustomEmoji | null; paid?: boolean; count: number }[]; effect_id: string | null; effect: Effect | null };
+// A custom emoji and a message effect as Go resolves them for a page.
+type CustomEmoji = { emoji: string; format: 'webp' | 'tgs' | 'webm' | null; url: string | null; needs_repainting: boolean };
+type Effect = { emoji: string; format: 'webp' | 'tgs' | 'webm' | null; url: string | null };
 
 // Entities over a text: each part is found in the text (after the
 // previous one's start) and given its UTF-16 offset and length, as the
@@ -106,7 +109,7 @@ const seen = (v: View, id: number) => (v.user(id) ? id : null);
 // escaped comma, and a second number and an address beyond the one
 // number the card shows. Synthetic numbers and example.org only.
 const CONTACT_VCARD = 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Contact\r\nTEL;TYPE=CELL:+6281200000101\r\nTEL;TYPE=WORK:+62 21 0000 0202\r\nEMAIL;TYPE=INTERNET:contact.sample@exam\r\n ple.org\r\nORG:Sample Works\\, Ltd;Field Team\r\nEND:VCARD\r\n';
-const REACTIONS = [{ emoji: '👍', count: 12 }, { emoji: '🔥', count: 5 }, { custom_emoji_id: '5368324170671202286', count: 3 }, { paid: true, count: 2 }];
+const REACTIONS = [{ emoji: '👍', count: 12 }, { emoji: '🔥', count: 5 }, { custom_emoji_id: '5368324170671202286', custom_emoji: null, count: 3 }, { paid: true, count: 2 }];
 const poll = (question: string, type: 'regular' | 'quiz', opts: string[], extra = {}) => () => {
 	const votes = opts.map((_, i) => (opts.length - i) * 7 + (i % 3));
 	const total = votes.reduce((a, b) => a + b, 0);
@@ -178,7 +181,7 @@ function samples(): Sample[] {
 			[nameOf(b!), 'mention_name', { user_id: seen(v, b!) }], [nameOf(y!), 'mention_name', { user_id: seen(v, y!) }],
 			['#release', 'hashtag'], ['$TGD', 'cashtag'], ['/status@tgd_bot', 'bot_command'], ['team@example.org', 'email'], ['+62 812 0000 0199', 'phone_number'],
 			['Bold with italic inside', 'bold'], ['italic', 'italic'], ['underlined', 'underline'], ['struck', 'strikethrough'], ['a hidden ending', 'spoiler'],
-			['inline code', 'code'], ['🎉', 'custom_emoji', { custom_emoji_id: '5368324170671202286' }], ['1:05', 'media_timestamp'],
+			['inline code', 'code'], ['🎉', 'custom_emoji', { custom_emoji_id: '5368324170671202286', custom_emoji: null }], ['1:05', 'media_timestamp'],
 			['4242 4242 4242 4242', 'bank_card_number'], ['a future kind', 'unknown'], ['a sneaky link', 'text_url', { url: 'javascript:alert(1)' }],
 		]).concat([{ offset: formatted.length - 'bold to the end'.length, length: 500, type: 'bold' }]) },
 		{ content_type: 'text', text: codeText, entities: () => entitiesIn(codeText, [
@@ -332,7 +335,7 @@ function forumServices(): Map<number, Sample> {
 		svc('video_chat_ended', 'ended the video chat', () => ({ kind: 'video_chat', duration: 3725, start_date: null })),
 		svc('video_chat_scheduled', 'scheduled a video chat', () => ({ kind: 'video_chat', duration: null, start_date: '2026-12-01T12:00:00Z' })),
 		svc('poll_option_added', 'added an option to a poll', () => ({ kind: 'poll_option', text: 'Rust in the kernel' })),
-		svc('forum_topic_created', `created topic "${TOPICS[1]!.name}"`, () => ({ kind: 'topic', topic: { id: TOPICS[1]!.id, name: TOPICS[1]!.name, icon_color: TOPICS[1]!.icon_color } })),
+		svc('forum_topic_created', `created topic "${TOPICS[1]!.name}"`, () => ({ kind: 'topic', topic: { id: TOPICS[1]!.id, name: TOPICS[1]!.name, icon_color: TOPICS[1]!.icon_color, icon_custom_emoji_id: TOPICS[1]!.icon_custom_emoji_id, icon_custom_emoji: TOPICS[1]!.icon_custom_emoji } })),
 		svc('chat_added_to_community', 'added the group to a community', (v) => { const c = refOf(v, PUBLIC_POLLS_GROUP.id); return c ? { kind: 'community', community: c } : null; }),
 		svc('chat_upgrade_from', 'the supergroup was created from a group', (v) => ({ kind: 'title', title: 'Linux Study Group', basic_group: refOf(v, KINDS_GROUP.id) })),
 		svc('chat_set_background', 'changed the chat background', () => ({ kind: 'background', only_for_self: true })),
@@ -359,6 +362,7 @@ export function kindsOf(m: { chat: { id: number; kind: string }; message_id: num
 		service: svc ? { type: svc.type, refs: svc.refs, ...(svc.parts ? { parts: svc.parts } : {}), ...(svc.detail != null ? { detail: svc.detail } : {}) } : null,
 		topic_id: topicOf(m), pinned: false, views: null as number | null, forwards: null as number | null, replies: null as number | null,
 		reactions: [] as Kinds['reactions'],
+		effect_id: null as string | null, effect: null as Effect | null,
 		...(s?.kinds ?? {}),
 	};
 	return { base, sample: s, serviceText: svc?.text };

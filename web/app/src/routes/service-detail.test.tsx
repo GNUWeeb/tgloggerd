@@ -73,7 +73,7 @@ describe('a service line in the chat', () => {
 
 	it('links the topic a text names, with its colour, and names one it does not', () => {
 		const t = TOPICS[1]!;
-		const topic = { id: t.id, name: t.name, icon_color: t.icon_color };
+		const topic = { id: t.id, name: t.name, icon_color: t.icon_color, icon_custom_emoji_id: null, icon_custom_emoji: null };
 		const l = line('forum_topic_created', `created topic "${t.name}"`, { kind: 'topic', topic });
 		const a = within(l).getByRole('link', { name: t.name });
 		expect(a.getAttribute('href')).toContain(`topic=${t.id}`);
@@ -86,12 +86,12 @@ describe('a service line in the chat', () => {
 	});
 
 	it('names a topic whose id, name or colour is not known', () => {
-		const l = line('forum_topic_edited', 'changed the topic icon', { kind: 'topic', topic: { id: null, name: 'Help', icon_color: null } });
+		const l = line('forum_topic_edited', 'changed the topic icon', { kind: 'topic', topic: { id: null, name: 'Help', icon_color: null, icon_custom_emoji_id: null, icon_custom_emoji: null } });
 		expect(words(l)).toBe('Sample Sender changed the topic icon: Help');
 		expect(within(l).queryByRole('link', { name: 'Help' })).toBeNull();
 		expect((l.querySelector('.c-svctopic .k-topicdot') as HTMLElement).style.background).toBeTruthy();
 		document.body.innerHTML = '';
-		const n = line('forum_topic_edited', 'changed the topic icon', { kind: 'topic', topic: { id: 12, name: null, icon_color: 0xffd67e } });
+		const n = line('forum_topic_edited', 'changed the topic icon', { kind: 'topic', topic: { id: 12, name: null, icon_color: 0xffd67e, icon_custom_emoji_id: null, icon_custom_emoji: null } });
 		expect(words(n)).toBe('Sample Sender changed the topic icon: a topic');
 		expect(within(n).getByRole('link', { name: 'a topic' }).getAttribute('href')).toContain('topic=12');
 	});
