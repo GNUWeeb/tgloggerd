@@ -985,61 +985,22 @@ func isVideo(fileType, ext string) bool {
 func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool,
 	rows []logdb.Row) ([]listFile, error) {
 	ids := make([]uint64, 0, len(rows))
-	var videos []uint64
 	for _, r := range rows {
 		ids = append(ids, r.Uint("id"))
-		if isVideo(r.Str("file_type"), r.Str("file_ext")) {
-			videos = append(videos, r.Uint("id"))
-		}
 	}
 	origins, err := logdb.FileOrigins(ctx, s.ro, sc, ids)
 	if err != nil {
 		return nil, err
 	}
-	stills, err := logdb.FileStills(ctx, s.ro, sc, videos)
+	stills, err := s.fileStills(ctx, sc, rows)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]listFile, 0, len(rows))
 	for _, r := range rows {
-		f := listFile{ID: r.Uint("id"), FileType: r.Str("file_type"),
-			Name: r.Str("orig_file_name"), Ext: r.Str("file_ext"),
-			Size: r.Uint("file_size"), Hits: r.Int("hit_count"), Stored: r.Bool("on_disk"),
-			CreatedAt: dbTime(r.Str("created_at")), AccessedAt: dbTime(r.Str("accessed_at")),
-			TgFileID: r.Str("tg_file_id"),
-			// A file sent in no message the viewer sees (a profile
-			// or group photo) has no chat and no message: null.
-		}
-		if f.Name == "" {
-			f.Name = strconv.FormatUint(f.ID, 10)
-			if f.Ext != "" {
-				f.Name += "." + f.Ext
-			}
-		}
-		if h := r.Str("sha256_hex"); h != "" {
-			// A metadata-only row has none.
-			h = strings.ToLower(h)
-			f.SHA256 = &h
-		}
-		f.URL, f.Fetchable = s.fileURL(sc, signedIn, f.ID, f.Size, f.Stored)
-		if hasThumb(f.Stored, f.FileType, f.Ext) {
-			f.Thumb = f.URL
-		}
-		if f.FileType == "thumbnail" {
-			// A video's still is a picture to the pages
-			// (FileRow.file_type has no thumbnail).
-			f.FileType = "photo"
-		}
-		if st, ok := stills[f.ID]; ok {
-			// Stored, so the size does not matter.
-			if id := cmp.Or(st.Cover, st.Thumbnail); id != 0 {
-				f.Thumb, _ = s.fileURL(sc, signedIn, id, 0, true)
-			}
-			// As the chat's media (mediaDetail): only valid base64.
-			if _, err := base64.StdEncoding.DecodeString(st.Minithumb); err == nil && st.Minithumb != "" {
-				f.Minithumb = "data:image/jpeg;base64," + st.Minithumb
-			}
-		}
+		f := s.fileRow(sc, signedIn, r, stills)
+		// A file sent in no message the viewer sees (a profile or
+		// group photo) has no chat and no message: null.
 		if o, ok := origins[f.ID]; ok {
 			f.Chat = &listChatName{ID: o.ChatID, Title: o.ChatTitle, Kind: o.ChatKind}
 			f.Message = &listMsgRef{Scope: o.Scope, ID: o.MessageID}
@@ -1050,6 +1011,62 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool
 		out = append(out, f)
 	}
 	return out, nil
+}
+
+// fileStills are the stills of the videos among rows of the files
+// registry's columns, in one batch (logdb.FileStills).
+func (s *Server) fileStills(ctx context.Context, sc scope.Scope,
+	rows []logdb.Row) (map[uint64]logdb.FileStill, error) {
+	var videos []uint64
+	for _, r := range rows {
+		if isVideo(r.Str("file_type"), r.Str("file_ext")) {
+			videos = append(videos, r.Uint("id"))
+		}
+	}
+	return logdb.FileStills(ctx, s.ro, sc, videos)
+}
+
+// fileRow is a row of the files registry's columns as FileRow, without
+// the message that carried it (listFileRows adds that).
+func (s *Server) fileRow(sc scope.Scope, signedIn bool, r logdb.Row,
+	stills map[uint64]logdb.FileStill) listFile {
+	f := listFile{ID: r.Uint("id"), FileType: r.Str("file_type"),
+		Name: r.Str("orig_file_name"), Ext: r.Str("file_ext"),
+		Size: r.Uint("file_size"), Hits: r.Int("hit_count"), Stored: r.Bool("on_disk"),
+		CreatedAt: dbTime(r.Str("created_at")), AccessedAt: dbTime(r.Str("accessed_at")),
+		TgFileID: r.Str("tg_file_id"),
+	}
+	if f.Name == "" {
+		f.Name = strconv.FormatUint(f.ID, 10)
+		if f.Ext != "" {
+			f.Name += "." + f.Ext
+		}
+	}
+	if h := r.Str("sha256_hex"); h != "" {
+		// A metadata-only row has none.
+		h = strings.ToLower(h)
+		f.SHA256 = &h
+	}
+	f.URL, f.Fetchable = s.fileURL(sc, signedIn, f.ID, f.Size, f.Stored)
+	if hasThumb(f.Stored, f.FileType, f.Ext) {
+		f.Thumb = f.URL
+	}
+	if f.FileType == "thumbnail" {
+		// A video's still is a picture to the pages
+		// (FileRow.file_type has no thumbnail).
+		f.FileType = "photo"
+	}
+	if st, ok := stills[f.ID]; ok {
+		// Stored, so the size does not matter.
+		if id := cmp.Or(st.Cover, st.Thumbnail); id != 0 {
+			f.Thumb, _ = s.fileURL(sc, signedIn, id, 0, true)
+		}
+		// As the chat's media (mediaDetail): only valid base64.
+		if _, err := base64.StdEncoding.DecodeString(st.Minithumb); err == nil && st.Minithumb != "" {
+			f.Minithumb = "data:image/jpeg;base64," + st.Minithumb
+		}
+	}
+	return f
 }
 
 func loadFiles(ctx context.Context, pr *pageRequest) (any, error) {
