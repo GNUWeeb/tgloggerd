@@ -15,12 +15,15 @@ type Role = 'superadmin' | 'admin' | 'member' | 'public';
 // which the archive account left, has a count only; Homelab is under a
 // flood wait; the channel Compiler Nerds does not show members to the
 // account (no admin there); the channel Data Study has its list hidden
-// by a superadmin.
+// by a superadmin; the seventh group's list is unavailable (the daemon
+// does not answer).
 const NO_COUNT = groups[1].id;
 const NOT_MEMBER = groups[4].id;
 const FLOOD = groups[5].id;
 const NOT_ALLOWED = groups[10].id;
 const HIDDEN_AT_START = groups[16].id;
+// The daemon is off or does not answer.
+const UNAVAILABLE = groups[6].id;
 
 // Channels whose list a superadmin hid (web_hidden_member_lists).
 const hidden = new Set<number>([HIDDEN_AT_START]);
@@ -68,14 +71,17 @@ const fullView = (role: Role) => role === 'superadmin' || role === 'admin';
 export function membersPage(g, role: Role, offset = 0, limit = 50) {
 	if (!fullView(role)) return null;
 	const total = memberCount(g).member_count;
-	const none = (reason: string) => ({ available: false, reason, total, members: [] });
+	const off = Math.max(0, Math.floor(offset) || 0);
+	const lim = Math.min(200, Math.max(1, Math.floor(limit) || 50));
+	// As Go answers: the page asked for, and how long Telegram wants a
+	// flood wait to last.
+	const none = (reason: string) => ({ available: false, reason, total, members: [], offset: off, limit: lim, ...(reason === 'flood_wait' ? { retry_after: 30 } : {}) });
 	if (g.id === NOT_MEMBER) return none('not_member');
 	if (g.id === FLOOD) return none('flood_wait');
 	if (g.id === NOT_ALLOWED) return none('not_allowed');
+	if (g.id === UNAVAILABLE) return none('unavailable');
 	if (hidden.has(g.id) && role !== 'superadmin') return none('hidden');
-	const off = Math.max(0, Math.floor(offset) || 0);
-	const lim = Math.min(200, Math.max(1, Math.floor(limit) || 50));
-	return { available: true, reason: '', total, members: listOf(g).slice(off, off + lim) };
+	return { available: true, reason: '', total, members: listOf(g).slice(off, off + lim), offset: off, limit: lim };
 }
 
 // The group page's fields for the switch.
@@ -110,4 +116,4 @@ export function patchGroup(id: string, body, role: Role, sees: (g) => boolean): 
 }
 
 // The samples, for tests.
-export const MEMBER_SAMPLES = { NO_COUNT, NOT_MEMBER, FLOOD, NOT_ALLOWED, HIDDEN: HIDDEN_AT_START, LONG: groups[0].id };
+export const MEMBER_SAMPLES = { NO_COUNT, NOT_MEMBER, FLOOD, NOT_ALLOWED, UNAVAILABLE, HIDDEN: HIDDEN_AT_START, LONG: groups[0].id };

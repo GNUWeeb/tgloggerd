@@ -488,7 +488,7 @@ export function load(url: string, persona: Persona): Loaded {
 	}
 	if (path === '/groups') {
 		const { st, r, extra } = searchList(listState(u.searchParams, 'msg_count', 25, persona), 'groups', groups, s.role === 'superadmin' ? null : s.group, queryGroups);
-		return { route: 'groups', status: 200, props: { ...st, ...r, ...extra, rows: r.rows.map((g) => ({ ...groupSummary(g), msg_count: g.msg_count, admin_count: g.admin_count, description: g.description, created_at: iso(g.created_at), updated_at: iso(g.updated_at) })), archive_total: s.role === 'member' ? undefined : TOTALS.groups } };
+		return { route: 'groups', status: 200, props: { ...st, ...r, ...extra, rows: r.rows.map((g) => ({ ...groupSummary(g), msg_count: g.msg_count, admin_count: g.admin_count, description: g.description, created_at: iso(g.created_at), updated_at: iso(g.updated_at), ...memberCount(g) })), archive_total: s.role === 'member' ? undefined : TOTALS.groups } };
 	}
 	if ((m = path.match(/^\/groups\/(-\d+)(\/admins|\/history|\/members)?$/))) {
 		const g = getGroup(m[1]);
