@@ -71,6 +71,7 @@ function match(row, c) {
 	case 'contains': return String(v ?? '').toLowerCase().includes(String(c.value).toLowerCase());
 	case '=': return String(v) === String(c.value);
 	case '!=': return String(v) !== String(c.value);
+	case 'in': return Array.isArray(c.value) && c.value.map(String).includes(String(v));
 	case '>': return typeof v === 'number' ? v > Number(c.value) : String(v) > String(c.value);
 	case '<': return typeof v === 'number' ? v < Number(c.value) : String(v) < String(c.value);
 	case 'is': return Boolean(v) === (c.value === true || c.value === 'yes');

@@ -368,10 +368,23 @@ let fileData = null;
 const fileType = (f) => (f.id % 97 === 0 ? 'unknown'
 	: f.file_type === 'video' && f.id % 6 === 1 ? 'animation' : f.file_type === 'video' && f.id % 6 === 2 ? 'video_note'
 		: f.file_type === 'photo' && f.id % 40 === 7 ? 'thumbnail' : f.file_type);
+// A file's role in its message (FileRow.role, not in webapi/openapi.yaml
+// yet): a message's own file has none; some photos stand for a link
+// preview's picture, a video's cover, an invoice's or a game's photo or
+// a paid item, the thumbnails for a video's still. A file in no visible
+// message names no message, so it has no role either. The rows keep the
+// role's name as `role`, for the role filter.
+function roleOf(f, type: string): [string, string] | null {
+	if (orphan(f)) return null;
+	if (type === 'thumbnail') return ['thumbnail', 'video'];
+	if (type !== 'photo') return null;
+	return ({ 13: ['link_preview', 'text'], 19: ['cover', 'video'], 23: ['invoice', 'invoice'], 29: ['game', 'game'], 31: ['paid', 'paid_media'] })[f.id % 40] ?? null;
+}
 function allFiles() {
 	const extOf = (f) => (f.file_type === 'sticker' ? STICKER_FORMATS[f.id % 3] : f.file_type === 'video' && f.id % 5 === 0 ? 'webm' : f.ext);
 	fileData ??= files().map((f) => ({
 		...f,
+		...(([r, k]) => ({ role: r, message_kind: k }))(roleOf(f, fileType(f)) ?? [null, null]),
 		ext: extOf(f),
 		name: extOf(f) === f.ext ? f.name : f.name.replace(/\.[^.]*$/, '') + '.' + extOf(f),
 		file_type: fileType(f),
@@ -400,6 +413,7 @@ function fileRow(f, fetch: boolean) {
 		created_at: iso(f.created_at), accessed_at: iso(f.accessed_at), duration: f.duration, tg_file_id: f.tg_file_id, sha256: f.sha256,
 		url, thumb: still ? still.poster : f.stored && pictureType(f.file_type) && drawable ? url : null,
 		...(still?.minithumb ? { minithumb: still.minithumb } : {}),
+		role: f.role ? { role: f.role, message_kind: f.message_kind } : null,
 	};
 	if (orphan(f)) return { ...base, chat: null, sender: null, message: null };
 	return {

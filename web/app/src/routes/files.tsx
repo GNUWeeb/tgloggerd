@@ -6,6 +6,7 @@ import { Btn, PageHead, Pill } from '../ui/primitives.tsx';
 import { DataTable, emptyText, FilterBar, useListNav, type Col } from '../ui/list.tsx';
 import { Thumb, TypeIcon } from '../ui/media.tsx';
 import { FileCard, FileNameCell, NO_MESSAGE, Preview } from '../ui/filegrid.tsx';
+import { ROLE_LABELS, ROLE_VALUES, RoleTag, roleLabel, roleOf } from '../ui/fileroles.tsx';
 import { ago, bytes, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { Cond, FieldDef, FileRow, ListProps } from '../types.ts';
@@ -19,6 +20,7 @@ export type FilesProps = S['FilesProps'];
 const FIELDS: FieldDef[] = [
 	{ key: 'id', label: 'File ID', type: 'number' },
 	{ key: 'file_type', label: 'Type', type: 'enum', values: ['photo', 'video', 'document', 'audio', 'voice', 'sticker', 'animation', 'video_note', 'thumbnail', 'unknown'] },
+	{ key: 'role', label: 'Role in its message', type: 'enum', values: ROLE_VALUES, labels: ROLE_LABELS, ops: ['=', '!=', 'in'] },
 	{ key: 'name', label: 'Name', type: 'text' },
 	{ key: 'ext', label: 'Extension', type: 'text' },
 	{ key: 'tg_file_id', label: 'Telegram file ID', type: 'text' },
@@ -39,6 +41,7 @@ const QUICK: [string, Cond[]][] = [
 	['Stickers', [{ field: 'file_type', op: '=', value: 'sticker' }]],
 	['Animations', [{ field: 'file_type', op: '=', value: 'animation' }]],
 	['Video notes', [{ field: 'file_type', op: '=', value: 'video_note' }]],
+	['Link previews', [{ field: 'role', op: '=', value: 'link_preview' }]],
 	['Not stored', [{ field: 'stored', op: 'is', value: 'no' }]],
 ];
 
@@ -145,7 +148,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 	const member = v.account?.role === 'member';
 	const cols: Col<FileRow>[] = [
 		{ key: 'id', label: 'ID', sort: true, align: 'right', cls: 'a-hide-md', render: (f) => <span className="num">{f.id}</span> },
-		{ key: 'name', label: 'File', sort: true, cls: 'c-name', render: (f) => <FileNameCell f={f} sub={f.chat?.title ?? NO_MESSAGE} onOpen={() => show(f)} /> },
+		{ key: 'name', label: 'File', sort: true, cls: 'c-name', render: (f) => <FileNameCell f={f} sub={<><RoleTag role={roleOf(f)} />{f.chat?.title ?? NO_MESSAGE}</>} onOpen={() => show(f)} /> },
 		{ key: 'file_type', label: 'Type', sort: true, render: (f) => <span className="a-typecell"><TypeIcon type={f.file_type} />{f.file_type}</span> },
 		{ key: 'ext', label: 'Ext', sort: true, cls: 'a-hide-md', render: (f) => <span className="mono">{f.ext}</span> },
 		{ key: 'size', label: 'Size', sort: true, align: 'right', render: (f) => <span className="num">{bytes(f.size)}</span> },
@@ -168,14 +171,14 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 			{grid ? (
 				// No pages in the grid: it loads more as it is scrolled.
 				<div className="a-card a-tablecard a-filegrid-card">
-					<div className="a-filegrid">{g.rows.map((f) => <FileCard key={f.id} f={f} at={f.created_at} v={v} onOpen={() => show(f)} />)}</div>
+					<div className="a-filegrid">{g.rows.map((f) => <FileCard key={f.id} f={f} at={f.created_at} v={v} onOpen={() => show(f)} tag={<RoleTag role={roleOf(f)} />} />)}</div>
 					{!L.rows.length && <div className="a-empty">{emptyText(L, member, 'files', 'No files match these filters.')}</div>}
 					<GridFoot g={g} auto={v.chat?.auto_load !== false} shown={g.rows.length} />
 				</div>
 			) : (
 				<DataTable L={L} cols={cols} noun="files" empty={emptyText(L, member, 'files', 'No files match these filters.')}
 					href={(f) => setQuery(page.url, { file: f.id })} open={show}
-					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={40} />, title: f.name, sub: `${f.file_type} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
+					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={40} />, title: f.name, sub: `${f.file_type}${roleOf(f) ? ` (${roleLabel(roleOf(f)!.role)})` : ''} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
 			)}
 			{preview && <Preview f={preview} v={v} onClose={() => show(null)} />}
 		</Shell>
