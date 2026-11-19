@@ -205,8 +205,14 @@ function LottieSticker({ m }: { m: Media }) {
 	);
 }
 
-// A sticker: an image, a looping video, or a Lottie animation.
+// A sticker: an image, a looping video, or a Lottie animation; one with
+// a fetch path but no url offers "Fetch from Telegram" (a gift's or a
+// giveaway's sticker too).
 export function Sticker({ m }: { m: Media }) {
+	return <MediaOf m={m} kind="sticker" onClick={false} />;
+}
+
+function StickerAs({ m }: { m: Media }) {
 	const [open, setOpen] = useState(false);
 	const { button } = useContext(FetchSlot);
 	const f = stickerFormat(m);
@@ -303,7 +309,7 @@ function MediaAs({ m, kind, single, onClick }: { m: Media; kind: MediaKind; sing
 		case 'photo': return <Picture m={m} single={single} onClick={onClick} />;
 		case 'video': return <VideoBox m={m} single={single} onClick={onClick} />;
 		case 'animation': return single ? <Animation m={m} onClick={onClick} /> : <VideoBox m={m} animation onClick={onClick} />;
-		case 'sticker': return <Sticker m={m} />;
+		case 'sticker': return <StickerAs m={m} />;
 		case 'voice': return <Voice m={m} />;
 		case 'audio': return <DocFile m={m} audio />;
 		default: return <DocFile m={m} />;

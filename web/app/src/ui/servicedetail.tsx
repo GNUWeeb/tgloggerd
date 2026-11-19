@@ -4,7 +4,7 @@
 // named, the title a group was created with, a background set for the
 // actor alone (docs/todo/msg-service-detail.md). The chat's service
 // line and the message page both draw it.
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { CloudOff, Download, Play } from 'lucide-react';
 import { BackgroundDetail } from './background.tsx';
 import { Link } from '../nav.tsx';
@@ -15,6 +15,7 @@ import { GiftCard, ThemeDetail } from './servicegift.tsx';
 import { dateTime } from '../format.ts';
 import type { Viewer } from '../page.ts';
 import type { ChatMedia } from '../types.ts';
+import { FetchButton, needsFetch, useFetched } from './fetchfile.tsx';
 import type { S } from '../api/schema.ts';
 
 // The detail, tagged by kind (webapi/openapi.yaml ServiceDetail);
@@ -34,14 +35,27 @@ export function lasted(s: number): string {
 // plain click opens the viewer. Media loaded on click wait to be asked.
 // An animated photo's video plays in the viewer, the still as its
 // poster; the line still shows the still.
-function NewPhoto({ m, anim, size, onClick }: { m: ChatMedia; anim: ChatMedia | null; size: number; onClick: boolean }) {
-	const [shown, setShown] = useState(!onClick);
+// A big photo or animation not stored, with a fetch path, has the
+// fetch button beside it (the animation's first: it is what plays);
+// once fetched by it, it shows and opens at once.
+function NewPhoto({ m: givenPhoto, anim: givenAnim, size, onClick }: { m: ChatMedia; anim: ChatMedia | null; size: number; onClick: boolean }) {
+	const m = useFetched(givenPhoto);
+	const anim = useFetched(givenAnim);
+	const [asked, setShown] = useState(!onClick);
 	const [open, setOpen] = useState(false);
+	const [fresh, setFresh] = useState(false);
+	const shown = asked || fresh;
+	useEffect(() => { if (fresh) setOpen(true); }, [fresh]);
 	const box = { width: size, height: size };
 	const video = anim?.url ? anim : null;
 	if (!m.url && !video) {
 		const pic = m.minithumb ?? m.thumb;
-		return <span className={`c-svcphoto c-missing ${pic ? 'c-blurred' : ''}`} style={{ ...box, ...(pic ? { backgroundImage: `url("${pic}")` } : {}) }} title="Photo not stored" role="img" aria-label="Photo not stored"><CloudOff size={Math.round(size / 3)} /></span>;
+		const path = anim && needsFetch(anim) ? anim.fetch! : needsFetch(m) ? m.fetch! : null;
+		const label = path ? 'Photo on Telegram' : 'Photo not stored';
+		return <>
+			<span className={`c-svcphoto c-missing ${pic ? 'c-blurred' : ''}`} style={{ ...box, ...(pic ? { backgroundImage: `url("${pic}")` } : {}) }} title={label} role="img" aria-label={label}><CloudOff size={Math.round(size / 3)} /></span>
+			{path && <FetchButton path={path} compact onDone={() => setFresh(true)} />}
+		</>;
 	}
 	if (!shown) return <button type="button" className="c-svcphoto c-missing" style={box} onClick={() => setShown(true)} aria-label="Show the photo"><Download size={Math.round(size / 3)} /></button>;
 	const still = m.url ? (m.thumb ?? m.url) : null;

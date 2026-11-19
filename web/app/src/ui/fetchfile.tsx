@@ -86,9 +86,11 @@ type Fetchable = { url?: string | null; stored: boolean; fetch?: string | null }
 
 // The file as it is now: with the URL a fetch answered, once it has.
 // A partial file is not stored, but its URL streams it already.
-export function useFetched<T extends Fetchable>(f: T): T {
-	const st = useFileFetch(f.url ? null : f.fetch);
-	return st.got && !f.url ? { ...f, url: st.got.url, stored: st.got.state === 'stored' } : f;
+export function useFetched<T extends Fetchable>(f: T): T;
+export function useFetched<T extends Fetchable>(f: T | null | undefined): T | null | undefined;
+export function useFetched<T extends Fetchable>(f: T | null | undefined): T | null | undefined {
+	const st = useFileFetch(f && !f.url ? f.fetch : null);
+	return f && st.got && !f.url ? { ...f, url: st.got.url, stored: st.got.state === 'stored' } : f;
 }
 
 // Whether a file waits for the button: no url, but a fetch path.
@@ -96,8 +98,9 @@ export const needsFetch = (f: Fetchable) => !f.url && !!f.fetch;
 
 // The button and, under it, what went wrong. onDone gets the answer of
 // the fetch this button started. Clicks stop here, so a button inside
-// a clickable row or card does not open it too.
-export function FetchButton({ path, onDone, primary = false, small = false }: { path: string; onDone?: (got: FileFetch) => void; primary?: boolean; small?: boolean }) {
+// a clickable row or card does not open it too. compact: only the icon
+// (named for screen readers), beside media too small for the words.
+export function FetchButton({ path, onDone, primary = false, small = false, compact = false }: { path: string; onDone?: (got: FileFetch) => void; primary?: boolean; small?: boolean; compact?: boolean }) {
 	const st = useFileFetch(path);
 	const [, tick] = useState(0);
 	// Wake up when Retry-After has passed, to enable the button again.
@@ -109,15 +112,16 @@ export function FetchButton({ path, onDone, primary = false, small = false }: { 
 	}, [st.until]);
 	const waiting = st.until > Date.now();
 	return (
-		<span className={`a-fetch ${small ? 'sm' : ''}`}>
-			<button type="button" className={`a-btn ${primary ? 'a-btn-primary' : ''} a-fetchbtn`} disabled={st.busy || st.final || waiting} aria-busy={st.busy || undefined}
+		<span className={`a-fetch ${small ? 'sm' : ''} ${compact ? 'compact' : ''}`}>
+			<button type="button" className={compact ? 'a-icon-btn a-fetchicon' : `a-btn ${primary ? 'a-btn-primary' : ''} a-fetchbtn`} disabled={st.busy || st.final || waiting} aria-busy={st.busy || undefined}
+				{...(compact ? { 'aria-label': st.busy ? 'Fetching from Telegram...' : 'Fetch from Telegram', title: 'Fetch from Telegram' } : {})}
 				onClick={(e) => {
 					e.preventDefault();
 					e.stopPropagation();
 					void startFetch(path).then((got) => { if (got) onDone?.(got); });
 				}}>
 				{st.busy ? <LoaderCircle size={14} className="a-spin" /> : <CloudDownload size={14} />}
-				{st.busy ? 'Fetching from Telegram...' : 'Fetch from Telegram'}
+				{!compact && (st.busy ? 'Fetching from Telegram...' : 'Fetch from Telegram')}
 			</button>
 			{st.err && <span className="a-fetcherr" role="alert">{st.err}</span>}
 		</span>

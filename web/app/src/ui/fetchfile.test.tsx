@@ -2,7 +2,8 @@
 // "Fetch from Telegram": a big unstored file (url null, fetch set) shows
 // the button instead of "not stored" wherever it is drawn (chat media,
 // the message page, the files list, card and preview, a group's Files
-// tab); a click posts fetchFile once and the file then uses the URL
+// tab, edit histories, a new chat photo, a background, a gift's and a
+// giveaway's sticker); a click posts fetchFile once and the file then uses the URL
 // answered; errors are put in words and are not retried by themselves.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -16,6 +17,11 @@ import type { ChatMessage } from '../types.ts';
 import type { FilesProps } from '../routes/files.tsx';
 import type { GroupFilesPage } from '../api/groupfiles.ts';
 import type { MessageProps } from '../routes/message.tsx';
+import type { ChatProps } from '../routes/chat.tsx';
+import type { ServiceDetail } from './servicedetail.tsx';
+import type { S } from '../api/schema.ts';
+import { KINDS_GROUP, sampleOf } from '../../standin/kinds.ts';
+import { chatStream } from '../../../mockup/src/data/messages.js';
 
 beforeEach(() => {
 	setup();
@@ -192,5 +198,83 @@ describe('a group\'s Files tab', () => {
 		expect(within(d).getByText('no, can be fetched from Telegram')).toBeTruthy();
 		fireEvent.click(within(d).getByRole('button', { name: /Fetch from Telegram/ }));
 		expect((await within(d).findByRole('link', { name: /Download/ })).getAttribute('href')).toBe('/files/tok-big');
+	});
+});
+
+// A chat with one message, built on a plain text one.
+const CHAT = `/groups/${KINDS_GROUP.id}/chat`;
+function chatWith(o: Partial<ChatMessage>) {
+	const page = fixture<ChatProps>(CHAT);
+	const t = page.props.messages.find((m) => m.content_type === 'text')!;
+	const m = { ...t, id: 1e9, message_id: 9e5, forward: null, reply_to: null, link_preview: null, deleted_at: null, edits: [], ...o } as ChatMessage;
+	renderPage(CHAT, 'superadmin', { props: { ...page.props, messages: [m], at: null } });
+	return document.getElementById('m900000')!;
+}
+const serviceLine = (type: string, detail: ServiceDetail) => chatWith({ content_type: 'service', text: 'did something', sender: { id: 5, name: 'Sample Sender' } as ChatMessage['sender'], service: { type, refs: { users: [], chats: [], message_id: null }, detail } as ChatMessage['service'] });
+const EDIT = { at: '2026-11-17T09:00:00Z', text: 'before', entities: [], content_type: 'document' as const, detail: null };
+
+describe('edit-history media of a big unstored file', () => {
+	it('offers the button in the chat\'s edit list', async () => {
+		fakeApi('superadmin', { [`POST ${FETCH}`]: () => answer('stored') });
+		const b = chatWith({ content_type: 'document', media: big({ name: 'now.pdf', url: '/files/now' }), edits: [{ ...EDIT, media: big({ name: 'old.pdf' }) }], edited_at: '2026-11-17T09:05:00Z' });
+		fireEvent.click(within(b).getByRole('button', { name: /edited/ }));
+		const list = b.querySelector('.c-edits') as HTMLElement;
+		expect(list.textContent).toContain('(on Telegram)');
+		expect(list.textContent).not.toContain('not stored');
+		fireEvent.click(within(list).getByRole('button', { name: 'Fetch from Telegram' }));
+		await waitFor(() => expect(within(list).queryByRole('button', { name: /Fetch(ing)? from Telegram/ })).toBeNull());
+		expect(list.textContent).not.toContain('on Telegram');
+	});
+
+	it('offers the button in the message page\'s edit history, then links the file', async () => {
+		const id = fixture<{ rows: { id: number }[] }>('/group_messages').props.rows[0]!.id;
+		const p = fixture<MessageProps>(`/messages/group/${id}`).props;
+		fakeApi('superadmin', { [`POST ${FETCH}`]: () => answer('partial') });
+		renderPage(`/messages/group/${id}`, 'superadmin', { route: 'message', status: 200, props: { message: { ...p.message, edits: [{ ...EDIT, media: big({ name: 'old.pdf' }) }], edited_at: '2026-11-17T09:05:00Z' } } });
+		expect(screen.getByText('old.pdf (on Telegram)')).toBeTruthy();
+		fireEvent.click(button());
+		expect((await screen.findByRole('link', { name: 'old.pdf' })).getAttribute('href')).toBe('/files/tok-big');
+	});
+});
+
+describe('service-detail media of a big unstored file', () => {
+	it('offers the button beside a new chat photo, and plays its animation once fetched', async () => {
+		fakeApi('superadmin', { [`POST ${FETCH}`]: () => answer('partial', '/files/tok-anim') });
+		const photo = big({ render: 'image', ext: 'jpg', fetch: '/api/files/tok-photo/fetch' });
+		const anim = big({ render: 'animation', ext: 'mp4' });
+		const l = serviceLine('chat_change_photo', { kind: 'photo', photo, animation: anim } as ServiceDetail);
+		expect(within(l).getByRole('img', { name: 'Photo on Telegram' })).toBeTruthy();
+		fireEvent.click(within(l).getByRole('button', { name: 'Fetch from Telegram' }));
+		const viewer = await screen.findByRole('dialog', { name: 'Media viewer' });
+		expect(viewer.querySelector('video')!.getAttribute('src')).toBe('/files/tok-anim');
+	});
+
+	it('offers the button beside a chat background image', async () => {
+		fakeApi('superadmin', { [`POST ${FETCH}`]: () => answer('stored') });
+		const bg = { kind: 'background', only_for_self: false, type: 'wallpaper', dark: false, image: big({ render: 'image', ext: 'jpg', mime: 'image/jpeg' }), fill: null, intensity: null, is_inverted: false, is_moving: false, is_blurred: false, theme_name: null };
+		const l = serviceLine('chat_set_background', bg as ServiceDetail);
+		expect(l.querySelector('[aria-label$="(on Telegram)"]')).toBeTruthy();
+		fireEvent.click(within(l).getByRole('button', { name: 'Fetch from Telegram' }));
+		await waitFor(() => expect(l.querySelector('a.c-bgswatch')?.getAttribute('href')).toBe('/files/tok-big'));
+	});
+
+	it('offers the button for a gift\'s sticker, not for its backdrop symbol', () => {
+		fakeApi('superadmin');
+		const st = big({ render: 'image', ext: 'webp', format: 'webp', emoji: 'x' });
+		const l = serviceLine('gift', { kind: 'gift', sticker: st, symbol_sticker: big({ render: 'image', ext: 'webp', format: 'webp', fetch: '/api/files/tok-sym/fetch' }), star_count: null, price: null, sender: null, receiver: null, text: '', entities: [], upgraded: null } as ServiceDetail);
+		const c = l.querySelector('.c-gift') as HTMLElement;
+		expect(within(c).getAllByRole('button', { name: 'Fetch from Telegram' })).toHaveLength(1);
+		expect(c.querySelector('.c-giftsymbol button')).toBeNull();
+	});
+
+	it('offers the button for a giveaway\'s prize sticker', async () => {
+		const raw = (chatStream(KINDS_GROUP) as { id: number }[]).find((m) => sampleOf(m as never)?.content_type === 'giveaway')!;
+		const page = fixture<MessageProps>(`/messages/group/${raw.id}`);
+		const m = page.props.message;
+		fakeApi('superadmin', { [`POST ${FETCH}`]: () => answer('stored') });
+		renderPage(`/messages/group/${raw.id}`, 'superadmin', { props: { ...page.props, message: { ...m, detail: { ...(m.detail as S['GiveawayDetail']), sticker: big({ render: 'image', ext: 'webp', format: 'webp', emoji: 'x' }) } } } });
+		const box = document.querySelector('.a-msgkind .k-giftsticker') as HTMLElement;
+		fireEvent.click(within(box).getByRole('button', { name: 'Fetch from Telegram' }));
+		await waitFor(() => expect(box.querySelector('img')?.getAttribute('src')).toBe('/files/tok-big'));
 	});
 });

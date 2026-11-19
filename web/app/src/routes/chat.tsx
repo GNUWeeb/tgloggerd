@@ -8,6 +8,7 @@ import { PublicFrame } from '../ui/PublicFrame.tsx';
 import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
+import { FetchButton, needsFetch, useFetched } from '../ui/fetchfile.tsx';
 import { LinkPreview } from './chat-preview.tsx';
 import { Counts, EffectMark, KindDetail, KindFallback, Reactions, TopicStrip, TopicTag, richPage, textInside } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
@@ -76,9 +77,13 @@ function ForwardLine({ m }: { m: ChatMessage }) {
 
 // An earlier version's media in the edit list: its picture, small, or
 // its type and name.
-function EditMedia({ m, type }: { m: NonNullable<ChatMessage['edits'][number]['media']>; type: ChatMessage['content_type'] }) {
-	if (m.thumb) return <a className="c-editmedia" href={m.url ?? undefined} target="_blank" rel="noopener" aria-label={`Earlier ${contentLabel(type).toLowerCase()}`}><img src={m.thumb} alt="" loading="lazy" /></a>;
-	return <div className="c-editfile c-sub">{contentLabel(type)}{m.name ? `: ${m.name}` : ''}{m.url ? '' : ' (not stored)'}</div>;
+// An earlier version's file: its picture, else its name; a big one not
+// stored has "Fetch from Telegram" beside it.
+function EditMedia({ m: given, type }: { m: NonNullable<ChatMessage['edits'][number]['media']>; type: ChatMessage['content_type'] }) {
+	const m = useFetched(given);
+	const fetch = needsFetch(m) ? <FetchButton path={m.fetch!} small /> : null;
+	if (m.thumb) return <><a className="c-editmedia" href={m.url ?? undefined} target="_blank" rel="noopener" aria-label={`Earlier ${contentLabel(type).toLowerCase()}`}><img src={m.thumb} alt="" loading="lazy" /></a>{fetch}</>;
+	return <div className="c-editfile c-sub">{contentLabel(type)}{m.name ? `: ${m.name}` : ''}{m.url ? '' : fetch ? ' (on Telegram)' : ' (not stored)'}{fetch}</div>;
 }
 
 function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: ChatMessage; v: Viewer; isGroup: boolean; first: boolean; last: boolean; flash: boolean; onReply: (id: number) => void; tag?: ReactNode; chat?: RichChat }) {
