@@ -143,7 +143,7 @@ describe('a contact', () => {
 	});
 });
 
-const viewer = { signed_in: true, now: '2026-11-19T10:00:00Z' } as Viewer;
+const viewer = { signed_in: true, now: '2026-11-19T10:00:00Z', logger: null } as Viewer;
 const card = (d: NonNullable<S['MessageDetail']>) => show(<KindDetail d={d} text="" v={viewer} />);
 
 describe('a venue', () => {

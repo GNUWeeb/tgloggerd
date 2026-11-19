@@ -349,6 +349,7 @@ func (s *Server) pageViewer(ctx context.Context, sess *auth.Session, sc scope.Sc
 	v.Sidebar = e.Sidebar
 	v.DashNumbers = e.DashNumbers
 	v.Chat = &e.Chat
+	v.Logger = s.pageLogger(ctx, sc, sess != nil)
 	if sess == nil {
 		return v, nil
 	}

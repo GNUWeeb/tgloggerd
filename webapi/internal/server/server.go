@@ -108,6 +108,9 @@ type Deps struct {
 	// photoAsks replaces the photo lists' background asks
 	// (photoRefresher).
 	photoAsks *photoRefresher
+	// logger replaces the keeper of the logging account's id
+	// (loggerAccount).
+	logger *loggerAccount
 }
 
 // searchFunc is logdb.Search's signature.
@@ -168,6 +171,8 @@ type Server struct {
 	// photoAsks has the daemon list a user's or group's photos when
 	// its page opens.
 	photoAsks *photoRefresher
+	// logger keeps the logging account's id (Viewer.logger).
+	logger *loggerAccount
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -232,6 +237,10 @@ func New(d Deps) http.Handler {
 	s.photoAsks = d.photoAsks
 	if s.photoAsks == nil {
 		s.photoAsks = newPhotoRefresher(d.Log, d.Daemon, s.clock)
+	}
+	s.logger = d.logger
+	if s.logger == nil {
+		s.logger = newLoggerAccount(d.Log, d.Daemon, s.clock)
 	}
 	s.search = logdb.Search
 	if d.search != nil {

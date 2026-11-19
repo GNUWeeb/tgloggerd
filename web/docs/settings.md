@@ -71,6 +71,19 @@ pages show them in the viewer's zone and format, the same on the
 server's render and in the browser. The document's `<html>` carries `lang` and, unless the
 theme follows the system, `data-theme`.
 
+`viewer.logger` is the logging account, sent to every viewer, signed
+in or not, so that lines without a sender (service lines the account
+caused) can name it: `{id, name, username, photo}` from its user row,
+`username` and `photo` null when it has none (the photo a `/files/`
+URL as other user references give it), or null as a whole while the
+web does not know the account. The id comes from the daemon's
+`GET /v1/status` (`account.user_id`, docs/internal-api.md). The web
+keeps it once known, as it does not change for a running daemon;
+until then it asks the daemon in the background, at most one ask at
+a time and one every 15 seconds, so a page never waits for it and
+gets null meanwhile (the daemon not reachable or not logged in yet).
+An account the archive has no user row for is null too.
+
 ## Pinned groups and saved searches
 
     PUT    /api/account/pinned/{group_id}      pin a group; 204

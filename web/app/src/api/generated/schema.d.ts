@@ -1397,6 +1397,15 @@ export interface components {
         /** @description What rendering needs to match the browser. The settings are the ones in effect, the account's own or the site's default, for a signed-out visitor too (web/docs/settings.md); one missing falls back to the client's built-in default. For a signed-out visitor account and nav are absent. */
         Viewer: {
             signed_in: boolean;
+            /** @description The logging account, for every viewer, signed in or not: its user row, the account the archive's messages without a sender were sent by. Null while the web does not know it (the daemon not logged in or not reachable yet) or the archive has no row for it. */
+            logger: {
+                /** Format: int64 */
+                id: number;
+                name: string;
+                username: string | null;
+                /** @description Its profile photo, a /files/ URL as other user references give it, or null. */
+                photo: string | null;
+            } | null;
             account?: {
                 /** Format: int64 */
                 id: number;

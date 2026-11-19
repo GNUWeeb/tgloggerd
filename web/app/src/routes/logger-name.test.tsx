@@ -10,17 +10,17 @@ import type { GroupsProps } from './groups.tsx';
 import type { MessageProps } from './message.tsx';
 import type { MessagesProps } from './messages.tsx';
 import type { ChatMessage } from '../types.ts';
-import type { ViewerWithLogger } from '../ui/logger.ts';
+import type { Viewer } from '../page.ts';
 
 beforeEach(setup);
 
 const LOGGER = { id: 5100000009, name: 'Sample Logger', username: null, photo: null };
-const signedIn = (): ViewerWithLogger => ({ ...fixture('/').viewer, logger: LOGGER });
-const signedOut = (logger?: ViewerWithLogger['logger']): ViewerWithLogger => ({ signed_in: false, now: fixture('/').viewer.now, ...(logger !== undefined && { logger }) });
+const signedIn = (): Viewer => ({ ...fixture('/').viewer, logger: LOGGER });
+const signedOut = (logger: Viewer['logger']): Viewer => ({ signed_in: false, now: fixture('/').viewer.now, logger });
 
 describe('the chat\'s service line without a sender', () => {
 	const chatUrl = () => `/groups/${fixture<GroupsProps>('/groups').props.rows[0]!.id}/chat`;
-	function line(viewer: ViewerWithLogger) {
+	function line(viewer: Viewer) {
 		const p = fixture<ChatProps>(chatUrl()).props;
 		const t = p.messages.find((m) => m.content_type === 'text')!;
 		const m = { ...t, id: 1e9, message_id: 9e5, content_type: 'service', text: 'pinned a message', service_type: 'pin_message', service: null, sender: null, sender_chat: undefined, forward: null, reply_to: null, link_preview: null, deleted_at: null, edits: [] } as ChatMessage;
@@ -35,14 +35,11 @@ describe('the chat\'s service line without a sender', () => {
 	it('falls back without the account\'s name', () => {
 		expect(line(signedOut(null))).toBe('The archive account pinned a message');
 	});
-	it('falls back when the server leaves the account out', () => {
-		expect(line(signedOut())).toBe('The archive account pinned a message');
-	});
 });
 
 describe('the message page without a sender', () => {
 	const url = () => `/messages/group/${fixture<MessagesProps>('/group_messages').props.rows[0]!.id}`;
-	function sender(viewer: ViewerWithLogger) {
+	function sender(viewer: Viewer) {
 		const p = fixture<MessageProps>(url()).props;
 		renderPage(url(), 'superadmin', { props: { message: { ...p.message, sender: null, sender_chat: undefined } }, viewer });
 		const head = document.querySelector('.a-msgcard-head')!;
@@ -59,6 +56,6 @@ describe('the message page without a sender', () => {
 
 describe('the stand-in', () => {
 	it('sends the logging account to every viewer', () => {
-		for (const persona of ['public', 'superadmin', 'member'] as const) expect((pageData('/', persona).viewer as ViewerWithLogger).logger?.name).toBeTruthy();
+		for (const persona of ['public', 'superadmin', 'member'] as const) expect(pageData('/', persona).viewer.logger?.name).toBeTruthy();
 	});
 });

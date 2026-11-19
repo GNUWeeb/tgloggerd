@@ -83,12 +83,15 @@ func (d *photoDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // requests are the requests whose path starts with prefix.
+// requests are the requests asked for that start with prefix, but
+// for the status asks every page may start in the background
+// (loggerAccount).
 func (d *photoDaemon) requests(prefix string) []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var out []string
 	for _, a := range d.asked {
-		if strings.HasPrefix(a, prefix) {
+		if strings.HasPrefix(a, prefix) && !strings.HasPrefix(a, "GET /v1/status") {
 			out = append(out, a)
 		}
 	}

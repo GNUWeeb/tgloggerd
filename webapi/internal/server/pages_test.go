@@ -215,6 +215,8 @@ func TestPageNotFoundShape(t *testing.T) {
 			"sidebar": "open", "dashboard_numbers": "exact", "rows_per_page": 25.0,
 			"chat": map[string]any{"auto_load": true, "live": true, "media": "auto",
 				"show_deleted": true, "show_edited": true, "show_service": true},
+			// No daemon in this env: the logging account is unknown.
+			"logger": nil,
 		},
 	}
 	if got := g.page(t); !reflect.DeepEqual(got, want) {
