@@ -128,7 +128,7 @@ export default function Shell({ crumbs = [], flush = false, children }: { crumbs
 								<div className="a-navlabel"><span className="a-label">Pinned</span></div>
 								{viewer.pinned.map((g) => (
 									<Link key={g.id} to={`/groups/${g.id}/chat`} className={`a-navitem ${path.startsWith(`/groups/${g.id}`) ? 'on' : ''}`} title={collapsed ? g.title : undefined}>
-										<Avatar id={g.id} name={g.title} size={16} square />
+										<Avatar id={g.id} name={g.title} photo={g.photo} size={16} square />
 										<span className="a-label a-ellipsis">{g.title}</span>
 									</Link>
 								))}

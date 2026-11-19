@@ -17,7 +17,9 @@ import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
 export type BotsProps = S['BotsProps'];
-type Bot = S['Bot'];
+// photo: a Telegram bot's profile photo (null for Discord bots), until
+// the API description has it.
+type Bot = S['Bot'] & { photo?: string | null };
 type Kind = S['BotKind'];
 type Status = S['BotStatus'];
 
@@ -143,7 +145,7 @@ function Bots({ page }: { page: PageData<BotsProps> }) {
 	const [giving, setGiving] = useState<Bot | null>(null);
 	const [err, setErr] = useState('');
 	const act = async (fn: () => Promise<unknown>) => { setErr(''); try { await fn(); await refresh(); } catch (x) { setErr(errText(x)); } };
-	const rows = p.bots.filter((b) => kind === 'all' || b.kind === kind);
+	const rows: Bot[] = p.bots.filter((b) => kind === 'all' || b.kind === kind);
 	return (
 		<Shell crumbs={[['Platform forwarding', '/platform-fwd'], ['Bots', null]]}>
 			<PageHead title="Bots" sub={p.show_owner ? 'Every account\'s Telegram and Discord bots.' : 'Your Telegram and Discord bots, for your Discord to Telegram routes.'}
@@ -158,7 +160,7 @@ function Bots({ page }: { page: PageData<BotsProps> }) {
 							const [label, tone, advice] = BOT_STATUS[b.status];
 							return (
 								<tr key={b.id} className={b.enabled ? '' : 'a-off'}>
-									<td><span className="a-usercell"><Avatar id={b.id} name={b.name} size={28} /><span><span className="a-uname">{b.name}</span><span className="a-handle">{b.identity ? (b.identity.username ? `@${b.identity.username}` : `id ${b.identity.user_id}`) : 'not logged in yet'}</span></span></span></td>
+									<td><span className="a-usercell"><Avatar id={b.id} name={b.name} photo={b.photo} size={28} /><span><span className="a-uname">{b.name}</span><span className="a-handle">{b.identity ? (b.identity.username ? `@${b.identity.username}` : `id ${b.identity.user_id}`) : 'not logged in yet'}</span></span></span></td>
 									<td>{KIND_LABEL[b.kind]}</td>
 									<td className="a-botstatus"><Pill tone={tone}>{label}</Pill>{advice && <span className="a-muted sm a-block">{advice}</span>}{b.status_detail && <span className="a-muted sm a-block" title="As discordd reported it">{b.status_detail}</span>}{b.status_at && <span className="a-muted sm a-block">{ago(b.status_at, v)}</span>}</td>
 									{p.show_owner && <td><span className={b.owner.active ? '' : 'a-muted'}>{b.owner.name}</span></td>}

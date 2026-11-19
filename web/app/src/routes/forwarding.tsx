@@ -20,7 +20,9 @@ type Person = S['FwdPerson'];
 type Owned = S['Owned'];
 export type T2DRoute = S['T2DRoute'];
 export type D2TRoute = S['D2TRoute'];
-type BotRef = S['BotRef'];
+// photo: a Telegram bot's profile photo (null for Discord bots), until
+// the API description has it.
+type BotRef = S['BotRef'] & { photo?: string | null };
 type BotKind = S['BotKind'];
 
 export type ForwardingIndexProps = S['ForwardingIndexProps'];
@@ -242,8 +244,11 @@ function BotCell({ b, kind }: { b: BotRef | null; kind: BotKind }) {
 	const [label, tone] = BOT_STATUS[b.enabled ? b.status : 'disabled'];
 	return (
 		<span className="a-botcell">
-			<span className={b.enabled ? 'a-uname' : 'a-uname a-muted'}>{b.name}</span>
-			<span className="a-handle">{b.identity?.username ? `@${b.identity.username} . ` : ''}<Pill tone={tone}>{b.enabled ? label : 'bot disabled'}</Pill></span>
+			<Avatar id={b.id} name={b.name} photo={b.photo} size={24} />
+			<span className="a-botcell-text">
+				<span className={b.enabled ? 'a-uname' : 'a-uname a-muted'}>{b.name}</span>
+				<span className="a-handle">{b.identity?.username ? `@${b.identity.username} . ` : ''}<Pill tone={tone}>{b.enabled ? label : 'bot disabled'}</Pill></span>
+			</span>
 		</span>
 	);
 }
