@@ -629,7 +629,10 @@ they move.
     limit; otherwise, and for group_messages without conditions, it is
     an estimate (total_exact false). The table's row estimate is used
     only when the scope adds no condition, so it never counts rows
-    the viewer may not see.
+    the viewer may not see. A count that runs out of time is answered
+    by the estimate at once from then on, while the count cache counts
+    it once in the background with a 60-second limit; its answer is
+    then the exact total for ten minutes (logdb/countcache.go).
   - debug=1 is for superadmins and admins.
 
     GET /api/chats/search      the groups and private chats a picker

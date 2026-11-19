@@ -473,6 +473,11 @@ columns once, and each entry in `rows` is a **positional array aligned to
   count feeds nothing but the pager, so it is never allowed to fail the request:
   - Counting has the same 3-second limit as the page query. When it runs out,
     `total` falls back to an estimate and `total_exact` is `false`.
+  - A count that ran out of time is not tried again within requests: the same
+    count (same filter, same viewer scope) answers the estimate at once for the
+    next ten minutes, while it runs once in the background with a longer limit.
+    Once that is done, `total` is its answer (`total_exact` `true`), up to ten
+    minutes old and counted again in the background when older.
   - With no conditions, the estimate is the storage engine's row estimate for
     the table (InnoDB's `table_rows`, which can be off by a fair margin).
     `group_messages` — millions of rows — always answers a no-condition request
