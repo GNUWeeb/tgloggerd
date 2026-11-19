@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ArrowRight, Check, Copy, Globe, KeyRound, Pencil, Plus, ShieldAlert, Trash2, TriangleAlert } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
-import { Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
+import { Avatar, Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
 import { ChatPicker, Field, NO_FILL, type PickItem } from '../ui/forms.tsx';
 import { GroupCell } from '../ui/bits.tsx';
 import { Modal } from '../ui/Modal.tsx';
@@ -19,7 +19,26 @@ export type McpIndexProps = S['McpIndexProps'];
 export type McpGroupsProps = S['McpGroupsProps'];
 export type McpTokensProps = S['McpTokensProps'];
 
+type Token = McpTokensProps['tokens'][number];
+
 function errText(x: unknown) { return x instanceof ApiError ? x.message : 'The server could not be reached.'; }
+
+// The owner, and who minted the token when that is someone else: its
+// requests are attributed to the minter, and disabling the minter stops
+// the token whoever owns it.
+function OwnerCell({ t }: { t: Token }) {
+	const o = t.owner;
+	return (
+		<span className="a-ownercell">
+			<Avatar id={o.id} name={o.name} size={22} />
+			<span>
+				<span className={o.active === false ? 'a-muted' : ''}>{o.name}</span>
+				{o.active === false && <> <Pill tone="danger"><TriangleAlert size={11} />owner disabled</Pill></>}
+				{t.minted_by.id !== o.id && <span className="a-muted sm a-block">minted by {t.minted_by.name}{t.minted_by.active === false ? ' (disabled)' : ''}</span>}
+			</span>
+		</span>
+	);
+}
 
 function McpIndex({ page }: { page: PageData<McpIndexProps> }) {
 	const p = page.props;
@@ -148,7 +167,7 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 						<tbody>{page.props.tokens.map((t) => (
 							<tr key={t.id} className={t.revoked ? 'a-off' : ''}>
 								<td>{t.name ? <b>{t.name}</b> : <span className="a-muted">(unnamed)</span>}</td>
-								<td>{t.owner}</td>
+								<td><OwnerCell t={t} /></td>
 								<td title={t.created}>{ago(t.created, v)}</td>
 								<td>{t.last_used ? ago(t.last_used, v) : <span className="a-muted">never</span>}</td>
 								<td>{t.revoked ? <span className="a-muted">revoked {ago(t.revoked, v)}</span> : <Pill tone="ok">active</Pill>}</td>

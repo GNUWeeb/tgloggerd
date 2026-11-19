@@ -752,14 +752,19 @@ export function load(url: string, persona: Persona): Loaded {
 		if (!allowed(s, 'mcp')) return notFound;
 		const ex = mcpExposed.filter((e) => s.group(e.group));
 		if (path === '/mcp-admin') {
-			const live = mcpTokens.filter((t) => !t.revoked);
+			const live = mcpMine(s).filter((t) => !t.revoked);
 			return { route: 'mcp', status: 200, props: { exposed_groups: ex.length, exposed_messages: ex.reduce((a, e) => a + e.group.msg_count, 0), active_tokens: live.length, last_used: live[0]?.last_used ? iso(live[0].last_used) : null, endpoint: 'https://tgd.example.org/mcp' } };
 		}
 		if (path === '/mcp-admin/groups') {
 			return { route: 'mcp_groups', status: 200, props: { groups: ex.map((e) => ({ group: { ...groupSummary(e.group), msg_count: e.group.msg_count }, public_now: e.public_now, note: e.note, added: iso(e.added) })) } };
 		}
 		if (path === '/mcp-admin/tokens') {
-			return { route: 'mcp_tokens', status: 200, props: { tokens: mcpTokens.map((t) => ({ id: t.id, name: t.name, owner: t.owner, created: iso(t.created), last_used: t.last_used ? iso(t.last_used) : null, revoked: t.revoked ? iso(t.revoked) : null })) } };
+			const tokens = mcpMine(s).sort((a, b) => b.id - a.id);
+			return { route: 'mcp_tokens', status: 200, props: {
+				tokens: tokens.map((t) => ({ id: t.id, name: t.name, owner: mcpPerson(t.owner), minted_by: mcpPerson(t.minted_by), created: iso(t.created), last_used: t.last_used ? iso(t.last_used) : null, revoked: t.revoked ? iso(t.revoked) : null })),
+				owners: mcpOwners(s).map((a) => mcpPerson(a.id)),
+				can_transfer: s.role === 'superadmin',
+			} };
 		}
 		return notFound;
 	}
@@ -1019,6 +1024,31 @@ function profileExtras(usr, s) {
 		has_sensitive_content: false, restricts_new_chats: n % 7 === 0,
 	};
 }
+
+// MCP tokens as Go keeps them: each owned by an account (0: no owner
+// record, answered as shared and counted as the superadmins') and minted
+// by one, the account its requests are attributed to. The second was
+// minted by an admin for a member it manages.
+const MCP_OWNERS: Record<number, [owner: number, mintedBy: number]> = { 1: [1, 1], 2: [5, 3], 3: [0, 2], 4: [3, 3] };
+const mcpToks = mcpTokens.map((t) => ({ ...t, owner: MCP_OWNERS[t.id]?.[0] ?? 0, minted_by: MCP_OWNERS[t.id]?.[1] ?? 1 }));
+const mcpPerson = (id: number) => {
+	const a = accounts.find((x) => x.id === id);
+	return a ? { id: a.id, name: a.name, role: a.role, active: a.active } : { id: 0, name: 'Shared', active: true };
+};
+// Whether the viewer manages a token of this owner: a superadmin any, an
+// admin its own and its members' (filed in a federation it administers),
+// a member its own.
+function managesMcp(s, owner: number) {
+	if (s.role === 'superadmin') return true;
+	if (owner === s.acct.id) return true;
+	if (s.role !== 'admin') return false;
+	const a = accounts.find((x) => x.id === owner);
+	return !!a && a.role === 'member' && a.grants.some((g) => s.manageableFeds.some((f) => f.id === g.fed));
+}
+// Who the viewer may mint for (and, a superadmin, transfer to): active
+// accounts that may hold tokens and that it manages, by username.
+const mcpOwners = (s) => accounts.filter((a) => a.active && (a.role !== 'member' || a.abilities.includes('mcp_tokens')) && managesMcp(s, a.id)).sort((a, b) => a.username.localeCompare(b.username));
+const mcpMine = (s) => mcpToks.filter((t) => managesMcp(s, t.owner));
 
 // A federation's details page (FederationDetailProps), for a superadmin
 // (every federation) or an admin of it; null for anyone else. Its groups
@@ -1332,11 +1362,11 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 	if ((m = p.match(/^mcp\/tokens(?:\/(\d+)\/(revoke))?$/))) {
 		if (!allowed(s, 'mcp')) return [404, { error: 'not_found' }];
 		if (!m[1] && method === 'POST') {
-			const id = Math.max(...mcpTokens.map((t) => t.id)) + 1;
-			mcpTokens.push({ id, name: body.name || '', owner: s.acct.username, created: '2026-11-17 16:00:00', last_used: '', revoked: null });
+			const id = Math.max(...mcpToks.map((t) => t.id)) + 1;
+			mcpToks.push({ id, name: body.name || '', owner: s.acct.id, minted_by: s.acct.id, created: '2026-11-17 16:00:00', last_used: '', revoked: null });
 			return [201, { id, token: 'tgmcp_standin_' + id + '_shown_once' }];
 		}
-		const t = mcpTokens.find((x) => String(x.id) === m[1]);
+		const t = mcpToks.find((x) => String(x.id) === m[1] && managesMcp(s, x.owner));
 		if (!t) return [404, { error: 'not_found' }];
 		t.revoked = '2026-11-17 16:00:00'; return [204, null];
 	}
