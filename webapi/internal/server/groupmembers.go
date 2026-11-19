@@ -280,7 +280,7 @@ func (s *Server) memberPage(ctx context.Context, sc scope.Scope, g logdb.Group,
 	}
 	if !ok {
 		var r daemon.Reply
-		page, r, ok = s.daemon.ChatMembers(ctx, g.ID, offset, limit)
+		page, r, ok = s.daemon.ChatMembers(ctx, g.ID, "", offset, limit)
 		if !ok {
 			s.log.Info("member list unavailable", "chat", g.ID, "err", r.Error)
 			out.Reason = "unavailable"

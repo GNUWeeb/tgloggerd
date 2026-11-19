@@ -299,7 +299,7 @@ func TestRefreshAndMembers(t *testing.T) {
 	set("/v1/chats/-1001/members", 200, `{"available":true,"reason":"","total":3,`+
 		`"members":[{"user_id":7,"status":"creator","joined_at":null},`+
 		`{"user_id":8,"status":"member","joined_at":1700000000}]}`)
-	m, _, ok := c.ChatMembers(ctx, -1001, 50, 2)
+	m, _, ok := c.ChatMembers(ctx, -1001, "", 50, 2)
 	if !ok || !m.Available || m.Total == nil || *m.Total != 3 || len(m.Members) != 2 ||
 		m.Members[0] != (Member{UserID: 7, Status: "creator"}) || m.Members[1].JoinedAt == nil ||
 		*m.Members[1].JoinedAt != 1700000000 {
@@ -307,17 +307,26 @@ func TestRefreshAndMembers(t *testing.T) {
 	}
 	set("/v1/chats/-1001/members", 200, `{"available":false,"reason":"flood_wait",`+
 		`"retry_after":30,"total":null,"members":[]}`)
-	if m, _, ok = c.ChatMembers(ctx, -1001, 0, 50); !ok || m.Available || m.Reason != "flood_wait" ||
+	if m, _, ok = c.ChatMembers(ctx, -1001, "", 0, 50); !ok || m.Available || m.Reason != "flood_wait" ||
 		m.RetryAfter != 30 || m.Total != nil || len(m.Members) != 0 {
 		t.Errorf("flood wait = %+v %v", m, ok)
 	}
-	if _, r, ok := c.ChatMembers(ctx, -1002, 0, 50); ok || r.Status != 404 {
+	if _, r, ok := c.ChatMembers(ctx, -1002, "", 0, 50); ok || r.Status != 404 {
 		t.Errorf("unknown chat = %+v %v", r, ok)
+	}
+	// A search: q is escaped, and each member says how it matched.
+	set("/v1/chats/-1001/members", 200, `{"available":true,"reason":"","total":2,`+
+		`"members":[{"user_id":7,"status":"member","joined_at":null,"matched_by":"id"},`+
+		`{"user_id":8,"status":"member","joined_at":null,"matched_by":"search"}]}`)
+	if m, _, ok = c.ChatMembers(ctx, -1001, "Dewi K&a=b", 0, 20); !ok || len(m.Members) != 2 ||
+		m.Members[0].MatchedBy != "id" || m.Members[1].MatchedBy != "search" {
+		t.Errorf("search = %+v %v", m, ok)
 	}
 	mu.Lock()
 	want := []string{"POST /v1/chats/-1001/refresh", "POST /v1/chats/-1001/refresh",
 		"POST /v1/chats/-1001/refresh", "GET /v1/chats/-1001/members?offset=50&limit=2",
-		"GET /v1/chats/-1001/members?offset=0&limit=50", "GET /v1/chats/-1002/members?offset=0&limit=50"}
+		"GET /v1/chats/-1001/members?offset=0&limit=50", "GET /v1/chats/-1002/members?offset=0&limit=50",
+		"GET /v1/chats/-1001/members?offset=0&limit=20&q=Dewi+K%26a%3Db"}
 	if strings.Join(asked, "\n") != strings.Join(want, "\n") {
 		t.Errorf("asked\n%s", strings.Join(asked, "\n"))
 	}
@@ -327,7 +336,7 @@ func TestRefreshAndMembers(t *testing.T) {
 	if _, _, ok := off.RefreshChat(ctx, -1001); ok {
 		t.Error("refresh with the client off")
 	}
-	if _, _, ok := off.ChatMembers(ctx, -1001, 0, 50); ok {
+	if _, _, ok := off.ChatMembers(ctx, -1001, "", 0, 50); ok {
 		t.Error("members with the client off")
 	}
 }
