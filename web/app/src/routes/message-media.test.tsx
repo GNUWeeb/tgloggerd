@@ -65,6 +65,23 @@ describe('the message page\'s media', () => {
 		expect(a.querySelector('.c-playbig')).toBeTruthy();
 	});
 
+	it('has stand-in videos, animations, a video note and .webm stickers with a poster and a blurred preview, as Go sends them', () => {
+		const plays = (x: Full) => x.media!.render === 'video' || x.media!.render === 'animation';
+		// A kind sample (a video note) has media of its own, so every
+		// message is looked at.
+		const all = (groupMessages() as { id: number }[]).map((x) => fixture<MessageProps>(urlOf(x.id)).props.message).filter((x) => x.media);
+		const find = (pick: (m: Full) => boolean) => all.find(pick) ?? (() => { throw new Error('no such sample'); })();
+		const mini = /^data:image\/jpeg;base64,/;
+		for (const pick of [(x: Full) => x.content_type === 'video', (x: Full) => x.content_type === 'animation', (x: Full) => x.content_type === 'video_note', (x: Full) => x.content_type === 'sticker' && x.media!.format === 'webm']) {
+			const m = find((x) => pick(x) && plays(x) && !!x.media!.poster);
+			expect(m.media!.poster).toMatch(/^\/files\//);
+			expect(m.media!.thumb).toBe(m.media!.poster);
+			expect(m.media!.minithumb).toMatch(mini);
+		}
+		expect(find((x) => plays(x) && !x.media!.poster && !!x.media!.minithumb).media!.thumb).toMatch(mini);
+		expect(find((x) => plays(x) && !x.media!.poster && !x.media!.minithumb).media!.thumb).toBeNull();
+	});
+
 	it('plays an animation muted and looping, and opens it in the viewer', () => {
 		const m = find((x) => x.media!.render === 'animation' && x.content_type !== 'sticker' && stored(x));
 		open(m);

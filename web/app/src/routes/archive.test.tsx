@@ -312,13 +312,27 @@ describe('files', () => {
 		});
 	});
 
-	it('lists a .webm video and a .tgs sticker in the stand-in with no thumb, as Go sends them', () => {
-		const rows = fixture<FilesProps>('/files').props.rows;
-		for (const ext of ['webm', 'tgs']) {
-			const f = rows.find((r) => r.ext === ext && r.stored)!;
-			expect(f, `a stored .${ext} file`).toBeTruthy();
-			expect(f.thumb).toBeNull();
+	it('lists a .tgs sticker in the stand-in with no thumb, and a .webm with a still, never its own URL, as Go sends them', () => {
+		const rows = fixture<FilesProps>('/files?per=1000').props.rows;
+		const tgs = rows.find((r) => r.ext === 'tgs' && r.stored)!;
+		expect(tgs, 'a stored .tgs file').toBeTruthy();
+		expect(tgs.thumb).toBeNull();
+		for (const type of ['video', 'sticker']) {
+			const f = rows.find((r) => r.ext === 'webm' && r.file_type === type && r.stored && r.thumb)!;
+			expect(f, `a stored .webm ${type} with a still`).toBeTruthy();
+			expect(f.thumb).toMatch(/^\/files\//);
+			expect(f.thumb).not.toBe(f.url);
 		}
+	});
+
+	it('gives the stand-in\'s videos a still and a blurred preview, some only the preview, some neither', () => {
+		const vids = fixture<FilesProps>('/files?per=1000').props.rows.filter((r) => r.file_type === 'video');
+		const mini = /^data:image\/jpeg;base64,/;
+		expect(vids.some((r) => r.thumb && mini.test(r.minithumb ?? ''))).toBe(true);
+		expect(vids.some((r) => !r.thumb && mini.test(r.minithumb ?? ''))).toBe(true);
+		expect(vids.some((r) => !r.thumb && r.minithumb === undefined)).toBe(true);
+		// Unstored videos keep their still too.
+		expect(vids.some((r) => !r.stored && r.thumb)).toBe(true);
 	});
 
 	it('switches between grid and list', async () => {
