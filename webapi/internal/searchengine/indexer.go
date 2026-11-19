@@ -195,7 +195,7 @@ func ops(docs []Doc) []Op {
 // an engine or database that fails is retried.
 func (ix *Indexer) Run(ctx context.Context) {
 	log := ix.o.Log
-	if !ix.retry(ctx, "preparing the index", func() error {
+	if !retry(ctx, log, "preparing the index", func() error {
 		if err := ix.x.Ensure(ctx); err != nil {
 			return err
 		}
@@ -212,7 +212,15 @@ func (ix *Indexer) Run(ctx context.Context) {
 		log.Info("search index: starting the backfill", "index", ix.x.Name())
 	}
 	if ix.src != nil {
-		go ix.stream(ctx)
+		go follow(ctx, ix.src, log, isMessageEvent, &ix.up, func(e live.Event) {
+			select {
+			case ix.events <- e:
+			default:
+				// The indexer is behind (a reconcile or a slow
+				// engine): the reconcile repairs what is dropped.
+				ix.overflow.Store(true)
+			}
+		})
 	}
 	// Once the catch-up is done, reconcile at once: what happened while
 	// the service was down.
@@ -258,7 +266,7 @@ func (ix *Indexer) Run(ctx context.Context) {
 }
 
 // retry runs f until it succeeds or ctx ends (false).
-func (ix *Indexer) retry(ctx context.Context, what string, f func() error) bool {
+func retry(ctx context.Context, log *slog.Logger, what string, f func() error) bool {
 	wait := time.Second
 	for {
 		err := f()
@@ -268,7 +276,7 @@ func (ix *Indexer) retry(ctx context.Context, what string, f func() error) bool 
 		if ctx.Err() != nil {
 			return false
 		}
-		ix.o.Log.Warn("search index: "+what, "err", err, "retry_in", wait)
+		log.Warn("search index: "+what, "err", err, "retry_in", wait)
 		select {
 		case <-ctx.Done():
 			return false
@@ -281,40 +289,36 @@ func (ix *Indexer) retry(ctx context.Context, what string, f func() error) bool 
 // done is whether the catch-up pass reached the end of both tables.
 func (ix *Indexer) done() bool { return ix.st.Group.Done && ix.st.Private.Done }
 
-// stream keeps the event source connected, resuming after the last seq
-// seen, until ctx ends.
-func (ix *Indexer) stream(ctx context.Context) {
+// follow keeps the event source connected, resuming after the last
+// seq seen, until ctx ends. It hands deliver the resyncs and the events
+// of the kinds want takes, and keeps up set while the stream delivers.
+func follow(ctx context.Context, src live.Source, log *slog.Logger, want func(string) bool,
+	up *atomic.Bool, deliver func(live.Event)) {
 	var since uint64
 	wait := time.Second
 	for ctx.Err() == nil {
 		got := false
-		err := ix.src.Stream(ctx, since, func(e live.Event) {
+		err := src.Stream(ctx, since, func(e live.Event) {
 			got = true
 			if e.Seq > since {
 				since = e.Seq
 			}
 			switch {
 			case e.Kind == live.KindHello || e.Kind == live.KindResync:
-				ix.up.Store(true)
-			case !isMessageEvent(e.Kind):
+				up.Store(true)
+			case !want(e.Kind):
 				return
 			}
-			select {
-			case ix.events <- e:
-			default:
-				// The indexer is behind (a reconcile or a slow
-				// engine): the reconcile repairs what is dropped.
-				ix.overflow.Store(true)
-			}
+			deliver(e)
 		})
-		ix.up.Store(false)
+		up.Store(false)
 		if ctx.Err() != nil {
 			return
 		}
 		if got {
 			wait = time.Second
 		}
-		ix.o.Log.Debug("search index: event stream ended", "err", err, "retry_in", wait)
+		log.Debug("search index: event stream ended", "err", err, "retry_in", wait)
 		select {
 		case <-ctx.Done():
 			return
@@ -519,11 +523,14 @@ func (ix *Indexer) Reconcile(ctx context.Context) error {
 	return nil
 }
 
-func (ix *Indexer) pause(ctx context.Context) error {
+func (ix *Indexer) pause(ctx context.Context) error { return sleep(ctx, ix.o.Pause) }
+
+// sleep waits d, or less when ctx ends (its error).
+func sleep(ctx context.Context, d time.Duration) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(ix.o.Pause):
+	case <-time.After(d):
 		return nil
 	}
 }

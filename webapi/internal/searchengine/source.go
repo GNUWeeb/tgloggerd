@@ -19,6 +19,9 @@ import (
 // the daemon's stream itself (live.DaemonSource).
 type HubSource struct {
 	Hub *live.Hub
+	// Want is the kinds of events the indexer acts on; nil is the
+	// messages' (ProfileEvent for a profile indexer).
+	Want func(kind string) bool
 }
 
 var errHubEnded = errors.New("the live hub ended the subscription")
@@ -34,8 +37,12 @@ func isMessageEvent(kind string) bool {
 
 // Stream implements live.Source.
 func (h HubSource) Stream(ctx context.Context, since uint64, emit func(live.Event)) error {
+	want := h.Want
+	if want == nil {
+		want = isMessageEvent
+	}
 	sub, st, err := h.Hub.Subscribe(since, func(e live.Event) (live.Event, bool) {
-		return e, isMessageEvent(e.Kind)
+		return e, want(e.Kind)
 	})
 	if err != nil {
 		return err
