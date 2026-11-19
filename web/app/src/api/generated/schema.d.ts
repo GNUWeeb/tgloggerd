@@ -2348,14 +2348,25 @@ export interface components {
             /** @description The sticker of icon_custom_emoji_id; null for none and while the archive does not know it. */
             icon_custom_emoji: components["schemas"]["CustomEmoji"] | null;
         };
-        /** @description chat_added_to_community, chat_removed_from_community, chat_join_from_community: the community, when the archive has it as a group the viewer may see (link to /groups/{id}); no detail otherwise. A community's id is not a chat's, so there is none until the logger records communities as groups. */
+        /** @description chat_added_to_community, chat_join_from_community: the community the line names, as the logger records communities (docs/design/message-types.md section 4.13), when the archive has its name and the viewer may see at least one of its chats; no detail otherwise. chat_removed_from_community has none: its action gives no community. */
         ServiceCommunityDetail: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "community";
-            community: components["schemas"]["ChatRef"];
+            community: components["schemas"]["ServiceCommunity"];
+        };
+        /** @description A Telegram community. It is not a chat and has no page here, so there is nothing to link to. */
+        ServiceCommunity: {
+            /**
+             * Format: int64
+             * @description TDLib's community id; not a chat id.
+             */
+            id: number;
+            name: string;
+            /** @description Its photo's /files/<token> URL; null when it has none, or the file is neither stored nor fetchable for this viewer. */
+            photo: string | null;
         };
         /** @description chat_create: the title the group was created with; chat_upgrade_from: the basic group's title, and the basic group the supergroup was upgraded from when the archive has it and the viewer may see it (else null, as always for chat_create). */
         ServiceTitleDetail: {
