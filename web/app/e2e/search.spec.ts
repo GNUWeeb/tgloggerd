@@ -1,5 +1,5 @@
-// The search engine's options on the message lists, with the
-// stand-in's engine switched off, on and behind.
+// The search engine's options on the message, users and groups lists,
+// with the stand-in's engine switched off, on and behind.
 import { test, expect } from './fixtures.ts';
 
 const engine = (request: import('@playwright/test').APIRequestContext, state: string) => request.post('/api/_standin/engine', { data: { state } });
@@ -38,4 +38,17 @@ test('while the engine is behind, the database answers and the page says so', as
 	await expect(page.getByRole('group', { name: 'Search options' })).toHaveCount(0);
 	await expect(page.getByRole('status').filter({ hasText: 'still catching up' })).toContainText('Highlighted matches are not available for this search.');
 	await expect(page.locator('.a-tablecard tbody mark.a-hl')).toHaveCount(0);
+});
+
+test('with the engine, a bio matches search highlights the bios, without facets', async ({ page, request }) => {
+	await engine(request, 'available');
+	const caps = await (await page.request.get('/api/search/capabilities')).json();
+	expect(caps.entities.users.fields).toEqual(['bio']);
+	expect(caps.entities.groups.options).not.toContain('facets');
+	await page.goto('/users?f=' + encodeURIComponent(JSON.stringify([{ field: 'bio', op: 'matches', value: 'kernel' }])));
+	const opts = page.getByRole('group', { name: 'Search options' });
+	await expect(opts.getByText('Chats with the most hits')).toHaveCount(0);
+	await opts.getByText('Highlight matches').click();
+	await expect(page).toHaveURL(/highlight=1/);
+	await expect(page.locator('.a-tablecard tbody mark').first()).toHaveText(/kernel/i);
 });

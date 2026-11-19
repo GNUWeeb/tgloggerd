@@ -1,7 +1,7 @@
 
 import Shell from '../ui/Shell.tsx';
 import { Avatar, PageHead } from '../ui/primitives.tsx';
-import { DataTable, emptyText, FilterBar, LongText, useListNav, type Col } from '../ui/list.tsx';
+import { DataTable, emptyText, FilterBar, LongText, useListNav, withMatches, type Col } from '../ui/list.tsx';
 import { useFreshRows } from '../live/useEntities.tsx';
 import { Bar, Flags, UserCell, userFlags } from '../ui/bits.tsx';
 import { ago, compact, fmt } from '../format.ts';
@@ -9,6 +9,8 @@ import type { PageData } from '../page.ts';
 import type { Cond, FieldDef } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
+import { safeFragment } from '../api/engine.ts';
+import { BackendNote, EngineOptions, Highlighted, type Noun } from '../ui/SearchEngine.tsx';
 
 export type UsersProps = S['UsersProps'];
 type UserRow = S['UserRow'];
@@ -26,6 +28,7 @@ const FIELDS: FieldDef[] = [
 	{ key: 'bio', label: 'Bio', type: 'text' },
 	{ key: 'created_at', label: 'First seen', type: 'date' },
 ];
+const NOUN: Noun = { one: 'user', many: 'users' };
 const QUICK: [string, Cond[]][] = [
 	['Premium', [{ field: 'is_premium', op: 'is', value: 'yes' }]],
 	['Bots', [{ field: 'type', op: '=', value: 'bot' }]],
@@ -39,6 +42,10 @@ function Users({ page }: { page: PageData<UsersProps> }) {
 	// Members see people only through their groups: no global counts.
 	const full = v.account?.role !== 'member';
 	const max = Math.max(1, ...L.rows.map((u) => u.msg_count ?? 0));
+	// The engine's matched fragments of each row's bio, for a bio matches
+	// search; the rows without any keep the plain bio.
+	const hls = new Map((page.props.highlights ?? []).map((h, i) => [page.props.rows[i]?.id, h]));
+	const hl = (u: UserRow) => (hls.get(u.id)?.some((f) => safeFragment(f) !== null) ? <Highlighted fragments={hls.get(u.id)} /> : null);
 	const all: Col<UserRow>[] = [
 		{ key: 'name', label: 'User', sort: true, cls: 'c-name', render: (u) => <UserCell u={u} /> },
 		{ key: 'id', label: 'ID', sort: true, cls: 'mono a-dim', render: (u) => u.id },
@@ -48,14 +55,16 @@ function Users({ page }: { page: PageData<UsersProps> }) {
 		{ key: 'language', label: 'Lang', sort: true, cls: 'a-hide-md', render: (u) => u.language || <span className="a-muted">-</span> },
 		// The Drogon list's other columns, sent to full viewers only.
 		{ key: 'phone', label: 'Phone', cls: 'a-hide-md mono', render: (u) => u.phone || <span className="a-muted">-</span> },
-		{ key: 'bio', label: 'Bio', cls: 'a-hide-md', render: (u) => (u.bio ? <LongText text={u.bio} title={`Bio of ${u.name}`} /> : <span className="a-muted">-</span>) },
+		{ key: 'bio', label: 'Bio', cls: 'a-hide-md', render: (u) => hl(u) ?? (u.bio ? <LongText text={u.bio} title={`Bio of ${u.name}`} /> : <span className="a-muted">-</span>) },
 		{ key: 'created_at', label: 'First seen', sort: true, render: (u) => (u.created_at ? <span title={u.created_at}>{ago(u.created_at, v)}</span> : null) },
 	];
 	const cols = full ? all : all.filter((c) => ['name', 'id', 'type'].includes(c.key));
 	return (
 		<Shell crumbs={[['Users', null]]}>
 			<PageHead title="Users" sub={full && page.props.archive_total ? `${fmt(page.props.archive_total)} users seen across all logged chats` : `${fmt(L.total)} people in your groups`} />
-			<FilterBar L={L} fields={full ? FIELDS : FIELDS.filter((f) => ['id', 'name', 'username'].includes(f.key))} placeholder="Name, @username or ID" name="Users" quick={full ? QUICK : undefined} />
+			<FilterBar L={L} fields={full ? withMatches(FIELDS, L.fields, 'bio') : FIELDS.filter((f) => ['id', 'name', 'username'].includes(f.key))} placeholder="Name, @username or ID" name="Users" quick={full ? QUICK : undefined} />
+			<EngineOptions p={page.props} noun={NOUN} facets={false} />
+			<BackendNote b={page.props.backend} noun={NOUN} />
 			<DataTable
 				L={L} cols={cols} noun="users" empty={emptyText(L, !full, 'users', 'No users match these filters.')}
 				href={(u) => `/users/${u.id}`}
@@ -63,7 +72,7 @@ function Users({ page }: { page: PageData<UsersProps> }) {
 					lead: <Avatar id={u.id} name={u.name} photo={u.photo} size={36} deleted={u.type === 'deleted'} />,
 					title: u.name,
 					sub: u.username ? '@' + u.username : String(u.id),
-					extra: full && userFlags(u).length ? <Flags flags={userFlags(u)} /> : null,
+					extra: full && (userFlags(u).length || hl(u)) ? <>{userFlags(u).length > 0 && <Flags flags={userFlags(u)} />}{hl(u)}</> : null,
 					side: full ? <><span className="num">{compact(u.msg_count ?? 0)}</span><span className="a-muted">msgs</span></> : null,
 				})}
 			/>
