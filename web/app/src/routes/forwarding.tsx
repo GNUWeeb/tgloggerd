@@ -24,12 +24,23 @@ export type T2DRoute = S['T2DRoute'];
 export type D2TRoute = S['D2TRoute'];
 type BotRef = S['BotRef'];
 type BotKind = S['BotKind'];
+type FedRef = S['FedRef'];
 
 export type ForwardingIndexProps = S['ForwardingIndexProps'];
 export type T2DProps = S['T2DProps'];
 export type D2TProps = S['D2TProps'];
 
 function errText(x: unknown) { return x instanceof ApiError ? x.message : 'The server could not be reached.'; }
+
+// The refusals of a create or a transfer, said in words.
+function fwdErr(x: unknown, to?: string) {
+	if (x instanceof ApiError) {
+		if (x.code === 'federation_required') return 'This chat is in more than one federation: choose the one it goes into.';
+		if (x.code === 'bad_federation') return 'This chat cannot go into that federation. Choose one from the list.';
+		if (x.code === 'bot_not_owned') return `${to ?? 'That member'} does not own both of this route's bots, and a member forwards only with its own bots. Switch the route to their bots first, or give it to someone else.`;
+	}
+	return errText(x);
+}
 
 // One short line per route; the full list is in its title.
 function Types({ types, all }: { types: string[]; all: readonly string[] }) {
@@ -59,20 +70,23 @@ function OwnerCell({ r }: { r: Owned }) {
 // The owner today; editors and viewers can join this list later.
 type Dir = 'telegram-discord' | 'discord-telegram';
 
-// Handing a route to another owner is designed but not served yet
-// (the transfer operations are planned in webapi/openapi.yaml): until it
-// is, the dialog shows the owner only. Turn this on with the service.
-const ROUTE_TRANSFER_SERVED = false;
-
-function Access({ r, dir, title, canTransfer, onClose, onSaved }: { r: Owned; dir: Dir; title: string; canTransfer: boolean; onClose: () => void; onSaved: () => void }) {
+// The owner, and for an admin or a superadmin a transfer to one of the
+// route's transfer_candidates (who the service lets the viewer give it
+// to; none for a member).
+function Access({ r, dir, title, member, onClose, onSaved }: { r: Owned; dir: Dir; title: string; member: boolean; onClose: () => void; onSaved: () => void }) {
 	const [to, setTo] = useState('');
 	const [err, setErr] = useState('');
+	const cands = r.transfer_candidates.filter((p) => p.id !== r.owner.id);
+	const canTransfer = !member && cands.length > 0;
 	const transfer = async () => {
+		const who = cands.find((p) => String(p.id) === to);
+		if (!who || !confirm(`Give the route of ${title} to ${who.name}? It keeps forwarding, in the ${r.federation.name} federation.`)) return;
+		setErr('');
 		try {
-			const req = { params: { path: { id: r.id } }, body: { owner_id: Number(to) } };
+			const req = { params: { path: { id: r.id } }, body: { owner_id: who.id } };
 			await ok(dir === 'telegram-discord' ? api.POST('/api/forwarding/telegram-discord/{id}/transfer', req) : api.POST('/api/forwarding/discord-telegram/{id}/transfer', req));
 			onSaved(); onClose();
-		} catch (x) { setErr(errText(x)); }
+		} catch (x) { setErr(fwdErr(x, who.name)); }
 	};
 	return (
 		<Modal title={`People with access: ${title}`} icon={<Users size={16} />} onClose={onClose}
@@ -88,10 +102,11 @@ function Access({ r, dir, title, canTransfer, onClose, onSaved }: { r: Owned; di
 				<Field label="Transfer ownership to" hint="The route keeps running throughout.">
 					<select className="a-select" value={to} onChange={(e) => setTo(e.target.value)}>
 						<option value="">Choose an account...</option>
-						{r.transfer_candidates.filter((p) => p.id !== r.owner.id).map((p) => <option key={p.id} value={p.id}>{p.name}{p.role ? ` (${p.role})` : ''}</option>)}
+						{cands.map((p) => <option key={p.id} value={p.id}>{p.name}{p.role ? ` (${p.role})` : ''}</option>)}
 					</select>
 				</Field>
 			)}
+			{!member && !canTransfer && <p className="a-muted sm">There is nobody you may give it to.</p>}
 		</Modal>
 	);
 }
@@ -133,14 +148,40 @@ function ForwardingIndex({ page }: { page: PageData<ForwardingIndexProps> }) {
 	);
 }
 
-function FederationSelect({ value, onChange, options }: { value: number | null; onChange: (v: number) => void; options: { id: number; name: string }[] }) {
-	// Asked only when more than one of the owner's federations holds the group.
-	if (options.length < 2) return null;
+// The federations a new route of a chat may go into (GET
+// /api/forwarding/federations), asked for once the chat is picked: null
+// while there is no chat, feds null while loading.
+type FedChoices = { feds: FedRef[] | null; err: string } | null;
+function useFedChoices(chatId: number | null): FedChoices {
+	const [st, setSt] = useState<FedChoices>(null);
+	useEffect(() => {
+		if (chatId === null) { setSt(null); return; }
+		let live = true;
+		setSt({ feds: null, err: '' });
+		track(ok(api.GET('/api/forwarding/federations', { params: { query: { chat_id: chatId } } }))).then(
+			(r) => { if (live) setSt({ feds: r.federations, err: '' }); },
+			(x) => { if (live) setSt({ feds: [], err: errText(x) }); });
+		return () => { live = false; };
+	}, [chatId]);
+	return st;
+}
+
+// Whether a new route waits on its federation: while the choices load,
+// and until one is picked when there are several.
+const fedPending = (c: FedChoices, picked: number | null) => !!c && (c.feds === null || (c.feds.length > 1 && picked === null));
+// The federation a create sends: the one picked, or the only choice.
+const fedOf = (c: FedChoices, picked: number | null) => picked ?? (c?.feds?.length === 1 ? c.feds[0]!.id : undefined);
+
+function FederationSelect({ value, onChange, choices }: { value: number | null; onChange: (v: number | null) => void; choices: FedChoices }) {
+	if (!choices) return null;
+	if (choices.err) return <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>The federations of this chat could not be loaded: {choices.err}</span></div>;
+	// With one choice the route goes there by itself; ask only between several.
+	if (!choices.feds || choices.feds.length < 2) return null;
 	return (
-		<Field label="Federation" hint="The group is in several of your federations; the route belongs to one.">
-			<select className="a-select" value={value ?? ''} onChange={(e) => onChange(Number(e.target.value))}>
+		<Field label="Federation" hint="The chat is in more than one federation; the route belongs to one of them.">
+			<select className="a-select" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}>
 				<option value="">Choose a federation...</option>
-				{options.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+				{choices.feds.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
 			</select>
 		</Field>
 	);
@@ -157,10 +198,11 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 	const [edit, setEdit] = useState<Draft | null>(null);
 	const [err, setErr] = useState('');
 	const [note, setNote] = useState('');
+	const fedChoices = useFedChoices(edit && !edit.id && edit.chat ? edit.chat.id : null);
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
 	const act = async (fn: () => Promise<unknown>, done?: string) => {
 		setErr(''); setNote('');
-		try { await fn(); if (done) setNote(done); else { setEdit(null); } refresh(); } catch (x) { setErr(errText(x)); }
+		try { await fn(); if (done) setNote(done); else { setEdit(null); } refresh(); } catch (x) { setErr(fwdErr(x)); }
 	};
 	const save = (d: Draft) => act(() => (d.id
 		? ok(api.PATCH('/api/forwarding/telegram-discord/{id}', { params: { path: { id: d.id } }, body: {
@@ -168,7 +210,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 			// A new chat goes with its kind; an unchanged one is left out.
 			...(d.chat && (d.chat.id !== d.was?.id || d.chat.kind !== d.was?.kind) ? { chat_id: d.chat.id, chat_kind: d.chat.kind } : {}),
 		} }))
-		: ok(api.POST('/api/forwarding/telegram-discord', { body: { chat_id: d.chat!.id, chat_kind: d.chat!.kind, webhook_url: d.url, types: d.types, enabled: d.enabled, federation_id: d.federation_id ?? undefined } }))));
+		: ok(api.POST('/api/forwarding/telegram-discord', { body: { chat_id: d.chat!.id, chat_kind: d.chat!.kind, webhook_url: d.url, types: d.types, enabled: d.enabled, federation_id: fedOf(fedChoices, d.federation_id) } }))));
 	const rows = byOwner(page.props.routes, own, meId);
 	return (
 		<Shell crumbs={[['Platform forwarding', '/platform-fwd'], ['Telegram to Discord', null]]}>
@@ -204,14 +246,14 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 				<Modal title={edit.id ? 'Edit webhook' : 'Add webhook'} onClose={() => { setEdit(null); setErr(''); setNote(''); }}
 					footer={<>
 						<Btn ghost icon={Send} disabled={!edit.id && !edit.url} onClick={() => void act(() => ok(api.POST('/api/forwarding/telegram-discord/test', { body: edit.id && !edit.url ? { id: edit.id } : { webhook_url: edit.url } })), 'Test message sent.')}>Send test message</Btn>
-						<span className="a-grow" /><Btn ghost onClick={() => setEdit(null)}>Cancel</Btn><Btn primary disabled={!edit.chat || !edit.types.length} onClick={() => void save(edit)}>Save</Btn>
+						<span className="a-grow" /><Btn ghost onClick={() => setEdit(null)}>Cancel</Btn><Btn primary disabled={!edit.chat || !edit.types.length || (!edit.id && fedPending(fedChoices, edit.federation_id))} onClick={() => void save(edit)}>Save</Btn>
 					</>}>
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 					{note && <div className="a-banner" role="status"><span>{note}</span></div>}
 					<Field label="Telegram chat" hint={member ? 'One of the groups granted to you.' : 'A group, channel or user the logger has already seen.'}>
-						<ChatPicker value={edit.chat} onChange={(c) => setEdit({ ...edit, chat: c })} search={{ kind: 'any' }} />
+						<ChatPicker value={edit.chat} onChange={(c) => setEdit({ ...edit, chat: c, federation_id: c?.id === edit.chat?.id ? edit.federation_id : null })} search={{ kind: 'any' }} />
 					</Field>
-					{!edit.id && <FederationSelect value={edit.federation_id} onChange={(f) => setEdit({ ...edit, federation_id: f })} options={page.props.federations} />}
+					{!edit.id && <FederationSelect value={edit.federation_id} onChange={(f) => setEdit({ ...edit, federation_id: f })} choices={fedChoices} />}
 					<Field label="Discord webhook URL" hint={edit.id ? 'Stored and never shown again; enter a new URL to replace it.' : 'Discord: channel settings, Integrations, Webhooks, Copy Webhook URL.'}>
 						<SecretInput id="webhook-url" value={edit.url} onChange={(url) => setEdit({ ...edit, url })} what="webhook URL" placeholder={edit.id ? '(unchanged)' : 'https://discord.com/api/webhooks/...'} />
 					</Field>
@@ -219,7 +261,7 @@ function TelegramDiscord({ page }: { page: PageData<T2DProps> }) {
 					<Switch checked={edit.enabled} onChange={(on) => setEdit({ ...edit, enabled: on })} label="Enabled" />
 				</Modal>
 			)}
-			{access && <Access r={access} dir="telegram-discord" title={access.chat.title} canTransfer={ROUTE_TRANSFER_SERVED && !member} onClose={() => setAccess(null)} onSaved={refresh} />}
+			{access && <Access r={access} dir="telegram-discord" title={access.chat.title} member={member} onClose={() => setAccess(null)} onSaved={refresh} />}
 		</Shell>
 	);
 }
@@ -279,10 +321,11 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 	type Draft = { id?: number; was?: D2TRoute; channel_id: string; chat: PickItem | null; discord_bot_id: number | null; telegram_bot_id: number | null; types: D2TRoute['types']; enabled: boolean; federation_id: number | null };
 	const [edit, setEdit] = useState<Draft | null>(null);
 	const [err, setErr] = useState('');
+	const fedChoices = useFedChoices(edit && !edit.id && edit.chat ? edit.chat.id : null);
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
 	const act = async (fn: () => Promise<unknown>) => {
 		setErr('');
-		try { await fn(); setEdit(null); refresh(); } catch (x) { setErr(errText(x)); }
+		try { await fn(); setEdit(null); refresh(); } catch (x) { setErr(fwdErr(x)); }
 	};
 	// An edit sends only what changed besides the types and the switch.
 	const changes = (d: Draft, r: D2TRoute) => ({
@@ -294,9 +337,9 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 	});
 	const save = (d: Draft) => act(() => (d.id && d.was
 		? ok(api.PATCH('/api/forwarding/discord-telegram/{id}', { params: { path: { id: d.id } }, body: changes(d, d.was) }))
-		: ok(api.POST('/api/forwarding/discord-telegram', { body: { discord_channel_id: d.channel_id, chat_id: d.chat!.id, discord_bot_id: d.discord_bot_id!, telegram_bot_id: d.telegram_bot_id!, types: d.types, enabled: d.enabled, federation_id: d.federation_id ?? undefined } }))));
+		: ok(api.POST('/api/forwarding/discord-telegram', { body: { discord_channel_id: d.channel_id, chat_id: d.chat!.id, discord_bot_id: d.discord_bot_id!, telegram_bot_id: d.telegram_bot_id!, types: d.types, enabled: d.enabled, federation_id: fedOf(fedChoices, d.federation_id) } }))));
 	const editOf = (r: D2TRoute): Draft => ({ id: r.id, was: r, channel_id: r.channel_id, chat: r.chat, discord_bot_id: r.discord_bot?.id ?? null, telegram_bot_id: r.telegram_bot.id, types: r.types, enabled: r.enabled, federation_id: r.federation.id });
-	const ready = (d: Draft) => !!d.types.length && !!d.channel_id && !!d.chat && d.discord_bot_id !== null && d.telegram_bot_id !== null;
+	const ready = (d: Draft) => !!d.types.length && !!d.channel_id && !!d.chat && d.discord_bot_id !== null && d.telegram_bot_id !== null && (!!d.id || !fedPending(fedChoices, d.federation_id));
 	const rows = byOwner(page.props.routes, own, meId);
 	return (
 		<Shell crumbs={[['Platform forwarding', '/platform-fwd'], ['Discord to Telegram', null]]}>
@@ -345,9 +388,9 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 						<BotSelect kind="discord" value={edit.discord_bot_id} onChange={(id) => setEdit({ ...edit, discord_bot_id: id })} />
 					</Field>
 					<Field label="Telegram chat" hint="A group, channel or private chat the logger has already seen.">
-						<ChatPicker value={edit.chat} onChange={(c) => setEdit({ ...edit, chat: c })} search={{ kind: 'any' }} placeholder="Search groups, channels and users" />
+						<ChatPicker value={edit.chat} onChange={(c) => setEdit({ ...edit, chat: c, federation_id: c?.id === edit.chat?.id ? edit.federation_id : null })} search={{ kind: 'any' }} placeholder="Search groups, channels and users" />
 					</Field>
-					{!edit.id && <FederationSelect value={edit.federation_id} onChange={(f) => setEdit({ ...edit, federation_id: f })} options={page.props.federations} />}
+					{!edit.id && <FederationSelect value={edit.federation_id} onChange={(f) => setEdit({ ...edit, federation_id: f })} choices={fedChoices} />}
 					<Field label="Telegram bot" hint="Sends into the chat; it must already be a member there.">
 						<BotSelect kind="telegram" value={edit.telegram_bot_id} onChange={(id) => setEdit({ ...edit, telegram_bot_id: id })} />
 					</Field>
@@ -355,7 +398,7 @@ function DiscordTelegram({ page }: { page: PageData<D2TProps> }) {
 					<Switch checked={edit.enabled} onChange={(on) => setEdit({ ...edit, enabled: on })} label="Enabled" />
 				</Modal>
 			)}
-			{access && <Access r={access} dir="discord-telegram" title={access.channel_name} canTransfer={ROUTE_TRANSFER_SERVED && !member} onClose={() => setAccess(null)} onSaved={refresh} />}
+			{access && <Access r={access} dir="discord-telegram" title={access.channel_name} member={member} onClose={() => setAccess(null)} onSaved={refresh} />}
 		</Shell>
 	);
 }

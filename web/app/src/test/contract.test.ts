@@ -9,6 +9,8 @@ import { setEngine, viewOf, adminApi, dashboardSeries, federationGroups, badPref
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 import { FORUM_GROUP, KINDS_GROUP, TOPICS, sampleOf } from '../../standin/kinds.ts';
 import { chatStream, privateMessages } from '../../../mockup/src/data/messages.js';
+import { groups } from '../../../mockup/src/data/groups.js';
+import { users } from '../../../mockup/src/data/users.js';
 
 const spec = loadSpec();
 const ref = (name: string): Schema => ({ $ref: `#/components/schemas/${name}` });
@@ -168,6 +170,26 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		expect(adminApi('DELETE', `join-chat/pending/${own.id}`, {}, 'admin')[0]).toBe(404);
 		expect(adminApi('DELETE', `join-chat/pending/${others.id}`, {}, 'superadmin')[0]).toBe(204);
 		expect(props('superadmin').pending.some((f) => f.id === others.id)).toBe(false);
+	});
+
+	it.each(['superadmin', 'admin', 'member'] as Persona[])('the federations a new forwarding route may go into, as %s', (p) => {
+		const chats = (pageData('/groups', p).props as { rows: { id: number }[] }).rows.slice(0, 20).map((g) => g.id);
+		for (const chat_id of [...chats, ...(p === 'member' ? [] : [users[3]!.id])]) {
+			const [status, body] = adminApi('GET', 'forwarding/federations', { chat_id: String(chat_id) }, p);
+			ok(status, body, '/api/forwarding/federations');
+		}
+	});
+
+	it('the refusals of a forwarding create and transfer are ones the spec lists', () => {
+		const statuses = (path: string, method: string) => Object.keys((spec.paths[path] as Record<string, { responses: object }>)[method]!.responses);
+		// In two federations: a superadmin must choose.
+		const multi = groups[3]!.id;
+		const [cs, ce] = adminApi('POST', 'forwarding/telegram-discord', { chat_id: multi, chat_kind: 'group', webhook_url: 'https://discord.com/api/webhooks/1/x', types: ['text'], enabled: true }, 'superadmin');
+		expect([cs, (ce as { error: string }).error]).toEqual([400, 'federation_required']);
+		expect(statuses('/api/forwarding/telegram-discord', 'post')).toContain(String(cs));
+		const [ts, te] = adminApi('POST', 'forwarding/discord-telegram/1/transfer', { owner_id: 5 }, 'superadmin');
+		expect([ts, (te as { error: string }).error]).toEqual([409, 'bot_not_owned']);
+		expect(statuses('/api/forwarding/discord-telegram/{id}/transfer', 'post')).toContain(String(ts));
 	});
 
 	it('history pages of a user and a group', () => {

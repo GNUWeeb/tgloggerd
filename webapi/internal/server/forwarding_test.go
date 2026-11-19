@@ -75,7 +75,9 @@ func TestForwardingPages(t *testing.T) {
 		t.Fatalf("webhooks %v", routes)
 	}
 	if got := js(routes[2]); got != canon(`{"id":1,"owner":{"id":0,"name":"Shared","active":true},`+
-		`"federation":{"id":0,"name":"Default"},"transfer_candidates":[],`+
+		`"federation":{"id":0,"name":"Default"},"transfer_candidates":[`+
+		`{"id":3,"name":"gw_admin","role":"admin","active":true},`+
+		`{"id":4,"name":"sec_lead","role":"admin","active":true}],`+
 		`"chat":{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup",`+
 		`"photo":"`+photoOf(gnuWeebPhoto)+`"},"url_masked":"https://discord.com/api/webhooks/1100000000000000001/****",`+
 		`"types":["text","photo","video","animation","video_note","document","sticker","voice","audio",`+
@@ -260,10 +262,10 @@ func TestT2DRefusals(t *testing.T) {
 		{with("types", nil), 400, "bad_request"},
 		{with("enabled", nil), 400, "bad_request"},
 		{with("chat_kind", "user"), 400, "bad_request"},
-		// A chat the logger never saw, and a federation the viewer
-		// does not administer, do not exist.
+		// A chat the logger never saw does not exist; a federation
+		// that does not hold the chat is no choice.
 		{with("chat_id", int64(-1009999999999)), 404, "not_found"},
-		{with("federation_id", 7), 404, "not_found"},
+		{with("federation_id", 7), 400, "bad_federation"},
 	} {
 		st, b, _ := e.call("admin", "POST", t2dBase, c.body)
 		if st != c.status || b["error"] != c.code {
@@ -474,7 +476,7 @@ func TestD2TRefusals(t *testing.T) {
 		{with("telegram_bot_id", 99), 404, "not_found"},
 		{with("discord_bot_id", 1000000099), 404, "not_found"},
 		{with("chat_id", int64(-1009999999999)), 404, "not_found"},
-		{with("federation_id", 3), 404, "not_found"},
+		{with("federation_id", 3), 400, "bad_federation"},
 	} {
 		st, b, _ := e.call("admin", "POST", d2tBase, c.body)
 		if st != c.status || b["error"] != c.code {
@@ -548,12 +550,18 @@ func TestT2DChangeChat(t *testing.T) {
 
 // A new configuration's federation must exist and be one the viewer
 // administers; the pages offer exactly those.
+// A configuration goes into a federation holding its chat: the one
+// choice there is, or the one the form asked for among several.
 func TestForwardingFederations(t *testing.T) {
 	t.Parallel()
 	e := newAdminEnv(t)
+	// Rust is in Other and Lab, the admin administers Lab (and
+	// Default); Kernel is in Other alone, GNU/Weeb in Default.
 	for _, q := range []string{
 		"INSERT INTO web_federations (id, name) VALUES (8, 'Other'), (9, 'Lab')",
 		"INSERT INTO web_federation_admins (federation_id, web_user_id) VALUES (9, 3)",
+		fmt.Sprintf("INSERT INTO web_federation_groups (federation_id, group_id) VALUES "+
+			"(8, %d), (9, %d), (8, %d)", rustChat, rustChat, kernelChat),
 	} {
 		if _, err := e.app.Exec(q); err != nil {
 			t.Fatal(err)
@@ -569,12 +577,155 @@ func TestForwardingFederations(t *testing.T) {
 			}
 		}
 	}
-	body := func(fed int) map[string]any {
-		return map[string]any{"chat_id": rustChat, "chat_kind": "group", "webhook_url": newHook,
-			"types": []string{"text"}, "enabled": true, "federation_id": fed}
+	choices := func(role string, chat int64) string {
+		t.Helper()
+		return js(e.want(200, role, "GET", fmt.Sprintf("/api/forwarding/federations?chat_id=%d", chat),
+			nil)["federations"])
 	}
-	e.want(201, "admin", "POST", t2dBase, body(9))
-	e.want(404, "admin", "POST", t2dBase, body(8))
-	e.want(201, "superadmin", "POST", t2dBase, body(8))
-	e.want(404, "superadmin", "POST", t2dBase, body(7))
+	for _, c := range []struct {
+		role string
+		chat int64
+		want string
+	}{
+		{"admin", rustChat, `[{"id":9,"name":"Lab"}]`},
+		{"superadmin", rustChat, `[{"id":8,"name":"Other"},{"id":9,"name":"Lab"}]`},
+		// None of the admin's own: every federation holding it.
+		{"admin", kernelChat, `[{"id":8,"name":"Other"}]`},
+		{"admin", gnuWeeb, `[{"id":0,"name":"Default"}]`},
+		{"superadmin", 9299000002, `[{"id":0,"name":"Default"}]`},
+	} {
+		if got := choices(c.role, c.chat); got != c.want {
+			t.Errorf("%s %d: %s, want %s", c.role, c.chat, got, c.want)
+		}
+	}
+	if st, _, _ := e.call("admin", "GET", "/api/forwarding/federations?chat_id=-1009999999999", nil); st != 404 {
+		t.Errorf("unseen chat %d", st)
+	}
+	if st, b, _ := e.call("admin", "GET", "/api/forwarding/federations", nil); st != 400 ||
+		b["error"] != "bad_request" {
+		t.Errorf("no chat %d %v", st, b)
+	}
+	if st, _, _ := e.call("member", "GET", fmt.Sprintf("/api/forwarding/federations?chat_id=%d",
+		rustChat), nil); st != 404 {
+		t.Errorf("member without forward %d", st)
+	}
+
+	body := func(chat int64, fed any) map[string]any {
+		m := map[string]any{"chat_id": chat, "chat_kind": "group", "webhook_url": newHook,
+			"types": []string{"text"}, "enabled": true}
+		if fed != nil {
+			m["federation_id"] = fed
+		}
+		return m
+	}
+	fedOf := func(id any) string {
+		t.Helper()
+		f := e.appOne("SELECT federation_id FROM web_resource_federations WHERE "+
+			"resource_type = 't2d_webhook' AND resource_id = ?", uint64(id.(float64)))
+		if f == "" {
+			return "Default"
+		}
+		return f
+	}
+	refuse := func(role string, b map[string]any, code string) {
+		t.Helper()
+		if st, a, _ := e.call(role, "POST", t2dBase, b); st != 400 || a["error"] != code {
+			t.Errorf("%s %v: %d %v, want %s", role, b, st, a, code)
+		}
+	}
+	// One choice: filed there with or without asking.
+	lab := e.want(201, "admin", "POST", t2dBase, body(rustChat, nil))["id"]
+	if f := fedOf(lab); f != "9" {
+		t.Errorf("admin's Rust webhook in %s", f)
+	}
+	if f := fedOf(e.want(201, "admin", "POST", t2dBase, body(rustChat, 9))["id"]); f != "9" {
+		t.Errorf("admin's Rust webhook, asked, in %s", f)
+	}
+	refuse("admin", body(rustChat, 8), "bad_federation")
+	refuse("admin", body(rustChat, 0), "bad_federation")
+	if f := fedOf(e.want(201, "admin", "POST", t2dBase, body(kernelChat, nil))["id"]); f != "8" {
+		t.Errorf("admin's Kernel webhook in %s", f)
+	}
+	// Several choices: asked for.
+	refuse("superadmin", body(rustChat, nil), "federation_required")
+	refuse("superadmin", body(rustChat, 7), "bad_federation")
+	other := e.want(201, "superadmin", "POST", t2dBase, body(rustChat, 8))["id"]
+	if f := fedOf(other); f != "8" {
+		t.Errorf("superadmin's Rust webhook in %s", f)
+	}
+	if f := fedOf(e.want(201, "superadmin", "POST", t2dBase, body(gnuWeeb, nil))["id"]); f != "Default" {
+		t.Errorf("GNU/Weeb webhook in %s", f)
+	}
+	// Discord to Telegram asks the same.
+	route := map[string]any{"discord_channel_id": "1200000000000000077", "chat_id": rustChat,
+		"discord_bot_id": discordBot, "telegram_bot_id": 1, "types": []string{"text"}, "enabled": true}
+	if st, b, _ := e.call("superadmin", "POST", d2tBase, route); st != 400 || b["error"] != "federation_required" {
+		t.Errorf("route without a federation: %d %v", st, b)
+	}
+	route["federation_id"] = 9
+	rid := e.want(201, "superadmin", "POST", d2tBase, route)["id"]
+	if f := e.appOne("SELECT federation_id FROM web_resource_federations WHERE "+
+		"resource_type = 'd2t_route' AND resource_id = ?", uint64(rid.(float64))); f != "9" {
+		t.Errorf("route in %q", f)
+	}
+
+	// The lists answer the federation; the fixture's are in Default.
+	_, p := e.page("superadmin", "/platform-fwd/telegram-discord")
+	feds := map[float64]string{}
+	for _, r := range p["props"].(map[string]any)["routes"].([]any) {
+		m := r.(map[string]any)
+		feds[m["id"].(float64)] = js(m["federation"])
+	}
+	if feds[lab.(float64)] != `{"id":9,"name":"Lab"}` || feds[other.(float64)] != `{"id":8,"name":"Other"}` ||
+		feds[1] != `{"id":0,"name":"Default"}` {
+		t.Errorf("federations answered %v", feds)
+	}
+	_, p = e.page("superadmin", "/platform-fwd/discord-telegram")
+	for _, r := range p["props"].(map[string]any)["routes"].([]any) {
+		m := r.(map[string]any)
+		if m["id"] == rid && js(m["federation"]) != `{"id":9,"name":"Lab"}` {
+			t.Errorf("route answered %s", js(m["federation"]))
+		}
+	}
+
+	// Deleting a configuration drops its federation.
+	e.want(204, "admin", "DELETE", fmt.Sprintf("%s/%d", t2dBase, uint64(lab.(float64))), nil)
+	if f := fedOf(lab); f != "Default" {
+		t.Errorf("deleted webhook still in %s", f)
+	}
+	if got := e.audits(); !strings.Contains(strings.Join(got, "\n"),
+		fmt.Sprintf("fwd_t2d_create webhook %d chat %d enabled=true types=text federation=8",
+			uint64(other.(float64)), rustChat)) {
+		t.Errorf("audit\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// A member files a configuration into the federation in which its
+// group is granted to it.
+func TestMemberForwardFederation(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t)
+	for _, q := range []string{
+		"INSERT INTO web_federations (id, name) VALUES (8, 'Other'), (9, 'Lab')",
+		fmt.Sprintf("INSERT INTO web_federation_groups (federation_id, group_id) VALUES "+
+			"(8, %d), (9, %d)", rustChat, rustChat),
+		"INSERT INTO web_federation_members (federation_id, web_user_id) VALUES (9, 5)",
+		fmt.Sprintf("INSERT INTO web_member_grant_groups (web_user_id, federation_id, group_id) "+
+			"VALUES (5, 9, %d)", rustChat),
+		"INSERT INTO web_member_abilities (web_user_id, ability) VALUES (5, 'forward')",
+	} {
+		if _, err := e.app.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := js(e.want(200, "member", "GET", fmt.Sprintf("/api/forwarding/federations?chat_id=%d",
+		rustChat), nil)["federations"]); got != `[{"id":9,"name":"Lab"}]` {
+		t.Errorf("member's choices %s", got)
+	}
+	id := e.want(201, "member", "POST", t2dBase, map[string]any{"chat_id": rustChat, "chat_kind": "group",
+		"webhook_url": newHook, "types": []string{"text"}, "enabled": true})["id"]
+	if f := e.appOne("SELECT federation_id FROM web_resource_federations WHERE "+
+		"resource_type = 't2d_webhook' AND resource_id = ?", uint64(id.(float64))); f != "9" {
+		t.Errorf("member's webhook in %q", f)
+	}
 }

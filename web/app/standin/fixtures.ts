@@ -760,9 +760,8 @@ export function load(url: string, persona: Persona): Loaded {
 		}
 		const owned = (r) => {
 			const o = accounts.find((a) => a.id === r.owner);
-			const f = fedById(r.fed);
-			const cands = s.role === 'superadmin' ? accounts.filter((a) => a.active) : [...fedAdmins(f), ...fedMembers(f)].filter((a) => a.active && (a.role !== 'member' || a.abilities.includes('forward')));
-			return { id: r.id, owner: { id: o.id, name: o.name, active: o.active }, federation: { id: f.id, name: f.name }, transfer_candidates: cands.map((a) => ({ id: a.id, name: a.name, role: a.role })) };
+			const f = fedById(r.fed) ?? fedById(0);
+			return { id: r.id, owner: { id: o.id, name: o.name, active: o.active }, federation: { id: f.id, name: f.name }, transfer_candidates: fwdCandidates(s, r).map((a) => ({ id: a.id, name: a.name, role: a.role })) };
 		};
 		const myFeds = s.role === 'superadmin' ? allFeds() : s.role === 'admin' ? s.manageableFeds : allFeds().filter((f) => s.acct.grants.some((g) => g.fed === f.id));
 		const fedList = myFeds.map((f) => ({ id: f.id, name: f.name }));
@@ -1343,6 +1342,15 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 			BOTS.splice(BOTS.indexOf(b), 1); return [204, null];
 		}
 	}
+	// The federations a new configuration of a chat may go into.
+	if (p === 'forwarding/federations' && method === 'GET') {
+		if (!allowed(s, 'platform_fwd')) return [404, { error: 'not_found' }];
+		const id = Number(body.chat_id);
+		if (!Number.isInteger(id) || !id) return [400, { error: 'bad_request', message: 'Give a chat id.' }];
+		const chat = id > 0 ? chatOptions.find((x) => x.id === id && x.kind === 'user') : getGroup(id);
+		if (!chat || (chat.kind === 'group' && !s.group(chat))) return [404, { error: 'not_found' }];
+		return [200, { federations: fwdFedChoices(s, chat).map((f) => ({ id: f.id, name: f.name })) }];
+	}
 	// Forwarding: /api/forwarding/<telegram-discord|discord-telegram>[/<id>[/transfer]|/test]
 	if ((m = p.match(/^forwarding\/(telegram-discord|discord-telegram)(?:\/(\d+|test))?(?:\/(transfer))?$/))) {
 		if (!allowed(s, 'platform_fwd')) return [404, { error: 'not_found' }];
@@ -1385,7 +1393,12 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 			const chat = chatOf(body.chat_id, m[1] === 'telegram-discord' ? body.chat_kind : undefined);
 			if (!chat) return [404, { error: 'not_found', message: 'No such chat.' }];
 			const id = Math.max(0, ...list.map((r) => r.id)) + 1;
-			const fed = body.federation_id ?? 0;
+			// Asked only when the chat has more than one federation to go into.
+			const choices = fwdFedChoices(s, chat);
+			const fid = body.federation_id ?? null;
+			if (fid === null && choices.length > 1) return [400, { error: 'federation_required', message: 'Choose the federation the configuration goes into.' }];
+			if (fid !== null && !choices.some((f) => f.id === fid)) return [400, { error: 'bad_federation', message: 'That federation is not one this chat can go into.' }];
+			const fed = fid ?? choices[0].id;
 			if (m[1] === 'telegram-discord') {
 				list.push({ id, owner: PERSONAS[persona], fed, chat, url: body.webhook_url || '', types: body.types, enabled: body.enabled, last: null, sent: 0 });
 				return [201, { id }];
@@ -1401,7 +1414,13 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		if (!r || (s.role === 'member' && r.owner !== PERSONAS[persona])) return [404, { error: 'not_found' }];
 		if (m[3] === 'transfer') {
 			if (s.role === 'member') return [404, { error: 'not_found' }];
-			r.owner = body.owner_id; return [204, null];
+			const to = fwdCandidates(s, r).find((a) => a.id === body.owner_id);
+			if (!to) return [400, { error: 'bad_request', message: 'That account cannot be given this configuration.' }];
+			// A member forwards only with its own bots.
+			if (m[1] === 'discord-telegram' && to.role === 'member' && ![r.discord_bot_id, r.telegram_bot_id].every((b) => BOTS.find((x) => x.id === b)?.owner === to.id)) {
+				return [409, { error: 'bot_not_owned', message: 'The route\'s bots are not both that member\'s.' }];
+			}
+			r.owner = to.id; return [204, null];
 		}
 		if (method === 'PATCH') {
 			// The chat (either direction), and a D2T route's channel and bots,
@@ -1779,6 +1798,32 @@ const BOTS = [
 	{ id: 4, kind: 'telegram', name: 'Research bot', token: '7000000004:' + 'b'.repeat(35), owner: 5, status: 'token_refused', status_at: '2026-11-17 12:00:00', status_detail: 'Unauthorized', enabled: false, user_id: '7000000004', username: null },
 	{ id: 5, kind: 'discord', name: 'Research reader', token: 'MzQ1Njc4OTAxMjM0NTY3ODkw.IcDeFg.' + 'z'.repeat(38), owner: 5, status: 'disabled', status_at: null, status_detail: null, enabled: false, user_id: null, username: null },
 ];
+
+// The federations holding a chat: those whose groups it is in, or
+// Default for a group in none and for a private chat. Of those, the
+// viewer's own (a superadmin's all, an admin's administered ones, a
+// member's granted ones), or every holder when none is. Default first.
+function fwdFedChoices(s, chat) {
+	const held = chat.kind === 'group' ? federations.filter((f) => f.groupIds.includes(chat.id)) : [];
+	const holders = held.length ? held : [fedById(0)];
+	const own = holders.filter((f) => (s.role === 'superadmin' ? true
+		: s.role === 'admin' ? s.manageableFeds.some((x) => x.id === f.id)
+		: s.acct.grants.some((g) => g.fed === f.id && g.groupIds.includes(chat.id))));
+	return (own.length ? own : holders).sort((a, b) => (a.id === 0 ? -1 : b.id === 0 ? 1 : 0));
+}
+
+// Who the viewer may give a forwarding configuration to, its owner left
+// out: any active account for a superadmin; for an admin of its
+// federation, the federation's active admins and its active members
+// holding forward to whom the chat is granted; nobody otherwise.
+function fwdCandidates(s, r) {
+	const f = fedById(r.fed) ?? fedById(0);
+	const others = (a) => a.active && a.id !== r.owner;
+	if (s.role === 'superadmin') return accounts.filter(others);
+	if (s.role !== 'admin' || !s.manageableFeds.some((x) => x.id === f.id)) return [];
+	const granted = (a) => a.abilities.includes('forward') && a.grants.some((g) => g.fed === f.id && g.groupIds.includes(r.chat.id));
+	return [...fedAdmins(f), ...fedMembers(f).filter(granted)].filter(others);
+}
 
 // A member with forward sees its own bots; admins and superadmins all.
 function botsFor(persona: Persona) {

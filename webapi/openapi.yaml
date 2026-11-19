@@ -2779,12 +2779,13 @@ paths:
       description: >-
         For viewers with the forward ability (superadmins and admins
         today); anyone else gets 404, and so does a chat the logger has
-        not seen or the viewer may not see, or a federation the viewer
-        does not administer. chat_kind must match the chat id (group
-        negative, user positive). federation_id is needed only when
-        more than one of the owner's federations holds the group. The
-        viewer becomes its owner. Audited as fwd_t2d_create, without
-        the URL, and owner_set.
+        not seen or the viewer may not see. chat_kind must match the
+        chat id (group negative, user positive). federation_id is
+        needed only when the chat is held by more than one federation
+        to choose from (GET /api/forwarding/federations): 400
+        federation_required without it, 400 bad_federation for one that
+        is not a choice. The viewer becomes its owner. Audited as
+        fwd_t2d_create, without the URL, and owner_set.
       security:
         - session: []
           csrf: []
@@ -2925,13 +2926,17 @@ paths:
 
   /api/forwarding/telegram-discord/{id}/transfer:
     post:
-      x-tgd-status: planned
       operationId: transferT2D
       tags: [forwarding]
       summary: Give a webhook to another owner
       description: >-
-        Admins, between accounts of their federations, and superadmins
-        (web-accounts.md section 6); a member gets 404.
+        Admins and superadmins give a webhook to one of its
+        transfer_candidates (Owned); anyone else is 400 bad_request,
+        and to a member the operation does not exist (404), as for a
+        webhook it may not see. A webhook without an owner gets its
+        first one. It keeps forwarding, in the same federation.
+        Audited as fwd_t2d_transfer, with owner_transfer (or
+        owner_set).
       security:
         - session: []
           csrf: []
@@ -2967,11 +2972,13 @@ paths:
         no token is typed on a route. The chat is a group, a channel or
         a private chat (a positive chat_id). Refusals: 400 bad_channel
         (not a Discord id), bad_request (a bot of the other kind, a
-        missing field); 404 for a chat, a federation or a bot the viewer
-        may not use; 409 duplicate when the channel already forwards to
-        the chat. federation_id is needed only when more than one of
-        the owner's federations holds the group. Audited as
-        fwd_d2t_create and owner_set.
+        missing field), federation_required and bad_federation as on
+        Telegram to Discord; 404 for a chat or a bot the viewer may not
+        use; 409 duplicate when the channel already forwards to the
+        chat. federation_id is needed only when the chat is held by
+        more than one federation to choose from (GET
+        /api/forwarding/federations). Audited as fwd_d2t_create and
+        owner_set.
       security:
         - session: []
           csrf: []
@@ -3075,13 +3082,18 @@ paths:
 
   /api/forwarding/discord-telegram/{id}/transfer:
     post:
-      x-tgd-status: planned
       operationId: transferD2T
       tags: [forwarding]
       summary: Give a route to another owner
       description: >-
-        Admins, between accounts of their federations, and superadmins
-        (web-accounts.md section 6); a member gets 404.
+        Admins and superadmins give a route to one of its
+        transfer_candidates (Owned); anyone else is 400 bad_request,
+        and to a member the operation does not exist (404), as for a
+        route it may not see. A route without an owner gets its first
+        one. It keeps forwarding, in the same federation. Giving it to
+        a member needs both its bots to be the member's (409
+        bot_not_owned): a member uses only its own bots. Audited as
+        fwd_d2t_transfer, with owner_transfer (or owner_set).
       security:
         - session: []
           csrf: []
@@ -3102,6 +3114,55 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '403':
           $ref: '#/components/responses/Csrf'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/forwarding/federations:
+    get:
+      operationId: fwdFederations
+      tags: [forwarding]
+      summary: The federations a new configuration of a chat may go into
+      description: >-
+        For the create forms, once a chat is picked: the federations
+        holding the chat that the viewer may file a configuration into,
+        Default first. The federations holding a group are those whose
+        groups it is in, or Default when it is in none; a private chat
+        is held by Default. Of those, the viewer's own: for a
+        superadmin all of them, for an admin those it administers, for
+        a member those in which the group is granted to it. When none
+        is the viewer's own, every federation holding the chat. With
+        more than one the form asks, and create needs federation_id;
+        with one, create files the configuration there by itself. A
+        chat the logger has not seen or the viewer may not see is 404,
+        and so is the operation to a viewer without the forward
+        ability.
+      parameters:
+        - name: chat_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: The choices.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [federations]
+                properties:
+                  federations:
+                    type: array
+                    minItems: 1
+                    items:
+                      $ref: '#/components/schemas/FedRef'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -9923,11 +9984,18 @@ components:
       description: >-
         The owner is the account that created the configuration, with
         its role and whether it is active (a disabled owner's
-        configurations keep forwarding). One without an owner, made
+        configurations keep forwarding; the page flags them "owner
+        disabled" for an admin to transfer). One without an owner, made
         before ownership was recorded, counts as the superadmins' and
-        is answered as shared: owner id 0, named "Shared", active.
-        Federations are not stored yet: every configuration is in
-        Default, with no transfer candidates (forwarding-per-user).
+        is answered as shared: owner id 0, named "Shared", active. The
+        federation is the one chosen at creation; one made before
+        federations were stored, or whose federation was deleted, is
+        in Default. transfer_candidates is who the viewer may give it
+        to, its owner left out: for a superadmin every active account;
+        for an admin that administers its federation, the federation's
+        active admins and its active members holding forward to whom
+        the configuration's group is granted; empty otherwise, and
+        always for a member.
       required: [id, owner, federation, transfer_candidates]
       properties:
         id:
@@ -10059,6 +10127,9 @@ components:
             $ref: '#/components/schemas/T2DType'
         federations:
           type: array
+          description: >-
+            The federations the viewer administers, Default first. The
+            choices for one chat are GET /api/forwarding/federations.
           items:
             $ref: '#/components/schemas/FedRef'
     D2TProps:
@@ -10080,6 +10151,9 @@ components:
             $ref: '#/components/schemas/D2TType'
         federations:
           type: array
+          description: >-
+            The federations the viewer administers, Default first. The
+            choices for one chat are GET /api/forwarding/federations.
           items:
             $ref: '#/components/schemas/FedRef'
     T2DCreate:
@@ -10102,6 +10176,9 @@ components:
         federation_id:
           type: [integer, 'null']
           format: int64
+          description: >-
+            One of GET /api/forwarding/federations for the chat; needed
+            only when it answers more than one.
     D2TCreate:
       type: object
       required: [discord_channel_id, chat_id, discord_bot_id, telegram_bot_id, types, enabled]
@@ -10118,6 +10195,9 @@ components:
         federation_id:
           type: [integer, 'null']
           format: int64
+          description: >-
+            One of GET /api/forwarding/federations for the chat; needed
+            only when it answers more than one.
         discord_bot_id:
           type: integer
           format: int64

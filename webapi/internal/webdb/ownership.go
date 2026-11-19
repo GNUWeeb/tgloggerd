@@ -287,9 +287,9 @@ func TransferOwner(ctx context.Context, db *sql.DB, r Resource, to uint64, by Ac
 }
 
 // DropResource removes every relation of a resource that is being
-// deleted, so its id, if the table ever hands it out again, starts
-// with no owner. A resource with no relations changes nothing and is
-// not audited.
+// deleted, and its federation (resfeds.go), so its id, if the table
+// ever hands it out again, starts with no owner, in Default. A
+// resource with no relations is not audited.
 func DropResource(ctx context.Context, db *sql.DB, r Resource, by Actor) error {
 	if !r.Type.valid() {
 		return ErrUnknownType
@@ -299,13 +299,21 @@ func DropResource(ctx context.Context, db *sql.DB, r Resource, by Actor) error {
 		return err
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "DELETE FROM web_resource_federations "+
+		"WHERE resource_type = ? AND resource_id = ?", string(r.Type), r.ID); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, "DELETE FROM web_resource_relations "+
 		"WHERE resource_type = ? AND resource_id = ?", string(r.Type), r.ID)
 	if err != nil {
 		return err
 	}
-	if n, err := res.RowsAffected(); err != nil || n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
 		return err
+	}
+	if n == 0 {
+		return tx.Commit()
 	}
 	if err := auditOwner(ctx, tx, by, nil, "resource_drop", r, ""); err != nil {
 		return err
@@ -364,4 +372,11 @@ func sortedUnique(ids []int64) []int64 {
 func isDuplicate(err error) bool {
 	var me *mysql.MySQLError
 	return errors.As(err, &me) && me.Number == 1062
+}
+
+// isForeignKey is whether err is a row naming a parent that does not
+// exist.
+func isForeignKey(err error) bool {
+	var me *mysql.MySQLError
+	return errors.As(err, &me) && me.Number == 1452
 }

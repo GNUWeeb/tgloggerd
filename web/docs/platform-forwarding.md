@@ -40,11 +40,14 @@ Bodies are JSON, every write carries the session's CSRF token in
                                                    enabled, webhook_url
     DELETE /api/forwarding/telegram-discord/{id}
     POST   /api/forwarding/telegram-discord/test   {id} or {webhook_url}; 204
+    POST   /api/forwarding/telegram-discord/{id}/transfer  {owner_id}; 204
     POST   /api/forwarding/discord-telegram        create; 201 {id}
     PATCH  /api/forwarding/discord-telegram/{id}   discord_channel_id, chat_id,
                                                    discord_bot_id, telegram_bot_id,
                                                    types, enabled
     DELETE /api/forwarding/discord-telegram/{id}
+    POST   /api/forwarding/discord-telegram/{id}/transfer  {owner_id}; 204
+    GET    /api/forwarding/federations?chat_id=    {federations: FedRef[]}
     GET    /api/bots?kind=                         {bots: BotRef[]}
     POST   /api/bots                               {kind, name, token}; 201 Bot
     PATCH  /api/bots/{id}                          name, enabled, token; 200 Bot
@@ -125,19 +128,52 @@ configurations with their counts of what was sent, and the bots.
 - Every change writes a `web_audit` row: `fwd_t2d_create`,
   `fwd_t2d_update`, `fwd_t2d_delete`, `fwd_d2t_create`,
   `fwd_d2t_update`, `fwd_d2t_delete`, `bot_create`, `bot_update`,
-  `bot_delete`, `bot_transfer`, with the id, the chat and what
-  changed, never a token. Tests change nothing and are not audited.
+  `bot_delete`, `bot_transfer`, `fwd_t2d_transfer`,
+  `fwd_d2t_transfer`, with the id, the chat and what changed, never a
+  token. Tests change nothing and are not audited.
 - Every configuration and every bot created here is owned by the
   account that created it;
   `web_resource_relations`, see *Ownership* in
   [accounts.md](accounts.md). Lists answer the owner with its role and
   whether it is active. A configuration without an owner, made before
   ownership was recorded or by the Drogon pages, counts as the
-  superadmins' and shows as shared. Federations are not stored yet:
-  every configuration is in Default, and the transfer operations are
-  planned (`forwarding-per-user`). The Go service writes through the
+  superadmins' and shows as shared. The Go service writes through the
   same read-only account and grants as the Drogon pages (see
   *Grants*).
+- Federations: every configuration is in one federation, answered as
+  `federation`. It is chosen at creation among the federations
+  holding the chat (the federations whose groups it is in, Default
+  for a group in none and for a private chat) that are the creator's
+  own: all of them for a superadmin, those it administers for an
+  admin, those in which the group is granted to it for a member; when
+  none is, every federation holding the chat. `GET
+  /api/forwarding/federations?chat_id=` answers those choices once a
+  chat is picked. With one the configuration goes there by itself;
+  with several the form asks, and create without `federation_id` is
+  400 `federation_required`, with one that is no choice 400
+  `bad_federation`. The federation stays when the chat is changed
+  later. It is stored in the web's database
+  (`web_resource_federations`, web migration `000018`), so the daemons
+  are unchanged: a configuration without a row, every one made before
+  the table or by the Drogon pages, is in Default, and deleting a
+  federation puts its configurations back in Default. The create
+  audit row names a federation other than Default
+  (`federation=<id>`). The pages' `federations` are the federations
+  the viewer administers.
+- Transfer: admins and superadmins give a configuration to one of its
+  `transfer_candidates`: for a superadmin every active account; for
+  an admin that administers the configuration's federation, that
+  federation's active admins and its active members holding `forward`
+  to whom the configuration's group is granted there (so the new
+  owner sees it); for an admin of other federations nobody. Anyone
+  else is 400 `bad_request`, and to a member the operations do not
+  exist (404). A configuration without an owner gets its first one.
+  It keeps forwarding and stays in its federation. A route goes to a
+  member only when the member owns both its bots (409
+  `bot_not_owned`); give it the bots first (*Bots*, Transfer).
+- A disabled owner's configurations keep forwarding: the lists answer
+  the owner with `active: false`, which the pages flag as "owner
+  disabled" for an admin to transfer.
 
 ## Bots
 
