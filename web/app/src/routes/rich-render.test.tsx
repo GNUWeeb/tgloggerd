@@ -60,3 +60,38 @@ describe('a rich message in the chat', () => {
 		expect(b.querySelector('.k-placeholder')).toBeNull();
 	});
 });
+
+describe('a rich message on its message page', () => {
+	const open = (scope: 'group' | 'private', id: number) => {
+		fakeApi('superadmin');
+		renderPage(`/messages/${scope}/${id}`, 'superadmin');
+		return document.querySelector('.a-msgkind');
+	};
+
+	it('draws its whole page, not its text', () => {
+		const m = rich(fixture<ChatProps>(groupChat, 'superadmin').props.messages);
+		const kind = open('group', m.id)!;
+		expect(kind.querySelector('h2.rb-title')).toBeTruthy();
+		expect(kind.querySelector('table.rb-table')).toBeTruthy();
+		expect(within(kind as HTMLElement).getByText('A block this view does not show (future_block)')).toBeTruthy();
+		expect(within(kind as HTMLElement).queryByRole('button', { name: /Show all/ })).toBeNull();
+		expect(document.querySelector('.a-msgtext')).toBeNull();
+	});
+
+	it('draws an earlier version\'s page in the edit history, once', () => {
+		const m = rich(fixture<ChatProps>(groupChat, 'superadmin').props.messages);
+		open('group', m.id);
+		const pages = [...document.querySelectorAll('.e-detail .rb-page')];
+		expect(pages).toHaveLength(1);
+		expect(pages[0]!.textContent).toContain('Draft notes');
+		expect(document.body.textContent!.split('Draft notes')).toHaveLength(2);
+	});
+
+	it('shows the text of one whose page was not kept', () => {
+		const m = rich(fixture<ChatProps>(privateChat, 'superadmin').props.messages);
+		open('private', m.id);
+		expect(document.querySelector('.rb-page')).toBeNull();
+		expect(document.querySelector('.a-msgtext')!.textContent).toBe(RICH_PLAIN_TEXT);
+		expect(document.querySelector('.k-placeholder')).toBeNull();
+	});
+});

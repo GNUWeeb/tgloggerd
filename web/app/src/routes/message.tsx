@@ -9,7 +9,7 @@ import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
 import { MessageMedia, kindOf } from './chat-media.tsx';
-import { Counts, KindDetail, KindFallback, Reactions, TEXT_INSIDE, hasFallback, topicColor } from './chat-kinds.tsx';
+import { Counts, KindDetail, KindFallback, Reactions, hasFallback, richPage, textInside, topicColor } from './chat-kinds.tsx';
 import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
 import { RichText } from '../ui/richtext.tsx';
@@ -99,9 +99,9 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 									: <div className="a-filerow"><Thumb type={m.content_type} thumb={m.media.thumb} url={m.media.url} stored={m.media.stored} ext={m.media.ext} size={44} /><div><b>{m.media.name || contentLabel(m.content_type)}</b><div className="a-muted sm">{bytes(m.media.size)}{m.media.duration ? ' . ' + duration(m.media.duration) : ''}</div></div></div>}
 							</div>
 						)}
-						{m.detail ? <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} tdlib={m.tdlib_type} /></div>
+						{m.detail ? <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} tdlib={m.tdlib_type} full /></div>
 							: fallback && <div className="a-msgkind"><KindFallback ct={m.content_type} tdlib={m.tdlib_type} /></div>}
-						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext">{partsOf(m.service, m.text) ? <ServiceText service={m.service} text={m.text} linkClass="a-link" /> : topicInText(m.text, svcDetail, topicHref) ?? <RichText text={m.text} entities={ents} chat={chat} />}{svcLine}</div> : !m.media && !m.detail && !fallback && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}{svcLine}</p>}
+						{m.text && !textInside(m.detail) ? <div className="a-msgtext">{partsOf(m.service, m.text) ? <ServiceText service={m.service} text={m.text} linkClass="a-link" /> : topicInText(m.text, svcDetail, topicHref) ?? <RichText text={m.text} entities={ents} chat={chat} />}{svcLine}</div> : !m.media && !m.detail && !fallback && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}{svcLine}</p>}
 						{m.link_preview && <LinkPreview lp={m.link_preview} />}
 						{svcAbout !== null && <p className="a-muted sm"><Link to={`${chatPath(m).split('?')[0]}?at=${svcAbout}`} className="a-link">The message this is about</Link></p>}
 						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies) && (
@@ -132,7 +132,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 										{e.media && (e.media.thumb
 											? <a href={e.media.url ?? undefined} target="_blank" rel="noopener" className="a-editmedia" aria-label="Earlier file"><img src={e.media.thumb} alt="" width={72} height={72} loading="lazy" /></a>
 											: <div className="a-muted sm">{e.media.url ? <a href={e.media.url} className="a-link">{e.media.name || 'earlier file'}</a> : `${e.media.name || 'earlier file'} (not stored)`}</div>)}
-										{e.text ? <RichText text={e.text} entities={e.entities} chat={chat} /> : !e.media && !e.detail && <span className="a-muted">(no text)</span>}
+										{e.text && !richPage(e.detail) ? <RichText text={e.text} entities={e.entities} chat={chat} /> : !e.media && !e.detail && <span className="a-muted">(no text)</span>}
 										{e.detail && <EditDetail d={e.detail} text={e.text} entities={e.entities} chat={chat} v={v} />}
 									</>,
 								})),
