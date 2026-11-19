@@ -1040,7 +1040,8 @@ paths:
           description: >-
             A JSON array of conditions {c, o, v, n} (field key,
             operator, value, connector AND or OR to the next one), at
-            most 8 KB; empty is every row.
+            most 8 KB; empty is every row. v is a string, or for the
+            operator in (enum fields) a list of 1 to 128 strings.
           schema:
             type: string
         - name: limit
@@ -5355,7 +5356,7 @@ components:
           type: array
           items:
             type: string
-            enum: ['=', '!=', '<', '>', '<=', '>=', LIKE, NOT LIKE, '%LIKE%', 'NOT %LIKE%', matches, IS NULL, IS NOT NULL]
+            enum: ['=', '!=', '<', '>', '<=', '>=', LIKE, NOT LIKE, '%LIKE%', 'NOT %LIKE%', matches, IS NULL, IS NOT NULL, in]
         enum:
           type: string
           description: An enum field's values, comma-separated.
@@ -6756,10 +6757,17 @@ components:
           type: string
         op:
           type: string
-          enum: ['=', '!=', '>', '<', '>=', '<=', contains, empty, is, LIKE, NOT LIKE, '%LIKE%', 'NOT %LIKE%', matches, IS NULL, IS NOT NULL]
+          enum: ['=', '!=', '>', '<', '>=', '<=', contains, empty, is, LIKE, NOT LIKE, '%LIKE%', 'NOT %LIKE%', matches, IS NULL, IS NOT NULL, in]
         value:
-          type: string
-          description: Ignored (send "") for IS NULL and IS NOT NULL.
+          description: >-
+            A string; ignored (send "") for IS NULL and IS NOT NULL.
+            For in (an enum field: one of a list of values) a list of
+            1 to 128 strings, and only for in.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
         n:
           type: string
           enum: [AND, OR]
@@ -7447,7 +7455,8 @@ components:
       description: >-
         The files list (route files). Its filters (Cond field, ops):
         id, size and hits (=, !=, >, <); file_type (=, != one of
-        FileRow's file_type values, unknown included); name, ext and
+        FileRow's file_type values, unknown included, or in a list of
+        them); name, ext and
         tg_file_id (contains, =, empty); stored (is yes or no); sha256
         (=, != a digest of 64 hex digits, either case); created_at,
         updated_at and accessed_at (>, < a day, YYYY-MM-DD). Its sorts:

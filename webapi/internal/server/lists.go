@@ -35,10 +35,56 @@ import (
 // listCond is a filter of a list page (Cond). N is the connector to
 // the next filter, AND (the default) or OR, as the search's n.
 type listCond struct {
-	Field string `json:"field"`
-	Op    string `json:"op"`
-	Value string `json:"value"`
-	N     string `json:"n,omitempty"`
+	Field string    `json:"field"`
+	Op    string    `json:"op"`
+	Value condValue `json:"value"`
+	N     string    `json:"n,omitempty"`
+}
+
+// condValue is a filter's value: a string, or for the operator "in" a
+// list of strings (List).
+type condValue struct {
+	S    string
+	L    []string
+	List bool
+}
+
+// strValue is a single value.
+func strValue(s string) condValue { return condValue{S: s} }
+
+func (v condValue) MarshalJSON() ([]byte, error) {
+	if v.List {
+		if v.L == nil {
+			return []byte("[]"), nil
+		}
+		return json.Marshal(v.L)
+	}
+	return json.Marshal(v.S)
+}
+
+// UnmarshalJSON takes a string or a list of strings; null is "", as
+// for a string field.
+func (v *condValue) UnmarshalJSON(b []byte) error {
+	*v = condValue{}
+	if len(b) > 0 && b[0] == '[' {
+		v.List = true
+		return json.Unmarshal(b, &v.L)
+	}
+	return json.Unmarshal(b, &v.S)
+}
+
+// tooLong is whether the value, or one of the list's, is longer than
+// the search takes.
+func (v condValue) tooLong() bool {
+	if len(v.S) > logdb.MaxValueLen {
+		return true
+	}
+	for _, s := range v.L {
+		if len(s) > logdb.MaxValueLen {
+			return true
+		}
+	}
+	return false
 }
 
 // listError is why a list shows its unfiltered rows (ListError): the
@@ -86,6 +132,9 @@ const relevanceSort = "relevance"
 // false for one the field does not take, which is dropped.
 type pageFilter func(sc scope.Scope, op, value string) ([]logdb.Cond, bool)
 
+// pageListFilter is a page filter of a list value (the operator in).
+type pageListFilter func(sc scope.Scope, op string, values []string) ([]logdb.Cond, bool)
+
 // listSpec is one list page.
 type listSpec struct {
 	entity     *logdb.Entity
@@ -93,6 +142,7 @@ type listSpec struct {
 	defPer     int
 	sorts      map[string]string // the page's sort keys: field keys
 	filters    map[string]pageFilter
+	lists      map[string]pageListFilter // the filters of list values
 	search     func(sc scope.Scope, q string) []logdb.Cond
 	limitedUse map[string]bool // filters and sorts of a viewer who sees in part
 	// relevance: the search text is a fulltext match, which orders
@@ -165,6 +215,21 @@ func enumFilter(key, values string) pageFilter {
 			return []logdb.Cond{cond(key, op, v)}, true
 		}
 		return nil, false
+	}
+}
+
+// enumInFilter is an enum field's "in": one of a list of its values.
+func enumInFilter(key, values string) pageListFilter {
+	return func(_ scope.Scope, op string, vs []string) ([]logdb.Cond, bool) {
+		if op != "in" || len(vs) == 0 || len(vs) > logdb.MaxInValues {
+			return nil, false
+		}
+		for _, v := range vs {
+			if !strings.Contains(","+values+",", ","+v+",") {
+				return nil, false
+			}
+		}
+		return []logdb.Cond{{C: key, O: "in", L: vs, IsList: true, HasV: true, N: "AND"}}, true
 	}
 }
 
@@ -346,6 +411,9 @@ var groupsList = &listSpec{
 	},
 }
 
+// fileTypes are the files list's types, the search's file_type values.
+const fileTypes = "photo,video,document,audio,voice,sticker,animation,video_note,thumbnail,unknown"
+
 var filesList = &listSpec{
 	entity:  logdb.Files,
 	defSort: func(scope.Scope) string { return "created_at" },
@@ -355,7 +423,7 @@ var filesList = &listSpec{
 		"accessed_at": "accessed_at"},
 	filters: map[string]pageFilter{
 		"id":          numberFilter("id"),
-		"file_type":   enumFilter("file_type", "photo,video,document,audio,voice,sticker,animation,video_note,thumbnail,unknown"),
+		"file_type":   enumFilter("file_type", fileTypes),
 		"name":        textFilter("name"),
 		"ext":         textFilter("ext"),
 		"size":        numberFilter("size"),
@@ -367,6 +435,7 @@ var filesList = &listSpec{
 		"updated_at":  dateFilter("updated_at"),
 		"accessed_at": dateFilter("accessed_at"),
 	},
+	lists: map[string]pageListFilter{"file_type": enumInFilter("file_type", fileTypes)},
 	search: func(_ scope.Scope, q string) []logdb.Cond {
 		cs := []logdb.Cond{cond("name", "%LIKE%", q)}
 		if isInt(q) {
@@ -456,7 +525,7 @@ func (l *listSpec) condsOf(sc scope.Scope, raw []listCond) (out []logdb.Cond, ke
 		if n != "AND" && n != "OR" {
 			return nil, nil, refusal("invalid connector: '%s'", c.N)
 		}
-		if len(c.Value) > logdb.MaxValueLen {
+		if c.Value.tooLong() {
 			if !l.registry {
 				continue
 			}
@@ -464,18 +533,27 @@ func (l *listSpec) condsOf(sc scope.Scope, raw []listCond) (out []logdb.Cond, ke
 		}
 		var lc logdb.Cond
 		ok := false
-		if pf := l.filters[c.Field]; pf != nil && l.allowed(sc, c.Field) {
+		// Every page filter is one condition, so the connectors keep
+		// their meaning.
+		if pf := l.filters[c.Field]; pf != nil && !c.Value.List && l.allowed(sc, c.Field) {
 			var cs []logdb.Cond
-			// Every page filter is one condition, so the
-			// connectors keep their meaning.
-			if cs, ok = pf(sc, c.Op, c.Value); ok && len(cs) == 1 {
+			if cs, ok = pf(sc, c.Op, c.Value.S); ok && len(cs) == 1 {
+				lc = cs[0]
+			} else {
+				ok = false
+			}
+		}
+		if pf := l.lists[c.Field]; pf != nil && c.Value.List && l.allowed(sc, c.Field) {
+			var cs []logdb.Cond
+			if cs, ok = pf(sc, c.Op, c.Value.L); ok && len(cs) == 1 {
 				lc = cs[0]
 			} else {
 				ok = false
 			}
 		}
 		if !ok && l.registry && logdb.IsOperator(c.Op) {
-			lc = logdb.Cond{C: c.Field, O: c.Op, V: c.Value, HasV: logdb.TakesValue(c.Op)}
+			lc = logdb.Cond{C: c.Field, O: c.Op, V: c.Value.S, L: c.Value.L,
+				IsList: c.Value.List, HasV: logdb.TakesValue(c.Op)}
 			ok = true
 		}
 		if !ok && !l.registry {
@@ -527,7 +605,8 @@ func legacyQuery(q url.Values) (url.Values, error) {
 				// default.
 				n = ""
 			}
-			lc = append(lc, listCond{Field: c.C, Op: c.O, Value: c.V, N: n})
+			lc = append(lc, listCond{Field: c.C, Op: c.O, N: n,
+				Value: condValue{S: c.V, L: c.L, List: c.IsList}})
 		}
 		b, _ := json.Marshal(lc)
 		out.Set("f", string(b))

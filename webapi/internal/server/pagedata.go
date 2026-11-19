@@ -875,7 +875,7 @@ func messagesRedirect(pr *pageRequest) string {
 	}
 	q := url.Values{}
 	if c := pr.query.Get("chat_id"); isInt(c) {
-		f, _ := json.Marshal([]listCond{{Field: "chat_id", Op: "=", Value: c}})
+		f, _ := json.Marshal([]listCond{{Field: "chat_id", Op: "=", Value: strValue(c)}})
 		q.Set("f", string(f))
 	}
 	if n, err := strconv.Atoi(pr.query.Get("limit")); err == nil && n > 0 {

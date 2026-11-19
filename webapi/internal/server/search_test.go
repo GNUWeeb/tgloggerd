@@ -206,7 +206,7 @@ func TestSearchUsers(t *testing.T) {
 	for _, f := range b["fields"].([]any) {
 		if f := f.(map[string]any); f["key"] == "type" {
 			if js(f) != `{"enum":"regular,deleted,bot,unknown","key":"type","label":"Type",`+
-				`"operators":["=","!="],"sortable":true,"type":"enum"}` {
+				`"operators":["=","!=","in"],"sortable":true,"type":"enum"}` {
 				t.Errorf("type field %s", js(f))
 			}
 		}
@@ -295,7 +295,13 @@ func TestSearchRefused(t *testing.T) {
 		{`[1]`, "each condition must be a JSON object"},
 		{`[{"o":"="}]`, "missing 'c' in a condition"},
 		{`[{"c":"id","o":1}]`, "'o' must be a string"},
-		{`[{"c":"id","o":"=","v":1}]`, "'v' must be a string"},
+		{`[{"c":"id","o":"=","v":1}]`, "'v' must be a string or a list of strings"},
+		{`[{"c":"type","o":"in","v":["bot",1]}]`, "'v' must be a string or a list of strings"},
+		{`[{"c":"type","o":"in","v":"bot"}]`, "operator 'in' expects a list of values for field 'type'"},
+		{`[{"c":"type","o":"=","v":["bot"]}]`, "operator '=' takes one value, not a list"},
+		{`[{"c":"type","o":"in","v":["bot","robot"]}]`,
+			"field 'type' expects one of: regular,deleted,bot,unknown"},
+		{`[{"c":"id","o":"in","v":["1"]}]`, "operator 'in' not allowed for field 'id'"},
 		{`[{"c":"nope","o":"="}]`, "unknown field: 'nope'"},
 		{`[{"c":"full_name","o":"=","v":"x"}]`, "unknown field: 'full_name'"},
 		{`[{"c":"id","o":"LIKE","v":"1"}]`, "operator 'LIKE' not allowed for field 'id'"},
@@ -421,6 +427,18 @@ func TestSearchMessages(t *testing.T) {
 	if s := rows(b)[0].([]any)[1].(map[string]any); s["kind"] != "group" || s["name"] != "Assembly Lounge" {
 		t.Errorf("channel post: %v", s)
 	}
+
+	// "in": one placeholder per value.
+	b = e.ok("admin", search("group_messages", `[{"c":"chat_id","o":"=","v":"-1001000000001","n":"AND"},`+
+		`{"c":"content_type","o":"in","v":["photo","document"]}]`, "debug", "1"))
+	wantTotal(t, "in", b, 2, true)
+	dbg = b["debug"].(map[string]any)
+	if !strings.Contains(dbg["sql"].(string), "(m.content_type IN (?, ?))") ||
+		!strings.HasSuffix(js(dbg["bind"]), `"photo","document"]`) {
+		t.Errorf("in: %v %v", dbg["sql"], dbg["bind"])
+	}
+	b = e.ok("admin", search("users", `[{"c":"type","o":"in","v":["bot","deleted"]}]`))
+	wantTotal(t, "users in", b, 2, true)
 
 	b = e.ok("superadmin", search("private_messages", `[{"c":"deleted","o":"IS NOT NULL"}]`))
 	wantTotal(t, "deleted", b, 1, true)

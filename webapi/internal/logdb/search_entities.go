@@ -76,7 +76,7 @@ const (
 	textOps   = OpEQ | OpNE | OpLike | OpNLike | OpCLike | OpNCLike
 	likeOps   = OpLike | OpNLike | OpCLike | OpNCLike
 	boolOps   = OpEQ | OpNE
-	enumOps   = OpEQ | OpNE
+	enumOps   = OpEQ | OpNE | OpIn
 	nullOps   = OpIsNull | OpIsNotNull
 	existsOps = OpEQ | OpNE | OpLike | OpNLike | OpCLike | OpNCLike
 	existsPos = OpEQ | OpLike | OpCLike

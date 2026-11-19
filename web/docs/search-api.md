@@ -75,6 +75,17 @@ webapi/openapi.yaml. Where the two differ:
   refused (`bad_search`: "field 'service_type' requires a 'chat_id ='
   condition ANDed with the others"). `fields` marks them with
   `needs_chat: true`.
+- Enum fields take one more operator, `in`: one of a list of values,
+  whose `v` is a JSON array of strings instead of a string (1 to 128
+  of them, each checked as a single value is), as
+  `{"c":"content_type","o":"in","v":["photo","video"]}`. It becomes
+  `col IN (?, ?)`, one placeholder per value. A list for any other
+  operator, or a string for `in`, is refused ("operator '=' takes one
+  value, not a list", "operator 'in' expects a list of values for
+  field 'content_type'"), and so is a `v` that is neither ("'v' must
+  be a string or a list of strings"). The list pages take it in their
+  filters the same way, `{"field":"content_type","op":"in",
+  "value":["photo","video"]}`, and echo the list back.
 
 The React list pages (users, groups, files, group_messages,
 private_messages) read their rows through the same search, from the

@@ -141,6 +141,9 @@ func TestListEveryFieldAndOperator(t *testing.T) {
 			}
 			for _, op := range f["operators"].([]any) {
 				c := fmt.Sprintf(`[{"field":%q,"op":%q,"value":%q}]`, f["key"], op, v)
+				if op == "in" {
+					c = fmt.Sprintf(`[{"field":%q,"op":"in","value":[%q]}]`, f["key"], v)
+				}
 				conds := 1
 				if f["needs_chat"] == true {
 					c = `[{"field":"chat_id","op":"=","value":"1"},` + c[1:]
@@ -155,6 +158,67 @@ func TestListEveryFieldAndOperator(t *testing.T) {
 		}
 		if n < nfields {
 			t.Errorf("%s: %d conditions", path, n)
+		}
+	}
+}
+
+// TestListInOperator: "in", one of a list of values, on the message
+// lists (through the registry) and the files list (its own filter),
+// echoed back as a list; a list where one value belongs, and the other
+// way round, is refused.
+func TestListInOperator(t *testing.T) {
+	t.Parallel()
+	e := newListSearchEnv(t, searchOpts{})
+
+	gnu := `{"field":"chat_id","op":"=","value":"-1001000000001"},`
+	p := e.props("superadmin", "group_messages", fq(`[`+gnu+
+		`{"field":"content_type","op":"in","value":["photo","document","sticker"]}]`)...)
+	wantList(t, "media in one group", p, 3, "7,5,4")
+	if p["error"] != nil || js(p["conds"]) != `[{"field":"chat_id","op":"=","value":"-1001000000001"},`+
+		`{"field":"content_type","op":"in","value":["photo","document","sticker"]}]` {
+		t.Errorf("in echo: %v %s", p["error"], js(p["conds"]))
+	}
+	// OR keeps its meaning beside an in.
+	p = e.props("superadmin", "private_messages", fq(`[{"field":"content_type","op":"in",`+
+		`"value":["voice","service"],"n":"OR"},{"field":"is_outgoing","op":"=","value":"1"}]`)...)
+	wantList(t, "private in or", p, 3, "2,6,5")
+
+	p = e.props("superadmin", "files", fq(`[{"field":"file_type","op":"in",`+
+		`"value":["voice","sticker"]}]`, "sort", "id", "dir", "asc")...)
+	wantList(t, "files in", p, 2, "880004,880005")
+	if js(p["conds"]) != `[{"field":"file_type","op":"in","value":["voice","sticker"]}]` {
+		t.Errorf("files in echo: %s", js(p["conds"]))
+	}
+	// The files list drops what it does not take, as it does any
+	// other filter.
+	p = e.props("superadmin", "files", fq(`[{"field":"file_type","op":"in","value":["voice","x"]}]`)...)
+	if js(p["conds"]) != "[]" || p["error"] != nil {
+		t.Errorf("files bad in: %s %v", js(p["conds"]), p["error"])
+	}
+
+	many := make([]string, logdb.MaxInValues+1)
+	for i := range many {
+		many[i] = `"text"`
+	}
+	for _, c := range []struct{ conds, msg string }{
+		{`[{"field":"content_type","op":"in","value":"text"}]`,
+			"operator 'in' expects a list of values for field 'content_type'"},
+		{`[{"field":"content_type","op":"=","value":["text"]}]`,
+			"operator '=' takes one value, not a list"},
+		{`[{"field":"content_type","op":"in","value":[]}]`, "operator 'in' takes 1 to 128 values"},
+		{`[{"field":"content_type","op":"in","value":[` + strings.Join(many, ",") + `]}]`,
+			"operator 'in' takes 1 to 128 values"},
+		{`[{"field":"content_type","op":"in","value":["text","nope"]}]`,
+			"field 'content_type' expects one of: " + logdb.MessageTypes},
+		{`[{"field":"chat_id","op":"in","value":["1"]}]`,
+			"operator 'in' not allowed for field 'chat_id'"},
+		{`[{"field":"content_type","op":"in","value":["` + strings.Repeat("x", 600) + `"]}]`,
+			"value too long (max 512)"},
+		{`[{"field":"content_type","op":"in","value":[1]}]`, "f must be a JSON array of conditions"},
+	} {
+		p := e.props("superadmin", "group_messages", fq(c.conds)...)
+		if js(p["error"]) != js(map[string]any{"code": "bad_search", "message": c.msg}) {
+			t.Errorf("%s: %v, want %q", c.conds, p["error"], c.msg)
 		}
 	}
 }

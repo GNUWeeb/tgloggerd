@@ -53,6 +53,7 @@ const (
 	OpCLike     // "%LIKE%": contains, the value wrapped in %..%
 	OpNCLike    // "NOT %LIKE%"
 	OpMatch     // "matches": MATCH..AGAINST in boolean mode
+	OpIn        // "in": one of a list of values, IN (?, ...)
 )
 
 // opTable is the operators as clients send them, in the order the
@@ -72,6 +73,7 @@ var opTable = []struct {
 	{OpCLike, "%LIKE%", "LIKE"},
 	{OpNCLike, "NOT %LIKE%", "NOT LIKE"},
 	{OpMatch, "matches", ""},
+	{OpIn, "in", "IN"},
 	{OpIsNull, "IS NULL", ""},
 	{OpIsNotNull, "IS NOT NULL", ""},
 }
@@ -161,6 +163,7 @@ const (
 	MaxConds       = 16
 	MaxExists      = 4
 	MaxValueLen    = 512
+	MaxInValues    = 128 // the values of one "in" condition
 	MaxLimit       = 1000
 	MaxOffset      = 500000
 	MaxSearchBytes = 8192
@@ -174,6 +177,9 @@ const (
 type Cond struct {
 	C, O, V, N string
 	HasV       bool // whether v was given (IS NULL takes none)
+	// L is the values of an "in" condition, whose v is a list (IsList).
+	L      []string
+	IsList bool
 	// engineIDs, when engine is set, are the rows the search engine
 	// found for this full-text condition: it becomes an id list
 	// (search_engine.go).
@@ -403,11 +409,22 @@ func ParseConditions(raw string) ([]Cond, error) {
 			*k.dst = s
 		}
 		if v, present := obj["v"]; present && v != nil {
-			s, ok := v.(string)
-			if !ok {
-				return nil, refuse("'v' must be a string")
+			switch v := v.(type) {
+			case string:
+				c.V, c.HasV = v, true
+			case []any:
+				// The values of an "in" condition.
+				c.L, c.HasV, c.IsList = make([]string, 0, len(v)), true, true
+				for _, it := range v {
+					s, ok := it.(string)
+					if !ok {
+						return nil, refuse("'v' must be a string or a list of strings")
+					}
+					c.L = append(c.L, s)
+				}
+			default:
+				return nil, refuse("'v' must be a string or a list of strings")
 			}
-			c.V, c.HasV = s, true
 		}
 		out = append(out, c)
 	}
@@ -493,6 +510,18 @@ func (e *Entity) chain(sc scope.Scope, conds []Cond, internal bool, exists *int,
 		if !c.HasV {
 			return "", nil, refuse("field '%s' requires a value", c.C)
 		}
+		if op == OpIn {
+			w, b, err := inList(f, c)
+			if err != nil {
+				return "", nil, err
+			}
+			where.WriteString(w + ")")
+			binds = append(binds, b...)
+			continue
+		}
+		if c.IsList {
+			return "", nil, refuse("operator '%s' takes one value, not a list", c.O)
+		}
 		if err := validValue(f, c.V); err != nil {
 			return "", nil, err
 		}
@@ -536,6 +565,31 @@ func (e *Entity) chain(sc scope.Scope, conds []Cond, internal bool, exists *int,
 		binds = append(binds, val)
 	}
 	return where.String(), binds, nil
+}
+
+// inList is an "in" condition of a column field: `<Expr> IN (?, ...)`,
+// one placeholder (the field's Bind) per value, each value checked as
+// the field's single values are.
+func inList(f *Field, c Cond) (string, []any, error) {
+	if !c.IsList {
+		return "", nil, refuse("operator 'in' expects a list of values for field '%s'", f.Key)
+	}
+	if len(c.L) == 0 || len(c.L) > MaxInValues {
+		return "", nil, refuse("operator 'in' takes 1 to %d values", MaxInValues)
+	}
+	rhs := f.Bind
+	if rhs == "" {
+		rhs = "?"
+	}
+	ph := make([]string, len(c.L))
+	binds := make([]any, len(c.L))
+	for i, v := range c.L {
+		if err := validValue(f, v); err != nil {
+			return "", nil, err
+		}
+		ph[i], binds[i] = rhs, v
+	}
+	return f.Expr + " IN (" + strings.Join(ph, ", ") + ")", binds, nil
 }
 
 // chatBound refuses a search that uses a NeedsChat field without a
@@ -991,5 +1045,5 @@ func IsOperator(op string) bool {
 }
 
 // TakesValue is whether the operator compares with a value (all but
-// IS NULL and IS NOT NULL).
+// IS NULL and IS NOT NULL); "in" takes a list of them.
 func TakesValue(op string) bool { return op != "IS NULL" && op != "IS NOT NULL" }
