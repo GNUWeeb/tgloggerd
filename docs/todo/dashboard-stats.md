@@ -55,6 +55,13 @@ busy hour, a quiet night or a year's growth cannot be seen.
   the current one is counted fresh. Check the query plan on the
   largest range of each period; if a range is too slow, lower its
   limit here rather than add a table. OpenAPI and web/docs follow.
+  Done: GET /api/dashboard/series (web/docs/dashboard-series.md), the
+  chart's preferences dashboard_period, dashboard_variant,
+  dashboard_start, dashboard_end and dashboard_last (web/docs/
+  settings.md), and the page's first series in DashboardProps.series,
+  which replaces per_day and per_day_start. No limit was lowered: the
+  longest ranges take 0.03 s (minute) to 3-4 s (day, week, month over
+  all time) uncached on ten million messages, then come from the cache.
 - React (frontend): the period select, the start/end pickers with
   **Now**, the variant select, the clamped range, live updates while
   the end is now, and the four drawings, accessible (a table view of
@@ -72,5 +79,5 @@ Nothing.
 - With the end at Now, the last bar grows as messages arrive and the
   start moves once the limit is reached.
 - Go tests cover every period's bucketing across a daylight saving
-  change, the limits and the cache; React tests cover the controls,
-  the variants and the live end.
+  change, the limits and the cache (done); React tests cover the
+  controls, the variants and the live end.

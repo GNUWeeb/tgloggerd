@@ -35,6 +35,10 @@ loader (`/api/page/settings...`):
 | theme | `system`, `light`, `dark` | WEBAPI_DEFAULT_THEME, system |
 | sidebar | `open`, `collapsed` | open |
 | dashboard_numbers | `exact`, `compact` (the dashboard's figures in full or shortened) | exact |
+| dashboard_period | a period of the dashboard chart: `minute`, `hour`, `4h`, `day`, `week`, `month`, `quarter`, `year` | hour |
+| dashboard_variant | `bars`, `line`, `area`, `total` (how the chart draws its series) | bars |
+| dashboard_start, dashboard_end | unix times from 0 to the end of the year 9999: the chart's fixed range, set together | none (the range ends now) |
+| dashboard_last | seconds, at least 1: the length of a range that ends now | 48 hours |
 | rows_per_page | 25, 50, 100 | 25 |
 | landing | a path on this site, at most 255 bytes | `/` |
 | chat_auto_load, chat_live | true, false | true |
@@ -47,6 +51,16 @@ loader (`/api/page/settings...`):
   JSON value.
 - A key that is not in the table, or a value it does not take, refuses
   the whole body: 400 bad_request with the key in `field`.
+- The dashboard chart's range is also checked as a whole:
+  dashboard_start and dashboard_end set together, the start before the
+  end, and the fixed range or dashboard_last at most the limit of the
+  period in effect ([dashboard-series.md](dashboard-series.md)); a
+  PATCH naming one of dashboard_period, dashboard_start, dashboard_end
+  or dashboard_last is checked with the stored keys filling in for the
+  others. 400 bad_request names the key in `field`. The app saves
+  `{period, last, start: null, end: null}` for a range ending now,
+  `{period, start, end, last: null}` for a fixed one, and the variant
+  alone.
 - PATCH changes only the keys its body names (null puts one back to
   the site default) and keeps the others as stored, so a control that
   saves one key, such as the theme toggle or the menu's collapse,
@@ -65,8 +79,12 @@ page, where a sign-in without a next page goes.
 
 Every page's data carries the settings in effect, the account's own
 or the site's, in `viewer` (`timezone`, `date_format`, `lang`,
-`theme`, `sidebar`, `dashboard_numbers`, `rows_per_page`, `chat`), for
-a signed-out visitor too. Dates stay UTC in the database and in every JSON answer; the
+`theme`, `sidebar`, `dashboard_numbers`, `rows_per_page`, `chat`,
+and the dashboard chart's `dashboard_period`, `dashboard_variant` and
+either `dashboard_start` and `dashboard_end` or `dashboard_last`), for
+a signed-out visitor too. A stored range that no longer fits its
+period (a limit lowered, two saves racing) gives way to one ending now,
+its length cut to the limit. Dates stay UTC in the database and in every JSON answer; the
 pages show them in the viewer's zone and format, the same on the
 server's render and in the browser. The document's `<html>` carries `lang` and, unless the
 theme follows the system, `data-theme`.

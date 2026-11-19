@@ -19,7 +19,7 @@ describe('quick jump', () => {
 		renderPage('/');
 		fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
 		expect(dialog()).toBeTruthy();
-		fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
+		fireEvent.keyDown(within(dialog()!).getByRole('combobox'), { key: 'Escape' });
 		expect(dialog()).toBeNull();
 		fireEvent.keyDown(window, { key: 'K', metaKey: true });
 		expect(dialog()).toBeTruthy();
@@ -29,21 +29,21 @@ describe('quick jump', () => {
 		fakeApi('superadmin', chats);
 		renderPage('/');
 		fireEvent.click(screen.getByRole('button', { name: 'Search everything' }));
-		expect(document.activeElement).toBe(screen.getByRole('combobox'));
+		expect(document.activeElement).toBe(within(dialog()!).getByRole('combobox'));
 	});
 
 	it('finds chats and pages, and opens the one chosen with the keys', async () => {
 		const calls = fakeApi('superadmin', chats);
 		renderPage('/');
 		fireEvent.click(screen.getByRole('button', { name: 'Search everything' }));
-		fireEvent.change(screen.getByRole('combobox'), { target: { value: 'rust' } });
+		fireEvent.change(within(dialog()!).getByRole('combobox'), { target: { value: 'rust' } });
 		const list = screen.getByRole('listbox');
 		await within(list).findByText('Rust Indonesia');
 		expect(callsTo(calls, 'GET', '/api/chats/search').at(-1)!.query.get('q')).toBe('rust');
 		expect(within(list).getByText('Rustacean Ayu')).toBeTruthy();
-		fireEvent.keyDown(screen.getByRole('combobox'), { key: 'ArrowDown' });
+		fireEvent.keyDown(within(dialog()!).getByRole('combobox'), { key: 'ArrowDown' });
 		expect(within(list).getAllByRole('option')[1]!.getAttribute('aria-selected')).toBe('true');
-		fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
+		fireEvent.keyDown(within(dialog()!).getByRole('combobox'), { key: 'Enter' });
 		await waitFor(() => expect(pageCalls(calls).at(-1)?.path).toBe('/api/page/users/42'));
 		expect(dialog()).toBeNull();
 	});
@@ -55,7 +55,7 @@ describe('quick jump', () => {
 		const calls = fakeApi('superadmin', { ...chats, 'GET /api/page/files': () => new Promise<never>(() => {}) });
 		renderPage('/');
 		fireEvent.click(screen.getByRole('button', { name: 'Search everything' }));
-		fireEvent.change(screen.getByRole('combobox'), { target: { value: 'file' } });
+		fireEvent.change(within(dialog()!).getByRole('combobox'), { target: { value: 'file' } });
 		const files = within(screen.getByRole('listbox')).getByText('Files');
 		fireEvent.mouseDown(files.closest('li')!);
 		await waitFor(() => expect(pageCalls(calls).at(-1)?.path).toBe('/api/page/files'));
@@ -65,7 +65,7 @@ describe('quick jump', () => {
 		fakeApi('member', chats);
 		renderPage('/', 'member');
 		fireEvent.click(screen.getByRole('button', { name: 'Search everything' }));
-		fireEvent.change(screen.getByRole('combobox'), { target: { value: 'accounts' } });
+		fireEvent.change(within(dialog()!).getByRole('combobox'), { target: { value: 'accounts' } });
 		expect(within(screen.getByRole('listbox')).queryByText('Accounts')).toBeNull();
 	});
 
@@ -73,7 +73,7 @@ describe('quick jump', () => {
 		fakeApi('superadmin', chats);
 		renderPage('/');
 		fireEvent.click(screen.getByRole('button', { name: 'Search everything' }));
-		fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzzz' } });
+		fireEvent.change(within(dialog()!).getByRole('combobox'), { target: { value: 'zzzz' } });
 		expect(await screen.findByText('Nothing matches.')).toBeTruthy();
 	});
 });

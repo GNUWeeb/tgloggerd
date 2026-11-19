@@ -179,6 +179,8 @@ type Server struct {
 	// emoji resolves the custom emoji and message effects of a page
 	// (emoji.go).
 	emoji *emojiResolver
+	// series keeps the dashboard series' finished periods.
+	series *logdb.SeriesCache
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -252,6 +254,7 @@ func New(d Deps) http.Handler {
 	if s.emoji == nil {
 		s.emoji = newEmojiResolver(d.Log, d.Daemon, s.clock)
 	}
+	s.series = logdb.NewSeriesCache(logdb.SeriesCachePeriods, logdb.SeriesCacheTTL)
 	s.search = logdb.Search
 	if d.search != nil {
 		s.search = d.search
@@ -328,6 +331,7 @@ func (s *Server) routes() []route {
 		{"PATCH /api/account/preferences", s.RequireSession(s.patchPreferences)},
 		{"GET /api/account/preferences", s.RequireSession(s.getPreferences)},
 		{"GET /api/dashboard/kpis", s.RequireSession(s.dashboardKPIs)},
+		{"GET /api/dashboard/series", s.RequireSession(s.dashboardSeries)},
 		{"PUT /api/account/pinned/{group_id}", s.RequireSession(s.pinGroup)},
 		{"DELETE /api/account/pinned/{group_id}", s.RequireSession(s.unpinGroup)},
 		{"POST /api/account/saved-searches", s.RequireSession(s.saveSearch)},

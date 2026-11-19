@@ -18,6 +18,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -39,6 +40,11 @@ type Prefs struct {
 	Theme           *string `json:"theme"`
 	Sidebar         *string `json:"sidebar"`
 	DashNumbers     *string `json:"dashboard_numbers"`
+	DashPeriod      *string `json:"dashboard_period"`
+	DashVariant     *string `json:"dashboard_variant"`
+	DashStart       *int64  `json:"dashboard_start"`
+	DashEnd         *int64  `json:"dashboard_end"`
+	DashLast        *int64  `json:"dashboard_last"`
 	RowsPerPage     *int    `json:"rows_per_page"`
 	Landing         *string `json:"landing"`
 	ChatAutoLoad    *bool   `json:"chat_auto_load"`
@@ -61,12 +67,23 @@ var (
 	// DashNumbers: the dashboard's figures in full (12,345) or
 	// shortened (12k).
 	DashNumbers = []string{"exact", "compact"}
-	RowsPerPage = []int{25, 50, 100}
-	ChatMedia   = []string{"auto", "click"}
+	// DashPeriods are the dashboard chart's periods (the series of
+	// GET /api/dashboard/series), DashVariants how it draws them.
+	DashPeriods  = []string{"minute", "hour", "4h", "day", "week", "month", "quarter", "year"}
+	DashVariants = []string{"bars", "line", "area", "total"}
+	RowsPerPage  = []int{25, 50, 100}
+	ChatMedia    = []string{"auto", "click"}
 )
 
 // MaxLanding is the longest landing page path.
 const MaxLanding = 255
+
+// MaxDashTime is the latest time and the longest length the dashboard
+// chart's range keys take: the end of the year 9999 UTC, as the
+// series takes it (logdb.MaxSeriesTime). Whether a range fits its
+// period's limit is checked with the other keys (the server's
+// preferences handlers), as it depends on more than one key.
+const MaxDashTime = 253402300799
 
 // Defaults are the site's defaults for the keys the configuration
 // sets (decisions/2026-11-18-web-rollout.md); the other keys have
@@ -200,6 +217,8 @@ func (p Prefs) Check() error {
 		str("theme", p.Theme, in(Themes)),
 		str("sidebar", p.Sidebar, in(Sidebars)),
 		str("dashboard_numbers", p.DashNumbers, in(DashNumbers)),
+		str("dashboard_period", p.DashPeriod, in(DashPeriods)),
+		str("dashboard_variant", p.DashVariant, in(DashVariants)),
 		str("landing", p.Landing, CheckLanding),
 		str("chat_media", p.ChatMedia, in(ChatMedia)),
 	} {
@@ -210,6 +229,16 @@ func (p Prefs) Check() error {
 	if p.RowsPerPage != nil {
 		if err := oneOf(*p.RowsPerPage, RowsPerPage); err != nil {
 			return &FieldError{"rows_per_page", err}
+		}
+	}
+	for _, t := range []struct {
+		key string
+		v   *int64
+		min int64
+	}{{"dashboard_start", p.DashStart, 0}, {"dashboard_end", p.DashEnd, 0},
+		{"dashboard_last", p.DashLast, 1}} {
+		if t.v != nil && (*t.v < t.min || *t.v > MaxDashTime) {
+			return &FieldError{t.key, fmt.Errorf("%d is not from %d to %d", *t.v, t.min, MaxDashTime)}
 		}
 	}
 	return nil
@@ -231,6 +260,11 @@ func (p *Prefs) fields() []struct {
 		{"theme", &p.Theme},
 		{"sidebar", &p.Sidebar},
 		{"dashboard_numbers", &p.DashNumbers},
+		{"dashboard_period", &p.DashPeriod},
+		{"dashboard_variant", &p.DashVariant},
+		{"dashboard_start", &p.DashStart},
+		{"dashboard_end", &p.DashEnd},
+		{"dashboard_last", &p.DashLast},
 		{"rows_per_page", &p.RowsPerPage},
 		{"landing", &p.Landing},
 		{"chat_auto_load", &p.ChatAutoLoad},
@@ -240,6 +274,23 @@ func (p *Prefs) fields() []struct {
 		{"chat_show_edited", &p.ChatShowEdited},
 		{"chat_show_service", &p.ChatShowService},
 	}
+}
+
+// With is p with the given keys taken from o instead: what the
+// preferences become when o's keys are saved over p (SaveKeys).
+func (p Prefs) With(o Prefs, keys []string) Prefs {
+	out := p
+	of := o.fields()
+	for i, f := range out.fields() {
+		if !slices.Contains(keys, f.key) {
+			continue
+		}
+		// Each field takes the same field of o (both lists come from
+		// fields(), in the same order): the pointer itself, so p's own
+		// values are never written through.
+		reflect.ValueOf(f.ptr).Elem().Set(reflect.ValueOf(of[i].ptr).Elem())
+	}
+	return out
 }
 
 // Keys are the known keys.
@@ -373,8 +424,10 @@ type Effective struct {
 	Theme string
 	// Sidebar is whether the menu starts open or collapsed.
 	Sidebar string
-	// DashNumbers is how the dashboard shows its figures.
+	// DashNumbers is how the dashboard shows its figures,
+	// DashVariant how its chart draws the series.
 	DashNumbers string
+	DashVariant string
 	RowsPerPage int
 	Landing     string
 	Chat        Chat
@@ -387,6 +440,7 @@ const (
 	DefaultLanding     = "/"
 	DefaultSidebar     = "open"
 	DefaultDashNumbers = "exact"
+	DefaultDashVariant = "bars"
 )
 
 // Resolve is the settings in effect under p and the site defaults d.
@@ -406,6 +460,7 @@ func Resolve(p Prefs, d Defaults) Effective {
 		Theme:       s(p.Theme, d.Theme),
 		Sidebar:     s(p.Sidebar, DefaultSidebar),
 		DashNumbers: s(p.DashNumbers, DefaultDashNumbers),
+		DashVariant: s(p.DashVariant, DefaultDashVariant),
 		RowsPerPage: DefaultRowsPerPage,
 		Landing:     s(p.Landing, DefaultLanding),
 		Chat: Chat{

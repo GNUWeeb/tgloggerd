@@ -453,22 +453,41 @@
 .app .a-d-changes { grid-area: changes; }
 .app .a-d-deleted { grid-area: deleted; }
 .app .a-bigchart { color: var(--accent); }
-.app .a-daybars-wrap { position: relative; padding-top: 18px; }
-.app .a-daybars-peak { position: absolute; top: 0; left: 0; }
-.app .a-daybars { position: relative; display: flex; align-items: flex-end; gap: 0; }
-.app .a-daybars-grid { position: absolute; left: 0; right: 0; top: 0; border-top: 1px dashed var(--border); pointer-events: none; }
-.app .a-daybar { flex: 1; height: 100%; display: flex; align-items: flex-end; padding: 0 1px; outline: none; cursor: default; }
-.app .a-daybar > span { display: block; width: 100%; min-height: 2px; background: currentColor; opacity: .5; border-radius: 4px 4px 0 0; transition: opacity .1s; }
-.app .a-daybar.today > span { opacity: 1; }
-.app .a-daybar.on > span, .app .a-daybar:focus-visible > span { opacity: .85; }
-.app .a-daybar.today.on > span { opacity: 1; box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px currentColor; }
-.app .a-daybar:focus-visible > span { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
-.app .a-daybars-tip { position: absolute; z-index: 3; pointer-events: none; white-space: nowrap; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; box-shadow: 0 6px 20px rgb(0 0 0 / .12); font-size: 13px; }
-.app .a-daybars-tip b { font-size: 15px; }
-.app .a-daybars-axis { position: relative; height: 22px; margin-top: 6px; border-top: 1px solid var(--border); }
-.app .a-daybars-axis span { position: absolute; top: 4px; transform: translateX(-50%); white-space: nowrap; }
-.app .a-daybars-axis span.end { transform: translateX(-100%); }
-.app .a-daybars-axis span.start { transform: none; }
+/* The dashboard's message chart (ui/serieschart.tsx): its controls in
+   one row, the marks in the accent, grid and labels recessive. */
+.app .a-sc-ctls { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; margin: 10px 0 12px; }
+.app .a-sc-ctl { display: grid; gap: 4px; font-size: 12px; color: var(--fg-2); font-weight: 550; }
+.app .a-sc-ctl .a-select { width: auto; height: 32px; font: inherit; font-weight: 400; font-size: 13px; }
+.app .a-sc-ctl input[type=number] { width: 90px; }
+.app .a-sc-ctl input:disabled { color: var(--fg-3); }
+.app .a-sc-now { display: inline-flex; align-items: center; gap: 6px; height: 32px; font-weight: 550; color: var(--fg-2); }
+.app .a-sc-now input { accent-color: var(--accent); margin: 0; }
+.app .a-sc { position: relative; }
+.app .a-sc-plot { outline: none; border-radius: 6px; }
+.app .a-sc-plot:focus-visible { box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent); }
+.app .a-sc svg { display: block; overflow: visible; }
+.app .a-sc-grid line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
+.app .a-sc-base { stroke: var(--border-2); stroke-width: 1; }
+.app .a-sc-ylab text, .app .a-sc-xlab text { fill: var(--fg-3); font-size: 11px; }
+.app .a-sc-bar { fill: currentColor; opacity: .75; }
+.app .a-sc-bar.on { opacity: 1; }
+.app .a-sc-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.app .a-sc-area { fill: currentColor; opacity: .15; }
+.app .a-sc-dot { fill: currentColor; stroke: var(--panel); stroke-width: 2; pointer-events: none; }
+.app .a-sc-cross { stroke: var(--fg-3); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+.app .a-sc-hit { fill: transparent; cursor: crosshair; }
+.app .a-sc-tip { position: absolute; z-index: 3; pointer-events: none; white-space: nowrap; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; box-shadow: 0 6px 20px rgb(0 0 0 / .12); font-size: 13px; }
+.app .a-sc-tip b { font-size: 15px; }
+.app .a-sc-empty { height: 200px; display: grid; place-items: center; }
+.app .a-bigchart { position: relative; }
+.app .a-sc-busy > :not(.a-sc-loading) { opacity: .6; transition: opacity .2s; }
+.app .a-sc-loading { position: absolute; top: 8px; right: 8px; z-index: 1; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); font-size: 12.5px; color: var(--fg-2); box-shadow: var(--shadow); }
+.app .a-sc-table { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; }
+.app .a-sc-table td { padding: 6px 12px; border-top: 1px solid var(--border); }
+.app .a-sc-table td.num, .app .a-sc-table th.num { text-align: right; }
+.app .a-sc-tabletoggle { font-size: 13px; }
+.app .a-sc-tabletoggle[aria-pressed=true] { color: var(--accent-text); }
+.app .a-sc-err { color: var(--danger); margin: 0 0 8px; font-size: 13px; }
 .app .a-axis { display: flex; justify-content: space-between; color: var(--fg-3); font-size: 11.5px; margin-top: 6px; }
 .app .a-statuslist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .app .a-statuslist li { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border); color: var(--fg-2); }

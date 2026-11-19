@@ -46,6 +46,14 @@ type Viewer struct {
 	// DashNumbers is how the dashboard shows its figures: exact or
 	// compact.
 	DashNumbers string `json:"dashboard_numbers,omitempty"`
+	// DashPeriod and DashVariant are the dashboard chart's period and
+	// drawing; DashStart and DashEnd its fixed range, or DashLast the
+	// length of one ending now (the other two absent).
+	DashPeriod  string `json:"dashboard_period,omitempty"`
+	DashVariant string `json:"dashboard_variant,omitempty"`
+	DashStart   *int64 `json:"dashboard_start,omitempty"`
+	DashEnd     *int64 `json:"dashboard_end,omitempty"`
+	DashLast    *int64 `json:"dashboard_last,omitempty"`
 	RowsPerPage int    `json:"rows_per_page,omitempty"`
 	// Nav lists the route ids of the pages the menu shows.
 	Nav []string `json:"nav,omitempty"`

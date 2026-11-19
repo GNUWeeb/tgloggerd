@@ -348,6 +348,9 @@ func (s *Server) pageViewer(ctx context.Context, sess *auth.Session, sc scope.Sc
 	v.RowsPerPage = e.RowsPerPage
 	v.Sidebar = e.Sidebar
 	v.DashNumbers = e.DashNumbers
+	dc := dashChoiceOf(prefs)
+	v.DashPeriod, v.DashVariant = string(dc.Period), e.DashVariant
+	v.DashStart, v.DashEnd, v.DashLast = dc.Start, dc.End, dc.Last
 	v.Chat = &e.Chat
 	v.Logger = s.pageLogger(ctx, sc, sess != nil)
 	if sess == nil {

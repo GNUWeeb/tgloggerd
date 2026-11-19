@@ -99,8 +99,9 @@ func (s *Server) putPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _ := SessionFrom(r.Context())
 	ctx := r.Context()
-	p, _, ok := decodePrefs(w, r, s.textLang(ctx, sess.UID))
-	if !ok {
+	lang := s.textLang(ctx, sess.UID)
+	p, _, ok := decodePrefs(w, r, lang)
+	if !ok || refuseDashRange(w, lang, p) {
 		return
 	}
 	if err := settings.Save(ctx, s.app, sess.UID, p); err != nil {
@@ -121,9 +122,23 @@ func (s *Server) patchPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _ := SessionFrom(r.Context())
 	ctx := r.Context()
-	p, keys, ok := decodePrefs(w, r, s.textLang(ctx, sess.UID))
+	lang := s.textLang(ctx, sess.UID)
+	p, keys, ok := decodePrefs(w, r, lang)
 	if !ok {
 		return
+	}
+	// The dashboard's range is checked as it will be stored: the keys
+	// given over the stored ones. A body naming none of its keys (the
+	// variant alone) leaves it as it is, even if it no longer fits.
+	if namesDashRange(keys) {
+		stored, err := settings.Load(ctx, s.app, sess.UID)
+		if err != nil {
+			s.internalError(w, "load preferences", err)
+			return
+		}
+		if refuseDashRange(w, lang, stored.With(p, keys)) {
+			return
+		}
 	}
 	if err := settings.SaveKeys(ctx, s.app, sess.UID, p, keys); err != nil {
 		s.internalError(w, "save preferences", err)
