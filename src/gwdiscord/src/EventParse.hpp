@@ -24,6 +24,8 @@ std::string	json_str(const Json::Value &v, const char *key);
 
 User		parse_user(const Json::Value &v);
 Attachment	parse_attachment(const Json::Value &v);
+Embed		parse_embed(const Json::Value &v);
+Poll		parse_poll(const Json::Value &v);
 Message		parse_message(const Json::Value &v);
 MessageDelete	parse_message_delete(const Json::Value &v);
 Ready		parse_ready(const Json::Value &v);

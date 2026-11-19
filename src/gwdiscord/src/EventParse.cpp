@@ -84,6 +84,45 @@ Sticker parse_sticker(const Json::Value &v)
 	return s;
 }
 
+Embed parse_embed(const Json::Value &v)
+{
+	Embed e;
+	if (!v.isObject())
+		return e;
+	e.type = json_str(v, "type");
+	e.title = json_str(v, "title");
+	e.description = json_str(v, "description");
+	e.url = json_str(v, "url");
+	e.author_name = json_str(v["author"], "name");
+	if (v.isMember("fields") && v["fields"].isArray()) {
+		for (const auto &f : v["fields"]) {
+			Embed::Field ef;
+			ef.name = json_str(f, "name");
+			ef.value = json_str(f, "value");
+			e.fields.push_back(std::move(ef));
+		}
+	}
+	return e;
+}
+
+Poll parse_poll(const Json::Value &v)
+{
+	Poll p;
+	if (!v.isObject())
+		return p;
+	/* The question and each answer are "poll media": text and emoji. */
+	p.question = json_str(v["question"], "text");
+	if (v.isMember("answers") && v["answers"].isArray()) {
+		for (const auto &a : v["answers"])
+			p.answers.push_back(json_str(a["poll_media"], "text"));
+	}
+	p.allow_multiselect = v.isMember("allow_multiselect") &&
+			      v["allow_multiselect"].isBool() &&
+			      v["allow_multiselect"].asBool();
+	p.expiry = json_str(v, "expiry");
+	return p;
+}
+
 Message parse_message(const Json::Value &v)
 {
 	Message m;
@@ -112,6 +151,14 @@ Message parse_message(const Json::Value &v)
 		for (const auto &st : v["sticker_items"])
 			m.stickers.push_back(parse_sticker(st));
 	}
+
+	if (v.isMember("embeds") && v["embeds"].isArray()) {
+		for (const auto &e : v["embeds"])
+			m.embeds.push_back(parse_embed(e));
+	}
+
+	if (v.isMember("poll") && v["poll"].isObject())
+		m.poll = parse_poll(v["poll"]);
 
 	if (v.isMember("message_reference") &&
 	    v["message_reference"].isObject()) {

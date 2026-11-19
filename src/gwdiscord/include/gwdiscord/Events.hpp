@@ -97,6 +97,35 @@ struct Sticker {
 	}
 };
 
+/*
+ * An embed, with only the parts a text bridge renders. Bots and webhooks post
+ * "rich" embeds; Discord itself adds the other types ("link", "image",
+ * "video", "article", ...) when it unfurls a link in the content.
+ */
+struct Embed {
+	struct Field {
+		std::string	name;
+		std::string	value;
+	};
+
+	std::string		type;		/* "rich" when absent */
+	std::string		title;
+	std::string		description;
+	std::string		url;
+	std::string		author_name;
+	std::vector<Field>	fields;
+
+	bool is_rich(void) const { return type.empty() || type == "rich"; }
+};
+
+/* A poll attached to a message, without its results. */
+struct Poll {
+	std::string		question;
+	std::vector<std::string> answers;	/* each answer's text */
+	bool			allow_multiselect = false;
+	std::string		expiry;	/* ISO-8601, as sent; empty if none */
+};
+
 /* Where a reply points. Present only when the message is a reply. */
 struct MessageReference {
 	Snowflake	message_id = 0;
@@ -139,6 +168,8 @@ struct Message {
 	uint64_t	flags = 0;	/* Flag bits */
 	std::vector<Attachment>		attachments;
 	std::vector<Sticker>		stickers;
+	std::vector<Embed>		embeds;
+	std::optional<Poll>		poll;
 	std::optional<MessageReference>	reference;
 
 	bool from_webhook(void) const { return webhook_id != 0; }

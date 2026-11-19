@@ -79,6 +79,31 @@ static const char *JOIN = R"({"op":0,"s":4,"t":"MESSAGE_CREATE","d":{
 	"type":7,"flags":0,"content":"",
 	"author":{"id":"2","username":"bob","discriminator":"0"}}})";
 
+/* A bot's rich embed, and the link embed Discord unfurled beside it. */
+static const char *EMBED = R"({"op":0,"s":5,"t":"MESSAGE_CREATE","d":{
+	"id":"1541191219416399925",
+	"channel_id":"1541156106343161896",
+	"type":0,"content":"",
+	"author":{"id":"3","username":"newsbot","bot":true},
+	"embeds":[{"type":"rich","title":"Release 1.2","description":"Fixes",
+	           "url":"https://example.org/1.2",
+	           "author":{"name":"Maintainers"},
+	           "fields":[{"name":"Changes","value":"12","inline":true}]},
+	          {"type":"link","url":"https://example.org/"}]}})";
+
+/* A poll. */
+static const char *POLL = R"({"op":0,"s":6,"t":"MESSAGE_CREATE","d":{
+	"id":"1541191219416399926",
+	"channel_id":"1541156106343161896",
+	"type":0,"content":"",
+	"author":{"id":"4","username":"carol"},
+	"poll":{"question":{"text":"Lunch?"},
+	        "answers":[{"answer_id":1,"poll_media":{"text":"Pizza"}},
+	                   {"answer_id":2,"poll_media":{"text":"Soup",
+	                    "emoji":{"name":"x"}}}],
+	        "expiry":"2026-11-21T10:00:00.000000+00:00",
+	        "allow_multiselect":true,"layout_type":1}}})";
+
 static LogSink quiet_log(void)
 {
 	return [](LogLevel, const std::string &) {};
@@ -151,6 +176,7 @@ static void test_happy_path(void)
 	CHECK(seen.type == Message::TYPE_DEFAULT && seen.flags == 0,
 	      "type and flags default when absent");
 	CHECK(!seen.is_voice_message(), "not a voice message");
+	CHECK(seen.embeds.empty() && !seen.poll, "no embed and no poll");
 	CHECK(seen.from_webhook(), "webhook_id detected (loop suppression)");
 	CHECK(seen.webhook_id == 1541156222617649172ULL, "webhook_id value");
 	CHECK(seen.is_reply(), "reply detected");
@@ -209,6 +235,46 @@ static void test_message_kinds(void)
 	const Message &j = msgs[1];
 	CHECK(j.type == 7, "system message type parsed");
 	CHECK(!j.is_voice_message(), "system message is no voice message");
+}
+
+/* Embeds and polls, with the fields a bridge renders. */
+static void test_embeds_and_polls(void)
+{
+	printf("test: embeds and polls\n");
+
+	const auto msgs = run_messages({EMBED, POLL});
+	CHECK(msgs.size() == 2, "both messages dispatched");
+	if (msgs.size() != 2)
+		return;
+
+	const Message &e = msgs[0];
+	CHECK(e.embeds.size() == 2, "both embeds parsed");
+	if (e.embeds.size() == 2) {
+		const Embed &r = e.embeds[0];
+		CHECK(r.is_rich(), "rich embed");
+		CHECK(r.title == "Release 1.2" && r.description == "Fixes" &&
+			      r.url == "https://example.org/1.2",
+		      "embed title, description and url");
+		CHECK(r.author_name == "Maintainers", "embed author name");
+		CHECK(r.fields.size() == 1 && r.fields[0].name == "Changes" &&
+			      r.fields[0].value == "12",
+		      "embed field");
+		CHECK(!e.embeds[1].is_rich(), "link embed is not rich");
+	}
+	CHECK(!e.poll, "an embed is no poll");
+
+	const Message &p = msgs[1];
+	CHECK(p.poll.has_value(), "poll parsed");
+	if (p.poll) {
+		CHECK(p.poll->question == "Lunch?", "poll question");
+		CHECK(p.poll->answers.size() == 2 &&
+			      p.poll->answers[0] == "Pizza" &&
+			      p.poll->answers[1] == "Soup",
+		      "poll answers");
+		CHECK(p.poll->allow_multiselect, "poll allow_multiselect");
+		CHECK(p.poll->expiry == "2026-11-21T10:00:00.000000+00:00",
+		      "poll expiry");
+	}
 }
 
 /*
@@ -286,6 +352,7 @@ int main(void)
 {
 	test_happy_path();
 	test_message_kinds();
+	test_embeds_and_polls();
 	test_fatal_close_does_not_reconnect();
 	test_auth_failure();
 	test_recoverable_close_retries();
