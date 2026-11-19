@@ -139,6 +139,18 @@ granted one group thus never reads the name of someone who appears
 only in another group, and an admin never reads the title of a group
 hidden from it.
 
+`parts` is the rebuilt text piece by piece, so a client can link the
+names without matching them in the text (two people can share a name,
+and a name can contain the words around it). Each part has `text`;
+a name also has `user` or `chat`, its index in `refs.users` or
+`refs.chats`. Joined, the parts' texts are the message's text:
+
+    [{"text": "added "}, {"text": "Dewi Kusuma", "user": 0},
+     {"text": " and 1 other member to the group"}]
+
+`parts` is absent where the stored description is sent; draw the text
+then. Someone the viewer may not see is never a part, only counted.
+
 ## Text formatting
 
 `entities` is Telegram's formatting of a text, as the daemon stores it

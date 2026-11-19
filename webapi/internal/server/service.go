@@ -23,7 +23,11 @@ import (
 // names of those the viewer may see, and counts the others without
 // naming them ("added Dewi Kusuma and 1 other member to the group").
 // The stored text is sent only where nothing visible can be named,
-// which is never a name the viewer may not see.
+// which is never a name the viewer may not see. The rebuilt text also
+// goes out piece by piece (ServiceInfo.parts), each name pointing at
+// its ref, so a client can link it without matching names in the text:
+// two people can share a name, and a name can contain the words around
+// it.
 
 // serviceExtra is content_extra as a service message's refs read it.
 type serviceExtra struct {
@@ -116,21 +120,75 @@ type serviceRefsJSON struct {
 	MessageID *int64        `json:"message_id"`
 }
 
+// servicePartJSON is one piece of a rebuilt text (ServicePart): plain
+// text, or a name, which points at its user or chat in refs by index.
+type servicePartJSON struct {
+	Text string `json:"text"`
+	User *int   `json:"user,omitempty"`
+	Chat *int   `json:"chat,omitempty"`
+}
+
 type serviceJSON struct {
 	Type string          `json:"type"`
 	Refs serviceRefsJSON `json:"refs"`
+	// Parts is the rebuilt text piece by piece, so a client can link
+	// the names; absent where the stored text, which names nobody, is
+	// sent.
+	Parts []servicePartJSON `json:"parts,omitempty"`
+}
+
+// servicePart is a piece of a rebuilt service text: plain text, or
+// the name of the user or chat id (non-zero), one refs lists.
+type servicePart struct {
+	text string
+	id   int64
+}
+
+// plain is text that names nobody, as a piece of a line.
+func plain(s string) []servicePart {
+	return []servicePart{{text: s}}
+}
+
+// line joins pieces into a service text, merging neighbouring plain
+// text, so the parts read as the text does.
+func line(pieces ...[]servicePart) []servicePart {
+	var out []servicePart
+	for _, ps := range pieces {
+		for _, p := range ps {
+			if n := len(out); n > 0 && p.id == 0 && out[n-1].id == 0 {
+				out[n-1].text += p.text
+				continue
+			}
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// partsText is the text the parts spell.
+func partsText(ps []servicePart) string {
+	var b strings.Builder
+	for _, p := range ps {
+		b.WriteString(p.text)
+	}
+	return b.String()
 }
 
 // nameList joins names as a sentence lists them: "A", "A and B",
 // "A, B and C".
-func nameList(names []string) string {
-	switch len(names) {
-	case 0:
-		return ""
-	case 1:
-		return names[0]
+func nameList(names []servicePart) []servicePart {
+	var out []servicePart
+	for i, n := range names {
+		switch {
+		case i == 0:
+		case i == len(names)-1:
+			out = append(out, servicePart{text: " and "})
+		default:
+			out = append(out, servicePart{text: ", "})
+		}
+		out = append(out, n)
 	}
-	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	return out
 }
 
 // others counts the ones left unnamed: "1 other member", "2 other
@@ -145,10 +203,10 @@ func others(n int, noun string) string {
 
 // named is the names of the visible ones among ids, and how many are
 // left out.
-func (v view) named(k kinds, ids []int64) (names []string, hidden int) {
+func (v view) named(k kinds, ids []int64) (names []servicePart, hidden int) {
 	for _, id := range ids {
-		if r, ok := v.ref(k, id); ok {
-			names = append(names, r.Title)
+		if r, ok := v.ref(k, id); ok && id != 0 {
+			names = append(names, servicePart{text: r.Title, id: id})
 		} else {
 			hidden++
 		}
@@ -157,76 +215,87 @@ func (v view) named(k kinds, ids []int64) (names []string, hidden int) {
 }
 
 // people is the visible ones among ids and a count of the others, as a
-// list: "Dewi Kusuma and 2 other members"; "" when none is visible.
-func (v view) people(k kinds, ids []int64, noun string) string {
+// list: "Dewi Kusuma and 2 other members"; nil when none is visible.
+func (v view) people(k kinds, ids []int64, noun string) []servicePart {
 	names, hidden := v.named(k, ids)
 	if len(names) == 0 {
-		return ""
+		return nil
 	}
 	if hidden > 0 {
-		names = append(names, others(hidden, noun))
+		names = append(names, servicePart{text: others(hidden, noun)})
 	}
 	return nameList(names)
 }
 
-// serviceText is the action's description for the viewer: rebuilt to
-// name whom it may see where the action names people, else the stored
-// one, which names nobody.
+// serviceText is the action's description for the viewer
+// (serviceParts), as text.
 func (v view) serviceText(k kinds, m logdb.Message, x *serviceExtra) string {
-	if x == nil {
-		return m.Text
+	if ps := v.serviceParts(k, m, x); ps != nil {
+		return partsText(ps)
 	}
-	one := func(id int64) string {
+	return m.Text
+}
+
+// serviceParts is the action's description for the viewer, rebuilt to
+// name whom it may see where the action names people; nil where the
+// stored text, which names nobody, stands. Text and parts both come
+// from here, so they always agree.
+func (v view) serviceParts(k kinds, m logdb.Message, x *serviceExtra) []servicePart {
+	if x == nil {
+		return nil
+	}
+	one := func(id int64) []servicePart {
 		if r, ok := v.ref(k, id); ok && id != 0 {
-			return r.Title
+			return []servicePart{{text: r.Title, id: id}}
 		}
-		return ""
+		return nil
 	}
 	switch m.ServiceType {
 	case "chat_add_members":
 		// One member who added itself joined; the sender says who.
 		if len(x.UserIDs) == 1 && x.UserIDs[0] == m.SenderUser {
-			return m.Text
+			return nil
 		}
-		if p := v.people(k, x.UserIDs, "member"); p != "" {
-			return "added " + p + " to the group"
+		if p := v.people(k, x.UserIDs, "member"); p != nil {
+			return line(plain("added "), p, plain(" to the group"))
 		}
 	case "chat_delete_member":
 		if x.UserID != m.SenderUser {
-			if n := one(x.UserID); n != "" {
-				return "removed " + n + " from the group"
+			if n := one(x.UserID); n != nil {
+				return line(plain("removed "), n, plain(" from the group"))
 			}
 		}
 	case "chat_owner_left":
-		if n := one(x.NewOwner); n != "" {
-			return "left the group and handed ownership to " + n
+		if n := one(x.NewOwner); n != nil {
+			return line(plain("left the group and handed ownership to "), n)
 		}
 	case "chat_owner_changed":
-		if n := one(x.NewOwner); n != "" {
-			return "transferred ownership of the group to " + n
+		if n := one(x.NewOwner); n != nil {
+			return line(plain("transferred ownership of the group to "), n)
 		}
 	case "invite_video_chat_participants":
-		if p := v.people(k, x.UserIDs, "participant"); p != "" {
-			return "invited " + p + " to the video chat"
+		if p := v.people(k, x.UserIDs, "participant"); p != nil {
+			return line(plain("invited "), p, plain(" to the video chat"))
 		}
 	case "giveaway_winners":
 		chat, winners := one(x.BoostedChat), v.people(k, x.Winners, "winner")
 		switch {
-		case chat != "" && winners != "":
-			return "announced the winners of the giveaway in " + chat + ": " + winners
-		case chat != "":
-			return "announced the winners of the giveaway in " + chat
-		case winners != "":
-			return "announced the giveaway winners: " + winners
+		case chat != nil && winners != nil:
+			return line(plain("announced the winners of the giveaway in "), chat,
+				plain(": "), winners)
+		case chat != nil:
+			return line(plain("announced the winners of the giveaway in "), chat)
+		case winners != nil:
+			return line(plain("announced the giveaway winners: "), winners)
 		}
 	case "chat_shared":
 		if x.Chat != nil {
-			if n := one(x.Chat.id()); n != "" {
-				return "shared " + n + " with the bot"
+			if n := one(x.Chat.id()); n != nil {
+				return line(plain("shared "), n, plain(" with the bot"))
 			}
 		}
 	}
-	return m.Text
+	return nil
 }
 
 // service is a service message's ServiceInfo, nil for other kinds.
@@ -258,5 +327,35 @@ func (v view) service(k kinds, m logdb.Message) *serviceJSON {
 	if id := x.messageID(); id != 0 {
 		j.Refs.MessageID = &id
 	}
+	j.Parts = serviceRefParts(j.Refs, v.serviceParts(k, m, x))
 	return j
+}
+
+// serviceRefParts is the parts as ServicePart writes them, each name
+// pointing at its user or chat in refs. A name always has its ref, as
+// both name only the visible ones of parties; one without would stay
+// plain text.
+func serviceRefParts(refs serviceRefsJSON, ps []servicePart) []servicePartJSON {
+	if ps == nil {
+		return nil
+	}
+	index := func(rs []chatRefJSON, id int64) *int {
+		for i, r := range rs {
+			if r.ID == id {
+				return &i
+			}
+		}
+		return nil
+	}
+	out := make([]servicePartJSON, 0, len(ps))
+	for _, p := range ps {
+		j := servicePartJSON{Text: p.text}
+		if p.id != 0 {
+			if j.User = index(refs.Users, p.id); j.User == nil {
+				j.Chat = index(refs.Chats, p.id)
+			}
+		}
+		out = append(out, j)
+	}
+	return out
 }
