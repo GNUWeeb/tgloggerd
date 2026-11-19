@@ -80,7 +80,8 @@ type Sample = { content_type: string; text?: string; entities?: (v: View) => Ent
 // name pointing at its index in refs.users (LOCAL until openapi.yaml
 // has ServiceInfo.parts; src/ui/serviceparts.tsx reads them).
 type ServicePart = { text: string; user?: number; chat?: number };
-type Service = { type: string; text: string; parts?: ServicePart[]; refs: { users: Ref[]; chats: Ref[]; message_id: number | null } };
+// detail is the action's stored detail, absent when there is none.
+type Service = { type: string; text: string; parts?: ServicePart[]; refs: { users: Ref[]; chats: Ref[]; message_id: number | null }; detail?: unknown };
 type Kinds = { pinned: boolean; views: number | null; forwards: number | null; replies: number | null; reactions: { emoji?: string; custom_emoji_id?: string; paid?: boolean; count: number }[] };
 
 // Entities over a text: each part is found in the text (after the
@@ -307,8 +308,44 @@ function publicPolls(): Map<number, Sample> {
 	return pubKeys;
 }
 
+// The forum group's newest service messages, each an action with its
+// stored detail: a new photo (stored, and one not stored), a pin with
+// the pinned message's snippet and one logged before pins kept it, a
+// video chat's length and start, a poll option, a topic, a community
+// (one a member may not see), the group's old title, a background.
+// Looked up only once the forum's chat is asked about, as above.
+let forumKeys: Map<number, Sample> | null = null;
+const NEW_PHOTO = { stored: true, fetchable: false, url: '/files/standin-986010', thumb: '/files/standin-986010', render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 48000 };
+const LOST_PHOTO = { stored: false, fetchable: false, url: null, thumb: null, render: 'image', ext: 'jpg', w: 640, h: 640, name: '', size: 51000 };
+function forumServices(): Map<number, Sample> {
+	if (forumKeys) return forumKeys;
+	forumKeys = new Map();
+	const all = chatStream(FORUM_GROUP) as { content_type: string; message_id: number; text: string }[];
+	const pinned = all.filter((m) => m.content_type === 'text' && m.text).at(-8);
+	const svc = (type: string, text: string, detail: (v: View) => unknown, message_id: number | null = null): Sample =>
+		({ content_type: 'service', service: (v) => ({ type, text, refs: { users: [], chats: [], message_id }, detail: detail(v) }) });
+	const list: Sample[] = [
+		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: NEW_PHOTO })),
+		svc('chat_change_photo', 'changed the group photo', () => ({ kind: 'photo', photo: LOST_PHOTO })),
+		svc('pin_message', 'pinned a message', () => (pinned ? { kind: 'pin', snippet: pinned.text.slice(0, 80) } : null), pinned?.message_id ?? null),
+		svc('pin_message', 'pinned a message', () => null),
+		svc('video_chat_ended', 'ended the video chat', () => ({ kind: 'video_chat', duration: 3725, start_date: null })),
+		svc('video_chat_scheduled', 'scheduled a video chat', () => ({ kind: 'video_chat', duration: null, start_date: '2026-12-01T12:00:00Z' })),
+		svc('poll_option_added', 'added an option to a poll', () => ({ kind: 'poll_option', text: 'Rust in the kernel' })),
+		svc('forum_topic_created', `created topic "${TOPICS[1]!.name}"`, () => ({ kind: 'topic', topic: { id: TOPICS[1]!.id, name: TOPICS[1]!.name, icon_color: TOPICS[1]!.icon_color } })),
+		svc('chat_added_to_community', 'added the group to a community', (v) => { const c = refOf(v, PUBLIC_POLLS_GROUP.id); return c ? { kind: 'community', community: c } : null; }),
+		svc('chat_upgrade_from', 'the supergroup was created from a group', (v) => ({ kind: 'title', title: 'Linux Study Group', basic_group: refOf(v, KINDS_GROUP.id) })),
+		svc('chat_set_background', 'changed the chat background', () => ({ kind: 'background', only_for_self: true })),
+	];
+	const rows = all.filter((m) => m.content_type === 'service').slice(-list.length);
+	rows.forEach((m, i) => forumKeys!.set(m.message_id, list[i]!));
+	return forumKeys;
+}
+
 export const sampleOf = (m: { chat: { id: number; kind: string }; message_id: number }) =>
-	(m.chat.kind === 'group' && m.chat.id === PUBLIC_POLLS_GROUP.id ? publicPolls().get(m.message_id) : table().get(`${m.chat.kind}${m.chat.id}:${m.message_id}`)) ?? null;
+	(m.chat.kind === 'group' && m.chat.id === PUBLIC_POLLS_GROUP.id ? publicPolls().get(m.message_id)
+		: m.chat.kind === 'group' && m.chat.id === FORUM_GROUP.id ? forumServices().get(m.message_id)
+		: table().get(`${m.chat.kind}${m.chat.id}:${m.message_id}`)) ?? null;
 
 // The MessageKinds of a message for a viewer, and what a sample changes
 // of the message itself.
@@ -319,7 +356,7 @@ export function kindsOf(m: { chat: { id: number; kind: string }; message_id: num
 		detail: s?.detail ? s.detail(v) : null,
 		// Every service message says its action; the stand-in's own ones
 		// name nobody.
-		service: svc ? { type: svc.type, refs: svc.refs, ...(svc.parts ? { parts: svc.parts } : {}) } : null,
+		service: svc ? { type: svc.type, refs: svc.refs, ...(svc.parts ? { parts: svc.parts } : {}), ...(svc.detail != null ? { detail: svc.detail } : {}) } : null,
 		topic_id: topicOf(m), pinned: false, views: null as number | null, forwards: null as number | null, replies: null as number | null,
 		reactions: [] as Kinds['reactions'],
 		...(s?.kinds ?? {}),

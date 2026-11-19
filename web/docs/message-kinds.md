@@ -8,7 +8,8 @@ message page (`/api/page/messages/{scope}/{id}`) send beyond the text
 and the media, and what each viewer may see of it. The shapes are in
 webapi/openapi.yaml: ContentType, MessageKinds, MessageDetail,
 ServiceInfo, ChatTopic, LinkPreview, TextEntity; the code is
-webapi/internal/server/kinds.go, service.go and textentities.go.
+webapi/internal/server/kinds.go, service.go, service_detail.go and
+textentities.go.
 
 ## Content types
 
@@ -189,6 +190,35 @@ a name also has `user` or `chat`, its index in `refs.users` or
 
 `parts` is absent where the stored description is sent; draw the text
 then. Someone the viewer may not see is never a part, only counted.
+
+`detail` (ServiceDetail) is what the action's stored detail says
+beyond its line, tagged by `kind`, for the types that have one; it is
+absent where the type has none, nothing of it is stored, or what it
+names the viewer may not see:
+
+| Action | detail |
+|---|---|
+| chat_change_photo, suggest_profile_photo | `{kind: "photo", photo}`: the new (or suggested) photo as ChatMedia, the message's file of role chat_photo |
+| video_chat_ended, video_chat_scheduled | `{kind: "video_chat", duration, start_date}`: seconds, or when it is to start; the other is null |
+| pin_message | `{kind: "pin", snippet}`: the pinned message quoted as a reply quotes it |
+| poll_option_added, poll_option_deleted | `{kind: "poll_option", text}`: the option's text |
+| forum_topic_* | `{kind: "topic", topic: {id, name, icon_color}}` |
+| chat_added_to_community, chat_removed_from_community, chat_join_from_community | `{kind: "community", community}`: a ChatRef |
+| chat_create, chat_upgrade_from | `{kind: "title", title, basic_group}`: basic_group a ChatRef or null |
+| chat_set_background | `{kind: "background", only_for_self}` |
+
+    {"type": "pin_message", "refs": {...},
+     "detail": {"kind": "pin", "snippet": "Release notes for 1.0 are out"}}
+
+A pin has a detail only when the archive has the pinned message (pins
+logged before their message id was recorded have none); a message
+without text is summarised as a reply's target is, so a story's poster
+the viewer may not see is not named ("Story"). A topic's `id` is the
+message's own forum topic, for a `?topic=` link; its name and colour
+are the action's, else the topic's as last seen. The community and the
+basic group are given only when the archive has the group and the
+viewer may see it. A community's id is not a chat's, so a community
+line has no detail until the logger records communities as groups.
 
 ## Text formatting
 

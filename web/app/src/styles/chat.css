@@ -179,6 +179,11 @@
 .app .c-svctime { margin-left: 6px; opacity: .75; font-size: 11.5px; color: inherit; }
 .app .c-service .c-deltag { margin-left: 6px; }
 .app .c-service.deleted > span { opacity: .65; }
+.app .c-svcphoto { display: inline-grid; place-items: center; vertical-align: middle; margin: -2px 0; border-radius: 50%; overflow: hidden; padding: 0; border: 0; }
+.app .c-svcphoto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.app button.c-svcphoto { cursor: pointer; }
+.app .c-svcquote { font-style: italic; }
+.app .c-svctopic { display: inline-flex; align-items: center; gap: 4px; }
 .app .c-editmedia { display: inline-block; margin: 4px 0; }
 .app .c-editmedia img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; display: block; }
 .app .c-editfile { margin: 2px 0; }
