@@ -342,9 +342,97 @@ func TestKindDetailsScoped(t *testing.T) {
 	}
 }
 
-// TestKindsDescribed: every key of every detail the fixture answers is
-// a property of its schema in openapi.yaml, the one MessageDetail's
-// discriminator maps its kind to.
+// editsOf is a message's earlier versions.
+func editsOf(t *testing.T, m map[string]any) []map[string]any {
+	t.Helper()
+	out := []map[string]any{}
+	for _, e := range asList(m["edits"]) {
+		out = append(out, e.(map[string]any))
+	}
+	return out
+}
+
+// TestEditDetails: each earlier version of a message has its own
+// detail from its content_extra, in the chat window and on the message
+// page: a live location's earlier positions, how many came before
+// each, a checklist's earlier tasks with who did them as the viewer
+// may see them; a poll's versions have none, as the poll tables keep
+// only the latest results.
+func TestEditDetails(t *testing.T) {
+	t.Parallel()
+	e := kindsEnv(t)
+	ms := kindsWindow(t, e, "superadmin", "")
+	for name, m := range map[string]map[string]any{"window": ms[4002],
+		"page": pageMessage(t, e, "superadmin", "group", 4002)} {
+		eds := editsOf(t, m)
+		if len(eds) != 3 {
+			t.Fatalf("%s: live location edits %v", name, m["edits"])
+		}
+		for i, want := range [][2]float64{{-6.2, 106.81}, {-6.205, 106.815}, {-6.208, 106.818}} {
+			d, _ := eds[i]["detail"].(map[string]any)
+			live, _ := d["live"].(map[string]any)
+			if eds[i]["content_type"] != "location" || d["kind"] != "location" ||
+				d["lat"] != want[0] || d["lon"] != want[1] || live == nil ||
+				num(live["period"]) != 900 || num(live["updates"]) != int64(i) {
+				t.Errorf("%s: version %d at %v: %v", name, i, eds[i]["at"], eds[i]["detail"])
+			}
+		}
+		if eds[0]["at"] != "2026-11-17T15:02:00Z" || eds[1]["at"] != "2026-11-17T15:03:00Z" {
+			t.Errorf("%s: version times %v %v", name, eds[0]["at"], eds[1]["at"])
+		}
+	}
+
+	eds := editsOf(t, ms[4009])
+	if len(eds) != 1 {
+		t.Fatalf("checklist edits %v", ms[4009]["edits"])
+	}
+	d, _ := eds[0]["detail"].(map[string]any)
+	tasks := asList(d["tasks"])
+	if d["kind"] != "checklist" || len(tasks) != 2 || num(d["tasks_total"]) != 2 ||
+		d["others_can_add"] != false || eds[0]["text"] != "Release checklist" {
+		t.Fatalf("checklist version %v", eds[0])
+	}
+	if t1, t2 := tasks[0].(map[string]any), tasks[1].(map[string]any); t1["text"] != "Task 1" ||
+		t1["done"] != true || refID(t1["done_by"]) != bima || t2["done"] != false {
+		t.Errorf("checklist version tasks %v %v", t1, t2)
+	}
+	// The message itself keeps its latest detail.
+	if num(detailOf(t, ms, 4009)["tasks_total"]) != 22 {
+		t.Errorf("checklist %v", ms[4009]["detail"])
+	}
+
+	eds = editsOf(t, ms[4008])
+	if len(eds) != 1 || eds[0]["text"] != "Pick" || eds[0]["content_type"] != "poll" {
+		t.Fatalf("poll edits %v", ms[4008]["edits"])
+	}
+	if v, ok := eds[0]["detail"]; !ok || v != nil {
+		t.Errorf("poll version detail %v %v", v, ok)
+	}
+	if detailOf(t, ms, 4008)["kind"] != "poll" {
+		t.Errorf("poll %v", ms[4008]["detail"])
+	}
+
+	// A member does not see Bima, so the version names nobody for
+	// the task he did.
+	for name, m := range map[string]map[string]any{"window": kindsWindow(t, e, "member", "")[4009],
+		"page": pageMessage(t, e, "member", "group", 4009)} {
+		eds := editsOf(t, m)
+		if len(eds) != 1 {
+			t.Fatalf("member %s: checklist edits %v", name, m["edits"])
+		}
+		d, _ := eds[0]["detail"].(map[string]any)
+		tasks := asList(d["tasks"])
+		if len(tasks) != 2 || tasks[0].(map[string]any)["done"] != true ||
+			tasks[0].(map[string]any)["done_by"] != nil {
+			t.Errorf("member %s: checklist version %v", name, d)
+		}
+	}
+}
+
+// TestKindsDescribed: every key of every detail the fixture answers,
+// a message's or an earlier version's, is a property of its schema in
+// openapi.yaml, the one MessageDetail's discriminator maps its kind
+// to.
 func TestKindsDescribed(t *testing.T) {
 	t.Parallel()
 	src, err := os.ReadFile("../../openapi.yaml")
@@ -358,11 +446,21 @@ func TestKindsDescribed(t *testing.T) {
 	mapping := root.get("components", "schemas", "MessageDetail", "discriminator", "mapping")
 	e := kindsEnv(t)
 	var undescribed []string
+	var details []map[string]any
+	var rows []int
 	for row, m := range kindsWindow(t, e, "superadmin", "") {
-		d, ok := m["detail"].(map[string]any)
-		if !ok {
-			continue
+		if d, ok := m["detail"].(map[string]any); ok {
+			details, rows = append(details, d), append(rows, row)
 		}
+		// The earlier versions' details too.
+		for _, ed := range editsOf(t, m) {
+			if d, ok := ed["detail"].(map[string]any); ok {
+				details, rows = append(details, d), append(rows, row)
+			}
+		}
+	}
+	for i, d := range details {
+		row := rows[i]
 		ref := mapping.get(fmt.Sprint(d["kind"]))
 		if ref == nil {
 			t.Errorf("row %d: kind %v not in the discriminator", row, d["kind"])

@@ -2114,6 +2114,8 @@ export interface components {
             content_type?: components["schemas"]["ContentType"];
             /** @description The version's media, when it had a file. */
             media?: components["schemas"]["ChatMedia"];
+            /** @description The version's detail, by its content_type, from the edit row's own content_extra (the edit tables have it since daemon migration 000034), as MessageKinds.detail is the message's: a live location's position at that time, a checklist's tasks then. A live location's live.updates counts the versions before this one. Null where the message's would be, and for every version of a poll: the poll tables keep only the latest results, so a poll's versions keep only their text. A version shows none of the message's other files (a game's or an invoice's photo, paid media's items), which are the message's as it is now. */
+            detail: components["schemas"]["MessageDetail"] | null;
         };
         /** @description One piece of Telegram's formatting of a text, as the daemon stores it (web/docs/message-kinds.md, "Text formatting"). offset and length are in UTF-16 code units of the text, as Telegram counts them (a JavaScript string's indices). type is the TDLib entity type in snake_case: url, text_url, mention, mention_name, hashtag, cashtag, bot_command, email, phone_number, bank_card_number, bold, italic, underline, strikethrough, spoiler, code, pre, pre_code, block_quote, expandable_block_quote, custom_emoji, media_timestamp; types the daemon does not know are stored as unknown, and any other value is passed through, so a client shows the text of an entity it does not know as plain text. Entities may nest (bold inside a link) and touch; they do not cross. */
         TextEntity: {

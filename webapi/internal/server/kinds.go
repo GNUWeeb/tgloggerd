@@ -192,8 +192,12 @@ func (x *kindExtra) parties(ctype string) (users, chats []int64) {
 // kinds is what a page of messages' detail reads besides the rows,
 // loaded once per page (Server.loadKinds).
 type kinds struct {
-	chat    int64 // the chat being read
-	extra   map[uint64]*kindExtra
+	chat  int64 // the chat being read
+	extra map[uint64]*kindExtra
+	// edits are the content_extra of a message's earlier versions,
+	// by its row id and in the order of its Edits; nil for a version
+	// without a detail.
+	edits   map[uint64][]*kindExtra
 	service map[uint64]*serviceExtra
 	polls   map[int64]*logdb.Poll
 	users   map[int64]logdb.User  // the visible ones
@@ -215,7 +219,8 @@ func pollClosed(closed bool, closeDate, now int64) bool {
 // and the users and groups they name, and the people their text
 // entities mention, as sc may see them.
 func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms []logdb.Message) (kinds, error) {
-	k := kinds{chat: chat, extra: map[uint64]*kindExtra{}, service: map[uint64]*serviceExtra{}}
+	k := kinds{chat: chat, extra: map[uint64]*kindExtra{}, edits: map[uint64][]*kindExtra{},
+		service: map[uint64]*serviceExtra{}}
 	var users, chats, polls []int64
 	for _, m := range ms {
 		if m.ContentType == "service" {
@@ -230,6 +235,24 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 				}
 			}
 			continue
+		}
+		// An earlier version's detail is its own content_extra, but
+		// for a poll's: the poll tables keep only the latest results,
+		// so a poll's versions have none.
+		for i, e := range m.Edits {
+			if !detailKinds[e.ContentType] || e.ContentType == "poll" {
+				continue
+			}
+			x := parseKindExtra(e.Extra)
+			if x == nil {
+				continue
+			}
+			if k.edits[m.RowID] == nil {
+				k.edits[m.RowID] = make([]*kindExtra, len(m.Edits))
+			}
+			k.edits[m.RowID][i] = x
+			u, c := x.parties(e.ContentType)
+			users, chats = append(users, u...), append(chats, c...)
 		}
 		if !detailKinds[m.ContentType] {
 			continue
@@ -269,16 +292,14 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 			continue
 		}
 		mc.add(m.Text, m.Entities, "message")
-		for _, e := range m.Edits {
+		for i, e := range m.Edits {
 			mc.add(e.Text, e.Entities, "edit")
-		}
-		if x := k.extra[m.RowID]; x != nil && m.ContentType == "checklist" {
-			for i, t := range x.Tasks {
-				if i == listCap {
-					break
-				}
-				mc.add(t.Text, t.Entities, "checklist task")
+			if xs := k.edits[m.RowID]; xs != nil && e.ContentType == "checklist" {
+				mc.addTasks(xs[i])
 			}
+		}
+		if m.ContentType == "checklist" {
+			mc.addTasks(k.extra[m.RowID])
 		}
 	}
 	for id, p := range k.polls {
@@ -290,6 +311,20 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 	}
 	k.mentions, err = mc.load(ctx, sc)
 	return k, err
+}
+
+// addTasks adds the people the text of a checklist's shown tasks
+// mention; x may be nil.
+func (c *mentionCollector) addTasks(x *kindExtra) {
+	if x == nil {
+		return
+	}
+	for i, t := range x.Tasks {
+		if i == listCap {
+			break
+		}
+		c.add(t.Text, t.Entities, "checklist task")
+	}
 }
 
 // ref is the user (positive id) or chat (negative id) as the viewer
@@ -556,12 +591,30 @@ func callOutcome(x *kindExtra) string {
 
 // detail is a message's MessageDetail, or nil (see MessageKinds.detail).
 func (v view) detail(k kinds, m logdb.Message) any {
-	ctype := m.ContentType
+	return v.kindDetail(k, m, m.ContentType, k.extra[m.RowID], len(m.Edits))
+}
+
+// editDetail is the MessageDetail of a message's i-th earlier version,
+// or nil (see Edit.detail). The other files (a game's or an invoice's
+// photo, paid media's items) are the message's as it is now, so a
+// version shows none; a live location's updates are the versions
+// before it.
+func (v view) editDetail(k kinds, m logdb.Message, i int) any {
+	var x *kindExtra
+	if xs := k.edits[m.RowID]; xs != nil {
+		x = xs[i]
+	}
+	return v.kindDetail(k, logdb.Message{}, m.Edits[i].ContentType, x, i)
+}
+
+// kindDetail is the MessageDetail of a ctype content with x as its
+// parsed content_extra, the other files of m and updates earlier
+// positions of a live location; nil without one.
+func (v view) kindDetail(k kinds, m logdb.Message, ctype string, x *kindExtra, updates int) any {
 	switch ctype {
 	case "rich", "widget", "expired", "unsupported":
 		return placeholderJSON{Kind: ctype}
 	}
-	x := k.extra[m.RowID]
 	if x == nil {
 		return nil
 	}
@@ -577,7 +630,7 @@ func (v view) detail(k kinds, m logdb.Message) any {
 		}
 		if x.Live {
 			j.Live = &liveJSON{Period: x.LivePeriod, Heading: x.Heading,
-				ProximityRadius: x.ProximityRadius, Updates: len(m.Edits)}
+				ProximityRadius: x.ProximityRadius, Updates: updates}
 		}
 		return j
 	case "venue":
