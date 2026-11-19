@@ -24,8 +24,8 @@ left these to this item.
   send a voice message as a Telegram voice note, and filter each under
   `voice`, `embed`, `poll` and `system`; stop posting "(no text)".
 - Migration: the four flags on `discord_telegram_routes`, `voice`
-  copying `fwd_audio`, the other three copying `fwd_text`, so no route changes
-  what it forwards.
+  copying `fwd_audio`, the other three copying `fwd_text`, so no route
+  changes what it forwards.
 - Go and React: the new types in the direction's `type_options`, the
   form and the list, as fwd-more-types set them up.
 
