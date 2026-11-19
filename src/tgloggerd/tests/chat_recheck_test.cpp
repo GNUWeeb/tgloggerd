@@ -422,12 +422,17 @@ static void testPaging(void)
 	printf("a short answer reads another page\n");
 	CHECK(askAgain(1, true, 1), "short and something new: page 2");
 	CHECK(askAgain(2, true, 5), "and page 3");
-	CHECK(!askAgain(3, true, 5), "never more than three pages");
+	CHECK(askAgain(3, true, 5), "and page 4");
+	CHECK(!askAgain(4, true, 5), "never more than four pages");
+	CHECK(askAgain(2, false, 50),
+	      "a full page of new messages reads on: the hole goes on");
+	CHECK(askAgain(1, false, 3), "a full first page with new ones too");
 	CHECK(askAgain(1, true, 0),
 	      "page 1: 1 returned, 0 new, short: read on (the newest is stored,"
 	      " the ones before it are missing)");
 	CHECK(!askAgain(2, true, 0), "from page 2, nothing new: stop");
-	CHECK(!askAgain(1, false, 9), "a full answer: no more pages");
+	CHECK(!askAgain(1, false, 0), "a full first page, nothing new: done");
+	CHECK(!askAgain(2, false, 0), "a full later page, nothing new: done");
 
 	Page p;
 	p.around = 0;

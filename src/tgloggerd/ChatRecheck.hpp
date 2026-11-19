@@ -82,7 +82,7 @@ struct Item {
 };
 
 /* At most this many pages per recheck. */
-constexpr int kMaxPages = 3;
+constexpr int kMaxPages = 4;
 
 /*
  * Whether the old-row repair may send this tick. Rechecks come first, and
@@ -183,12 +183,13 @@ struct Page {
 bool isShort(const Page &p, bool older_exists);
 
 /*
- * Whether a recheck asks TDLib for another page, older than this one:
- * the answer was short and it is not the last page allowed. From the
- * second page on it must also have brought messages not stored before, so
- * a quiet chat stops after two reads; the first page always reads on when
- * short, since TDLib's short first answer is the newest message, which is
- * usually stored already while the ones before it are what is missing.
+ * Whether a recheck asks TDLib for another page, older than this one, if
+ * it is not the last page allowed: whenever the page brought messages not
+ * stored before, full or short, since the hole likely goes on below it;
+ * and when the first page is short even with nothing new, since TDLib's
+ * short first answer is the newest message, usually stored already while
+ * the ones before it are what is missing. From the second page on, a page
+ * with nothing new ends it, so a quiet chat costs one or two reads.
  * Deletions are concluded from each page alone, never across pages.
  */
 bool askAgain(int pages_used, bool short_answer, size_t new_messages);

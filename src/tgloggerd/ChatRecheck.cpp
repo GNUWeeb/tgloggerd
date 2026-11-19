@@ -140,9 +140,11 @@ bool isShort(const Page &p, bool older_exists)
 
 bool askAgain(int pages_used, bool short_answer, size_t new_messages)
 {
-	if (!short_answer || pages_used >= kMaxPages)
+	if (pages_used >= kMaxPages)
 		return false;
-	return pages_used <= 1 || new_messages > 0;
+	if (new_messages > 0)
+		return true;
+	return pages_used <= 1 && short_answer;
 }
 
 Verdict selectDeleted(const Page &p, const Stored &s)
