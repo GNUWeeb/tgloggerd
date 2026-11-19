@@ -125,3 +125,8 @@ UPDATE telegram_group_messages SET view_count = 120, forward_count = 3, reply_co
 	WHERE id = 4001;
 UPDATE telegram_group_messages SET is_pinned = 1 WHERE id = 4003;
 UPDATE telegram_group_messages SET view_count = 0, reactions = '[]' WHERE id = 4002;
+-- Message 1 was forwarded from a channel, whose post's counts it
+-- carries; message 2 is the group's own, whose stored 0 views mean
+-- nothing.
+INSERT INTO telegram_group_message_fwd_info (group_message_id, origin_type, origin_sender_name)
+	VALUES (4001, 'channel', 'Kinds News');

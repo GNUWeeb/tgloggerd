@@ -2081,9 +2081,9 @@ export interface components {
             topic_id: number | null;
             /** @description The message is pinned in its chat, as last observed. */
             pinned: boolean;
-            /** @description Latest view count; null when never observed. */
+            /** @description Latest view count, for a channel post or a message forwarded from a channel; null when never observed and for every other message, which Telegram counts no views for. */
             views: number | null;
-            /** @description Latest forward count; null when never observed. */
+            /** @description Latest forward count, under the same rule as views. */
             forwards: number | null;
             /** @description Latest reply (comment) count; null when never observed. */
             replies: number | null;

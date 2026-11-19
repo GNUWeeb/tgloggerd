@@ -267,6 +267,14 @@ type messageKindsJSON struct {
 	Reactions []reactionJSON `json:"reactions"`
 }
 
+// channelCounts is whether a message's view and forward counts mean
+// anything: Telegram counts them for channel posts, and a message
+// forwarded from a channel carries its post's. A group's own messages
+// get them stored as 0, which the chat would show as "0 views".
+func channelCounts(m logdb.Message) bool {
+	return m.IsChannelPost || (m.Forward != nil && m.Forward.Type == "channel")
+}
+
 // reactionJSON is one reaction's total, as the reactions column
 // stores it: {emoji | custom_emoji_id | paid: true, count}.
 type reactionJSON struct {
@@ -297,7 +305,10 @@ func reactions(raw []byte) []reactionJSON {
 
 func (v view) messageKinds(k kinds, m logdb.Message) messageKindsJSON {
 	j := messageKindsJSON{Detail: v.detail(k, m), Service: v.service(k, m), Pinned: m.Pinned,
-		Views: m.Views, Forwards: m.Forwards, Replies: m.Replies, Reactions: reactions(m.Reactions)}
+		Replies: m.Replies, Reactions: reactions(m.Reactions)}
+	if channelCounts(m) {
+		j.Views, j.Forwards = m.Views, m.Forwards
+	}
 	if m.TopicID != 0 {
 		id := m.TopicID
 		j.TopicID = &id

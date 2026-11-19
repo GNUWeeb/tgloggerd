@@ -443,7 +443,10 @@ func TestKindsInteractionAndTopics(t *testing.T) {
 		{"count": 2, "custom_emoji_id": "5368324170671202286"}, {"count": 1, "paid": true}}) {
 		t.Errorf("reactions %s", js(rs))
 	}
-	if m := ms[4002]; num(m["views"]) != 0 || m["views"] == nil || len(asList(m["reactions"])) != 0 {
+	// A group's own message has no view or forward count, even when 0
+	// is stored: Telegram counts them for channel posts and forwards
+	// from channels only (message 1).
+	if m := ms[4002]; m["views"] != nil || m["forwards"] != nil || len(asList(m["reactions"])) != 0 {
 		t.Errorf("message 2 %v", m)
 	}
 	if ms[4003]["pinned"] != true {
