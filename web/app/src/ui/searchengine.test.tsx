@@ -84,6 +84,47 @@ describe('search engine options', () => {
 	});
 });
 
+// The message lists' own text filter, with the search's full-text
+// matches added when the list's registry offers it.
+describe('text matches on the message lists', () => {
+	const conditions = () => [...(screen.getByRole('combobox', { name: 'Condition' }) as HTMLSelectElement).options].map((o) => o.value);
+	function filterText(url: string, extra: Partial<MessagesProps> = {}) {
+		const calls = fakeApi('superadmin');
+		const page = fixture<MessagesProps>(url);
+		renderPage(url, 'superadmin', { props: { ...page.props, ...extra } });
+		fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+		fireEvent.change(screen.getByRole('combobox', { name: 'Field' }), { target: { value: 'text' } });
+		return { calls, page };
+	}
+	const apply = (op: string, value: string) => {
+		fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: op } });
+		fireEvent.change(screen.getByRole('textbox', { name: /Value/ }), { target: { value } });
+		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+	};
+	const lastF = (calls: ReturnType<typeof fakeApi>) => callsTo(calls, 'GET', /^\/api\/page\//).at(-1)?.query.get('f');
+
+	for (const url of ['/group_messages', '/private_messages']) {
+		it(`offers and applies text matches on ${url}`, async () => {
+			const { calls } = filterText(url);
+			expect(conditions()).toEqual(['contains', '=', 'empty', 'matches']);
+			apply('matches', 'kernel rc');
+			await waitFor(() => expect(lastF(calls)).toBe(JSON.stringify([{ field: 'text', op: 'matches', value: 'kernel rc' }])));
+		});
+
+		it(`keeps the plain text filter on ${url}`, async () => {
+			const { calls } = filterText(url);
+			apply('contains', 'kernel');
+			await waitFor(() => expect(lastF(calls)).toBe(JSON.stringify([{ field: 'text', op: 'contains', value: 'kernel' }])));
+		});
+	}
+
+	it('keeps the text field\'s own operators when the search lacks matches', () => {
+		const p = fixture<MessagesProps>('/group_messages').props;
+		filterText('/group_messages', { fields: p.fields!.map((f) => (f.key === 'text' ? { ...f, operators: f.operators.filter((o) => o !== 'matches') } : f)) });
+		expect(conditions()).toEqual(['contains', '=', 'empty']);
+	});
+});
+
 describe('engine helpers', () => {
 	it('trust only text and <mark> in a fragment', () => {
 		expect(safeFragment('a <mark>b</mark> &lt;c&gt;')).toBe('a <mark>b</mark> &lt;c&gt;');
