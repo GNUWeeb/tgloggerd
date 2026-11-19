@@ -192,7 +192,18 @@ func term(field string, v any) map[string]any {
 	return map[string]any{"term": map[string]any{field: v}}
 }
 
-// scopeOf is the document scope of an entity the engine answers.
+// profileOf is the profile kind of an entity a profile index answers.
+func profileOf(entity string) (string, bool) {
+	switch entity {
+	case logdb.Users.Name:
+		return ProfileUsers, true
+	case logdb.Groups.Name:
+		return ProfileGroups, true
+	}
+	return "", false
+}
+
+// scopeOf is the document scope of a message entity the engine answers.
 func scopeOf(entity string) (string, bool) {
 	switch entity {
 	case logdb.GroupMessages.Name:
@@ -210,7 +221,22 @@ func scopeOf(entity string) (string, bool) {
 // messages all of them to a scope that sees private chats, none
 // otherwise. It is part of every query, so hits, totals, facets and
 // highlights count only what the viewer may see.
+//
+// In a profile index: users' bios only to a scope that sees users in
+// full (a member sees no bio, so its searches never get here: the
+// filter is a second guard), and groups as the group messages' groups,
+// by the group's own id.
 func scopeFilter(entity string, sc scope.Scope) (filter, mustNot []any, err error) {
+	switch kind, _ := profileOf(entity); kind {
+	case ProfileUsers:
+		if !sc.SeesAllUsers() {
+			return []any{matchNone}, nil, nil
+		}
+		return []any{}, nil, nil
+	case ProfileGroups:
+		filter, mustNot = groupFilter("row_id", sc)
+		return filter, mustNot, nil
+	}
 	sp, ok := scopeOf(entity)
 	if !ok {
 		return nil, nil, fmt.Errorf("search engine: no entity %q", entity)
@@ -219,21 +245,34 @@ func scopeFilter(entity string, sc scope.Scope) (filter, mustNot []any, err erro
 	switch {
 	case sp == ScopePrivate && !sc.SeesPrivate():
 		filter = append(filter, matchNone)
-	case sp == ScopePrivate, sc.SeesAllGroups():
-	case len(sc.HiddenGroups()) > 0:
-		mustNot = append(mustNot, terms("chat_id", sc.HiddenGroups()))
-	case len(sc.GrantedGroups()) > 0:
-		filter = append(filter, terms("chat_id", sc.GrantedGroups()))
+	case sp == ScopePrivate:
 	default:
-		filter = append(filter, matchNone)
+		f, n := groupFilter("chat_id", sc)
+		filter, mustNot = append(filter, f...), n
 	}
 	return filter, mustNot, nil
 }
 
+// groupFilter is GroupFilter over a document field holding a group's
+// chat id: nothing for every group, must_not an admin's hidden groups,
+// a member's granted groups as terms, else none.
+func groupFilter(field string, sc scope.Scope) (filter, mustNot []any) {
+	switch {
+	case sc.SeesAllGroups():
+		return nil, nil
+	case len(sc.HiddenGroups()) > 0:
+		return nil, []any{terms(field, sc.HiddenGroups())}
+	case len(sc.GrantedGroups()) > 0:
+		return []any{terms(field, sc.GrantedGroups())}, nil
+	}
+	return []any{matchNone}, nil
+}
+
 // The document fields a column filter may name, by kind.
 var (
-	numberFields = map[string]bool{"chat_id": true, "sender_id": true, "date": true}
-	boolFields   = map[string]bool{"outgoing": true}
+	numberFields = map[string]bool{"chat_id": true, "sender_id": true, "date": true,
+		"row_id": true}
+	boolFields = map[string]bool{"outgoing": true}
 )
 
 // columnFilter is a column condition as a filter clause, with MySQL's
@@ -351,7 +390,7 @@ func searchBody(q logdb.EngineQuery) (map[string]any, error) {
 			}},
 		}
 	}
-	if q.Facets {
+	if _, profile := profileOf(q.Entity); q.Facets && !profile {
 		body["aggs"] = map[string]any{"chats": map[string]any{
 			"terms": map[string]any{"field": "chat_id", "size": facetSize},
 		}}

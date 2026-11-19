@@ -6,13 +6,14 @@
 // Package searchengine is the optional search engine behind the
 // advanced search's full-text fields (webapi/README "Search engine",
 // docs/design/decisions/2026-11-18-search-engine.md): an OpenSearch
-// client over plain HTTP, the index of the group and private messages,
-// the indexer that keeps it in step with MySQL, and the queries that
-// answer the message entities' full-text conditions, the request scope
-// always among their filters.
+// client over plain HTTP, the index of the group and private messages
+// and those of the users' bios and the groups' descriptions
+// (profiles.go), the indexers that keep them in step with MySQL, and
+// the queries that answer those entities' full-text conditions, the
+// request scope always among their filters.
 //
-// MySQL stays the source of truth. The engine answers which message
-// rows match; the rows themselves are read from MySQL as before
+// MySQL stays the source of truth. The engine answers which rows
+// match; the rows themselves are read from MySQL as before
 // (logdb.Engine), so an engine that is down, slow or behind only means
 // the search falls back to MySQL.
 package searchengine

@@ -42,6 +42,14 @@ export function listFields(own: FieldDef[], server?: SearchField[]): FieldDef[] 
 	return [...own, ...server.filter((f) => !have.has(f.key)).map(searchField)];
 }
 
+// An own text field of a list (a user's bio, a group's description)
+// with the search's full-text matches added, when the list's registry
+// offers it for the same key: the search engine answers only that.
+export function withMatches(own: FieldDef[], server: SearchField[] | undefined, key: string): FieldDef[] {
+	if (!server?.some((f) => f.key === key && f.operators.includes('matches'))) return own;
+	return own.map((f) => (f.key === key ? { ...f, ops: [...opsOf(f).filter((o) => o !== 'matches'), 'matches'] } : f));
+}
+
 // Whether the filters pin the list to one chat: a `chat_id =` filter,
 // with every filter joined by AND. Only then does the server take the
 // fields that need it (needs_chat), which have no index of their own.

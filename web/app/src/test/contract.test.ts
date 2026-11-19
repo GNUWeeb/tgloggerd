@@ -5,7 +5,7 @@
 // are held to; a mismatch here means the page tests and the description
 // disagree, and one of them must change.
 import { describe, expect, it } from 'vitest';
-import { setEngine, viewOf, adminApi, federationGroups, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
+import { searchCapabilities, setEngine, viewOf, adminApi, federationGroups, badPref, groupPhotos, userPhotos, perDayStart, settingsState, chatFor, chatWindow, entities, historyApi, lookupName, pageData, sampleContacts, searchChats, type Persona } from '../../standin/fixtures.ts';
 import { loadSpec, responseSchema, validate, type Schema } from './schema.ts';
 import { FORUM_GROUP, KINDS_GROUP, TOPICS, sampleOf } from '../../standin/kinds.ts';
 import { chatStream, privateMessages } from '../../../mockup/src/data/messages.js';
@@ -311,5 +311,49 @@ describe('the message lists with a search engine', () => {
 			expect(p.engine?.available).toBe(state === 'available');
 			if (state === 'available') { expect(p.highlights).toHaveLength(p.rows.length); expect(p.facets?.length).toBeGreaterThan(0); }
 		} finally { setEngine('off'); }
+	});
+});
+
+describe('the users and groups lists with a search engine', () => {
+	const checked = (url: string, persona: Persona) => {
+		const page = pageData(url, persona);
+		return validate(spec, ref(variants.get(page.route)!), wire(page));
+	};
+	const f = (field: string, value: string) => 'f=' + encodeURIComponent(JSON.stringify([{ field, op: 'matches', value }]));
+	it.each(['available', 'behind'] as const)('answer as the description says while it is %s', (state) => {
+		setEngine(state);
+		try {
+			for (const persona of ['superadmin', 'member'] as Persona[]) {
+				for (const url of ['/users', `/users?${f('bio', 'kernel')}&highlight=1&fuzzy=1&facets=1`, '/groups', `/groups?${f('description', 'spam')}&highlight=1`]) {
+					expect(checked(url, persona)).toEqual([]);
+				}
+			}
+			type P = { engine?: { available: boolean; fields: string[]; options: string[] }; backend?: { ignored?: string[] }; highlights?: string[][]; rows: unknown[] };
+			const u = pageData(`/users?${f('bio', 'kernel')}&highlight=1&facets=1`, 'superadmin').props as P;
+			expect(u.engine?.fields).toEqual(['bio']);
+			expect(u.engine?.options).not.toContain('facets');
+			expect(u.backend?.ignored).toEqual(state === 'available' ? ['facets'] : ['highlight', 'facets']);
+			const g = pageData(`/groups?${f('description', 'spam')}&highlight=1`, 'superadmin').props as P;
+			expect(g.engine?.fields).toEqual(['description']);
+			if (state === 'available') {
+				expect(u.rows.length).toBeGreaterThan(0);
+				expect(u.highlights).toHaveLength(u.rows.length);
+				expect(u.highlights!.flat().join(' ')).toContain('<mark>');
+				expect(g.highlights!.flat().join(' ')).toContain('<mark>spam</mark>');
+			}
+			// A member sees no bios, so nothing of the engine on users.
+			expect((pageData('/users', 'member').props as P).engine).toBeUndefined();
+		} finally { setEngine('off'); }
+	});
+	it('are listed in the capabilities, users only to full viewers', () => {
+		setEngine('available');
+		try {
+			for (const persona of ['superadmin', 'member', 'public'] as Persona[]) expect(validate(spec, responseSchema(spec, '/api/search/capabilities', 'get'), wire(searchCapabilities(persona)))).toEqual([]);
+			const keys = (p: Persona) => Object.keys(searchCapabilities(p).entities);
+			expect(keys('superadmin')).toEqual(['group_messages', 'private_messages', 'users', 'groups']);
+			expect(keys('member')).toEqual(['group_messages', 'groups']);
+			expect((searchCapabilities('superadmin').entities as Record<string, { fields: string[] }>).users!.fields).toEqual(['bio']);
+		} finally { setEngine('off'); }
+		expect(searchCapabilities('superadmin')).toEqual({ engine: null, entities: {} });
 	});
 });

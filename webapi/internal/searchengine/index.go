@@ -108,6 +108,26 @@ func parseDocID(id string) (scope string, rowID int64, ok bool) {
 // flattened, as an index cannot store one; a search keeps its graph,
 // so a phrase of a split word stays exact.
 func indexSettings() map[string]any {
+	return textIndexSettings(mappingVersion, map[string]any{
+		"scope":        map[string]any{"type": "keyword"},
+		"row_id":       map[string]any{"type": "long"},
+		"chat_id":      map[string]any{"type": "long"},
+		"message_id":   map[string]any{"type": "long"},
+		"sender_id":    map[string]any{"type": "long"},
+		"date":         map[string]any{"type": "long"},
+		"edit_date":    map[string]any{"type": "long"},
+		"deleted":      map[string]any{"type": "boolean"},
+		"content_type": map[string]any{"type": "keyword"},
+		"outgoing":     map[string]any{"type": "boolean"},
+		"text": map[string]any{"type": "text", "analyzer": "message_text",
+			"search_analyzer": "message_search"},
+	})
+}
+
+// textIndexSettings are the settings of an index with these document
+// fields, a text among them, and its layout version: one shard, no
+// replica, the messages' analyzers.
+func textIndexSettings(version int, props map[string]any) map[string]any {
 	return map[string]any{
 		"settings": map[string]any{
 			"number_of_shards":   1,
@@ -139,30 +159,27 @@ func indexSettings() map[string]any {
 			},
 		},
 		"mappings": map[string]any{
-			"dynamic": "strict",
-			"_meta":   map[string]any{"version": mappingVersion},
-			"properties": map[string]any{
-				"scope":        map[string]any{"type": "keyword"},
-				"row_id":       map[string]any{"type": "long"},
-				"chat_id":      map[string]any{"type": "long"},
-				"message_id":   map[string]any{"type": "long"},
-				"sender_id":    map[string]any{"type": "long"},
-				"date":         map[string]any{"type": "long"},
-				"edit_date":    map[string]any{"type": "long"},
-				"deleted":      map[string]any{"type": "boolean"},
-				"content_type": map[string]any{"type": "keyword"},
-				"outgoing":     map[string]any{"type": "boolean"},
-				"text": map[string]any{"type": "text", "analyzer": "message_text",
-					"search_analyzer": "message_search"},
-			},
+			"dynamic":    "strict",
+			"_meta":      map[string]any{"version": version},
+			"properties": props,
 		},
 	}
 }
 
-// Index is the messages index of one name, and its state.
+// Index is an index of one name, and its state: the messages index,
+// or a profile index (ProfileIndex, profiles.go).
 type Index struct {
 	c    *Client
 	name string
+	kind string // "" for the messages, else a Profile* kind
+}
+
+// layout is the index's settings and their version.
+func (x *Index) layout() (map[string]any, int) {
+	if x.kind != "" {
+		return profileSettings(), profileVersion
+	}
+	return indexSettings(), mappingVersion
 }
 
 var indexName = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,200}$`)
@@ -191,18 +208,19 @@ func (x *Index) Ensure(ctx context.Context) error {
 			} `json:"_meta"`
 		} `json:"mappings"`
 	}
+	settings, version := x.layout()
 	err := x.c.do(ctx, http.MethodGet, "/"+seg(x.name)+"/_mapping", nil, &m)
 	switch {
 	case IsNotFound(err):
-		if err := x.create(ctx, x.name, indexSettings()); err != nil {
+		if err := x.create(ctx, x.name, settings); err != nil {
 			return err
 		}
 	case err != nil:
 		return err
 	default:
-		if v := m[x.name].Mappings.Meta.Version; v != mappingVersion {
+		if v := m[x.name].Mappings.Meta.Version; v != version {
 			return fmt.Errorf("index %s has layout version %d, not %d: delete it and %s "+
-				"to have it rebuilt", x.name, v, mappingVersion, x.stateName())
+				"to have it rebuilt", x.name, v, version, x.stateName())
 		}
 	}
 	err = x.c.do(ctx, http.MethodHead, "/"+seg(x.stateName()), nil, nil)
@@ -241,11 +259,13 @@ func (x *Index) Refresh(ctx context.Context) error {
 	return x.c.do(ctx, http.MethodPost, "/"+seg(x.name)+"/_refresh", nil, nil)
 }
 
-// Op is one write of a bulk: index Doc under ID, or delete ID.
+// Op is one write of a bulk: index Doc (or, in a profile index,
+// Profile) under ID, or delete ID.
 type Op struct {
-	ID     string
-	Doc    *Doc // nil: delete
-	Delete bool
+	ID      string
+	Doc     *Doc // nil and no Profile: delete
+	Profile *ProfileDoc
+	Delete  bool
 }
 
 // bulkItem is one write's result in a bulk answer.
@@ -265,7 +285,11 @@ func (x *Index) Bulk(ctx context.Context, ops []Op) error {
 	enc := json.NewEncoder(&buf)
 	for _, op := range ops {
 		meta := map[string]any{"_index": x.name, "_id": op.ID}
-		if op.Delete || op.Doc == nil {
+		var doc any = op.Doc
+		if op.Profile != nil {
+			doc = op.Profile
+		}
+		if op.Delete || (op.Doc == nil && op.Profile == nil) {
 			if err := enc.Encode(map[string]any{"delete": meta}); err != nil {
 				return err
 			}
@@ -274,7 +298,7 @@ func (x *Index) Bulk(ctx context.Context, ops []Op) error {
 		if err := enc.Encode(map[string]any{"index": meta}); err != nil {
 			return err
 		}
-		if err := enc.Encode(op.Doc); err != nil {
+		if err := enc.Encode(doc); err != nil {
 			return err
 		}
 	}
@@ -338,21 +362,33 @@ const stateID = "state"
 // LoadState reads the indexer's state; a missing one is the zero State
 // (nothing indexed yet).
 func (x *Index) LoadState(ctx context.Context) (State, error) {
-	var d struct {
-		Found  bool  `json:"found"`
-		Source State `json:"_source"`
-	}
-	err := x.c.do(ctx, http.MethodGet, "/"+seg(x.stateName())+"/_doc/"+stateID, nil, &d)
-	if IsNotFound(err) {
-		return State{}, nil
-	}
-	if err != nil {
-		return State{}, err
-	}
-	return d.Source, nil
+	var s State
+	err := x.loadState(ctx, &s)
+	return s, err
 }
 
 // SaveState writes the indexer's state.
 func (x *Index) SaveState(ctx context.Context, s State) error {
-	return x.c.do(ctx, http.MethodPut, "/"+seg(x.stateName())+"/_doc/"+stateID, s, nil)
+	return x.saveState(ctx, s)
+}
+
+// loadState reads the state document into v, which stays as it is
+// when there is none.
+func (x *Index) loadState(ctx context.Context, v any) error {
+	var d struct {
+		Found  bool            `json:"found"`
+		Source json.RawMessage `json:"_source"`
+	}
+	err := x.c.do(ctx, http.MethodGet, "/"+seg(x.stateName())+"/_doc/"+stateID, nil, &d)
+	if IsNotFound(err) || (err == nil && !d.Found) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(d.Source, v)
+}
+
+func (x *Index) saveState(ctx context.Context, v any) error {
+	return x.c.do(ctx, http.MethodPut, "/"+seg(x.stateName())+"/_doc/"+stateID, v, nil)
 }

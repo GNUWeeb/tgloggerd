@@ -153,8 +153,13 @@ type SearchEngine struct {
 	// URL is WEBAPI_SEARCH_ENGINE_URL, the engine's base URL; "" turns
 	// the engine off and nothing changes.
 	URL string
-	// Index is the messages index's name (WEBAPI_SEARCH_ENGINE_INDEX).
-	Index string
+	// Index is the messages index's name (WEBAPI_SEARCH_ENGINE_INDEX);
+	// UsersIndex and GroupsIndex the profile indices' of the users'
+	// bios and the groups' descriptions
+	// (WEBAPI_SEARCH_ENGINE_USERS_INDEX, _GROUPS_INDEX).
+	Index       string
+	UsersIndex  string
+	GroupsIndex string
 	// Indexer is WEBAPI_SEARCH_ENGINE_INDEXER != "0": this instance
 	// keeps the index in step. One instance per index may.
 	Indexer bool
@@ -469,6 +474,12 @@ func searchEngineFromEnv(se *SearchEngine) error {
 		return nil
 	}
 	se.Index = env("WEBAPI_SEARCH_ENGINE_INDEX", "tgloggerd-messages")
+	se.UsersIndex = env("WEBAPI_SEARCH_ENGINE_USERS_INDEX", "tgloggerd-users")
+	se.GroupsIndex = env("WEBAPI_SEARCH_ENGINE_GROUPS_INDEX", "tgloggerd-groups")
+	if se.Index == se.UsersIndex || se.Index == se.GroupsIndex || se.UsersIndex == se.GroupsIndex {
+		return fmt.Errorf("WEBAPI_SEARCH_ENGINE_INDEX, _USERS_INDEX and _GROUPS_INDEX " +
+			"must name three different indices")
+	}
 	se.Indexer = env("WEBAPI_SEARCH_ENGINE_INDEXER", "1") != "0"
 	var err error
 	if se.Batch, err = positive("WEBAPI_SEARCH_ENGINE_BATCH", "1000"); err != nil {

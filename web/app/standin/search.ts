@@ -31,7 +31,7 @@ export const REGISTRY: Record<string, SField[]> = {
 		{ key: 'first_name', label: 'First name', type: 'text', sortable: true, operators: TEXT },
 		{ key: 'last_name', label: 'Last name', type: 'text', sortable: true, operators: TEXT },
 		{ key: 'phone', label: 'Phone', type: 'text', sortable: false, operators: [...TEXT, ...NULLS] },
-		{ key: 'bio', label: 'Bio', type: 'text', sortable: false, operators: [...TEXT, ...NULLS] },
+		{ key: 'bio', label: 'Bio', type: 'text', sortable: false, operators: [...TEXT, 'matches', ...NULLS] },
 		{ key: 'is_premium', label: 'Premium', type: 'bool', sortable: true, operators: BOOL },
 		{ key: 'is_verified', label: 'Verified', type: 'bool', sortable: true, operators: BOOL },
 		{ key: 'is_contact', label: 'Contact', type: 'bool', sortable: false, operators: BOOL },
@@ -44,7 +44,7 @@ export const REGISTRY: Record<string, SField[]> = {
 	],
 	groups: [
 		{ key: 'title', label: 'Title', type: 'text', sortable: true, operators: TEXT },
-		{ key: 'description', label: 'Description', type: 'text', sortable: false, operators: [...TEXT, ...NULLS] },
+		{ key: 'description', label: 'Description', type: 'text', sortable: false, operators: [...TEXT, 'matches', ...NULLS] },
 		{ key: 'updated_at', label: 'Updated', type: 'datetime', sortable: true, operators: CMP },
 		{ key: 'admin_count', label: 'Admins', type: 'int', sortable: true, operators: CMP },
 	],

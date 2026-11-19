@@ -22,17 +22,25 @@ import (
 // options are ignored, the answers carry nothing new, and the
 // capabilities name no engine.
 
-// SearchEngine is a search engine for the message searches
+// SearchEngine is a search engine for the searches' full-text fields
 // (internal/searchengine.Engine).
 type SearchEngine interface {
 	logdb.Engine
 	// Name is the engine's kind, as the capabilities name it.
 	Name() string
+	// Answers is whether it has an index for the entity.
+	Answers(entity string) bool
 }
 
 // engineOptions are the options the engine offers, in the order a
-// client lists them.
+// client lists them; facets only for the entities it counts per chat
+// (logdb.EngineFacets).
 var engineOptions = []string{"phrase", "proximity", "prefix", "fuzzy", "highlight", "facets"}
+
+// engineAnswers is whether the engine answers e's full-text fields.
+func (s *Server) engineAnswers(e *logdb.Entity) bool {
+	return s.engine != nil && logdb.EngineEntity(e) && s.engine.Answers(e.Name)
+}
 
 // withEngine gives a search the engine and the request's options for
 // it: fuzzy=1, highlight=1, facets=1, and engine=mysql to keep it on
@@ -73,7 +81,8 @@ type searchCaps struct {
 	// Engine is the engine's kind, null without one.
 	Engine *string `json:"engine"`
 	// Entities are the entities the engine answers that the viewer
-	// may search, by name; empty without an engine.
+	// may search, by name, each with a full-text field the viewer sees
+	// (a member sees no bio, so no users); empty without an engine.
 	Entities map[string]engineCaps `json:"entities"`
 }
 
@@ -90,13 +99,15 @@ func (s *Server) searchCapabilities(w http.ResponseWriter, r *http.Request) {
 	ans.Engine = &name
 	names := []string{}
 	for n, e := range logdb.Entities {
-		if logdb.EngineEntity(e) && sc.Page(n) {
+		if s.engineAnswers(e) && sc.Page(n) {
 			names = append(names, n)
 		}
 	}
 	slices.Sort(names)
 	for _, n := range names {
-		ans.Entities[n] = s.engineCapsOf(r.Context(), sc, logdb.Entities[n])
+		if c := s.engineCapsOf(r.Context(), sc, logdb.Entities[n]); len(c.Fields) > 0 {
+			ans.Entities[n] = c
+		}
 	}
 	writeJSON(w, http.StatusOK, ans)
 }
@@ -105,6 +116,9 @@ func (s *Server) searchCapabilities(w http.ResponseWriter, r *http.Request) {
 // given an engine and an entity it answers.
 func (s *Server) engineCapsOf(ctx context.Context, sc scope.Scope, e *logdb.Entity) engineCaps {
 	c := engineCaps{Fields: []string{}, Options: engineOptions}
+	if !logdb.EngineFacets(e) {
+		c.Options = engineOptions[:len(engineOptions)-1]
+	}
 	for _, f := range e.FieldInfos(sc) {
 		if slices.Contains(f.Operators, "matches") {
 			c.Fields = append(c.Fields, f.Key)
@@ -122,9 +136,12 @@ func (s *Server) engineCapsOf(ctx context.Context, sc scope.Scope, e *logdb.Enti
 // page: nil without an engine, for an entity it does not answer, or
 // for a viewer who may not search it.
 func (s *Server) listEngineCaps(ctx context.Context, sc scope.Scope, e *logdb.Entity) *engineCaps {
-	if s.engine == nil || !logdb.EngineEntity(e) || !sc.Page(e.Name) {
+	if !s.engineAnswers(e) || !sc.Page(e.Name) {
 		return nil
 	}
 	c := s.engineCapsOf(ctx, sc, e)
+	if len(c.Fields) == 0 {
+		return nil
+	}
 	return &c
 }

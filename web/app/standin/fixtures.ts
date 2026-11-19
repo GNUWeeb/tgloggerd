@@ -13,7 +13,7 @@ import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/d
 import { createHash, randomBytes } from 'node:crypto';
 import { REGISTRY, SLOW, compile, fieldsOf, legacyQuery, type ListError } from './search.ts';
 import { ALL, kindsOf, sampleOf, topicOf, topicsOf, type View } from './kinds.ts';
-import { engineAnswer } from './engine.ts';
+import { engineAnswer, engineOf, profileAnswer, type EngineKind } from './engine.ts';
 import { MAX_Q, memberCount, memberFlags, membersPage } from './members.ts';
 export { membersApi, patchGroup } from './members.ts';
 import { groupFiles, groupPolls } from './groupfiles.ts';
@@ -486,6 +486,8 @@ function fileRow(f, fetch: boolean) {
 }
 
 const q = (u: URL, k: string) => u.searchParams.get(k);
+// The values of a field's matches conditions, as the engine reads them.
+const matchesText = (conds: { field: string; op: string; value: unknown }[], field: string) => conds.filter((c) => c.field === field && c.op === 'matches').map((c) => String(c.value)).join(' ');
 
 type Loaded = { route: string; status: 200 | 404; props: unknown; url?: string };
 const LISTS = ['/users', '/groups', '/group_messages', '/private_messages', '/files'];
@@ -579,7 +581,10 @@ export function load(url: string, persona: Persona): Loaded {
 	}
 	if (path === '/users') {
 		const { st, r, extra } = searchList(listState(u.searchParams, full ? 'msg_count' : 'name', 25, persona), full ? 'users' : 'users_member', users, s.role === 'member' ? s.user : null, queryUsers);
-		return { route: 'users', status: 200, props: { ...st, ...r, ...extra, rows: r.rows.map((x) => userRow(x, full)), archive_total: full ? TOTAL_USERS : undefined } };
+		const rows = r.rows.map((x) => userRow(x, full));
+		// The engine answers bio matches, for the viewers who see bios.
+		const eng = full ? profileAnswer('users', u.searchParams, matchesText(st.conds, 'bio'), rows) : {};
+		return { route: 'users', status: 200, props: { ...st, ...r, ...extra, ...eng, rows, archive_total: full ? TOTAL_USERS : undefined } };
 	}
 	if ((m = path.match(/^\/users\/(\d+)(\/history)?$/))) {
 		const usr = getUser(m[1]);
@@ -608,7 +613,9 @@ export function load(url: string, persona: Persona): Loaded {
 	}
 	if (path === '/groups') {
 		const { st, r, extra } = searchList(listState(u.searchParams, 'msg_count', 25, persona), 'groups', groups, s.role === 'superadmin' ? null : s.group, queryGroups);
-		return { route: 'groups', status: 200, props: { ...st, ...r, ...extra, rows: r.rows.map((g) => ({ ...groupSummary(g), msg_count: g.msg_count, admin_count: g.admin_count, description: g.description, created_at: iso(g.created_at), updated_at: iso(g.updated_at), ...memberCount(g) })), archive_total: s.role === 'member' ? undefined : TOTALS.groups } };
+		const rows = r.rows.map((g) => ({ ...groupSummary(g), msg_count: g.msg_count, admin_count: g.admin_count, description: g.description, created_at: iso(g.created_at), updated_at: iso(g.updated_at), ...memberCount(g) }));
+		const eng = profileAnswer('groups', u.searchParams, matchesText(st.conds, 'description'), rows);
+		return { route: 'groups', status: 200, props: { ...st, ...r, ...extra, ...eng, rows, archive_total: s.role === 'member' ? undefined : TOTALS.groups } };
 	}
 	if ((m = path.match(/^\/groups\/(-\d+)(\/admins|\/history|\/members|\/files|\/polls)?$/))) {
 		const g = getGroup(m[1]);
@@ -670,7 +677,7 @@ export function load(url: string, persona: Persona): Loaded {
 		const { st, r, extra, all: matched } = searchList(listState(u.searchParams, 'date', 50, persona), 'messages', all, scope === 'group' && s.role !== 'superadmin' ? (x) => s.group(x.chat) : null, (state, keep) => queryMessages(scope, state, keep), scope === 'group', (m) => ({ ...m, ...listedKind(m) }));
 		// The search engine's part (engine.ts): its text is the search box's
 		// and every text matches condition's.
-		const text = [st.q, ...st.conds.filter((c) => c.field === 'text' && c.op === 'matches').map((c) => c.value)].filter(Boolean).join(' ');
+		const text = [st.q, matchesText(st.conds, 'text')].filter(Boolean).join(' ');
 		const eng = engineAnswer(u.searchParams, text, r.rows as never, matched as never);
 		return { route: scope === 'group' ? 'group_messages' : 'private_messages', status: 200, props: { ...st, ...r, ...extra, ...eng, scope, rows: r.rows.map(messageRow), archive_total: s.role === 'member' ? undefined : scope === 'group' ? TOTALS.group_messages : TOTALS.private_messages } };
 	}
@@ -1665,3 +1672,15 @@ d2t.forEach((r, i) => {
 // Whether a persona may see private chats (the capabilities list their
 // search only then).
 export const canSeePrivate = (persona: Persona) => persona !== 'public' && allowed(scopeOf(persona), 'private_messages');
+// GET /api/search/capabilities: the entities the viewer may search, the
+// private chats only to those who see them and the users (bios) only to
+// those who see users in full.
+export function searchCapabilities(persona: Persona) {
+	const e = engineOf();
+	if (!e || persona === 'public') return { engine: e ? 'opensearch' : null, entities: {} };
+	const kinds: [string, EngineKind][] = [['group_messages', 'messages']];
+	if (canSeePrivate(persona)) kinds.push(['private_messages', 'messages']);
+	if (scopeOf(persona).fullUser) kinds.push(['users', 'users']);
+	kinds.push(['groups', 'groups']);
+	return { engine: 'opensearch', entities: Object.fromEntries(kinds.map(([k, kind]) => [k, engineOf(kind)])) };
+}

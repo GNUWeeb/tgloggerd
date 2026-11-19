@@ -65,7 +65,31 @@ func engineEnv(t *testing.T, withEngine bool) *searchEnv {
 		if err := x.Refresh(ctx); err != nil {
 			t.Fatal(err)
 		}
-		engine = searchengine.NewEngine(x, searchengine.EngineOptions{Log: quiet})
+		profiles := map[string]*searchengine.Index{}
+		for _, kind := range []string{searchengine.ProfileUsers, searchengine.ProfileGroups} {
+			px, err := c.ProfileIndex(x.Name()+"-"+kind, kind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = px.Drop(context.Background()) })
+			if err := px.Ensure(ctx); err != nil {
+				t.Fatal(err)
+			}
+			pix, err := searchengine.NewProfileIndexer(d.DB, px, nil, searchengine.IndexerOptions{
+				Log: quiet, Pause: time.Millisecond})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := pix.Pass(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := px.Refresh(ctx); err != nil {
+				t.Fatal(err)
+			}
+			profiles[kind] = px
+		}
+		engine = searchengine.NewEngine(x, searchengine.EngineOptions{Log: quiet,
+			Users: profiles[searchengine.ProfileUsers], Groups: profiles[searchengine.ProfileGroups]})
 	}
 	return engineServer(t, db, engine)
 }
@@ -158,12 +182,21 @@ func TestSearchCapabilities(t *testing.T) {
 	// js re-encodes the decoded answer, its keys in order.
 	opts := `["phrase","proximity","prefix","fuzzy","highlight","facets"]`
 	entity := `{"available":true,"fallback":null,"fields":["text"],"options":` + opts + `}`
+	// Users and groups: no facets.
+	profile := func(field string) string {
+		return `{"available":true,"fallback":null,"fields":["` + field + `"],"options":` +
+			`["phrase","proximity","prefix","fuzzy","highlight"]}`
+	}
+	groups, users := `"groups":`+profile("description"), `"users":`+profile("bio")
 	for role, want := range map[string]string{
 		"superadmin": `{"engine":"opensearch","entities":{"group_messages":` + entity +
-			`,"private_messages":` + entity + `}}`,
-		// Private chats are hidden from the admin and never a member's.
-		"admin":  `{"engine":"opensearch","entities":{"group_messages":` + entity + `}}`,
-		"member": `{"engine":"opensearch","entities":{"group_messages":` + entity + `}}`,
+			`,` + groups + `,"private_messages":` + entity + `,` + users + `}}`,
+		// Private chats are hidden from the admin and never a member's;
+		// a member sees no bio.
+		"admin": `{"engine":"opensearch","entities":{"group_messages":` + entity + `,` + groups +
+			`,` + users + `}}`,
+		"member": `{"engine":"opensearch","entities":{"group_messages":` + entity + `,` +
+			groups + `}}`,
 	} {
 		if b := e.ok(role, "/api/search/capabilities"); js(b) != want {
 			t.Errorf("%s: %s\nwant %s", role, js(b), want)
@@ -358,5 +391,62 @@ func TestListPagesEngineParts(t *testing.T) {
 		if _, ok := plain[k]; ok {
 			t.Errorf("list page has %s without an engine", k)
 		}
+	}
+}
+
+// The users' and groups' searches and pages answer a bio or description
+// "matches" from their indices, within the scope, with highlights and
+// their entity's capabilities; without an engine none of it.
+func TestSearchEngineProfiles(t *testing.T) {
+	t.Parallel()
+	e := engineEnv(t, true)
+	bio := `[{"c":"bio","o":"matches","v":"kernal~"}]`
+	b := e.ok("superadmin", search("users", bio, "highlight", "1", "facets", "1"))
+	wantTotal(t, "bio", b, 1, true)
+	if js(b["backend"]) != `{"ignored":["facets"],"used":"engine"}` ||
+		!strings.Contains(fmt.Sprint(b["highlights"]), "<mark>Kernel</mark>") {
+		t.Errorf("bio: backend %s highlights %s", js(b["backend"]), js(b["highlights"]))
+	}
+	desc := `[{"c":"description","o":"matches","v":"kernel"}]`
+	for role, total := range map[string]int64{"superadmin": 1, "admin": 0, "member": 0} {
+		b := e.ok(role, search("groups", desc))
+		wantTotal(t, role+" description", b, total, true)
+		if js(b["backend"]) != `{"used":"engine"}` {
+			t.Errorf("%s: backend %s", role, js(b["backend"]))
+		}
+	}
+	if st, _ := e.get("member", search("users", bio)); st != 400 {
+		t.Errorf("a member's bio search: %d", st)
+	}
+
+	p := e.props("superadmin", "users", "f", `[{"field":"bio","op":"matches","value":"gamr"}]`,
+		"fuzzy", "1", "highlight", "1")
+	if num(p["total"]) != 1 || js(p["backend"]) != `{"used":"engine"}` ||
+		!strings.Contains(fmt.Sprint(p["highlights"]), "<mark>gamer</mark>") {
+		t.Errorf("users page: total %v backend %s highlights %s", p["total"], js(p["backend"]),
+			js(p["highlights"]))
+	}
+	if !strings.Contains(js(p["engine"]), `"fields":["bio"]`) {
+		t.Errorf("users page: engine %s", js(p["engine"]))
+	}
+	p = e.props("member", "groups", "f", `[{"field":"description","op":"matches","value":"linux"}]`)
+	if num(p["total"]) != 1 || js(p["backend"]) != `{"used":"engine"}` ||
+		!strings.Contains(js(p["engine"]), `"fields":["description"]`) {
+		t.Errorf("member groups page: total %v backend %s engine %s", p["total"],
+			js(p["backend"]), js(p["engine"]))
+	}
+	if p := e.props("member", "users"); p["engine"] != nil {
+		t.Errorf("member users page: engine %s", js(p["engine"]))
+	}
+
+	plain := engineEnv(t, false).props("superadmin", "users", "f",
+		`[{"field":"bio","op":"matches","value":"kernel"}]`, "highlight", "1")
+	for _, k := range []string{"backend", "highlights", "engine"} {
+		if _, ok := plain[k]; ok {
+			t.Errorf("users page has %s without an engine", k)
+		}
+	}
+	if num(plain["total"]) != 1 {
+		t.Errorf("users page without an engine: total %v", plain["total"])
 	}
 }

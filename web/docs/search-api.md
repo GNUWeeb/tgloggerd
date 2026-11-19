@@ -143,7 +143,7 @@ With `?debug=1` (admin) the response echoes the exact generated SQL.
 | `NOT LIKE` | text | negation of `LIKE` |
 | `%LIKE%` | text | **contains**: the value is wrapped as `%value%` server-side (the user's own `%`/`_` are escaped, so their text matches literally). The easy "find rows containing this text" operator |
 | `NOT %LIKE%` | text | negation of `%LIKE%` (does not contain) |
-| `matches` | fulltext | `MATCH(col) AGAINST(value IN BOOLEAN MODE)` — full-text word search (message `text` fields). Supports Telegram-style boolean queries: `+must -exclude "a phrase"`. Words shorter than the server's min token length (3) are ignored |
+| `matches` | fulltext | `MATCH(col) AGAINST(value IN BOOLEAN MODE)` — full-text word search (message `text` fields; in the Go service also users' `bio` and groups' `description`). Supports Telegram-style boolean queries: `+must -exclude "a phrase"`. Words shorter than the server's min token length (3) are ignored |
 | `IS NULL` `IS NOT NULL` | nullable fields | presence test (no `v`) |
 
 **History / current-username fields** are `EXISTS` fields: `=`/`LIKE`/`%LIKE%`
@@ -178,7 +178,7 @@ the response, so a client can build its UI from the registry.
 | `is_support` | Support | bool | C | `= !=` |
 | `created_at` | Created | datetime | C | `= != < > <= >=` |
 | `updated_at` | Updated | datetime | C | `= != < > <= >=` |
-| `bio` | Bio | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
+| `bio` | Bio | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%`, and `matches` in the Go service |
 | `phone` | Phone | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
 | `language` | Language | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
 | `restriction_reason` | Restriction | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
@@ -203,8 +203,9 @@ before logging began), `first_name`/`last_name` hold the contact name too.
 
 Column fields on `telegram_user_extra_info` are `COALESCE`'d to their schema default, so a
 user whose extra-info row is absent (the daemon deletes all-default rows) still
-matches e.g. `bio = ''`. Sortable keys: `id, first_name, type, created_at,
-updated_at, msg_count, paid_star_count`.
+matches e.g. `bio = ''`. `bio matches` (Go service) searches the bios'
+FULLTEXT index; without a `sort` it orders by relevance. Sortable keys:
+`id, first_name, type, created_at, updated_at, msg_count, paid_star_count`.
 
 Datetime values accept MySQL-parseable strings (`2024-03-17`,
 `2024-03-17 09:00`). Boolean values are `0`/`1`.
@@ -215,7 +216,7 @@ Datetime values accept MySQL-parseable strings (`2024-03-17`,
 |-----|-------|------|------|-----------|
 | `id` | Group ID | int | C | `= != < > <= >=` |
 | `title` | Title | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
-| `description` | Description | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%` |
+| `description` | Description | text | C | `= != LIKE NOT LIKE %LIKE% NOT %LIKE%`, and `matches` in the Go service |
 | `type` | Type | enum | C | `= !=` — values `basic_group,supergroup,channel` |
 | `msg_count` | Messages | int | C | `= != < > <= >=` |
 | `member_count` | Members | int | C | `= != < > <= >=` |
@@ -227,10 +228,11 @@ Datetime values accept MySQL-parseable strings (`2024-03-17`,
 | `hist_description` | Description (ever) | text | E | `= LIKE %LIKE%` |
 | `hist_username` | Username (ever) | text | E | `= LIKE %LIKE%` (+never) |
 
-Group ids are negative Telegram chat ids. Sortable keys: `id, title, type,
-created_at, updated_at, msg_count, member_count`. `member_count` is
-Telegram's member count as the daemon last stored it; a group without
-one yet matches no comparison. It is a filter and a sort, not a column
+Group ids are negative Telegram chat ids. `description matches` (Go service)
+searches the descriptions' FULLTEXT index, by relevance without a `sort`.
+Sortable keys: `id, title, type, created_at, updated_at, msg_count,
+member_count`. `member_count` is Telegram's member count as the daemon
+last stored it; a group without one yet matches no comparison. It is a filter and a sort, not a column
 of the answer (the groups list page's rows carry it).
 
 ## Files field registry
@@ -338,8 +340,9 @@ text, forwarded, message id, sent time and a deleted flag.
 ## Search engine (Go service, optional)
 
 The Go service can answer the `text` field of `group_messages` and
-`private_messages` from a search engine (OpenSearch; webapi/README,
-"Search engine") instead of MySQL's FULLTEXT index. It is optional:
+`private_messages`, the `bio` of `users` and the `description` of
+`groups` from a search engine (OpenSearch; webapi/README, "Search
+engine") instead of MySQL's FULLTEXT indexes. It is optional:
 without `WEBAPI_SEARCH_ENGINE_URL` everything on this page stays as it
 is, the parameters below are ignored and the answers carry none of the
 fields below. The Drogon `/v1/search` never uses it.
@@ -359,18 +362,25 @@ when they work:
    "group_messages": {"fields": ["text"],
      "options": ["phrase", "proximity", "prefix", "fuzzy", "highlight", "facets"],
      "available": true, "fallback": null},
-   "private_messages": { ... }}}
+   "private_messages": { ... },
+   "users": {"fields": ["bio"],
+     "options": ["phrase", "proximity", "prefix", "fuzzy", "highlight"],
+     "available": true, "fallback": null},
+   "groups": {"fields": ["description"], ... }}}
 ```
 
 Without an engine it is `{"engine": null, "entities": {}}`. Only the
 entities the viewer may search are listed (`private_messages` not for
-a viewer who may not see private chats). `available` is false, with
+a viewer who may not see private chats, `users` not for a member, who
+sees no bio). Users and groups offer no `facets`: their hits are in no
+chat. `available` is false, with
 the reason in `fallback` (`unavailable`, `behind`), while searches go
 to MySQL instead.
 
 ### The `matches` value
 
-With the engine, `text matches <value>` reads the value in the syntax
+With the engine, `text matches <value>` (and `bio` or `description`
+`matches`) reads the value in the syntax
 of MySQL's boolean mode, so it means the same on both backends, plus
 `~` for typos:
 
@@ -415,12 +425,12 @@ Beside the fields of [Response](#response), with an engine configured:
   `WEBAPI_SEARCH_ENGINE_MAX_LAG`), `too_many_hits` (see below).
   `ignored` lists the options asked for that the answer does not give.
 - `highlights` (with `highlight=1`): per row, aligned to `rows`, up to
-  three fragments of its text with the matched words in
+  three fragments of its text (a user's bio, a group's description) with the matched words in
   `<mark>...</mark>` and the rest HTML-escaped; `[]` for a row whose
   text has no match, and always for service messages, whose stored
   text may name what their rendering for the viewer leaves out.
 - `facets` (with `facets=1`, when the engine answers the whole
-  search): `[{"chat_id", "name", "count"}]`, the ten chats with the
+  search of a message entity; for users and groups `ignored`): `[{"chat_id", "name", "count"}]`, the ten chats with the
   most hits, busiest first; facets are cheap, since the engine counts
   them with the page.
 
@@ -430,9 +440,10 @@ the request scope applied again.
 
 - A search whose conditions are all `text` or columns the engine's
   documents carry (`chat_id`, the sender, `date`, `content_type`,
-  `deleted`, and `is_outgoing` for private messages), joined by `AND`,
-  and sorted by relevance or `date`, is paged and counted by the
-  engine (`total_exact` true).
+  `deleted`, and `is_outgoing` for private messages; `id` for users
+  and groups), joined by `AND`, and sorted by relevance or `date` (`id`
+  for users and groups), is paged and counted by the engine
+  (`total_exact` true).
 - Any other search (an `OR`, another column, another sort) gets the
   rows the engine finds for each `text` condition as an id list, and
   MySQL counts and pages as usual. More than 10000 rows for one
@@ -446,7 +457,9 @@ query (`fuzzy=1`, `highlight=1`, `facets=1`, `engine=mysql`) for their
 search text, and their page data carries `backend`, `highlights` and
 `facets` as above, plus `engine`: their entity's entry of the
 capabilities, so the page can offer the options without asking for
-them. Without an engine none of these is present.
+them. The users and groups pages (UsersProps, GroupsProps) do the same
+for a `bio` or `description` `matches` filter, without facets. Without
+an engine none of these is present.
 
 ### The request scope
 
@@ -454,7 +467,10 @@ The scope is a filter of every engine query, never applied to its
 answer afterwards: group messages are limited to every group, all but
 an admin's hidden groups (`must_not`) or a member's granted groups
 (`terms`), and private messages are searched only by a viewer who sees
-private chats (others get 404, as without the engine). Hits, `total`,
+private chats (others get 404, as without the engine); bios only by a
+viewer who sees users in full (a member sees none, as without the
+engine); group descriptions within the same groups as their messages.
+Hits, `total`,
 `facets` and `highlights` therefore count and show only what the
 viewer may see. Signed-out visitors have no advanced search.
 
