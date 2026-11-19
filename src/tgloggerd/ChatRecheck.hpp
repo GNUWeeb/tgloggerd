@@ -72,7 +72,36 @@ struct Item {
 	/* Queued by the daemon itself (the restart catch-up), not asked for:
 	 * waits behind every recheck that was asked for. */
 	bool	background = false;
+	/* When Queue::push took it, for the wait in the recheck's log. */
+	Clock::time_point	queued_at{};
 };
+
+/*
+ * Whether the old-row repair may send this tick. Rechecks come first, and
+ * not only in who starts: under Telegram's flood limits TDLib sits out the
+ * waits inside each request, so a recheck's getChatHistory that shares the
+ * account with the repair's getMessage stream waits minutes. The repair
+ * therefore sends nothing while a recheck is waiting or in flight, except
+ * that once it has sent nothing for kRepairMaxPause it gets a tick of its
+ * budget: rechecks asked for by readers can arrive without end, and the
+ * repair must still finish.
+ */
+constexpr std::chrono::seconds kRepairMaxPause{ 60 };
+
+/*
+ * At most this many old-row repair re-fetches a second, within the budget
+ * the relink, the rechecks and the repair share: half of it, so the
+ * account's other requests stay clear of Telegram's flood limits.
+ */
+constexpr int kRepairPerSecond = 5;
+
+/* How many more re-fetches the repair may send in this second, given the
+ * shared budget @budget, what the tick used so far (@tick_used) and what
+ * the repair itself sent in it (@repair_used). */
+int repairAllowance(int budget, int tick_used, int repair_used);
+
+bool repairMayRun(size_t rechecks_queued, int rechecks_inflight,
+		  Clock::duration since_repair_sent);
 
 /* What became of a request for a recheck. */
 enum class Admit {

@@ -221,6 +221,8 @@ struct RecheckAnswer {
 	int64_t		chat_id = 0;
 	bool		is_group = false;
 	recheck::Page	page;
+	/* Seconds from queueing to Telegram's answer. */
+	int64_t		waited_secs = 0;
 };
 
 struct ForwardMessage {

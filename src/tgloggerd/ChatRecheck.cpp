@@ -59,7 +59,9 @@ Admit Queue::push(const Item &it, Clock::time_point now)
 		return Admit::Recent;
 	if (size() >= max_)
 		return Admit::Busy;
-	(it.background ? background_ : asked_).push_back(it);
+	Item q = it;
+	q.queued_at = now;
+	(it.background ? background_ : asked_).push_back(q);
 	waiting_.insert(k);
 	note(k, now);
 	return Admit::Queued;
@@ -76,6 +78,20 @@ std::optional<Item> Queue::pop(Clock::time_point now)
 	waiting_.erase(k);
 	note(k, now);
 	return it;
+}
+
+bool repairMayRun(size_t rechecks_queued, int rechecks_inflight,
+		  Clock::duration since_repair_sent)
+{
+	if (rechecks_queued == 0 && rechecks_inflight <= 0)
+		return true;
+	return since_repair_sent >= kRepairMaxPause;
+}
+
+int repairAllowance(int budget, int tick_used, int repair_used)
+{
+	return std::max(0, std::min(budget - tick_used,
+				    kRepairPerSecond - repair_used));
 }
 
 Shape shapeOf(int64_t around)

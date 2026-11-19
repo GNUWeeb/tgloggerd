@@ -8,6 +8,7 @@
  * hand-built TDLib objects: no TDLib client, no database.
  */
 #include <tgloggerd/CommunityExtract.hpp>
+#include <tgloggerd/CommunityPacer.hpp>
 
 #include <td/telegram/td_api.hpp>
 
@@ -187,8 +188,36 @@ static void test_messages(void)
 	CHECK(message_community_id(nullptr) == 0, "no content");
 }
 
+static void test_pacer(void)
+{
+	printf("test: the pace of getCommunityFullInfo\n");
+	CommunityFullInfoPacer p;
+	const time_t t = 1000;
+	CHECK(p.mayAsk(t), "the first ask goes at once");
+	p.asked(t);
+	CHECK(!p.mayAsk(t + 30), "one at a time: not while it is unanswered");
+	p.answered();
+	CHECK(!p.mayAsk(t + 19), "then no sooner than 20 s after it");
+	CHECK(p.mayAsk(t + 20), "three a minute");
+	p.asked(t + 20);
+	p.floodWait(t + 21, 300);
+	CHECK(!p.mayAsk(t + 60), "a flood wait holds every ask back");
+	CHECK(!p.mayAsk(t + 320), "for all of it");
+	CHECK(p.mayAsk(t + 321), "and then asks again");
+
+	CHECK(retryAfterSecs(
+		      "Too Many Requests: retry after 30", 60) == 30,
+	      "429: retry after N");
+	CHECK(retryAfterSecs("FLOOD_WAIT_120", 60) == 120,
+	      "420: FLOOD_WAIT_N");
+	CHECK(retryAfterSecs("Too Many Requests", 60) == 60,
+	      "no number: the default");
+	CHECK(retryAfterSecs("", 60) == 60, "empty: the default");
+}
+
 int main()
 {
+	test_pacer();
 	test_community();
 	test_full_info();
 	test_messages();

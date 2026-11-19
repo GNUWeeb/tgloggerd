@@ -6,6 +6,7 @@
 #include <tgloggerd/MessageExtract.hpp>
 #include <tgloggerd/EmojiExtract.hpp>
 #include <tgloggerd/CommunityExtract.hpp>
+#include <tgloggerd/CommunityPacer.hpp>
 
 #include <td/telegram/Client.h>
 #include <td/telegram/td_api.h>
@@ -948,7 +949,7 @@ struct TDLib::Impl {
 	 * community_full_done_ / community_full_failed_ (time of failure)
 	 * the outcome of their full info: loop thread only. The fetch queue
 	 * is filled from the serial worker (fetchCommunityFullInfo) under
-	 * refetch_mtx_ and drained at kCommunityFullInfoPerSecond.
+	 * refetch_mtx_ and drained at community_pacer_'s pace.
 	 */
 	std::unordered_map<int64_t, models::Community>	communities_;
 	std::unordered_set<int64_t>			community_checked_;
@@ -956,8 +957,7 @@ struct TDLib::Impl {
 	std::unordered_map<int64_t, time_t>		community_full_failed_;
 	std::deque<int64_t>				community_fetch_pending_;
 	std::unordered_set<int64_t>			community_fetch_queued_;
-	time_t						community_tick_ = 0;
-	int						community_in_tick_ = 0;
+	CommunityFullInfoPacer			community_pacer_;
 
 	/*
 	 * Rich messages TDLib delivered without all of their blocks
@@ -984,6 +984,8 @@ struct TDLib::Impl {
 	size_t						repair_sent_ = 0;
 	time_t						relink_tick_ = 0;
 	int						relink_in_tick_ = 0;
+	/* What the repair sent this second (recheck::kRepairPerSecond). */
+	int						repair_in_tick_ = 0;
 
 	/*
 	 * Chat rechecks (TDLib::recheckChat): the queue under refetch_mtx_,
@@ -999,6 +1001,10 @@ struct TDLib::Impl {
 	int						recheck_inflight_ = 0;
 	int						recheck_in_tick_ = 0;
 	time_t						recheck_paused_until_ = 0;
+	/* The repair's yielding to rechecks (recheck::repairMayRun): when it
+	 * last sent, and whether it is paused, for the pause/resume log. */
+	recheck::Clock::time_point			repair_last_sent_{};
+	bool						repair_paused_ = false;
 	bool						recheck_catchup_armed_ = false;
 
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
@@ -2707,11 +2713,13 @@ void TDLib::Impl::enqueue_community_full_info(int64_t community_id)
 }
 
 /*
- * At most this many getCommunityFullInfo calls per second. A backfill can
- * name many communities at once; each is asked for once per run when it
- * succeeds, and not again within kCommunityRetrySecs after it failed.
+ * getCommunityFullInfo is paced by community_pacer_ (CommunityPacer.hpp):
+ * one at a time, a few a minute for the whole account, none during a
+ * flood wait. A backfill can name many communities at once; each is
+ * asked for once per run when it succeeds, and not again within
+ * kCommunityRetrySecs after it failed for another reason than a flood
+ * wait, which instead holds every ask back and retries it.
  */
-constexpr int kCommunityFullInfoPerSecond = 2;
 constexpr time_t kCommunityRetrySecs = 3600;
 
 /* At most this many getFullRichMessage calls per second, and a failed one
@@ -2722,11 +2730,7 @@ constexpr time_t kRichFullRetrySecs = 3600;
 void TDLib::Impl::drain_community_full_info(void)
 {
 	time_t now = std::time(nullptr);
-	if (now != community_tick_) {
-		community_tick_ = now;
-		community_in_tick_ = 0;
-	}
-	while (community_in_tick_ < kCommunityFullInfoPerSecond) {
+	while (community_pacer_.mayAsk(now)) {
 		int64_t id;
 		{
 			std::lock_guard<std::mutex> lk(refetch_mtx_);
@@ -2742,11 +2746,12 @@ void TDLib::Impl::drain_community_full_info(void)
 		if (f != community_full_failed_.end() &&
 		    now - f->second < kCommunityRetrySecs)
 			continue;
-		community_in_tick_++;
+		community_pacer_.asked(now);
 		send_query(td_api::make_object<td_api::getCommunityFullInfo>(id),
 			[this, id](Object obj) {
 				if (obj->get_id() ==
 				    td_api::communityFullInfo::ID) {
+					community_pacer_.answered();
 					emit_community_full_info(id,
 						static_cast<const td_api::communityFullInfo &>(
 							*obj));
@@ -2756,9 +2761,29 @@ void TDLib::Impl::drain_community_full_info(void)
 				if (obj->get_id() == td_api::error::ID) {
 					auto &e = static_cast<const td_api::error &>(
 						*obj);
+					if (e.code_ == 429 || e.code_ == 420) {
+						const long secs =
+							retryAfterSecs(
+								e.message_, 60);
+						community_pacer_.floodWait(
+							std::time(nullptr), secs);
+						pr_info(l_, "community full info:"
+							" paused %lds by a flood"
+							" wait (community %lld"
+							" retried after it)",
+							secs, (long long)id);
+						std::lock_guard<std::mutex> lk(
+							refetch_mtx_);
+						if (community_fetch_queued_
+							    .insert(id).second)
+							community_fetch_pending_
+								.push_front(id);
+						return;
+					}
 					why = std::to_string(e.code_) + " " +
 					      e.message_;
 				}
+				community_pacer_.answered();
 				pr_info(l_, "community %lld: no full info (%s);"
 					" not asked again for an hour",
 					(long long)id, why.c_str());
@@ -3070,6 +3095,7 @@ void TDLib::Impl::drain_relink(void)
 		relink_tick_ = now;
 		relink_in_tick_ = 0;
 		recheck_in_tick_ = 0;
+		repair_in_tick_ = 0;
 	}
 	while (relink_in_tick_ < kRelinkPerSecond) {
 		std::pair<int64_t, int64_t> m;
@@ -3088,15 +3114,35 @@ void TDLib::Impl::drain_relink(void)
 				  << " of " << relink_total_
 				  << " message(s) missing their media\n";
 	}
-	/* Chat rechecks, from the same budget, ahead of the repair. */
+	/* Chat rechecks, from the same budget, ahead of the repair; the
+	 * repair waits for them altogether (recheck::repairMayRun). */
 	drain_recheck();
+	{
+		std::lock_guard<std::mutex> lk(refetch_mtx_);
+		if (repair_pending_.empty())
+			return;
+		const auto now = recheck::Clock::now();
+		const bool may = recheck::repairMayRun(
+			recheck_q_.size(), recheck_inflight_,
+			now - repair_last_sent_);
+		if (may == repair_paused_) {
+			repair_paused_ = !may;
+			pr_info(l_, may ? "repair: resumed (%zu recheck(s) waiting)"
+					: "repair: paused while %zu recheck(s) wait",
+				recheck_q_.size() + (size_t)recheck_inflight_);
+		}
+		if (!may)
+			return;
+		repair_last_sent_ = now;
+	}
 	/*
 	 * Old-row repair, after the relink queue and from what is left of the
 	 * same budget. A re-fetched message is stored again through the
 	 * normal path, which classifies it; one TDLib can no longer return
-	 * keeps what it has.
+	 * keeps what it has. At most recheck::kRepairPerSecond a second.
 	 */
-	while (relink_in_tick_ < kRelinkPerSecond) {
+	while (recheck::repairAllowance(kRelinkPerSecond, relink_in_tick_,
+					repair_in_tick_) > 0) {
 		std::pair<int64_t, int64_t> m;
 		{
 			std::lock_guard<std::mutex> lk(refetch_mtx_);
@@ -3107,6 +3153,7 @@ void TDLib::Impl::drain_relink(void)
 		}
 		refetch_edited_message(m.first, m.second << 20, false);
 		relink_in_tick_++;
+		repair_in_tick_++;
 		if (++repair_sent_ % 1000 == 0 || repair_sent_ == repair_total_)
 			pr_info(l_, "repair: re-fetched %zu of %zu old message(s)"
 				" without their kind or detail", repair_sent_,
@@ -3187,6 +3234,9 @@ void TDLib::Impl::on_recheck_page(const recheck::Item &it, Object obj)
 	a.chat_id = it.chat_id;
 	a.is_group = !is_private_chat(it.chat_id);
 	a.page.around = it.around;
+	if (it.queued_at != recheck::Clock::time_point{})
+		a.waited_secs = std::chrono::duration_cast<std::chrono::seconds>(
+			recheck::Clock::now() - it.queued_at).count();
 
 	/*
 	 * A message found again that an earlier recheck marked deleted was
