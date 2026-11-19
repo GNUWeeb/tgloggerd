@@ -18,6 +18,7 @@ import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
 import { bytes, fmt } from '../format.ts';
 import { TYPE_LABEL } from './groups.tsx';
+import { serviceLabel } from '../ui/labels.ts';
 import type { PageData, Viewer } from '../page.ts';
 import type { ChatMedia, ChatMessage, GroupSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
@@ -53,8 +54,8 @@ const prefs = (v: Viewer) => ({
 // group, a positive one a private chat.
 const chatPath = (id: number, at?: number) => `${id < 0 ? '/groups' : '/users'}/${id}/chat${at !== undefined ? `?at=${at}` : ''}`;
 
-// A service message's type as words, when it came without its text.
-const serviceText = (t?: string) => (t ? t.replace(/_/g, ' ').replace(/^chat /, '') : '');
+// A service message's action as words, when it came without its text.
+const serviceText = (t?: string) => (t ? serviceLabel(t) : '');
 
 // Where a forward came from: a link to the user, or to the channel's
 // post (or the channel), else just the name.

@@ -105,7 +105,7 @@ describe('chat parity', () => {
 		chatWith([{ content_type: 'service', text: '', service_type: 'pin_message', sender: s.sender }]);
 		const svc = row(0);
 		expect(svc.className).toContain('c-service');
-		expect(svc.textContent).toContain('pin message');
+		expect(svc.textContent).toContain('Message pinned');
 		expect(within(svc).getByRole('link', { name: s.sender!.name }).getAttribute('href')).toBe(`/users/${s.sender!.id}`);
 		expect(svc.querySelector('.c-svctime')).toBeTruthy();
 	});
