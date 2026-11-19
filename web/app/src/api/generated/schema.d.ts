@@ -1073,10 +1073,30 @@ export interface paths {
         put?: never;
         /**
          * Join a group or channel
-         * @description For superadmins and admins holding join_chat (restrict.join_chat, granted by a superadmin); anyone else gets 404. Writes one chat_join audit row whatever comes of it, once the request passes its checks (web/docs/join-chat.md). A joined group is added to the chosen federations, which must be ones the viewer administers (404 otherwise, before anything is joined); none leaves it in Default (web-accounts.md section 3). Filing the group into the chosen ones comes with join-chat-federations; until then it stays in Default.
+         * @description For superadmins and admins holding join_chat (restrict.join_chat, granted by a superadmin); anyone else gets 404. Writes one chat_join audit row whatever comes of it, once the request passes its checks (web/docs/join-chat.md). A joined group is added to the chosen federations, which must be ones the viewer administers (404 otherwise, before anything is joined); none leaves it in Default (web-accounts.md section 3). The group is filed when the outcome is joined; after request_sent or approval_required the choice is held (filing_pending) and applied once the account is a member. A group the account was already in (already_member) is not filed: moving an existing group is the federation editor's.
          */
         post: operations["joinChat"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/join-chat/pending/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Drop a held filing of a group not yet joined
+         * @description Drops one held filing (JoinChatProps.pending), so the group is not filed into that federation when the account becomes a member. Admins drop their own, superadmins any. Audited (chat_join_cancel). Anyone else, and an id that is not held or not the viewer's, gets 404.
+         */
+        delete: operations["cancelJoinFiling"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4048,12 +4068,38 @@ export interface components {
             ref?: string;
             /** @description Seconds to wait, with flood_wait. */
             retry_after?: number;
+            /** @description Join only: the federations the group was filed into (outcome joined), or is held for (filing_pending); empty when none was chosen or nothing is filed. Absent from a preview. */
+            federation_ids?: number[];
+            /** @description Join only: true when federation_ids are held until the account is a member (request_sent, approval_required). Absent from a preview. */
+            filing_pending?: boolean;
+        };
+        /** @description A held filing: a group whose join waits for approval, and a federation it goes into once the account is a member. */
+        JoinFiling: {
+            /** Format: int64 */
+            id: number;
+            /** @description The reference as the daemon normalised it. */
+            ref: string;
+            /** @description The chat's title at the request; empty when unknown. */
+            title: string;
+            /**
+             * Format: int64
+             * @description 0 when the account could not see the chat yet.
+             */
+            chat_id: number;
+            federation: components["schemas"]["FedRef"];
+            /** @description The account that asked, by username. */
+            by: string;
+            /** @description When it was asked (UTC, RFC 3339). */
+            at: string;
         };
         JoinChatProps: {
             /** @description Whether the service reaches the daemon's API (WEB_TGLOGGERD_API); false means no chat can be joined from here, and the page says so before anything is tried. */
             api_configured: boolean;
             /** @description Federations the viewer may file a joined group into. */
             federations: components["schemas"]["FedRef"][];
+            /** @description The held filings, oldest first: an admin's own, every one for a superadmin. */
+            pending: components["schemas"]["JoinFiling"][];
+            /** @description The last attempts, newest first: a superadmin sees every account's, an admin only its own. A chat the viewer's scope hides is left out, and a non-superadmin gets no title for an attempt that does not name its chat id. */
             recent: {
                 at: string;
                 by: string;
@@ -6536,6 +6582,7 @@ export interface operations {
             content: {
                 "application/json": {
                     ref: string;
+                    /** @description The federations to file the joined group into; 0 (Default) and none leave it in Default. */
                     federation_ids?: number[];
                 };
             };
@@ -6555,6 +6602,29 @@ export interface operations {
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
             502: components["responses"]["DaemonFailed"];
+        };
+    };
+    cancelJoinFiling: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dropped. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
         };
     };
     lookupName: {

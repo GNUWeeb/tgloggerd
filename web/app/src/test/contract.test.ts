@@ -137,6 +137,39 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		}
 	});
 
+	// Before the test below, which takes gw_admin's Join chat grant.
+	it('join answers, held filings and dropping one', () => {
+		type Props = { recent: { by: string; title: string }[]; pending: { id: number; by: string; federation: { id: number } }[] };
+		const props = (p: Persona) => pageData('/join-chat', p).props as Props;
+		// An admin sees only its own attempts and filings.
+		expect(props('admin').recent.every((r) => r.by === 'gw_admin')).toBe(true);
+		expect(props('admin').pending.every((f) => f.by === 'gw_admin')).toBe(true);
+		expect(props('superadmin').pending.some((f) => f.by !== 'gw_admin')).toBe(true);
+		expect(props('superadmin').recent.length).toBeGreaterThan(props('admin').recent.length);
+		const [js, joined] = adminApi('POST', 'join-chat/join', { ref: '@compilernerds_id', federation_ids: [1, 0] }, 'admin');
+		ok(js, joined, '/api/join-chat/join', 'post');
+		expect(joined).toMatchObject({ outcome: 'joined', federation_ids: [1], filing_pending: false });
+		// A federation the admin does not administer: 404, nothing joined.
+		const before = props('admin').recent.length;
+		expect(adminApi('POST', 'join-chat/join', { ref: '@x', federation_ids: [2] }, 'admin')[0]).toBe(404);
+		expect(props('admin').recent).toHaveLength(before);
+		const held = props('admin').pending.length;
+		const [rs, sent] = adminApi('POST', 'join-chat/join', { ref: 'https://t.me/+request_me', federation_ids: [1] }, 'admin');
+		ok(rs, sent, '/api/join-chat/join', 'post');
+		expect(sent).toMatchObject({ outcome: 'request_sent', federation_ids: [1], filing_pending: true });
+		expect(props('admin').pending).toHaveLength(held + 1);
+		// Dropping: another account's filing is 404 to an admin, its own
+		// goes, and a superadmin may drop anyone's.
+		const others = props('superadmin').pending.find((f) => f.by !== 'gw_admin')!;
+		expect(adminApi('DELETE', `join-chat/pending/${others.id}`, {}, 'admin')[0]).toBe(404);
+		expect(adminApi('DELETE', `join-chat/pending/${others.id}`, {}, 'member')[0]).toBe(404);
+		const own = props('admin').pending.at(-1)!;
+		expect(adminApi('DELETE', `join-chat/pending/${own.id}`, {}, 'admin')[0]).toBe(204);
+		expect(adminApi('DELETE', `join-chat/pending/${own.id}`, {}, 'admin')[0]).toBe(404);
+		expect(adminApi('DELETE', `join-chat/pending/${others.id}`, {}, 'superadmin')[0]).toBe(204);
+		expect(props('superadmin').pending.some((f) => f.id === others.id)).toBe(false);
+	});
+
 	it('history pages of a user and a group', () => {
 		const user = String(sampleContacts()[0]);
 		for (const q of ['', 'limit=3', 'limit=3&before=h3']) {

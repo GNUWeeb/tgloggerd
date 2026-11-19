@@ -897,6 +897,13 @@ describe each, with what differs from the Drogon pages.
     waits hours, or the flood wait Telegram asked for, before it is
     asked about again; the attempts live in memory. Never in a
     request's path; without WEB_TGLOGGERD_API nothing runs.
+  - A group joined from Join chat goes into the federations chosen for
+    it (web/docs/join-chat.md); one whose join waits for approval is
+    held in web_join_filings and filed by a background sweep
+    (internal/server/joinchat.go, JoinFiler): once a minute, one
+    query over the held filings, and when any has a known chat one
+    read of those groups' message counters; it stops with the
+    service.
   - The forwarding tables and telegram_public_groups are the logger's;
     the service writes them through the read-only pool, whose account
     is granted DML on exactly those (web/docs/platform-forwarding.md

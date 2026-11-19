@@ -102,14 +102,51 @@ granted `join_chat` by a superadmin (`restrict.join_chat`,
 web/docs/accounts.md); to anyone else they do
 not exist (404). `federation_ids` must be existing federations the
 viewer administers (404 otherwise, before anything is joined); the
-page offers those. Filing the joined group into them comes with
-`join-chat-federations`; until then it is in Default, as when none is
-chosen. Each join writes the same `chat_join` row as above, so
+page offers those. Each join writes the same `chat_join` row as above, so
 the page's list (`/join-chat`'s data, the last 20 attempts) reads the
 rows of both services. A superadmin's list holds every account's
 attempts; an admin's only its own, leaving out the attempts at chats
 hidden from it (`restrict.hide_groups`), which the `chat=` id tells,
 and giving no title where a row does not name its chat.
+
+## Filing the joined group into federations
+
+The join's `federation_ids` (Default, 0, counts as none) say where the
+group goes (docs/design/web-accounts.md section 3), and the join's answer
+carries `federation_ids` (where it went, or waits to go) and
+`filing_pending`:
+
+- `joined`: the group is added to each chosen federation at once, as the
+  federation editor adds one (the members' Default grants of it go), with
+  one `federation_update` audit row per federation
+  (`federation 9; groups +1 -0; joined -1001234567890`).
+- `request_sent`, `approval_required`: the account is not a member yet, so
+  the choice is held (`web_join_filings`, web migration 000017; audited as
+  `chat_join_hold <ref> federations 9,10 chat=<id>`) and `filing_pending`
+  is true. A held filing is settled once the account is a member:
+  - a background sweep, once a minute, reads the held filings whose chat id
+    is known (one query, and nothing more when there are none) and files
+    those whose group's message counter (`telegram_groups.msg_count`) has
+    grown past its value at the request: the account only receives a
+    group's messages as a member;
+  - a later preview that finds the account in the chat (`is_member`), or a
+    join answering `joined` or `already_member`, settles the filings held
+    for that ref or chat id. This is the only way for a private group
+    behind an invite link, whose id the account cannot see before joining.
+
+  Settling files the group as above (`approved` in place of `joined` in
+  the audit row), checking again that the account that asked still
+  administers the federation; if not, the filing is dropped unfiled
+  (`chat_join_unheld ... no longer the account's`).
+- `already_member` and every other outcome: nothing is filed. Moving a
+  group the logger already has between federations is the federation
+  editor's.
+
+The page data's `pending` lists the held filings (an admin's own, all of
+them for a superadmin); `DELETE /api/join-chat/pending/{id}` drops one
+(204; 404 when it is not held or not the viewer's; audited as
+`chat_join_unheld <ref> federation <id> cancelled`). A filing also goes
+when its federation or its account is deleted.
 
 ## Configuration
 
