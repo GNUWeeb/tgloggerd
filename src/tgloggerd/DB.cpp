@@ -201,13 +201,16 @@ size_t DB::countStoredMessages(int64_t chat_id, bool is_group,
 			? " FORCE INDEX (uq_group_messages_chat_msg)"
 			: " FORCE INDEX (uq_private_messages_chat_msg)") +
 		" WHERE chat_id = ? AND message_id IN (";
-	std::vector<mysql::Param> params{ chat_id };
+	/* The ids are integers, so they go into the statement as literals;
+	 * binding each as a parameter copied a vector of variants, which
+	 * GCC 13 wrongly warns may be uninitialized. */
 	for (size_t i = 0; i < message_ids.size(); i++) {
-		sql += i ? ", ?" : "?";
-		params.push_back(message_ids[i]);
+		if (i)
+			sql += ", ";
+		sql += std::to_string(message_ids[i]);
 	}
 	sql += ")";
-	auto rows = db_.query(sql, params);
+	auto rows = db_.query(sql, { chat_id });
 	if (rows.empty() || !rows[0][0].has_value())
 		return 0;
 	return (size_t)std::stoull(*rows[0][0]);
