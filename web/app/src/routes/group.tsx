@@ -15,7 +15,8 @@ import type { PageData } from '../page.ts';
 import type { GroupAdmin, GroupFull, GroupHistoryEntry, UserSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
-import type { MemberCount, MemberListFlags } from '../api/members.ts';
+import { seesMembers, type MemberCount, type MemberListFlags } from '../api/members.ts';
+import { Members, type MembersProps } from './group-members.tsx';
 
 // The member count and the list's switch are local until the API
 // description has them (api/members.ts).
@@ -24,7 +25,12 @@ export type GroupProps = Omit<S['GroupProps'], 'group'> & MemberListFlags & { gr
 // a member it is not granted to, an admin it is hidden from): the group
 // alone, without admins, history, posters, activity or files.
 export type GroupPublicProps = Omit<S['GroupPublicProps'], 'group'> & { group: S['GroupPublicProps']['group'] & MemberCount };
-export type GroupPageProps = GroupProps | GroupPublicProps;
+// The Members tab (group_members): the list's page beside the group.
+// The other tabs' parts are taken as optional there, so the tab still
+// draws if the service sends the group alone with it.
+export type GroupMembersProps = Partial<Omit<GroupProps, 'group'>> & Pick<GroupProps, 'group'> & MembersProps;
+export type GroupPageProps = GroupProps | GroupMembersProps | GroupPublicProps;
+const isMembers = (p: GroupProps | GroupMembersProps): p is GroupMembersProps => 'available' in p && Array.isArray((p as GroupMembersProps).members);
 const isPublic = (p: GroupPageProps): p is GroupPublicProps => 'public' in p && p.public === true;
 
 const KIND = {
@@ -153,20 +159,23 @@ function GroupPage({ page }: { page: PageData<GroupPageProps> }) {
 	return isPublic(p) ? <PublicGroup page={{ ...page, props: p }} /> : <Group page={{ ...page, props: p }} />;
 }
 
-function Group({ page }: { page: PageData<GroupProps> }) {
-	const { group: g, admins, history: first, history_next, top_posters, activity } = page.props;
+function Group({ page }: { page: PageData<GroupProps | GroupMembersProps> }) {
+	const { group: g, admins = [], history: first = [], history_next = null, top_posters = [], activity = [] } = page.props;
 	const v = page.viewer;
 	const load = useCallback((before: string) => ok(api.GET('/api/groups/{id}/history', { params: { path: { id: g.id }, query: { before } } })), [g.id]);
 	const h = useHistoryPages(first, history_next, load);
 	const history = h.entries;
 	// The photo carousel: undefined is closed, null opens at the current photo.
 	const [photos, setPhotos] = useState<number | null | undefined>(undefined);
-	const tab = page.route === 'group_admins' ? 'admins' : page.route === 'group_history' ? 'history' : 'group';
+	const tab = page.route === 'group_admins' ? 'admins' : page.route === 'group_history' ? 'history' : page.route === 'group_members' ? 'members' : 'group';
+	const mp = isMembers(page.props) ? page.props : null;
+	// Telegram's count: the list's own when on its tab, else the group's.
+	const memberCount = mp?.total ?? g.member_count ?? null;
 	const [kind, setKind] = useState<'all' | GroupHistoryEntry['kind']>('all');
 	const shown = kind === 'all' ? history : history.filter((e) => e.kind === kind);
 	const base = `/groups/${g.id}`;
 	const crumbs: [string, string | null][] = [['Groups', '/groups'], [g.title, tab === 'group' ? null : base]];
-	if (tab !== 'group') crumbs.push([tab === 'admins' ? 'Admins' : 'History', null]);
+	if (tab !== 'group') crumbs.push([tab === 'admins' ? 'Admins' : tab === 'members' ? 'Members' : 'History', null]);
 	const msgsHref = `/group_messages?f=${encodeURIComponent(JSON.stringify([{ field: 'chat_id', op: '=', value: String(g.id) }]))}`;
 	return (
 		<Shell crumbs={crumbs}>
@@ -189,8 +198,10 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 			{g.exposed && <div className="a-banner"><Globe size={15} /><span>This group is exposed through MCP, so its chat and files are also readable on the web without signing in.</span></div>}
 			<Tabs items={[
 				['Overview', base, tab === 'group'],
+				// Only viewers who see users in full get the list (else 404).
+				...(seesMembers(v) ? [['Members', `${base}/members`, tab === 'members', memberCount != null ? compact(memberCount) : undefined] as [string, string, boolean, string | undefined]] : []),
 				['Admins', `${base}/admins`, tab === 'admins', g.admin_count],
-				['History', `${base}/history`, tab === 'history', h.hasMore ? `${history.length}+` : history.length],
+				['History', `${base}/history`, tab === 'history', page.props.history === undefined ? undefined : h.hasMore ? `${history.length}+` : history.length],
 				['Messages', msgsHref, false, compact(g.msg_count)],
 			]} />
 			{tab === 'group' && (
@@ -235,6 +246,7 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 				</div>
 			)}
 			{tab === 'admins' && <Admins admins={admins} v={v} />}
+			{tab === 'members' && mp && <Members groupId={g.id} count={g.member_count ?? null} p={mp} hidden={!!mp.hide_member_list && mp.available} v={v} />}
 			{tab === 'history' && (
 				<div className="a-history">
 					<div className="a-seg" role="tablist">
