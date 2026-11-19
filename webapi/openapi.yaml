@@ -6235,6 +6235,8 @@ components:
         - $ref: '#/components/schemas/ServiceCommunityDetail'
         - $ref: '#/components/schemas/ServiceTitleDetail'
         - $ref: '#/components/schemas/ServiceBackgroundDetail'
+        - $ref: '#/components/schemas/ServiceGiftDetail'
+        - $ref: '#/components/schemas/ServiceThemeDetail'
       discriminator:
         propertyName: kind
         mapping:
@@ -6246,6 +6248,8 @@ components:
           community: '#/components/schemas/ServiceCommunityDetail'
           title: '#/components/schemas/ServiceTitleDetail'
           background: '#/components/schemas/ServiceBackgroundDetail'
+          gift: '#/components/schemas/ServiceGiftDetail'
+          theme: '#/components/schemas/ServiceThemeDetail'
     ServicePhotoDetail:
       type: object
       description: >-
@@ -6419,6 +6423,244 @@ components:
         message_id:
           type: [integer, 'null']
           format: int64
+    ServiceGiftDetail:
+      type: object
+      description: >-
+        A gift, as Telegram shows it on the service line
+        (docs/design/message-types.md sections 3.5, 4.2.3 and 4.3).
+        gift and refunded_upgraded_gift: a regular gift; upgraded_gift,
+        upgraded_gift_purchase_offer and
+        upgraded_gift_purchase_offer_rejected: an upgraded (unique)
+        gift, with upgraded set; gifted_premium, gifted_stars,
+        gifted_grams and giveaway_prize_stars: the animation sticker of
+        the Premium, Stars or grams given. Rows logged before the
+        gift's stickers and look were kept have only what was stored:
+        null stickers, upgraded's model, symbol and backdrop null. No
+        detail when nothing of it is stored.
+      required: [kind, sticker, symbol_sticker, star_count, price, sender, receiver, text, entities, upgraded]
+      properties:
+        kind:
+          const: gift
+        sticker:
+          description: >-
+            The message's file of role gift at position 0: a regular
+            gift's sticker, an upgraded gift's model sticker, or the
+            animation sticker of gifted Premium, Stars, grams or a
+            giveaway prize (render lottie for a .tgs, animation for a
+            .webm, image for a .webp); null when not recorded.
+          oneOf:
+            - $ref: '#/components/schemas/ChatMedia'
+            - type: 'null'
+        symbol_sticker:
+          description: >-
+            An upgraded gift's symbol sticker, the file of role gift at
+            position 1, drawn as a pattern over the backdrop in its
+            symbol_color; null for the others and when not recorded.
+          oneOf:
+            - $ref: '#/components/schemas/ChatMedia'
+            - type: 'null'
+        star_count:
+          type: [integer, 'null']
+          format: int64
+          description: >-
+            A regular gift's price in Telegram Stars, or the Stars of
+            gifted_stars and giveaway_prize_stars; null for the others.
+        price:
+          description: >-
+            A purchase offer's price, in Stars or in hundredths of a
+            gram (TON); null for the others.
+          oneOf:
+            - type: object
+              required: [stars]
+              properties:
+                stars:
+                  type: integer
+                  format: int64
+            - type: object
+              required: [gram_cents]
+              properties:
+                gram_cents:
+                  type: integer
+                  format: int64
+            - type: 'null'
+        sender:
+          description: >-
+            Who gave it (the gift's sender, or the gifter of Premium,
+            Stars or grams), as a ref the viewer may see; null when it
+            is not stored (a private gift) or hidden.
+          oneOf:
+            - $ref: '#/components/schemas/ChatRef'
+            - type: 'null'
+        receiver:
+          description: Who received it, as sender is.
+          oneOf:
+            - $ref: '#/components/schemas/ChatRef'
+            - type: 'null'
+        text:
+          type: string
+          description: >-
+            The message the giver attached (gift, upgraded_gift,
+            gifted_premium); empty when none.
+        entities:
+          type: array
+          description: text's entities; empty when none.
+          items:
+            $ref: '#/components/schemas/TextEntity'
+        upgraded:
+          description: >-
+            The upgraded gift of upgraded_gift and of the two purchase
+            offer types; null for the others.
+          oneOf:
+            - $ref: '#/components/schemas/UpgradedGift'
+            - type: 'null'
+    UpgradedGift:
+      type: object
+      description: >-
+        An upgraded (unique) gift: its ids, title, number and owner, and
+        what it looks like: the model (whose sticker is the detail's
+        sticker), the symbol (symbol_sticker) and the backdrop, a
+        gradient from center_color to edge_color behind them. Each is
+        null when not stored (rows logged before they were kept).
+      required: [id, regular_gift_id, title, name, number, owner, model, symbol, backdrop, original_details]
+      properties:
+        id:
+          type: string
+          description: The upgraded gift's id (64-bit, as a decimal string).
+        regular_gift_id:
+          type: [string, 'null']
+          description: The id of the regular gift it was upgraded from.
+        title:
+          type: string
+        name:
+          type: string
+          description: >-
+            Its unique name, as in https://t.me/nft/{name}; empty when
+            not stored.
+        number:
+          type: integer
+          format: int64
+          description: Its number among the upgraded gifts of its kind; 0 when not stored.
+        owner:
+          description: Its owner, as a ref the viewer may see; null when not stored or hidden.
+          oneOf:
+            - $ref: '#/components/schemas/ChatRef'
+            - type: 'null'
+        model:
+          oneOf:
+            - type: object
+              required: [name, rarity_per_mille, rarity, crafted]
+              properties:
+                name:
+                  type: string
+                rarity_per_mille:
+                  $ref: '#/components/schemas/GiftRarityPerMille'
+                rarity:
+                  $ref: '#/components/schemas/GiftRarity'
+                crafted:
+                  type: boolean
+                  description: The model is only obtained by crafting gifts.
+            - type: 'null'
+        symbol:
+          oneOf:
+            - type: object
+              required: [name, rarity_per_mille, rarity]
+              properties:
+                name:
+                  type: string
+                rarity_per_mille:
+                  $ref: '#/components/schemas/GiftRarityPerMille'
+                rarity:
+                  $ref: '#/components/schemas/GiftRarity'
+            - type: 'null'
+        backdrop:
+          oneOf:
+            - type: object
+              description: >-
+                Colours are RGB integers (0xRRGGBB); 0 is black.
+              required: [name, center_color, edge_color, symbol_color, text_color, rarity_per_mille, rarity]
+              properties:
+                name:
+                  type: string
+                center_color:
+                  $ref: '#/components/schemas/RgbColor'
+                edge_color:
+                  $ref: '#/components/schemas/RgbColor'
+                symbol_color:
+                  $ref: '#/components/schemas/RgbColor'
+                text_color:
+                  $ref: '#/components/schemas/RgbColor'
+                rarity_per_mille:
+                  $ref: '#/components/schemas/GiftRarityPerMille'
+                rarity:
+                  $ref: '#/components/schemas/GiftRarity'
+            - type: 'null'
+        original_details:
+          description: >-
+            The regular gift it was upgraded from, as it was sent: its
+            sender (null for a private gift, when not stored or
+            hidden), receiver, text and date; null when not stored.
+          oneOf:
+            - type: object
+              required: [sender, receiver, text, entities, date]
+              properties:
+                sender:
+                  oneOf:
+                    - $ref: '#/components/schemas/ChatRef'
+                    - type: 'null'
+                receiver:
+                  oneOf:
+                    - $ref: '#/components/schemas/ChatRef'
+                    - type: 'null'
+                text:
+                  type: string
+                entities:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/TextEntity'
+                date:
+                  type: [string, 'null']
+                  format: date-time
+            - type: 'null'
+    GiftRarityPerMille:
+      type: [integer, 'null']
+      minimum: 0
+      maximum: 1000
+      description: >-
+        How many of 1000 upgraded gifts get this attribute (0 means
+        under 0.1%); null when Telegram names the rarity instead
+        (GiftRarity) or it is not stored.
+    GiftRarity:
+      type: [string, 'null']
+      enum: [uncommon, rare, epic, legendary, null]
+      description: >-
+        The rarity when Telegram names it instead of giving a
+        proportion; null otherwise.
+    RgbColor:
+      type: integer
+      minimum: 0
+      maximum: 16777215
+      description: An RGB colour as an integer (0xRRGGBB).
+    ServiceThemeDetail:
+      type: object
+      description: >-
+        chat_set_theme: the theme set, an emoji chat theme's name, or
+        for a theme made from an upgraded gift that gift's id and
+        unique name (link to https://t.me/nft/{gift_name}). No detail
+        when none is stored (the theme was reset, or rows logged
+        before).
+      required: [kind, theme_name, gift_id, gift_name]
+      properties:
+        kind:
+          const: theme
+        theme_name:
+          type: [string, 'null']
+          description: An emoji chat theme's name; null for a gift theme.
+        gift_id:
+          type: [string, 'null']
+          description: A gift theme's upgraded gift id; null for the others.
+        gift_name:
+          type: [string, 'null']
+          description: A gift theme's upgraded gift's unique name; null for the others.
     MessageDetail:
       description: >-
         A message kind's detail, from content_extra
@@ -6722,7 +6964,7 @@ components:
             - type: 'null'
     GiveawayDetail:
       type: object
-      required: [kind, prize, winner_count, winners_selection_date, only_new_members, prize_description, chats, chats_total]
+      required: [kind, prize, winner_count, winners_selection_date, only_new_members, prize_description, chats, chats_total, sticker]
       properties:
         kind:
           const: giveaway
@@ -6757,6 +6999,15 @@ components:
             $ref: '#/components/schemas/ChatRef'
         chats_total:
           type: integer
+        sticker:
+          description: >-
+            The prize's sticker, the message's file of role gift at
+            position 0 (render lottie for a .tgs, animation for a
+            .webm, image for a .webp); null when not recorded (rows
+            logged before it was kept).
+          oneOf:
+            - $ref: '#/components/schemas/ChatMedia'
+            - type: 'null'
     CallDetail:
       type: object
       description: >-
