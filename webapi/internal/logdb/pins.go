@@ -19,6 +19,8 @@ type PinnedGroup struct {
 	ID      int64
 	Title   string
 	PhotoID uint64 // telegram_files.id of its photo, 0 if none
+	// Photo is that file's row, read in the same query.
+	Photo FileRef
 }
 
 // PinnedGroups are the groups of ids, in that order, that exist and
@@ -28,9 +30,10 @@ func PinnedGroups(ctx context.Context, db *sql.DB, sc scope.Scope, ids []int64) 
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	cond, args := sc.GroupFilter("id")
-	q := "SELECT id, title, COALESCE(photo_file_id, 0) FROM telegram_groups WHERE id IN (?" +
-		strings.Repeat(", ?", len(ids)-1) + ") AND " + cond
+	cond, args := sc.GroupFilter("g.id")
+	q := "SELECT g.id, g.title, COALESCE(g.photo_file_id, 0), " + fileColumnsOf("f") +
+		" FROM telegram_groups g LEFT JOIN telegram_files f ON f.id = g.photo_file_id " +
+		"WHERE g.id IN (?" + strings.Repeat(", ?", len(ids)-1) + ") AND " + cond
 	all := make([]any, 0, len(ids)+len(args))
 	for _, id := range ids {
 		all = append(all, id)
@@ -43,10 +46,14 @@ func PinnedGroups(ctx context.Context, db *sql.DB, sc scope.Scope, ids []int64) 
 	defer rows.Close()
 	found := map[int64]PinnedGroup{}
 	for rows.Next() {
-		var g PinnedGroup
-		if err := rows.Scan(&g.ID, &g.Title, &g.PhotoID); err != nil {
+		var (
+			g PinnedGroup
+			f nullFile
+		)
+		if err := rows.Scan(append([]any{&g.ID, &g.Title, &g.PhotoID}, f.dest()...)...); err != nil {
 			return nil, err
 		}
+		g.Photo = f.ref(g.PhotoID)
 		found[g.ID] = g
 	}
 	if err := rows.Err(); err != nil {

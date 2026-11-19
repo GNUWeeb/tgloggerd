@@ -1353,6 +1353,8 @@ export interface components {
                 /** Format: int64 */
                 id: number;
                 title: string;
+                /** @description The group's photo, a /files/ URL when its bytes are stored, else null. */
+                photo?: string | null;
             }[];
             chat?: {
                 auto_load?: boolean;
@@ -2965,6 +2967,7 @@ export interface components {
             name: string;
         };
         T2DRoute: components["schemas"]["Owned"] & {
+            /** @description The route's Telegram chat. Its photo is the group's photo or, for a private chat, the user's profile photo: a /files/ URL when the bytes are stored, else null. */
             chat: components["schemas"]["PickItem"];
             /** @description The webhook URL with its secret part cut off. */
             url_masked: string;
@@ -2980,6 +2983,7 @@ export interface components {
         D2TRoute: components["schemas"]["Owned"] & {
             channel_id: string;
             channel_name: string;
+            /** @description The route's Telegram chat. Its photo is the group's photo or, for a private chat, the user's profile photo: a /files/ URL when the bytes are stored, else null. */
             chat: components["schemas"]["PickItem"];
             /** @description The Discord bot that reads the channel, with its state; null for a route made before the Discord bots were stored, until the deployment's import gives it one (it forwards nothing meanwhile). */
             discord_bot: components["schemas"]["BotRef"] | null;
@@ -3063,6 +3067,8 @@ export interface components {
             identity: components["schemas"]["BotIdentity"] | null;
             status: components["schemas"]["BotStatus"];
             enabled: boolean;
+            /** @description A Telegram bot's profile photo, as the archive has it for the user of identity.user_id: a /files/ URL when that user is in the archive and the photo's bytes are stored, else null. Always null for a Discord bot (no third-party URLs). */
+            photo?: string | null;
         };
         /** @description A bot on the Bots page. Its token is write-only: no answer, page or attribute carries it once it is saved (decisions/2026-11-18-ownership-and-bots.md). */
         Bot: components["schemas"]["BotRef"] & {

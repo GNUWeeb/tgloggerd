@@ -76,14 +76,14 @@ func TestForwardingPages(t *testing.T) {
 	}
 	if got := js(routes[2]); got != canon(`{"id":1,"owner":{"id":0,"name":"Shared","active":true},`+
 		`"federation":{"id":0,"name":"Default"},"transfer_candidates":[],`+
-		`"chat":{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup","photo":null},`+
-		`"url_masked":"https://discord.com/api/webhooks/1100000000000000001/****",`+
+		`"chat":{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup",`+
+		`"photo":"`+photoOf(gnuWeebPhoto)+`"},"url_masked":"https://discord.com/api/webhooks/1100000000000000001/****",`+
 		`"types":["sticker","text","photo","video","document","other"],"enabled":true,`+
 		`"sent":3,"last_sent":"2026-11-17T11:00:01Z"}`) {
 		t.Errorf("webhook 1 %s", got)
 	}
 	if got := js(routes[1].(map[string]any)["chat"]); got !=
-		canon(`{"id":9299000001,"title":"Dewi Kusuma","kind":"user","photo":null}`) {
+		canon(`{"id":9299000001,"title":"Dewi Kusuma","kind":"user","photo":"`+photoOf(dewiPhoto)+`"}`) {
 		t.Errorf("webhook 2 chat %s", got)
 	}
 	if got := js(routes[0].(map[string]any)["types"]); got != `["text"]` ||
@@ -103,22 +103,25 @@ func TestForwardingPages(t *testing.T) {
 	r1, r2 := routes[1].(map[string]any), routes[0].(map[string]any)
 	if r1["channel_id"] != "710000000000000001" || r1["channel_name"] != "general" ||
 		r1["sent"] != float64(2) ||
-		js(r1["chat"]) != canon(`{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup","photo":null}`) {
+		js(r1["chat"]) != canon(`{"id":-1001000000001,"title":"GNU/Weeb","kind":"group","sub":"supergroup",`+
+			`"photo":"`+photoOf(gnuWeebPhoto)+`"}`) {
 		t.Errorf("route 1 %s", js(r1))
 	}
 	if got := js(r1["telegram_bot"]); got != canon(`{"id":1,"kind":"telegram","name":"@gw_bridge_bot",`+
-		`"identity":{"user_id":"7000000001","username":"gw_bridge_bot"},"status":"connecting","enabled":true}`) {
+		`"identity":{"user_id":"7000000001","username":"gw_bridge_bot"},"status":"connecting","enabled":true,`+
+		`"photo":null}`) {
 		t.Errorf("route 1 telegram bot %s", got)
 	}
 	if got := js(r1["discord_bot"]); got != canon(`{"id":1000000001,"kind":"discord","name":"Main reader",`+
-		`"identity":{"user_id":"1000000000000000001","username":"gw_reader"},"status":"connected","enabled":true}`) {
+		`"identity":{"user_id":"1000000000000000001","username":"gw_reader"},"status":"connected","enabled":true,`+
+		`"photo":null}`) {
 		t.Errorf("route 1 discord bot %s", got)
 	}
 	// Route 2: its Telegram bot is switched off, and it names no
 	// Discord bot yet; the page can tell both.
 	if r2["channel_name"] != "" || r2["discord_bot"] != nil ||
 		js(r2["telegram_bot"]) != canon(`{"id":2,"kind":"telegram","name":"Bot 2","identity":null,`+
-			`"status":"disabled","enabled":false}`) ||
+			`"status":"disabled","enabled":false,"photo":null}`) ||
 		js(r2["types"]) != `["sticker","text","document"]` {
 		t.Errorf("route 2 %s", js(r2))
 	}

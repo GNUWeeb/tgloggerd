@@ -46,6 +46,10 @@ type botRef struct {
 	Identity *botIdentity `json:"identity"`
 	Status   string       `json:"status"`
 	Enabled  bool         `json:"enabled"`
+	// Photo is a Telegram bot's profile photo when the archive has
+	// its user and the photo is stored; never one for a Discord bot,
+	// whose picture would be a third party's URL.
+	Photo *string `json:"photo"`
 }
 
 // botJSON is a bot on the bots page (Bot).
@@ -88,6 +92,9 @@ func (s *Server) botRefOf(ctx context.Context, v scope.Viewer, b logdb.BotRow) b
 		name = s.textFor(ctx, v, "bots.unnamed", "id", strconv.FormatUint(b.ID, 10))
 	}
 	ref := botRef{ID: b.ID, Kind: b.Kind, Name: name, Status: botStatus(b), Enabled: b.Enabled}
+	if b.Kind == logdb.KindTelegram && b.UserID != "" {
+		ref.Photo = s.storedPhoto(b.Photo)
+	}
 	if b.UserID != "" {
 		ref.Identity = &botIdentity{UserID: b.UserID}
 		if b.Username != "" {

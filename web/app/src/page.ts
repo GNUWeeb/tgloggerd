@@ -10,7 +10,10 @@ export type Role = S['Role'];
 
 // Everything optional falls back to the site default: until per-account
 // settings exist the server sends defaults or leaves fields out.
-export type Viewer = S['Viewer'];
+// pinned[].photo: each pinned group's photo (a /files/ URL), until the
+// API description has it.
+type Pinned = NonNullable<S['Viewer']['pinned']>[number] & { photo?: string | null };
+export type Viewer = Omit<S['Viewer'], 'pinned'> & { pinned?: Pinned[] };
 
 export interface PageData<P = unknown> {
 	v: number;

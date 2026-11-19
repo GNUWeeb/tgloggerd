@@ -57,7 +57,7 @@ export function viewerOf(persona: Persona): Viewer {
 		account: { id: s.acct.id, username: s.acct.username, name: s.acct.name, role: s.acct.role },
 		now: NOW,
 		nav: PAGE_KEYS.filter((k) => allowed(s, k)),
-		pinned: settingsState(persona).pinned.map((g) => ({ id: g.id, title: g.title })),
+		pinned: settingsState(persona).pinned.map((g) => ({ id: g.id, title: g.title, photo: photoOf(g.id) })),
 	};
 }
 
@@ -94,6 +94,11 @@ function userRow(u, full: boolean) {
 		emoji_status: u.is_premium ? String(5368324170671202286n + BigInt(Number(String(u.id).slice(-4)))) : null,
 	};
 }
+
+// The profile photo of a chat or bot as Go gives it (a /files/ URL), or
+// none: Rust Programming has none, so its initials show on the pages
+// that list it (a route's group, a pinned group).
+export const photoOf = (id: number): string | null => (id === groups[2].id ? null : `/files/standin-${800000 + (Math.abs(id) % 100000)}`);
 
 const pick = (c) => ({ id: c.id, title: c.title || c.name, kind: c.kind === 'user' ? 'user' : 'group', sub: c.kind === 'user' ? 'private chat' : c.type, photo: null });
 const DISCORD_WEBHOOK = /^https:\/\/(?:(?:canary|ptb)\.)?discord(?:app)?\.com\/api(?:\/v\d+)?\/webhooks\/\d+\/[\w-]+$/;
@@ -583,13 +588,13 @@ export function load(url: string, persona: Persona): Loaded {
 		const myFeds = s.role === 'superadmin' ? allFeds() : s.role === 'admin' ? s.manageableFeds : allFeds().filter((f) => s.acct.grants.some((g) => g.fed === f.id));
 		const fedList = myFeds.map((f) => ({ id: f.id, name: f.name }));
 		if (path === '/platform-fwd/telegram-discord') {
-			return { route: 'fwd_telegram_discord', status: 200, props: { federations: fedList, routes: vis(t2d).map((r) => ({ ...owned(r), chat: pick(r.chat), url_masked: r.url.slice(0, r.url.lastIndexOf('/') + 5) + '...', types: r.types, enabled: r.enabled, sent: r.sent, last_sent: r.last ? iso(r.last) : null })) } };
+			return { route: 'fwd_telegram_discord', status: 200, props: { federations: fedList, routes: vis(t2d).map((r) => ({ ...owned(r), chat: { ...pick(r.chat), photo: photoOf(r.chat.id) }, url_masked: r.url.slice(0, r.url.lastIndexOf('/') + 5) + '...', types: r.types, enabled: r.enabled, sent: r.sent, last_sent: r.last ? iso(r.last) : null })) } };
 		}
 		if (path === '/platform-fwd/bots') {
 			return { route: 'bots', status: 200, props: { bots: botsFor(persona).map((b) => botRow(b, persona)), show_owner: s.role !== 'member' } };
 		}
 		if (path === '/platform-fwd/discord-telegram') {
-			return { route: 'fwd_discord_telegram', status: 200, props: { federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: pick(r.chat), channel_id: r.channel, channel_name: r.channel_name, discord_bot: botRefOf(r.discord_bot_id), telegram_bot: botRefOf(r.telegram_bot_id), types: r.types, enabled: r.enabled, sent: r.sent })) } };
+			return { route: 'fwd_discord_telegram', status: 200, props: { federations: fedList, routes: vis(d2t).map((r) => ({ ...owned(r), chat: { ...pick(r.chat), photo: photoOf(r.chat.id) }, channel_id: r.channel, channel_name: r.channel_name, discord_bot: botRefOf(r.discord_bot_id), telegram_bot: botRefOf(r.telegram_bot_id), types: r.types, enabled: r.enabled, sent: r.sent })) } };
 		}
 		return notFound;
 	}
@@ -661,7 +666,7 @@ export function load(url: string, persona: Persona): Loaded {
 				prefs: st.prefs,
 				timezones: ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/Berlin', 'UTC'],
 				landing_options: [['/', 'Dashboard'], ['/groups', 'Groups'], ['/group_messages', 'Group messages'], ...st.pinned.map((g) => [`/groups/${g.id}/chat`, `${g.title} chat`])],
-				pinned: st.pinned.map((g) => ({ id: g.id, title: g.title, photo: null })),
+				pinned: st.pinned.map((g) => ({ id: g.id, title: g.title, photo: photoOf(g.id) })),
 				saved_searches: st.saved,
 			},
 		};
@@ -1405,7 +1410,8 @@ const botRefOf = (id) => {
 };
 
 function botRef(b) {
-	return { id: b.id, kind: b.kind, name: b.name, identity: b.user_id ? { user_id: b.user_id, username: b.username } : null, status: b.status, enabled: b.enabled };
+	// A Telegram bot's profile photo from the archive; Discord bots have none.
+	return { id: b.id, kind: b.kind, name: b.name, identity: b.user_id ? { user_id: b.user_id, username: b.username } : null, status: b.status, enabled: b.enabled, photo: b.kind === 'telegram' && b.user_id ? photoOf(b.user_id) : null };
 }
 
 function botRow(b, persona: Persona) {

@@ -4084,6 +4084,11 @@ components:
                 format: int64
               title:
                 type: string
+              photo:
+                type: [string, 'null']
+                description: >-
+                  The group's photo, a /files/ URL when its bytes are
+                  stored, else null.
         chat:
           type: object
           properties:
@@ -7501,6 +7506,10 @@ components:
           required: [chat, url_masked, types, enabled, sent, last_sent]
           properties:
             chat:
+              description: >-
+                The route's Telegram chat. Its photo is the group's
+                photo or, for a private chat, the user's profile photo:
+                a /files/ URL when the bytes are stored, else null.
               $ref: '#/components/schemas/PickItem'
             url_masked:
               type: string
@@ -7528,6 +7537,10 @@ components:
             channel_name:
               type: string
             chat:
+              description: >-
+                The route's Telegram chat. Its photo is the group's
+                photo or, for a private chat, the user's profile photo:
+                a /files/ URL when the bytes are stored, else null.
               $ref: '#/components/schemas/PickItem'
             discord_bot:
               description: >-
@@ -7687,6 +7700,13 @@ components:
           $ref: '#/components/schemas/BotStatus'
         enabled:
           type: boolean
+        photo:
+          type: [string, 'null']
+          description: >-
+            A Telegram bot's profile photo, as the archive has it for
+            the user of identity.user_id: a /files/ URL when that user
+            is in the archive and the photo's bytes are stored, else
+            null. Always null for a Discord bot (no third-party URLs).
     Bot:
       description: >-
         A bot on the Bots page. Its token is write-only: no answer,

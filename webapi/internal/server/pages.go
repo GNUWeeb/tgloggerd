@@ -362,7 +362,7 @@ func (s *Server) pageViewer(ctx context.Context, sess *auth.Session, sc scope.Sc
 		return render.Viewer{}, err
 	}
 	for _, g := range pins {
-		v.Pinned = append(v.Pinned, render.Pin{ID: g.ID, Title: g.Title})
+		v.Pinned = append(v.Pinned, render.Pin{ID: g.ID, Title: g.Title, Photo: s.storedPhoto(g.Photo)})
 	}
 	return v, nil
 }

@@ -746,3 +746,7 @@
 .app .a-hl mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 .app .a-hl-gap { color: var(--fg-3); }
 @media (max-width: 640px) { .app .a-engine-help { margin-left: 0; } }
+
+/* A route's bot: its photo (or initials) beside its name and status. */
+.app .a-botcell { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.app .a-botcell-text { display: flex; flex-direction: column; min-width: 0; }
