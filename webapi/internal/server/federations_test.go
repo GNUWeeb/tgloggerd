@@ -623,7 +623,7 @@ func TestFederationsAccountsProps(t *testing.T) {
 	t.Parallel()
 	s := propsServer(t)
 	ctx := context.Background()
-	if e := accountsEditable(); !e.Federations || !e.GroupGrants || e.Restrictions || !e.Abilities {
+	if e := accountsEditable(); !e.Federations || !e.GroupGrants || !e.Restrictions || !e.Abilities {
 		t.Errorf("editable %+v", e)
 	}
 	for name, want := range map[string]string{

@@ -97,6 +97,9 @@ type Viewer struct {
 	// messages are hidden from it (web-admin-restrictions). For clears
 	// it for the other roles.
 	HidePrivate bool
+	// JoinChat is an admin's grant of Join chat, off by default
+	// (web-admin-restrictions). For clears it for the other roles.
+	JoinChat bool
 	// HideGroups are the groups hidden from an admin, by chat id. For
 	// sorts them and clears them for the other roles.
 	HideGroups []int64
@@ -162,6 +165,7 @@ func For(v Viewer) Scope {
 	}
 	if v.Role != Admin {
 		v.HidePrivate = false
+		v.JoinChat = false
 	}
 	if v.Role == Admin && len(v.HideGroups) > 0 {
 		v.HideGroups = slices.Compact(slices.Sorted(slices.Values(v.HideGroups)))
@@ -354,7 +358,7 @@ func (s Scope) Can(a Ability) bool {
 	case s.is(Superadmin):
 		return true
 	case s.is(Admin):
-		return a != JoinChat && a != LookupName
+		return a != LookupName && (a != JoinChat || s.v.JoinChat)
 	case s.is(Member):
 		_, given := slices.BinarySearch(s.v.Abilities, a)
 		return given

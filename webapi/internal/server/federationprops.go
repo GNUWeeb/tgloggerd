@@ -29,20 +29,20 @@ type accountsEditableJSON struct {
 	GroupGrants  bool `json:"group_grants"`
 	Restrictions bool `json:"restrictions"`
 	// RestrictPrivate and RestrictGroups: the hide_private and
-	// hide_groups restrictions can be set, before join_chat is built.
+	// hide_groups restrictions can be set. They told the page so while
+	// Restrictions was false, and stay true with it.
 	RestrictPrivate bool `json:"restrict_private"`
 	RestrictGroups  bool `json:"restrict_groups"`
 	Abilities       bool `json:"abilities"`
 }
 
-// accountsEditable is AccountsProps.editable as far as the items built
-// so far: federations (admin_of, and the federations of grants), the
-// groups of grants, abilities and an admin's hide_private and
-// hide_groups are real; the other restrictions (join_chat) are not
-// yet. Each item that builds one turns its flag on here.
+// accountsEditable is AccountsProps.editable: federations (admin_of,
+// and the federations of grants), the groups of grants, abilities and
+// every admin restriction (hide_private, hide_groups and the join_chat
+// grant) can be changed.
 func accountsEditable() accountsEditableJSON {
-	return accountsEditableJSON{Federations: true, GroupGrants: true, RestrictPrivate: true,
-		RestrictGroups: true, Abilities: true}
+	return accountsEditableJSON{Federations: true, GroupGrants: true, Restrictions: true,
+		RestrictPrivate: true, RestrictGroups: true, Abilities: true}
 }
 
 // fedJSON is the Fed schema.

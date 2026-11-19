@@ -11,7 +11,7 @@ pages treat them while they still serve.
 | Role | Sees | May do | Manages |
 |---|---|---|---|
 | superadmin | everything | everything | every account, any role |
-| admin | every group, private chat and user | all but Join chat and "Look up real name" | the members of its federations |
+| admin | every group, private chat and user | all but "Look up real name", and Join chat only when granted | the members of its federations |
 | member | no group, private chat or user yet | nothing beyond seeing | nobody |
 
 - A superadmin can hide private chats from an admin
@@ -34,8 +34,16 @@ pages treat them while they still serve.
   (web_admin_hidden_groups), read with the role on every request,
   dropped when the account stops being an admin, and audited
   ("hide_groups <before>-><after>").
-- The `join_chat` permission comes with `web-admin-restrictions`; until
-  then an admin may not join chats (it is off by default).
+- A superadmin can grant an admin Join chat (`restrict.join_chat`, off
+  by default; "Allow Join chat" on the same tab). From the
+  admin's next request on, the Join chat menu entry and page are its,
+  and so are POST /api/join-chat/preview and /api/join-chat/join;
+  without the grant they answer 404 (web/docs/join-chat.md). It is
+  stored per admin (web_users.join_chat), read with the role on every
+  request, withdrawn when the account stops being an admin, and
+  audited ("join_chat on" or "off"). Only a superadmin sends
+  `restrict`, so an admin cannot grant it to itself or anyone else;
+  superadmins always may join chats, members never.
 - A member sees only the groups granted to it (the union of its
   grants over its federations; see Member grants below), and users
   only as they appear there: the senders of messages and the admins

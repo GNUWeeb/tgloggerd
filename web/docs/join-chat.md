@@ -97,7 +97,8 @@ null (the account cannot see the chat before joining). Failures are
 400 `bad_request` (empty, over 256 bytes, or refused by the daemon)
 and 502 `daemon`
 with the sentences above. They are for superadmins and for admins
-granted `join_chat` (`web-admin-restrictions`); to anyone else they do
+granted `join_chat` by a superadmin (`restrict.join_chat`,
+web/docs/accounts.md); to anyone else they do
 not exist (404). `federation_ids` must be existing federations the
 viewer administers (404 otherwise, before anything is joined); the
 page offers those. Filing the joined group into them comes with

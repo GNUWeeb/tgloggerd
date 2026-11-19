@@ -95,6 +95,15 @@ func TestAbilitiesAndPages(t *testing.T) {
 			t.Errorf("%s: Nav = %v, want %v", tc.s, got, tc.want)
 		}
 	}
+	// join_chat is granted per admin; it means nothing for a member.
+	granted := For(Viewer{ID: 2, Role: Admin, JoinChat: true})
+	if !granted.Can(JoinChat) || granted.Can(LookupName) || !granted.Page("join_chat") {
+		t.Errorf("granted admin: Can(join_chat) %v, Can(lookup_name) %v, page %v",
+			granted.Can(JoinChat), granted.Can(LookupName), granted.Page("join_chat"))
+	}
+	if For(Viewer{ID: 3, Role: Member, JoinChat: true}).Can(JoinChat) {
+		t.Error("a member holds join_chat")
+	}
 	if member.Page("nonsense") || super.Page("nonsense") {
 		t.Error("an unknown page key is visible")
 	}

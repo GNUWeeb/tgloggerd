@@ -120,7 +120,8 @@ func accountJSONOf(sc scope.Scope, a webdb.Account, supers int, audits []webdb.A
 	}
 	switch scope.Role(a.Role) {
 	case scope.Admin:
-		j.Restrict = &restrictJSON{HidePrivate: a.HidePrivate, HideGroups: picksOf(a.HideGroups, groups)}
+		j.Restrict = &restrictJSON{HidePrivate: a.HidePrivate, HideGroups: picksOf(a.HideGroups, groups),
+			JoinChat: a.JoinChat}
 		j.AdminOf = append(j.AdminOf, a.AdminOf...)
 	case scope.Member:
 		for _, f := range a.Federations {
@@ -728,9 +729,7 @@ func (s *Server) change(w http.ResponseWriter, r *http.Request, a webdb.Account,
 // the address, the role, an admin's federations (admin_of) and
 // restrictions (superadmins only), and a member's grants (each viewer
 // within the federations it administers: the federations it is filed
-// in and the groups granted there) and abilities. join_chat is
-// accepted only off, until it is built, so the accounts page can send
-// its whole form.
+// in and the groups granted there) and abilities.
 func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	if !s.checkCSRF(w, r) {
@@ -824,13 +823,8 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 		c.AdminOf = &webdb.FederationChange{Set: feds, WithinAll: true}
 	}
 	if in.Restrict != nil {
-		// Only hiding private chats is built so far
-		// (docs/todo/web-admin-restrictions.md).
-		if in.Restrict.JoinChat {
-			badRequest(w, "not_supported", "Granting Join chat cannot be set yet.")
-			return
-		}
-		if (in.Restrict.HidePrivate || len(in.Restrict.HideGroups) != 0) && newRole != scope.Admin {
+		if (in.Restrict.HidePrivate || in.Restrict.JoinChat || len(in.Restrict.HideGroups) != 0) &&
+			newRole != scope.Admin {
 			badRequest(w, "bad_request", "Only an admin can be restricted.")
 			return
 		}
@@ -848,8 +842,8 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 			}
 			groups = append(groups, g)
 		}
-		hide := in.Restrict.HidePrivate
-		c.HidePrivate, c.HideGroups = &hide, &groups
+		hide, join := in.Restrict.HidePrivate, in.Restrict.JoinChat
+		c.HidePrivate, c.JoinChat, c.HideGroups = &hide, &join, &groups
 	}
 	if len(in.Grants) != 0 && newRole != scope.Member {
 		badRequest(w, "bad_request", "Only members get grants.")

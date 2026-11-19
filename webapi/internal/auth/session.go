@@ -38,6 +38,8 @@ type Session struct {
 	AdminOf string
 	// HidePrivate is an admin's restriction, read like AdminOf.
 	HidePrivate bool
+	// JoinChat is an admin's grant of Join chat, read like AdminOf.
+	JoinChat bool
 	// HideGroups are an admin's hidden groups, read like AdminOf and
 	// written by webdb.JoinGroupIDs ("" for none).
 	HideGroups string
