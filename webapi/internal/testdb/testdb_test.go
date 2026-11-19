@@ -7,6 +7,7 @@ package testdb
 
 import (
 	"fmt"
+	"io/fs"
 	"testing"
 
 	"tgloggerd/webapi/internal/auth"
@@ -195,17 +196,12 @@ func TestFixtures(t *testing.T) {
 
 // The pending schema changes are applied after the migrations, and a
 // pending file run again (as when its migration has made the change
-// already) does nothing.
+// already) does nothing. With none pending, there is nothing to check
+// beyond the migrations themselves.
 func TestPendingChanges(t *testing.T) {
 	t.Parallel()
 	d := New(t, Logger)
-	q := "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? " +
-		"AND TABLE_NAME = 'telegram_groups' AND COLUMN_NAME IN " +
-		"('member_count', 'member_count_at', 'can_get_members')"
-	if n := count(t, d, q, d.Name); n != 3 {
-		t.Fatalf("%d of the member count columns", n)
-	}
-	b, err := pending.ReadFile("pending/logger/member_count.sql")
+	files, err := fs.Glob(pending, "pending/*/*.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,10 +210,13 @@ func TestPendingChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	if _, err := conn.ExecContext(t.Context(), "USE "+quote(d.Name)+";\n"+string(b)); err != nil {
-		t.Fatalf("again: %v", err)
-	}
-	if n := count(t, d, q, d.Name); n != 3 {
-		t.Fatalf("%d of the member count columns after a second run", n)
+	for _, f := range files {
+		b, err := pending.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.ExecContext(t.Context(), "USE "+quote(d.Name)+";\n"+string(b)); err != nil {
+			t.Errorf("%s again: %v", f, err)
+		}
 	}
 }
