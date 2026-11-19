@@ -20,7 +20,10 @@ describe('stand-in forwarding types', () => {
 	it('widens an old set as the migration does', () => {
 		expect(migrated('t2d', ['text', 'other'])).toEqual(['text', ...T2D_OPTIONS.filter((t) => !['text', 'photo', 'video', 'document', 'sticker'].includes(t))]);
 		expect(migrated('t2d', ['photo', 'text'])).toEqual(['text', 'photo']);
-		expect(migrated('d2t', ['document', 'photo'])).toEqual(['photo', 'animation', 'document', 'audio']);
+		// audio follows document (000048) and voice follows audio (000050).
+		expect(migrated('d2t', ['document', 'photo'])).toEqual(['photo', 'animation', 'document', 'audio', 'voice']);
+		// Embeds, polls and system messages were posted as text.
+		expect(migrated('d2t', ['text'])).toEqual(['text', 'embed', 'poll', 'system']);
 	});
 
 	it('refuses an unknown type or an empty set, and stores a set in option order', () => {
@@ -31,7 +34,7 @@ describe('stand-in forwarding types', () => {
 			expect(adminApi('PATCH', `forwarding/${dir}/${id}`, { types: ['sticker', 'text'] }, 'superadmin')[0]).toBe(204);
 			expect(props(`/platform-fwd/${dir}`).routes.find((r) => r.id === id)!.types).toEqual(['text', 'sticker']);
 		}
-		expect(adminApi('PATCH', 'forwarding/discord-telegram/1', { types: ['voice'] }, 'superadmin')[0]).toBe(400);
+		expect(adminApi('PATCH', 'forwarding/discord-telegram/1', { types: ['video_note'] }, 'superadmin')[0]).toBe(400);
 		expect(adminApi('POST', 'forwarding/telegram-discord', { chat_id: -1, chat_kind: 'group', webhook_url: 'https://discord.com/api/webhooks/1/x', types: [], enabled: true }, 'superadmin')[0]).toBe(400);
 	});
 });

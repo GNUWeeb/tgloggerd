@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { summaryOf } from './fwdtypes.ts';
 
 const T2D = ['text', 'photo', 'video', 'animation', 'video_note', 'document', 'sticker', 'voice', 'audio', 'poll', 'checklist', 'dice', 'game', 'location', 'contact', 'story', 'paid_media', 'invoice', 'service', 'other'];
-const D2T = ['text', 'photo', 'video', 'animation', 'document', 'sticker', 'audio'];
+const D2T = ['text', 'photo', 'video', 'animation', 'document', 'sticker', 'audio', 'voice', 'embed', 'poll', 'system'];
 const but = (opts: string[], ...off: string[]) => opts.filter((t) => !off.includes(t));
 const text = (opts: string[], set: string[]) => summaryOf(opts, set).text;
 
@@ -11,6 +11,7 @@ describe('forwarding type summary', () => {
 	it('says All content for every option, and a preset by its name', () => {
 		expect(text(T2D, T2D)).toBe('All content');
 		expect(text(D2T, D2T)).toBe('All content');
+		expect(text(D2T, but(D2T, 'system'))).toBe('Messages and media');
 		expect(text(T2D, ['text'])).toBe('Text only');
 		expect(text(T2D, but(T2D, 'story', 'paid_media', 'invoice', 'service', 'other'))).toBe('Messages and media');
 	});

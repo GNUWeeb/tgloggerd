@@ -4,19 +4,23 @@
 import type { S } from '../src/api/schema.ts';
 
 export const T2D_OPTIONS: S['T2DType'][] = ['text', 'photo', 'video', 'animation', 'video_note', 'document', 'sticker', 'voice', 'audio', 'poll', 'checklist', 'dice', 'game', 'location', 'contact', 'story', 'paid_media', 'invoice', 'service', 'other'];
-export const D2T_OPTIONS: S['D2TType'][] = ['text', 'photo', 'video', 'animation', 'document', 'sticker', 'audio'];
+export const D2T_OPTIONS: S['D2TType'][] = ['text', 'photo', 'video', 'animation', 'document', 'sticker', 'audio', 'voice', 'embed', 'poll', 'system'];
 
 // The six types a route had before; each new one copies the flag it
-// followed until then, as the migration does: every new Telegram to
-// Discord type followed other, Discord to Telegram audio followed
-// document and animation followed photo.
+// followed until then, as the migrations do: every new Telegram to
+// Discord type followed other; Discord to Telegram audio followed
+// document and animation followed photo (000048), voice followed audio,
+// and embed, poll and system followed text (000050).
 const T2D_OLD = new Set(['text', 'photo', 'video', 'document', 'sticker', 'other']);
-const D2T_FROM: Record<string, string> = { audio: 'document', animation: 'photo' };
+const D2T_FROM: Record<string, string> = { audio: 'document', animation: 'photo', voice: 'audio', embed: 'text', poll: 'text', system: 'text' };
 
 export function migrated(dir: 't2d' | 'd2t', types: string[]): string[] {
 	const has = new Set(types);
 	if (dir === 't2d') return T2D_OPTIONS.filter((t) => has.has(t) || (!T2D_OLD.has(t) && has.has('other')));
-	return D2T_OPTIONS.filter((t) => has.has(t) || (t in D2T_FROM && has.has(D2T_FROM[t]!)));
+	// In option order, so a type follows one that was itself derived
+	// (voice follows audio, which followed document).
+	for (const t of D2T_OPTIONS) if (!has.has(t) && t in D2T_FROM && has.has(D2T_FROM[t]!)) has.add(t);
+	return D2T_OPTIONS.filter((t) => has.has(t));
 }
 
 // A written set: unknown types and an empty set are refused; the stored
