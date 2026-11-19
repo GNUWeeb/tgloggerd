@@ -27,8 +27,7 @@ tool or person needs.
 
 ## Depends on
 
-`mcp-token-ownership` (who may give a token which scope follows who
-manages it).
+Nothing.
 
 ## Done when
 
