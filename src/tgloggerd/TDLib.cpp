@@ -999,6 +999,10 @@ struct TDLib::Impl {
 	int						recheck_inflight_ = 0;
 	int						recheck_in_tick_ = 0;
 	time_t						recheck_paused_until_ = 0;
+	/* The repair's yielding to rechecks (recheck::repairMayRun): when it
+	 * last sent, and whether it is paused, for the pause/resume log. */
+	recheck::Clock::time_point			repair_last_sent_{};
+	bool						repair_paused_ = false;
 	bool						recheck_catchup_armed_ = false;
 
 	Impl(uint32_t api_id, const char *api_hash, const char *data_dir);
@@ -3088,8 +3092,27 @@ void TDLib::Impl::drain_relink(void)
 				  << " of " << relink_total_
 				  << " message(s) missing their media\n";
 	}
-	/* Chat rechecks, from the same budget, ahead of the repair. */
+	/* Chat rechecks, from the same budget, ahead of the repair; the
+	 * repair waits for them altogether (recheck::repairMayRun). */
 	drain_recheck();
+	{
+		std::lock_guard<std::mutex> lk(refetch_mtx_);
+		if (repair_pending_.empty())
+			return;
+		const auto now = recheck::Clock::now();
+		const bool may = recheck::repairMayRun(
+			recheck_q_.size(), recheck_inflight_,
+			now - repair_last_sent_);
+		if (may == repair_paused_) {
+			repair_paused_ = !may;
+			pr_info(l_, may ? "repair: resumed (%zu recheck(s) waiting)"
+					: "repair: paused while %zu recheck(s) wait",
+				recheck_q_.size() + (size_t)recheck_inflight_);
+		}
+		if (!may)
+			return;
+		repair_last_sent_ = now;
+	}
 	/*
 	 * Old-row repair, after the relink queue and from what is left of the
 	 * same budget. A re-fetched message is stored again through the
@@ -3187,6 +3210,9 @@ void TDLib::Impl::on_recheck_page(const recheck::Item &it, Object obj)
 	a.chat_id = it.chat_id;
 	a.is_group = !is_private_chat(it.chat_id);
 	a.page.around = it.around;
+	if (it.queued_at != recheck::Clock::time_point{})
+		a.waited_secs = std::chrono::duration_cast<std::chrono::seconds>(
+			recheck::Clock::now() - it.queued_at).count();
 
 	/*
 	 * A message found again that an earlier recheck marked deleted was

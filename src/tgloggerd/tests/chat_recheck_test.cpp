@@ -335,8 +335,32 @@ static void testCatchUp(void)
 	CHECK(catchUpChats({}, now).empty(), "no chats: none");
 }
 
+static void testRepairYields(void)
+{
+	printf("the repair waits for rechecks\n");
+	const auto now = 1s;
+	CHECK(repairMayRun(0, 0, now), "nothing waiting or in flight: it runs");
+	CHECK(!repairMayRun(1, 0, now), "a recheck waiting: it waits");
+	CHECK(!repairMayRun(0, 1, now), "a recheck in flight: it waits");
+	CHECK(!repairMayRun(200, 2, 59s), "a catch-up under way: it waits");
+	CHECK(repairMayRun(200, 2, 60s),
+	      "but after a minute without sending it gets a tick");
+}
+
+static void testQueuedAt(void)
+{
+	printf("a queued recheck knows when it was queued\n");
+	Queue q;
+	const auto t0 = Clock::time_point{} + std::chrono::hours(1);
+	q.push({ -100, 0, false }, t0);
+	auto it = q.pop(t0 + std::chrono::seconds(5));
+	CHECK(it && it->queued_at == t0, "queued_at is the push time");
+}
+
 int main(void)
 {
+	testRepairYields();
+	testQueuedAt();
 	testNewestLimit();
 	testOlderLimit();
 	testBound();

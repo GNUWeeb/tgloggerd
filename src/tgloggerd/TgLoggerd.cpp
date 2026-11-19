@@ -559,16 +559,20 @@ int TgLoggerd::start(void)
 				}
 				if (marked.size() > recheck::kWarnMarked)
 					pr_warn(l_, "recheck: chat %lld around %lld:"
-						" %zu returned, %zu marked deleted",
-						(long long)a.chat_id,
-						(long long)a.page.around,
-						a.page.total, marked.size());
-				else
-					pr_info(l_, "recheck: chat %lld around %lld:"
-						" %zu returned, %zu marked deleted%s%s",
+						" %zu returned, %zu marked deleted"
+						" (after %llds)",
 						(long long)a.chat_id,
 						(long long)a.page.around,
 						a.page.total, marked.size(),
+						(long long)a.waited_secs);
+				else
+					pr_info(l_, "recheck: chat %lld around %lld:"
+						" %zu returned, %zu marked deleted"
+						" (after %llds)%s%s",
+						(long long)a.chat_id,
+						(long long)a.page.around,
+						a.page.total, marked.size(),
+						(long long)a.waited_secs,
 						*why ? "; none concluded: " : "",
 						why);
 			} catch (const std::exception &e) {
