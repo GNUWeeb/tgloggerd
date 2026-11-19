@@ -27,7 +27,7 @@ forward is silently lost in Telegram.
 
 ## Depends on
 
-`fwd-discord-kinds` (the renderer and the flags it adds).
+Nothing.
 
 ## Done when
 
