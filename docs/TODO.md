@@ -127,7 +127,9 @@ Accounts, roles and federations:
 [design/web-accounts.md](design/web-accounts.md).
 
 - [`web-admin-restrictions`](todo/web-admin-restrictions.md): Let a superadmin hide private messages and specific groups from an admin, with 404 everywhere.
+- [`discordd-forward-worker`](todo/discordd-forward-worker.md): Take Discord forwarding off the gateway's read thread, onto paced per-bot worker queues.
 - [`fwd-discord-kinds`](todo/fwd-discord-kinds.md): Forward Discord voice messages, embeds, polls and system messages, each under its own flag.
+- [`discord-forwarded-messages`](todo/discord-forwarded-messages.md): Forward Discord messages forwarded from another channel as "Forwarded:" text.
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
 - [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
