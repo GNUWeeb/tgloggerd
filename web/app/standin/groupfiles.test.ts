@@ -4,8 +4,9 @@
 import { describe, expect, it } from 'vitest';
 import { groupTabApi, pageData } from './fixtures.ts';
 import { CHANNEL_GROUP, FILES_GROUP, GROUP_FILES_PAGE, SOME_KINDS_GROUP } from './groupfiles.ts';
+import { PUBLIC_POLLS_GROUP } from './kinds.ts';
 
-type Row = { message_id: number; message_row_id: number; file_type: string; sender: { id: number } | null; chat_link: string; stored: boolean; url: string | null };
+type Row = { message_id: number; message_row_id: number; file_type: string; sender: { id: number | null }; chat_link: string; stored: boolean; url: string | null };
 type Files = { kinds: { kind: string; count: number | null }[]; kind: string; rows: Row[]; next_before: number | null };
 type Polls = { rows: { message_id: number; poll: { kind: string; type: string; closed: boolean; options: unknown[]; options_total: number } }[]; next_before: number | null };
 const q = (s: string) => new URLSearchParams(s);
@@ -47,7 +48,7 @@ describe('stand-in group files', () => {
 
 	it('answers 404 where the viewer does not see the group', () => {
 		const mine = (pageData('/groups', 'member').props as { rows: { id: number }[] }).rows.map((g) => g.id);
-		const other = (pageData('/groups', 'superadmin').props as { rows: { id: number }[] }).rows.find((g) => !mine.includes(g.id))!;
+		const other = (pageData('/groups', 'superadmin').props as { rows: { id: number; exposed?: boolean }[] }).rows.find((g) => !mine.includes(g.id) && !g.exposed)!;
 		expect(files(other.id, '', 'member')[0]).toBe(404);
 		expect(files(FILES_GROUP.id, '', 'public')[0]).toBe(404);
 		expect(pageData(`/groups/${other.id}/files`, 'member').route).toBe('not_found');
@@ -80,5 +81,28 @@ describe('stand-in group polls', () => {
 		expect(p.rows.some((r) => r.poll.type === 'regular' && !r.poll.closed)).toBe(true);
 		const none = groupTabApi('polls', String(SOME_KINDS_GROUP.id), q(''), 'superadmin')[1] as Polls;
 		expect(none.rows).toEqual([]);
+	});
+});
+
+describe('stand-in public group tabs', () => {
+	it('serves an exposed group\'s files and polls signed out, with the public summary', () => {
+		const g = PUBLIC_POLLS_GROUP;
+		expect(g.exposed).toBe(true);
+		const f = pageData(`/groups/${g.id}/files`, 'public');
+		expect(f.route).toBe('group_files');
+		const fp = f.props as Files & { public: boolean; admins?: unknown; group: { id: number } };
+		expect(fp.public).toBe(true);
+		expect(fp.admins).toBeUndefined();
+		expect(fp.rows.length).toBeGreaterThan(0);
+		expect(fp.rows.every((r) => r.sender.id !== null)).toBe(true);
+		const p = pageData(`/groups/${g.id}/polls`, 'public');
+		expect(p.route).toBe('group_polls');
+		expect((p.props as Polls).rows).toHaveLength(2);
+		const [status, body] = groupTabApi('files', String(g.id), q(`before=${fp.next_before}`), 'public');
+		expect(status).toBe(200);
+		expect((body as Files).rows.length).toBeGreaterThan(0);
+		expect(groupTabApi('polls', String(g.id), q(''), 'public')[0]).toBe(200);
+		// Its other tabs are not public.
+		expect(pageData(`/groups/${g.id}/admins`, 'public').route).toBe('not_found');
 	});
 });
