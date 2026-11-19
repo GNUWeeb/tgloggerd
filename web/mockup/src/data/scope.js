@@ -33,6 +33,8 @@ export function buildScope(acct) {
 	const granted = new Set(acct.grants.flatMap((g) => g.groupIds));
 	const pages = new Set(['dashboard', 'users', 'groups', 'group_messages', 'files', 'settings']);
 	if (acct.abilities.includes('forward')) pages.add('platform_fwd');
+	// The MCP menu, for its own tokens; the exposed groups stay an admin's.
+	if (acct.abilities.includes('mcp_tokens')) pages.add('mcp');
 	return {
 		acct, role,
 		page: (k) => pages.has(k),

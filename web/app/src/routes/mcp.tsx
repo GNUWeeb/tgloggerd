@@ -1,10 +1,10 @@
 // Integrations > MCP: the exposure allowlist and the access tokens
 // (web/docs/mcp.md). Exposing a group also publishes its chat on the web.
 import { useState } from 'react';
-import { ArrowRight, Check, Copy, Globe, KeyRound, Pencil, Plus, ShieldAlert, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowRight, ArrowRightLeft, Check, Copy, Globe, KeyRound, Pencil, Plus, ShieldAlert, Trash2, TriangleAlert } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { Link, useNav } from '../nav.tsx';
-import { Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
+import { Avatar, Btn, Card, PageHead, Pill } from '../ui/primitives.tsx';
 import { ChatPicker, Field, NO_FILL, type PickItem } from '../ui/forms.tsx';
 import { GroupCell } from '../ui/bits.tsx';
 import { Modal } from '../ui/Modal.tsx';
@@ -19,19 +19,42 @@ export type McpIndexProps = S['McpIndexProps'];
 export type McpGroupsProps = S['McpGroupsProps'];
 export type McpTokensProps = S['McpTokensProps'];
 
+type Token = McpTokensProps['tokens'][number];
+
 function errText(x: unknown) { return x instanceof ApiError ? x.message : 'The server could not be reached.'; }
+
+// The owner, and who minted the token when that is someone else: its
+// requests are attributed to the minter, and disabling the minter stops
+// the token whoever owns it.
+function OwnerCell({ t }: { t: Token }) {
+	const o = t.owner;
+	return (
+		<span className="a-ownercell">
+			<Avatar id={o.id} name={o.name} size={22} />
+			<span>
+				<span className={o.active === false ? 'a-muted' : ''}>{o.name}</span>
+				{o.active === false && <> <Pill tone="danger"><TriangleAlert size={11} />owner disabled</Pill></>}
+				{t.minted_by.id !== o.id && <span className="a-muted sm a-block">minted by {t.minted_by.name}{t.minted_by.active === false ? ' (disabled)' : ''}</span>}
+			</span>
+		</span>
+	);
+}
 
 function McpIndex({ page }: { page: PageData<McpIndexProps> }) {
 	const p = page.props;
+	// A member reaches only its own tokens: the allowlist is an admin's,
+	// so its card is shown without a link.
+	const allowlist = page.viewer.account?.role !== 'member';
+	const groups = <>
+		<div className="a-dircard-top"><Globe size={18} /><h2>Exposed groups</h2>{allowlist && <ArrowRight size={16} className="a-muted" />}</div>
+		<p className="a-muted">The allowlist. Nothing is readable through MCP until a group is added here. Private groups and direct messages are never exposed.</p>
+		<div className="a-dircard-foot"><span><b className="num">{p.exposed_groups}</b> groups</span><span className="a-muted">{compact(p.exposed_messages)} messages readable</span></div>
+	</>;
 	return (
 		<Shell crumbs={[['MCP', null]]}>
 			<PageHead title="MCP" sub="The Model Context Protocol endpoint lets a language model read this archive. Two things gate it: which groups are exposed, and who holds a token." />
 			<div className="a-dircards">
-				<Link to="/mcp-admin/groups" className="a-card a-dircard">
-					<div className="a-dircard-top"><Globe size={18} /><h2>Exposed groups</h2><ArrowRight size={16} className="a-muted" /></div>
-					<p className="a-muted">The allowlist. Nothing is readable through MCP until a group is added here. Private groups and direct messages are never exposed.</p>
-					<div className="a-dircard-foot"><span><b className="num">{p.exposed_groups}</b> groups</span><span className="a-muted">{compact(p.exposed_messages)} messages readable</span></div>
-				</Link>
+				{allowlist ? <Link to="/mcp-admin/groups" className="a-card a-dircard">{groups}</Link> : <div className="a-card a-dircard">{groups}</div>}
 				<Link to="/mcp-admin/tokens" className="a-card a-dircard">
 					<div className="a-dircard-top"><KeyRound size={18} /><h2>Access tokens</h2><ArrowRight size={16} className="a-muted" /></div>
 					<p className="a-muted">Bearer tokens for MCP clients. Shown once when minted and stored only as a hash.</p>
@@ -115,15 +138,33 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 	const v = page.viewer;
 	const [minting, setMinting] = useState(false);
 	const [name, setName] = useState('');
+	// Who the new token is for: the viewer unless another owner is picked.
+	const me = v.account?.id ?? 0;
+	const owners = page.props.owners;
+	const [owner, setOwner] = useState(owners.some((o) => o.id === me) ? me : owners[0]?.id ?? me);
 	const [minted, setMinted] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
 	const [err, setErr] = useState('');
+	// The token being renamed, and the draft name.
+	const [renaming, setRenaming] = useState<Token | null>(null);
+	const [draft, setDraft] = useState('');
+	// The token being given to another owner (superadmins), and to whom.
+	const [moving, setMoving] = useState<Token | null>(null);
+	const [to, setTo] = useState('');
 	const refresh = () => navigate(page.url, { replace: true, scroll: false });
+	const transfer = async () => {
+		setErr('');
+		try { await ok(api.POST('/api/mcp/tokens/{id}/transfer', { params: { path: { id: moving!.id } }, body: { owner_id: Number(to) } })); setMoving(null); refresh(); } catch (x) { setErr(errText(x)); }
+	};
+	const rename = async () => {
+		setErr('');
+		try { await ok(api.PATCH('/api/mcp/tokens/{id}', { params: { path: { id: renaming!.id } }, body: { name: draft } })); setRenaming(null); refresh(); } catch (x) { setErr(errText(x)); }
+	};
 	const mint = async () => {
 		setErr('');
 		try {
-			const r = await ok(api.POST('/api/mcp/tokens', { body: { name } }));
-			setMinting(false); setCopied(false); setMinted(r.token); setName(''); refresh();
+			const r = await ok(api.POST('/api/mcp/tokens', { body: owner === me ? { name } : { name, owner_id: owner } }));
+			setMinting(false); setCopied(false); setMinted(r.token); setName(''); setOwner(me); refresh();
 		} catch (x) { setErr(errText(x)); }
 	};
 	const revoke = async (id: number) => { try { await ok(api.POST('/api/mcp/tokens/{id}/revoke', { params: { path: { id } } })); refresh(); } catch (x) { setErr(errText(x)); } };
@@ -131,7 +172,7 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 		<Shell crumbs={[['MCP', '/mcp-admin'], ['Access tokens', null]]}>
 			<PageHead title="Access tokens" sub="A token reads every exposed group, so treat one like a password."
 				actions={<Btn primary icon={Plus} onClick={() => setMinting(true)}>Mint a token</Btn>} />
-			{err && !minting && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+			{err && !minting && !renaming && !moving && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 			{minted && (
 				<div className="a-card a-minted">
 					<div className="a-cardhead"><h2><KeyRound size={15} /> Copy this token now</h2></div>
@@ -148,11 +189,11 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 						<tbody>{page.props.tokens.map((t) => (
 							<tr key={t.id} className={t.revoked ? 'a-off' : ''}>
 								<td>{t.name ? <b>{t.name}</b> : <span className="a-muted">(unnamed)</span>}</td>
-								<td>{t.owner}</td>
+								<td><OwnerCell t={t} /></td>
 								<td title={t.created}>{ago(t.created, v)}</td>
 								<td>{t.last_used ? ago(t.last_used, v) : <span className="a-muted">never</span>}</td>
 								<td>{t.revoked ? <span className="a-muted">revoked {ago(t.revoked, v)}</span> : <Pill tone="ok">active</Pill>}</td>
-								<td className="a-rowactions">{!t.revoked && <Btn ghost danger onClick={() => { if (confirm(`Revoke ${t.name || 'this token'}? Clients using it stop working at once.`)) void revoke(t.id); }}>Revoke</Btn>}</td>
+								<td className="a-rowactions"><Btn ghost icon={Pencil} onClick={() => { setErr(''); setDraft(t.name); setRenaming(t); }}>Rename</Btn>{page.props.can_transfer && <Btn ghost icon={ArrowRightLeft} onClick={() => { setErr(''); setTo(''); setMoving(t); }}>Transfer</Btn>}{!t.revoked && <Btn ghost danger onClick={() => { if (confirm(`Revoke ${t.name || 'this token'}? Clients using it stop working at once.`)) void revoke(t.id); }}>Revoke</Btn>}</td>
 							</tr>
 						))}</tbody>
 					</table>
@@ -164,6 +205,33 @@ function McpTokens({ page }: { page: PageData<McpTokensProps> }) {
 					footer={<><span className="a-grow" /><Btn ghost onClick={() => setMinting(false)}>Cancel</Btn><Btn primary onClick={() => void mint()}>Mint</Btn></>}>
 					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
 					<Field label="Name" hint="A label, so this one can be revoked later without guessing which is which."><input id="mcp-token-label" name="mcp-token-label" value={name} onChange={(e) => setName(e.target.value)} maxLength={64} {...NO_FILL} /></Field>
+					{owners.length > 1 && (
+						<Field label="Owner" hint="Who manages the token. Its requests are still made in your name, so disabling your account stops it.">
+							<select className="a-select" value={owner} onChange={(e) => setOwner(Number(e.target.value))}>
+								{owners.map((o) => <option key={o.id} value={o.id}>{o.id === me ? `${o.name} (you)` : o.role ? `${o.name} (${o.role})` : o.name}</option>)}
+							</select>
+						</Field>
+					)}
+				</Modal>
+			)}
+			{renaming && (
+				<Modal title={`Rename ${renaming.name || 'this token'}`} onClose={() => setRenaming(null)}
+					footer={<><span className="a-grow" /><Btn ghost onClick={() => setRenaming(null)}>Cancel</Btn><Btn primary disabled={!draft.trim()} onClick={() => void rename()}>Save</Btn></>}>
+					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+					<Field label="Name" hint="Clients keep working; only the label changes."><input id="mcp-token-rename" name="mcp-token-rename" value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={64} {...NO_FILL} /></Field>
+				</Modal>
+			)}
+			{moving && (
+				<Modal title={`Transfer ${moving.name || 'this token'}`} onClose={() => setMoving(null)}
+					footer={<><span className="a-grow" /><Btn ghost onClick={() => setMoving(null)}>Cancel</Btn><Btn primary disabled={!to} onClick={() => void transfer()}>Transfer</Btn></>}>
+					{err && <div className="a-banner warn" role="alert"><TriangleAlert size={15} /><span>{err}</span></div>}
+					<p className="a-muted sm">Owned by <b>{moving.owner.name}</b>.</p>
+					<Field label="New owner" hint={`The token keeps working, and its requests stay attributed to ${moving.minted_by.name}, who minted it.`}>
+						<select className="a-select" value={to} onChange={(e) => setTo(e.target.value)}>
+							<option value="">Choose an account...</option>
+							{owners.filter((o) => o.id !== moving.owner.id).map((o) => <option key={o.id} value={o.id}>{o.role ? `${o.name} (${o.role})` : o.name}</option>)}
+						</select>
+					</Field>
 				</Modal>
 			)}
 		</Shell>

@@ -56,7 +56,7 @@ func TestAssignOwner(t *testing.T) {
 	}
 	want := `Owner: admin (id 1)
 mcp_group     2 assigned: -1001000000010 -1001000000003; 1 owned already
-mcp_token     1 assigned to their creators: 2; 1 owned already
+mcp_token     1 assigned: 2; 1 owned already
 telegram_bot  2 assigned: 1 2; 0 owned already
 t2d_webhook   2 assigned: 2 3; 1 owned already
 d2t_route     1 assigned: 2; 1 owned already
@@ -67,14 +67,15 @@ Assigned 8 resources.
 		t.Errorf("output\n%s\nwant\n%s", out.String(), want)
 	}
 	// Only the unowned ones changed: the fixture's owners stay. MCP
-	// token 2 goes to ops, which minted it, not to the account named.
+	// token 2 goes to the account named too, not to ops, which minted
+	// it.
 	wantRel := `d2t_route 1 7 1
 d2t_route 2 1 cmd
 mcp_group -1001000000010 1 cmd
 mcp_group -1001000000003 1 cmd
 mcp_group -1001000000001 2 2
 mcp_token 1 1 1
-mcp_token 2 2 cmd
+mcp_token 2 1 cmd
 t2d_webhook 1 3 1
 t2d_webhook 2 1 cmd
 t2d_webhook 3 1 cmd
@@ -88,14 +89,8 @@ telegram_bot 2 1 cmd`
 	var n int
 	if err := app.QueryRow("SELECT COUNT(*) FROM web_audit WHERE action = 'owner_set' " +
 		"AND web_user_id IS NULL AND target_user_id = 1 AND detail LIKE '% assign-owner'").Scan(&n); err != nil ||
-		n != 7 {
+		n != 8 {
 		t.Errorf("%d audit rows, %v", n, err)
-	}
-
-	if err := app.QueryRow("SELECT COUNT(*) FROM web_audit WHERE action = 'owner_set' " +
-		"AND web_user_id IS NULL AND target_user_id = 2 AND detail LIKE '% assign-owner'").Scan(&n); err != nil ||
-		n != 1 {
-		t.Errorf("%d audit rows for the token's creator, %v", n, err)
 	}
 
 	// Twice is a no-op, whoever it names.
@@ -105,7 +100,7 @@ telegram_bot 2 1 cmd`
 	}
 	want = `Owner: ops (id 2)
 mcp_group     0 assigned; 3 owned already
-mcp_token     0 assigned to their creators; 2 owned already
+mcp_token     0 assigned; 2 owned already
 telegram_bot  0 assigned; 2 owned already
 t2d_webhook   0 assigned; 3 owned already
 d2t_route     0 assigned; 2 owned already

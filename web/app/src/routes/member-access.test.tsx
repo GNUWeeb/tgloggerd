@@ -84,10 +84,10 @@ describe('member access', () => {
 	it('sends the abilities as chosen', async () => {
 		const calls = openAccess('superadmin');
 		const r = researcher('superadmin');
-		expect(r.abilities).toEqual(['forward', 'fetch_files']);
+		expect(r.abilities).toEqual(['forward', 'fetch_files', 'mcp_tokens']);
 		fireEvent.click(within(dialog()).getByRole('checkbox', { name: /Fetch files from Telegram/ }));
 		const body = await save(calls, r.id);
-		expect(body.abilities).toEqual(['forward']);
+		expect(body.abilities).toEqual(['forward', 'mcp_tokens']);
 	});
 
 	it('shows the server\'s reason when a grant is refused', async () => {

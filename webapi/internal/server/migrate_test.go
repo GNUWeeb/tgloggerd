@@ -8,6 +8,7 @@ package server
 import (
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"tgloggerd/webapi/internal/auth"
@@ -401,5 +402,151 @@ func TestMigrationAddsMemberGrants(t *testing.T) {
 		"WHERE table_schema = DATABASE() AND table_name LIKE 'web_member%'").Scan(&left); err != nil ||
 		left != 0 {
 		t.Fatalf("%d tables left after the down migration, %v", left, err)
+	}
+}
+
+// Web migration 000015 gives every MCP token to the account named
+// superadmin, auditing each change; its down migration puts the
+// owners back, and a second up does the same as the first.
+func TestMigrationTransfersMCPTokens(t *testing.T) {
+	t.Parallel()
+	db := emptyAppDB(t)
+	migrateAppDB(t, db, "000013")
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(file string) {
+		t.Helper()
+		q, err := os.ReadFile("../../../web/migrations/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(string(q))
+	}
+	// 1 an admin, 2 the superadmin, 3 a member, 4 another superadmin.
+	exec("INSERT INTO web_users (id, username, password_hash, role) VALUES " +
+		"(1, 'boss', '', 'admin'), (2, 'superadmin', '', 'superadmin'), " +
+		"(3, 'peek', '', 'member'), (4, 'ops', '', 'superadmin')")
+	// Tokens 1 and 2 owned by their minters, 3 by superadmin already,
+	// 4 without an owner row, as the Drogon pages leave one.
+	exec("INSERT INTO web_mcp_tokens (id, web_user_id, name, token_sha256) VALUES " +
+		"(1, 1, 'a', UNHEX(SHA2('a', 256))), (2, 3, 'b', UNHEX(SHA2('b', 256))), " +
+		"(3, 2, 'c', UNHEX(SHA2('c', 256))), (4, 4, 'd', UNHEX(SHA2('d', 256)))")
+	exec("INSERT INTO web_resource_relations (resource_type, resource_id, relation, user_id) " +
+		"VALUES ('mcp_token', 1, 'owner', 1), ('mcp_token', 2, 'owner', 3), " +
+		"('mcp_token', 3, 'owner', 2), ('mcp_group', -100, 'owner', 1)")
+	owners := func() string {
+		t.Helper()
+		rows, err := db.Query("SELECT CONCAT(resource_type, ' ', resource_id, '=', user_id) " +
+			"FROM web_resource_relations ORDER BY resource_type, resource_id")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var s string
+			if err := rows.Scan(&s); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, s)
+		}
+		return strings.Join(out, ", ")
+	}
+	audit := func() string {
+		t.Helper()
+		rows, err := db.Query("SELECT CONCAT_WS(' ', IFNULL(web_user_id, '-'), target_user_id, " +
+			"action, detail) FROM web_audit ORDER BY id")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var s string
+			if err := rows.Scan(&s); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, s)
+		}
+		return strings.Join(out, "; ")
+	}
+	const (
+		before  = "mcp_group -100=1, mcp_token 1=1, mcp_token 2=3, mcp_token 3=2"
+		after   = "mcp_group -100=1, mcp_token 1=2, mcp_token 2=2, mcp_token 3=2, mcp_token 4=2"
+		audited = "- 2 owner_transfer mcp_token 1 from 1 to 2 superadmin-transfer; " +
+			"- 2 owner_transfer mcp_token 2 from 3 to 2 superadmin-transfer; " +
+			"- 2 owner_set mcp_token 4 superadmin-transfer"
+	)
+	if got := owners(); got != before {
+		t.Fatalf("before: %s", got)
+	}
+	for round := 1; round <= 2; round++ {
+		run("000015_transfer_mcp_tokens_to_superadmin.up.sql")
+		if got := owners(); got != after {
+			t.Errorf("up %d: %s", round, got)
+		}
+		if got := audit(); got != audited {
+			t.Errorf("up %d audit: %s", round, got)
+		}
+		var minters string
+		if err := db.QueryRow("SELECT GROUP_CONCAT(web_user_id ORDER BY id) FROM web_mcp_tokens").
+			Scan(&minters); err != nil || minters != "1,3,2,4" {
+			t.Errorf("up %d changed the minters: %s %v", round, minters, err)
+		}
+		// Again: everything is superadmin's, so nothing changes.
+		run("000015_transfer_mcp_tokens_to_superadmin.up.sql")
+		if got, a := owners(), audit(); got != after || a != audited {
+			t.Errorf("up %d repeated: %s; %s", round, got, a)
+		}
+		run("000015_transfer_mcp_tokens_to_superadmin.down.sql")
+		if got := owners(); got != before {
+			t.Errorf("down %d: %s", round, got)
+		}
+		if got := audit(); got != "" {
+			t.Errorf("down %d left audit rows: %s", round, got)
+		}
+	}
+
+	// Without an account named superadmin with that role, nothing
+	// changes.
+	exec("UPDATE web_users SET role = 'admin' WHERE id = 2")
+	run("000015_transfer_mcp_tokens_to_superadmin.up.sql")
+	if got, a := owners(), audit(); got != before || a != "" {
+		t.Errorf("without a superadmin: %s; %s", got, a)
+	}
+	exec("UPDATE web_users SET role = 'superadmin', username = 'root' WHERE id = 2")
+	run("000015_transfer_mcp_tokens_to_superadmin.up.sql")
+	if got, a := owners(), audit(); got != before || a != "" {
+		t.Errorf("without the name superadmin: %s; %s", got, a)
+	}
+}
+
+// Web migration 000016 lets a member hold mcp_tokens; its down
+// migration takes the ability away again.
+func TestMigrationAddsMCPTokensAbility(t *testing.T) {
+	t.Parallel()
+	db := emptyAppDB(t)
+	migrateAppDB(t, db, "000016")
+	if _, err := db.Exec("INSERT INTO web_users (id, username, password_hash, role) VALUES " +
+		"(2, 'peek', '', 'member')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO web_member_abilities (web_user_id, ability) " +
+		"VALUES (2, 'forward'), (2, 'mcp_tokens')"); err != nil {
+		t.Fatal(err)
+	}
+	downAppDB(t, db, "000015")
+	var got string
+	if err := db.QueryRow("SELECT GROUP_CONCAT(ability) FROM web_member_abilities").Scan(&got); err != nil ||
+		got != "forward" {
+		t.Errorf("after the down migration: %q %v", got, err)
+	}
+	if _, err := db.Exec("INSERT INTO web_member_abilities (web_user_id, ability) " +
+		"VALUES (2, 'mcp_tokens')"); err == nil {
+		t.Error("mcp_tokens stored after the down migration")
 	}
 }

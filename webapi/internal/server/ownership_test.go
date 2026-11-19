@@ -147,24 +147,26 @@ func TestOwnersInAnswers(t *testing.T) {
 		t.Errorf("route owners %v", owners)
 	}
 
-	_, b = e.page("admin", "/mcp-admin/tokens")
+	_, b = e.page("superadmin", "/mcp-admin/tokens")
 	tokens := b["props"].(map[string]any)["tokens"].([]any)
-	got := map[float64]any{}
+	got := map[float64]string{}
 	for _, tk := range tokens {
 		m := tk.(map[string]any)
-		got[m["id"].(float64)] = m["owner"]
+		got[m["id"].(float64)] = js(m["owner"])
 	}
 	// Token 2 was made by ops and is owned by admin; token 1 has no
-	// owner row and names the account it was made by.
-	if got[2] != "admin" || got[1] != "admin" {
+	// owner row and is shared.
+	if got[2] != canon(`{"id":1,"name":"admin","role":"superadmin","active":true}`) ||
+		got[1] != canon(`{"id":0,"name":"Shared","active":true}`) {
 		t.Errorf("token owners %v", got)
 	}
 	if err := webdb.SetOwner(ctx, e.app, webdb.Resource{Type: webdb.ResMCPToken, ID: 1}, 2, by); err != nil {
 		t.Fatal(err)
 	}
-	_, b = e.page("admin", "/mcp-admin/tokens")
+	_, b = e.page("superadmin", "/mcp-admin/tokens")
 	for _, tk := range b["props"].(map[string]any)["tokens"].([]any) {
-		if m := tk.(map[string]any); m["id"] == float64(1) && m["owner"] != "ops" {
+		if m := tk.(map[string]any); m["id"] == float64(1) &&
+			js(m["owner"]) != canon(`{"id":2,"name":"ops","role":"superadmin","active":true}`) {
 			t.Errorf("token 1 owner %v", m["owner"])
 		}
 	}

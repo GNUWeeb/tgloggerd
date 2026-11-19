@@ -13,21 +13,20 @@ not theirs or their members'.
 
 ## Scope
 
-- Ownership: every token has an owner (web_mcp_tokens.web_user_id and
-  the ownership relation already record one). A token is listed,
-  minted, renamed and revoked by its owner, by an admin for a member
-  the admin manages (the member grants' rule), and by a superadmin for
-  any token. A member mints and manages only their own.
-- Existing tokens: all of them are transferred to the `superadmin`
-  account, as an audited ownership transfer. This supersedes the
-  decision 2026-11-18-mcp-token-owners (existing tokens keep their
-  creators); record the new decision.
-- Go (webapi): the permission checks above on every token route, a
-  token list filtered to what the viewer may manage, an owner column,
-  and a transfer action for superadmins; OpenAPI and web/docs/mcp.md
-  and accounts.md follow.
-- React (frontend): the token page for each role, with the owner
-  shown and, for superadmins, transfer.
+The Go part is done: per-role checks on every token route, the
+filtered list with owner and minter, minting for another owner,
+rename, the superadmins' transfer, the member ability `mcp_tokens`
+(web migration 000016), and every existing token given to
+`superadmin` (web migration 000015,
+[decision](../design/decisions/2026-11-20-mcp-tokens-to-superadmin.md));
+webapi/openapi.yaml (McpTokensProps, createMcpToken, renameMcpToken,
+transferMcpToken) and web/docs/mcp.md describe it. Left:
+
+- React (frontend): the token page for each role, with the owner and
+  minter shown, minting for one of `owners`, rename, and, for
+  superadmins (`can_transfer`), transfer; `mcp_tokens` among a
+  member's abilities on the accounts page; the MCP menu entry for a
+  member holding it opens the index and tokens, not the groups.
 
 ## Depends on
 
@@ -35,9 +34,7 @@ Nothing.
 
 ## Done when
 
-- A member mints and revokes their own token and sees no other; an
-  admin sees and manages their own and their members' tokens; a
-  superadmin sees and manages all; every existing token is owned by
-  `superadmin`, with an audit row for each transfer.
-- Go tests cover each role's list and every route's refusals; React
-  tests cover the page per role.
+- A member with `mcp_tokens` mints and revokes its own token on the
+  page and sees no other; an admin sees and manages its own and its
+  members' tokens; a superadmin sees and manages all and transfers.
+- React tests cover the page per role.

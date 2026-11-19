@@ -26,15 +26,16 @@ import (
 // shows a group the member's federations do not hold.
 
 // The member abilities, as web_member_abilities stores them (scope's
-// Forward and FetchFiles).
+// Forward, FetchFiles and MCPTokens).
 const (
 	AbilityForward    = "forward"
 	AbilityFetchFiles = "fetch_files"
+	AbilityMCPTokens  = "mcp_tokens"
 )
 
 // ValidAbility is whether a is a member ability.
 func ValidAbility(a string) bool {
-	return a == AbilityForward || a == AbilityFetchFiles
+	return a == AbilityForward || a == AbilityFetchFiles || a == AbilityMCPTokens
 }
 
 // grantInFederation is the condition, over a web_member_grant_groups

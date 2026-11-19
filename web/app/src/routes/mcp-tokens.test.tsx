@@ -1,0 +1,226 @@
+// @vitest-environment happy-dom
+// The MCP tokens page per role: who owns each token and who minted it,
+// minting for another owner, renaming, and (superadmins) transferring.
+import { beforeEach, describe, expect, it } from 'vitest';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { callsTo, fakeApi, fixture, json, renderPage, setup } from '../test/page.tsx';
+import type { McpIndexProps, McpTokensProps } from './mcp.tsx';
+import type { AccountsProps } from './accounts.tsx';
+import { adminApi } from '../../standin/fixtures.ts';
+
+beforeEach(setup);
+// The table row of a token, by its name.
+const rowOf = (name: string) => screen.getByText(name).closest('tr') as HTMLElement;
+const dialog = () => screen.getByRole('dialog');
+const names = () => [...document.querySelectorAll('.a-table tbody tr td:first-child')].map((x) => x.textContent);
+
+describe('mcp token owners', () => {
+	it('shows each owner as a person, shared tokens as Shared, and who minted one for someone else', () => {
+		renderPage('/mcp-admin/tokens');
+		expect(within(rowOf('laptop')).getByText('Administrator')).toBeTruthy();
+		expect(within(rowOf('old ci job')).getByText('Shared')).toBeTruthy();
+		const r = rowOf('research-agent');
+		expect(within(r).getByText('Research team')).toBeTruthy();
+		expect(within(r).getByText(/minted by GNU\/Weeb admins/)).toBeTruthy();
+		// Minted by its owner: no second name.
+		expect(within(rowOf('laptop')).queryByText(/minted by/)).toBeNull();
+	});
+
+	it('lists every token to a superadmin, newest first', () => {
+		const p = fixture<McpTokensProps>('/mcp-admin/tokens').props;
+		expect(p.can_transfer).toBe(true);
+		renderPage('/mcp-admin/tokens');
+		expect(names()).toEqual(['(unnamed)', 'old ci job', 'research-agent', 'laptop']);
+	});
+
+	it('lists an admin its own tokens and its members\' only', () => {
+		const p = fixture<McpTokensProps>('/mcp-admin/tokens', 'admin').props;
+		expect(p.can_transfer).toBe(false);
+		expect(p.owners.map((o) => o.name)).toEqual(['GNU/Weeb admins', 'Research team']);
+		renderPage('/mcp-admin/tokens', 'admin');
+		expect(names()).toEqual(['(unnamed)', 'research-agent']);
+	});
+});
+
+describe('minting an mcp token', () => {
+	const mint = async (persona: 'superadmin' | 'admin', owner?: string) => {
+		const calls = fakeApi(persona, { 'POST /api/mcp/tokens': () => json(201, { id: 9, token: 'tgmcp_test_once' }) });
+		renderPage('/mcp-admin/tokens', persona);
+		fireEvent.click(screen.getByRole('button', { name: /Mint a token/ }));
+		fireEvent.change(dialog().querySelector('input')!, { target: { value: 'agent' } });
+		if (owner) fireEvent.change(within(dialog()).getByLabelText(/Owner/), { target: { value: owner } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Mint' }));
+		await waitFor(() => expect(callsTo(calls, 'POST', '/api/mcp/tokens')).toHaveLength(1));
+		return callsTo(calls, 'POST', '/api/mcp/tokens')[0]!.body;
+	};
+
+	it('mints for the viewer unless another owner is picked', async () => {
+		expect(await mint('superadmin')).toEqual({ name: 'agent' });
+	});
+
+	it('sends the owner picked from the owners offered', async () => {
+		const p = fixture<McpTokensProps>('/mcp-admin/tokens').props;
+		const lead = p.owners.find((o) => o.name === 'Security lead')!;
+		expect(await mint('superadmin', String(lead.id))).toEqual({ name: 'agent', owner_id: lead.id });
+	});
+
+	it('offers no owner pick to a viewer who may mint only for itself', () => {
+		expect(fixture<McpTokensProps>('/mcp-admin/tokens', 'member').props.owners).toHaveLength(1);
+		renderPage('/mcp-admin/tokens', 'member');
+		fireEvent.click(screen.getByRole('button', { name: /Mint a token/ }));
+		expect(within(dialog()).queryByLabelText(/Owner/)).toBeNull();
+	});
+
+	it('is refused in the stand-in for an owner the viewer may not mint for, or without a name', () => {
+		// An admin manages no other admin.
+		expect(adminApi('POST', 'mcp/tokens', { name: 'x', owner_id: 4 }, 'admin')[0]).toBe(400);
+		expect(adminApi('POST', 'mcp/tokens', { name: '   ' }, 'superadmin')[0]).toBe(400);
+		const [st] = adminApi('POST', 'mcp/tokens', { name: 'for the lead', owner_id: 4 }, 'superadmin');
+		expect(st).toBe(201);
+		const t = fixture<McpTokensProps>('/mcp-admin/tokens').props.tokens.find((x) => x.name === 'for the lead')!;
+		expect([t.owner.name, t.minted_by.name]).toEqual(['Security lead', 'Administrator']);
+	});
+});
+
+describe('renaming an mcp token', () => {
+	const open = (name: string, handlers = {}) => {
+		const calls = fakeApi('superadmin', handlers);
+		renderPage('/mcp-admin/tokens');
+		fireEvent.click(within(rowOf(name)).getByRole('button', { name: /Rename/ }));
+		return calls;
+	};
+	const tokenId = (name: string) => fixture<McpTokensProps>('/mcp-admin/tokens').props.tokens.find((t) => t.name === name)!.id;
+
+	it('sends the new name', async () => {
+		const calls = open('laptop', { 'PATCH /api/mcp/tokens/:id': () => undefined });
+		const i = dialog().querySelector('input')!;
+		expect(i.value).toBe('laptop');
+		expect(i.getAttribute('autocomplete')).toBe('off');
+		fireEvent.change(i, { target: { value: 'work laptop' } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		const path = `/api/mcp/tokens/${tokenId('laptop')}`;
+		await waitFor(() => expect(callsTo(calls, 'PATCH', path)).toHaveLength(1));
+		expect(callsTo(calls, 'PATCH', path)[0]!.body).toEqual({ name: 'work laptop' });
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+	});
+
+	it('will not save an empty name, and renames a revoked token too', () => {
+		open('old ci job');
+		fireEvent.change(dialog().querySelector('input')!, { target: { value: '  ' } });
+		expect((within(dialog()).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+	});
+
+	it('shows the server\'s refusal in the dialog', async () => {
+		open('laptop', { 'PATCH /api/mcp/tokens/:id': () => json(404, { error: 'not_found', message: 'No such token.' }) });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Save' }));
+		expect((await within(dialog()).findByRole('alert')).textContent).toBe('No such token.');
+	});
+
+	it('renames in the stand-in only what the viewer manages', () => {
+		const laptop = tokenId('laptop');
+		expect(adminApi('PATCH', `mcp/tokens/${laptop}`, { name: 'mine now' }, 'admin')[0]).toBe(404);
+		expect(adminApi('PATCH', `mcp/tokens/${laptop}`, { name: ' ' }, 'superadmin')[0]).toBe(400);
+		const agent = tokenId('research-agent');
+		expect(adminApi('PATCH', `mcp/tokens/${agent}`, { name: 'research-agent ' + 'x'.repeat(80) }, 'admin')).toEqual([204, null]);
+		const t = fixture<McpTokensProps>('/mcp-admin/tokens').props.tokens.find((x) => x.id === agent)!;
+		expect(t.name).toHaveLength(64);
+		expect(adminApi('PATCH', `mcp/tokens/${agent}`, { name: 'research-agent' }, 'admin')).toEqual([204, null]);
+	});
+});
+
+describe('transferring an mcp token', () => {
+	const tokenOf = (name: string) => fixture<McpTokensProps>('/mcp-admin/tokens').props.tokens.find((t) => t.name === name)!;
+
+	it('gives a superadmin a Transfer action that sends the owner picked', async () => {
+		const calls = fakeApi('superadmin', { 'POST /api/mcp/tokens/:id/transfer': () => undefined });
+		renderPage('/mcp-admin/tokens');
+		const t = tokenOf('laptop');
+		fireEvent.click(within(rowOf('laptop')).getByRole('button', { name: /Transfer/ }));
+		const sel = within(dialog()).getByLabelText(/New owner/) as HTMLSelectElement;
+		// Not to the owner it has.
+		expect([...sel.options].map((o) => o.textContent)).not.toContain('Administrator (superadmin)');
+		const go = within(dialog()).getByRole('button', { name: 'Transfer' }) as HTMLButtonElement;
+		expect(go.disabled).toBe(true);
+		const lead = fixture<McpTokensProps>('/mcp-admin/tokens').props.owners.find((o) => o.name === 'Security lead')!;
+		fireEvent.change(sel, { target: { value: String(lead.id) } });
+		fireEvent.click(go);
+		const path = `/api/mcp/tokens/${t.id}/transfer`;
+		await waitFor(() => expect(callsTo(calls, 'POST', path)).toHaveLength(1));
+		expect(callsTo(calls, 'POST', path)[0]!.body).toEqual({ owner_id: lead.id });
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+	});
+
+	it('offers no transfer to an admin', () => {
+		renderPage('/mcp-admin/tokens', 'admin');
+		expect(screen.getAllByRole('button', { name: /Rename/ }).length).toBeGreaterThan(0);
+		expect(screen.queryByRole('button', { name: /Transfer/ })).toBeNull();
+	});
+
+	it('shows the server\'s refusal in the dialog', async () => {
+		fakeApi('superadmin', { 'POST /api/mcp/tokens/:id/transfer': () => json(400, { error: 'bad_request', message: 'This account cannot own a token.' }) });
+		renderPage('/mcp-admin/tokens');
+		fireEvent.click(within(rowOf('laptop')).getByRole('button', { name: /Transfer/ }));
+		const sel = within(dialog()).getByLabelText(/New owner/) as HTMLSelectElement;
+		fireEvent.change(sel, { target: { value: sel.options[1]!.value } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Transfer' }));
+		expect((await within(dialog()).findByRole('alert')).textContent).toBe('This account cannot own a token.');
+	});
+
+	it('transfers in the stand-in for superadmins only, keeping who minted it', () => {
+		const t = tokenOf('research-agent');
+		expect(adminApi('POST', `mcp/tokens/${t.id}/transfer`, { owner_id: 3 }, 'admin')[0]).toBe(404);
+		// A disabled account cannot own one.
+		expect(adminApi('POST', `mcp/tokens/${t.id}/transfer`, { owner_id: 7 }, 'superadmin')[0]).toBe(400);
+		expect(adminApi('POST', `mcp/tokens/${t.id}/transfer`, { owner_id: 4 }, 'superadmin')).toEqual([204, null]);
+		const after = tokenOf('research-agent');
+		expect([after.owner.name, after.minted_by.name]).toEqual(['Security lead', 'GNU/Weeb admins']);
+		// The admin no longer manages it.
+		expect(fixture<McpTokensProps>('/mcp-admin/tokens', 'admin').props.tokens.map((x) => x.id)).not.toContain(t.id);
+		// Back to the member, which holds mcp_tokens.
+		expect(adminApi('POST', `mcp/tokens/${t.id}/transfer`, { owner_id: 5 }, 'superadmin')).toEqual([204, null]);
+	});
+});
+
+describe('a member holding mcp_tokens', () => {
+	it('has the MCP menu, but not the exposed groups', () => {
+		expect(fixture('/', 'member').viewer.nav).toContain('mcp');
+		expect(fixture('/mcp-admin/groups', 'member').route).toBe('not_found');
+		expect(adminApi('POST', 'mcp/groups', { group_id: 1 }, 'member')[0]).toBe(404);
+		renderPage('/mcp-admin', 'member');
+		expect(screen.getByRole('link', { name: /Access tokens/ })).toBeTruthy();
+		expect(screen.queryByRole('link', { name: /Exposed groups/ })).toBeNull();
+		expect(screen.getByText('Exposed groups')).toBeTruthy();
+	});
+
+	it('sees only its own tokens, and counts only those on the index', () => {
+		renderPage('/mcp-admin/tokens', 'member');
+		expect(names()).toEqual(['research-agent']);
+		expect(fixture<McpIndexProps>('/mcp-admin', 'member').props.active_tokens).toBe(1);
+		expect(screen.queryByRole('button', { name: /Transfer/ })).toBeNull();
+	});
+
+	it('can be minted for by an admin that manages it', async () => {
+		const calls = fakeApi('admin', { 'POST /api/mcp/tokens': () => json(201, { id: 9, token: 'tgmcp_test_once' }) });
+		renderPage('/mcp-admin/tokens', 'admin');
+		fireEvent.click(screen.getByRole('button', { name: /Mint a token/ }));
+		fireEvent.change(dialog().querySelector('input')!, { target: { value: 'notebook' } });
+		const sel = within(dialog()).getByLabelText(/Owner/) as HTMLSelectElement;
+		expect([...sel.options].map((o) => o.textContent)).toEqual(['GNU/Weeb admins (you)', 'Research team (member)']);
+		fireEvent.change(sel, { target: { value: '5' } });
+		fireEvent.click(within(dialog()).getByRole('button', { name: 'Mint' }));
+		await waitFor(() => expect(callsTo(calls, 'POST', '/api/mcp/tokens')).toHaveLength(1));
+		expect(callsTo(calls, 'POST', '/api/mcp/tokens')[0]!.body).toEqual({ name: 'notebook', owner_id: 5 });
+	});
+
+	it('shows the ability on the accounts page', () => {
+		const r = fixture<AccountsProps>('/settings/accounts').props.accounts.find((a) => a.id === 5)!;
+		expect(r.abilities).toContain('mcp_tokens');
+		renderPage('/settings/accounts');
+		expect(screen.getAllByText(/forwarding, fetch files, MCP tokens/).length).toBeGreaterThan(0);
+		fireEvent.click(screen.getByRole('button', { name: 'Edit researcher' }));
+		fireEvent.click(within(dialog()).getByRole('tab', { name: 'Access' }));
+		expect((within(dialog()).getByRole('checkbox', { name: /MCP tokens/ }) as HTMLInputElement).checked).toBe(true);
+		expect(adminApi('PATCH', 'accounts/5', { abilities: ['mcp_tokens', 'forward', 'fetch_files'] }, 'superadmin')[0]).toBe(200);
+		expect(adminApi('PATCH', 'accounts/5', { abilities: ['mcp'] }, 'superadmin')[0]).toBe(400);
+	});
+});

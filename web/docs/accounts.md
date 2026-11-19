@@ -171,7 +171,10 @@ A member's grants are stored per federation in
   have the daemon fetch files the store does not hold. Without
   `fetch_files` a member gets no link to an unstored file, and a link
   it holds answers 404 "File not stored" without reaching the daemon.
-  Superadmins and admins hold both, as before.
+  `mcp_tokens` lets it mint and manage its own MCP tokens on the MCP
+  page (mcp.md, Administration); taking it away leaves its tokens
+  working until whoever manages them revokes them. Superadmins and
+  admins hold all three by role.
 - File links (`/files/<token>`) stay capabilities that work without a
   session; a member only ever gets them for files it can see.
 - Exposed groups stay public: their chat page opens signed out, so it
@@ -230,7 +233,7 @@ accounts); every write carries the session's CSRF token.
   made member is filed in Default unless the same PATCH gives
   `grants`.
 - `abilities` replaces a member's abilities (`forward`,
-  `fetch_files`); only a member has them (400 `bad_request` for
+  `fetch_files`, `mcp_tokens`); only a member has them (400 `bad_request` for
   another role, and with field `abilities` for an unknown one). A
   superadmin, and an admin managing the member, sets them.
 - The last active superadmin cannot be disabled or demoted (409
@@ -382,9 +385,18 @@ resource, so more relations (sharing) can be added later:
 ### Assigning the existing resources (deployment)
 
 Everything that exists when ownership is introduced becomes owned by
-the first superadmin, the account named `superadmin`, except MCP
-tokens: each becomes owned by the account that minted it. Once, at the
-deployment that brings web migration 000008:
+the first superadmin, the account named `superadmin`, MCP tokens
+included
+([decision](../../docs/design/decisions/2026-11-20-mcp-tokens-to-superadmin.md)).
+Web migration 000015 gives every MCP token to that account by itself,
+when it exists with the superadmin role: a token owned by another
+account is transferred (`owner_transfer`, detail `mcp_token <id> from
+<old> to <new> superadmin-transfer`), one with no owner gets it
+(`owner_set`, detail `mcp_token <id> superadmin-transfer`), each audited
+by no account with `superadmin` as the target; the token's minter, which
+its requests are attributed to, stays as it was. Its down migration
+gives the tokens back the owners those rows name. For the other
+resources, once, at the deployment that brings web migration 000008:
 
 1. Restart the web service, which applies the web migrations, and the
    webapi service, which builds the new binary.

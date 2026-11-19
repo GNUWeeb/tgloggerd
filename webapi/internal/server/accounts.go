@@ -526,7 +526,7 @@ func abilitiesOfRequest(w http.ResponseWriter, as []string) ([]string, bool) {
 	for _, a := range as {
 		if !webdb.ValidAbility(a) {
 			writeError(w, http.StatusBadRequest, "bad_request", map[string]any{
-				"message": "abilities are forward and fetch_files.",
+				"message": "abilities are forward, fetch_files and mcp_tokens.",
 				"field":   "abilities",
 			})
 			return nil, false

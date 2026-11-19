@@ -116,6 +116,7 @@
 	"mail.verify.body": "Hello {name},\n\nConfirm that this is to be the email address of your account {username} on {site}:\n\n{link}\n\nThe link works once, until {expires}. If you did not ask for this, ignore this message.",
 	"mail.verify.subject": "Verify your email address for {site}",
 	"mcp.already_exposed": "That group is already exposed. Edit its note instead.",
+	"mcp.bad_owner": "Choose one of the accounts the token can be given to.",
 	"mcp.group_required": "group_id is the group's (negative) chat id.",
 	"mcp.name_required": "A token needs a name of 1 to 64 characters, so it can be told apart and revoked.",
 	"mcp.note_required": "note is the new note, 0 to 255 characters; an empty one clears it.",

@@ -157,7 +157,7 @@ export interface paths {
          *
          *     A path the service does not serve as a React page yet answers {"reload": true}, and the browser loads it in full. Something the viewer may not see answers 404 with the not_found route, exactly like something that does not exist; so does a path that is no page at all. A signed-out visitor gets 401 for every path but login, the three link pages and the public pages of exposed groups (group, group_chat, group_files and group_polls).
          *
-         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_members, group_files, group_polls, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat, group_files or group_polls of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope. The users, groups, group_messages and private_messages lists take every field of their search registry (ListState.fields) with the search's operators and connectors, besides their own filter keys, and sort by the registry's sortable fields too; a filter or search text they refuse, or a search that runs out of time, answers the whole list with ListState.error, as the Drogon lists did. The files list drops a filter it does not take, not echoed in conds. per defaults to the viewer's rows_per_page and goes up to 1000. archive_total is there only for a viewer who sees the whole archive of that list. A Drogon list URL (search, offset, limit, order, without f, page, per and dir) is read as the same list, and the answer's url is the translated one, to put in the address bar. The user and group pages and their history pages take before, the history cursor (history_next). group_files takes kind (FileKind) and before, and group_polls before, as getGroupFiles and getGroupPolls do, except that a value that does not parse is ignored instead of answering 400. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
+         *     So far the service loads the data of login, dashboard, user, user_history, user_chat, group, group_admins, group_history, group_members, group_files, group_polls, group_chat and message, of the list pages users, groups, files, group_messages and private_messages, of the settings pages, of the administration pages accounts, federations, federation, platform_fwd, fwd_telegram_discord, fwd_discord_telegram, join_chat, mcp, mcp_groups and mcp_tokens (each only for a viewer whose menu has it, not_found otherwise; the menu's mcp entry is for viewers holding mcp_tokens, and mcp_groups only for those holding mcp as well, so a member given mcp_tokens has mcp and mcp_tokens but not mcp_groups), of the three link pages (whose props are empty), and not_found. A signed-out visitor asking for the group_chat, group_files or group_polls of a group that is not exposed is asked to sign in (401 here, the redirect for the document), whether or not the group exists. A list page reads its list state from its query string (q, f the filters as a JSON array of Cond, sort, dir, page, per) through the advanced search (searchEntity) and the request scope. The users, groups, group_messages and private_messages lists take every field of their search registry (ListState.fields) with the search's operators and connectors, besides their own filter keys, and sort by the registry's sortable fields too; a filter or search text they refuse, or a search that runs out of time, answers the whole list with ListState.error, as the Drogon lists did. The files list drops a filter it does not take, not echoed in conds. per defaults to the viewer's rows_per_page and goes up to 1000. archive_total is there only for a viewer who sees the whole archive of that list. A Drogon list URL (search, offset, limit, order, without f, page, per and dir) is read as the same list, and the answer's url is the translated one, to put in the address bar. The user and group pages and their history pages take before, the history cursor (history_next). group_files takes kind (FileKind) and before, and group_polls before, as getGroupFiles and getGroupPolls do, except that a value that does not parse is ignored instead of answering 400. The page's document (its HTML, web-ssr.md section 5) is served at the page's own path for each route whose data the service loads, and there a signed-out visitor asking for a page that needs a session is redirected (302) to /login?next=<path and query>.
          */
         get: operations["getPage"];
         put?: never;
@@ -611,7 +611,7 @@ export interface paths {
          * Change an account
          * @description Changes the fields given: name, email, role, an admin's federations (admin_of) and restrictions, a member's grants (its federations and the groups granted in them) and abilities. A role change ends the account's sessions on both services, and drops what belonged to the old role: a member made admin leaves its federations, and its grants and abilities go; an admin made member administers none, loses its restrictions and is filed in Default, with no groups granted, unless grants say otherwise.
          *
-         *     admin_of and restrict are a superadmin's to send (403 otherwise); admin_of is for admins (an empty list for anyone). grants replace the member's federations among those the viewer administers, all of them for a superadmin; the others stay. A grant naming a federation files the member in it, and leaving a federation out unfiles the member there, which drops the groups granted there. group_ids replaces the groups granted in that federation: each must be a group of the federation (its groups; for Default, a group of the archive that no other federation holds) that the viewer sees, else 400 bad_request with field grants. A grant of a federation the member is in already and the viewer does not administer passes, so the accounts page can send the member's whole list, and changes nothing there, its group_ids included; one that files it in a federation the viewer does not administer answers 403. From the member's next request it sees exactly its granted groups, the union over its federations, and the people who appear in them (web-accounts.md section 5). A grant goes when its group leaves the federation (for Default: joins another federation), when the member leaves the federation, and when the account stops being a member. abilities (forward, fetch_files) replace a member's abilities; they are for an account that is, or this change makes, a member (400 bad_request otherwise), and an unknown one answers 400 bad_request with field abilities. A superadmin, and an admin managing the member, sets them. restrict.hide_private hides private chats and their messages from an admin at once (every private page, chat, search and count answers 404 or leaves them out); it is for an account that is, or this change makes, an admin (400 bad_request otherwise), and it is cleared when an admin becomes another role. restrict.hide_groups (group ids) replaces the groups hidden from an admin: from its next request they are in no list, search, count or chat search, their pages and APIs answer 404, and messages elsewhere that refer to them (posted as, forwarded from, replying from one) do not name them. A non-empty list is for an admin as hide_private is, a group the archive does not have answers 400 bad_request with field hide_groups, and the list is cleared when an admin becomes another role. Exposed groups stay public. restrict.join_chat grants an admin Join chat (off by default): from its next request the join_chat page and menu entry are its, and previewJoin and joinChat answer it; without it they answer 404. It is for an admin as hide_private is, and it is cleared when an admin becomes another role. Superadmins always may join chats, and an admin cannot grant it, as it sends no restrict at all.
+         *     admin_of and restrict are a superadmin's to send (403 otherwise); admin_of is for admins (an empty list for anyone). grants replace the member's federations among those the viewer administers, all of them for a superadmin; the others stay. A grant naming a federation files the member in it, and leaving a federation out unfiles the member there, which drops the groups granted there. group_ids replaces the groups granted in that federation: each must be a group of the federation (its groups; for Default, a group of the archive that no other federation holds) that the viewer sees, else 400 bad_request with field grants. A grant of a federation the member is in already and the viewer does not administer passes, so the accounts page can send the member's whole list, and changes nothing there, its group_ids included; one that files it in a federation the viewer does not administer answers 403. From the member's next request it sees exactly its granted groups, the union over its federations, and the people who appear in them (web-accounts.md section 5). A grant goes when its group leaves the federation (for Default: joins another federation), when the member leaves the federation, and when the account stops being a member. abilities (forward, fetch_files, mcp_tokens) replace a member's abilities; they are for an account that is, or this change makes, a member (400 bad_request otherwise), and an unknown one answers 400 bad_request with field abilities. A superadmin, and an admin managing the member, sets them. restrict.hide_private hides private chats and their messages from an admin at once (every private page, chat, search and count answers 404 or leaves them out); it is for an account that is, or this change makes, an admin (400 bad_request otherwise), and it is cleared when an admin becomes another role. restrict.hide_groups (group ids) replaces the groups hidden from an admin: from its next request they are in no list, search, count or chat search, their pages and APIs answer 404, and messages elsewhere that refer to them (posted as, forwarded from, replying from one) do not name them. A non-empty list is for an admin as hide_private is, a group the archive does not have answers 400 bad_request with field hide_groups, and the list is cleared when an admin becomes another role. Exposed groups stay public. restrict.join_chat grants an admin Join chat (off by default): from its next request the join_chat page and menu entry are its, and previewJoin and joinChat answer it; without it they answer 404. It is for an admin as hide_private is, and it is cleared when an admin becomes another role. Superadmins always may join chats, and an admin cannot grant it, as it sends no restrict at all.
          *
          *     The address is an account's own to change (changeEmail); an empty one removes it. An admin may correct another account's only while that account is invited (its password not set yet), and then, with mail, the invitation goes to the new address and earlier ones stop working. A superadmin may change any account's, for one that lost its mailbox; the new address is unverified and, with mail, gets a verification link. A changed address is told to the old one if it was verified, and a changed role to the account's verified address (when mail is set up). Audited as account_update, naming the fields changed, the federations, the granted groups of each federation changed and the abilities, before and after.
          */
@@ -1117,13 +1117,33 @@ export interface paths {
         put?: never;
         /**
          * Create an MCP bearer token
-         * @description The token (tgmcp_ and 64 hex digits) is in this answer only; it is stored as its SHA-256 and in no log or audit row. The name, 1 to 64 characters after trimming, tells tokens apart. Owned by the viewer. Audited as mcp_token_create, with the name.
+         * @description For viewers holding mcp_tokens: superadmins, admins, and members given it; anyone else gets 404. The token (tgmcp_ and 64 hex digits) is in this answer only; it is stored as its SHA-256 and in no log or audit row. The name, 1 to 64 characters after trimming, tells tokens apart. owner_id names the account that will own it, one of McpTokensProps.owners (the viewer when left out): a superadmin mints for any active account that may hold tokens, an admin for itself or an active member it manages that holds mcp_tokens, a member only for itself; any other owner_id is 400 bad_request. The token is always minted by the viewer, which stays the account its requests are attributed to (minted_by): disabling that account disables the token. Audited as mcp_token_create, with the name, and owner_set.
          */
         post: operations["createMcpToken"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/mcp/tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename an MCP bearer token
+         * @description For whoever manages the token (see revokeMcpToken); a token the viewer does not manage is 404 like an unknown one. The name is trimmed and cut to 64 characters and must not end up empty (400 bad_request). A revoked token can be renamed too. An unchanged name answers 204 and audits nothing; a change is audited as mcp_token_rename, with the old and the new name.
+         */
+        patch: operations["renameMcpToken"];
         trace?: never;
     };
     "/api/mcp/tokens/{id}/revoke": {
@@ -1137,9 +1157,29 @@ export interface paths {
         put?: never;
         /**
          * Revoke an MCP bearer token
-         * @description Stamps the token revoked; the row stays for the audit trail. Revoking a revoked token changes nothing and answers 204 too. Audited as mcp_token_revoke.
+         * @description For whoever manages the token: its owner, an admin when the owner is a member it manages (filed in a federation it administers), and any superadmin. A token the viewer does not manage is 404 like an unknown one, and every token is 404 to an account without mcp_tokens. A token without an owner record counts as the superadmins'. Stamps the token revoked; the row stays for the audit trail. Revoking a revoked token changes nothing and answers 204 too. Audited as mcp_token_revoke.
          */
         post: operations["revokeMcpToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mcp/tokens/{id}/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give an MCP bearer token to another owner
+         * @description Superadmins only (McpTokensProps.can_transfer); anyone else gets 404. owner_id is one of McpTokensProps.owners: an active account that may hold tokens (a superadmin, an admin, or a member holding mcp_tokens); any other is 400 bad_request. A revoked token can be transferred too. The token keeps working and keeps minted_by, the account its requests are attributed to. Transferring to the owner it has changes nothing and audits nothing. Audited as mcp_token_transfer and owner_transfer (owner_set for a token that had no owner record).
+         */
+        post: operations["transferMcpToken"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3468,7 +3508,7 @@ export interface components {
             }[];
         };
         /** @enum {string} */
-        Ability: "forward" | "fetch_files";
+        Ability: "forward" | "fetch_files" | "mcp_tokens";
         Fed: {
             /** Format: int64 */
             id: number;
@@ -3560,13 +3600,13 @@ export interface components {
             };
             /** @description A member's grants, replacing the federations it is filed in. An admin changes only those in its own federations; the others stay. */
             grants?: components["schemas"]["GrantWrite"][];
-            /** @description A member's abilities, replacing its list: forward (set up forwarding of its groups, seeing only its own configurations) and fetch_files (have the daemon fetch files the store does not hold). [] removes them. */
+            /** @description A member's abilities, replacing its list: forward (set up forwarding of its groups, seeing only its own configurations), fetch_files (have the daemon fetch files the store does not hold) and mcp_tokens (mint and manage its own MCP tokens). [] removes them; removing mcp_tokens leaves the member's tokens working until they are revoked. */
             abilities?: components["schemas"]["Ability"][];
         };
         AccountsProps: {
             /** @description Whether mail is configured. Without it, set-password links cannot be sent: creating with invite, and resending an invitation, answer 409 mail_off, so the page should not offer them. The service always sends it. */
             mail?: boolean;
-            /** @description Which parts of an account the server can change today; the page offers only those. federations (admin_of, and the federations of grants), group_grants (the groups inside a grant) and abilities (a member's forward and fetch_files) are true. restrictions is true: every admin restriction (hide_private, hide_groups and the join_chat grant) can be set. restrict_private and restrict_groups stay true as well; they named the restrictions that could be set while restrictions was still false. */
+            /** @description Which parts of an account the server can change today; the page offers only those. federations (admin_of, and the federations of grants), group_grants (the groups inside a grant) and abilities (a member's forward, fetch_files and mcp_tokens) are true. restrictions is true: every admin restriction (hide_private, hide_groups and the join_chat grant) can be set. restrict_private and restrict_groups stay true as well; they named the restrictions that could be set while restrictions was still false. */
             editable: {
                 federations: boolean;
                 group_grants: boolean;
@@ -3902,6 +3942,7 @@ export interface components {
              */
             checked_at: number;
         };
+        /** @description exposed_groups and exposed_messages count the exposed groups the viewer sees; active_tokens and last_used are over the tokens not revoked that the viewer manages (McpTokensProps). */
         McpIndexProps: {
             exposed_groups: number;
             /** Format: int64 */
@@ -3918,17 +3959,24 @@ export interface components {
                 added: string;
             }[];
         };
+        /**
+         * @description The tokens the viewer manages, newest first: a superadmin's are every token, an admin's its own and those of the members it manages, a member's its own (createMcpToken). owners is who the viewer may mint for and, with can_transfer, transfer to: for a superadmin every active account that may hold tokens (a superadmin, an admin, or a member holding mcp_tokens), for an admin itself and the active members it manages that hold mcp_tokens, for a member itself. can_transfer is true for superadmins only (transferMcpToken).
+         *
+         *     A token's owner is the owning account, with its role and whether it is active; a token without an owner record counts as the superadmins' and is answered as shared (owner id 0, named "Shared", active). minted_by is the account that minted it, which its requests are attributed to: when that account is disabled the token stops working, whoever owns it.
+         */
         McpTokensProps: {
             tokens: {
                 /** Format: int64 */
                 id: number;
                 name: string;
-                /** @description The owning account's username; for a token without an owner record, the account it was made by. */
-                owner: string;
+                owner: components["schemas"]["FwdPerson"];
+                minted_by: components["schemas"]["FwdPerson"];
                 created: string;
                 last_used: string | null;
                 revoked: string | null;
             }[];
+            owners: components["schemas"]["FwdPerson"][];
+            can_transfer: boolean;
         };
         /** @description A JSON-RPC 2.0 request (with an id) or notification (without). The methods answered are initialize, ping, tools/list and tools/call ({name, arguments}); tools/list describes each tool's arguments. */
         McpMessage: {
@@ -6409,6 +6457,8 @@ export interface operations {
             content: {
                 "application/json": {
                     name: string;
+                    /** Format: int64 */
+                    owner_id?: number;
                 };
             };
         };
@@ -6425,6 +6475,36 @@ export interface operations {
                         token: string;
                     };
                 };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    renameMcpToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Renamed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthenticated"];
@@ -6450,6 +6530,34 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    transferMcpToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Transfer"];
+            };
+        };
+        responses: {
+            /** @description Transferred. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
