@@ -222,6 +222,8 @@ export interface paths {
          *     Messages sent as an album (consecutive rows sharing a media album id) come as one message: the first item's ids, date and sender, its media as `media` and the other items' as `album`, the caption and edits of the item that has one. A window whose edge cuts an album is extended to hold all of it, so an album always folds the same way; a window after an album's own message id therefore starts with that album again, which a client drops by `id`.
          *
          *     Visibility: a group the viewer's scope sees, or any exposed group (MCP exposure), whose chat is public; a private chat to a viewer that sees private messages. A signed-out visitor may read the chats of exposed groups and gets 401 for anything else, whether it exists or not; a signed-in viewer gets 404 for what it may not see. A reply quotes a message of another chat only when the viewer sees that chat (reply_to.chat_id names it); otherwise reply_to is null. Senders are shown in full (counts, contact name) only to viewers that see all users.
+         *
+         *     Recheck: serving a window also asks the daemon, in the background, to read that stretch of the chat from Telegram again (POST /v1/chats/{chat_id}/recheck), so messages, edits and deletions the logger missed are stored and arrive as the usual live events. The answer never waits for it, and nothing in it says whether one was asked. A window without before, after, around or after_ts is the newest stretch, asked at most once a minute per chat; any other is the stretch around its anchor, asked at most once an hour per chat and anchor. The requests of all signed-out visitors together share one budget, which keeps its last part for newest stretches (webapi/README, "Recheck"). The chat and message pages ask the same way.
          */
         get: operations["getChatMessages"];
         put?: never;
@@ -2274,6 +2276,8 @@ export interface components {
             forwarded: string | null;
             edited: boolean;
             deleted_at: string | null;
+            /** @description Present and true when the deletion was found by a recheck against Telegram (the message was gone from the stretch Telegram returned) rather than seen as it happened; then deleted_at is when the recheck found it. Absent otherwise. */
+            deleted_on_recheck?: boolean;
             /** @description A service message's action (chat_add_members, pin_message, ...; docs/design/message-types.md section 4.2.3), as MessageExtra.service_type gives it, so a list can label the row; null for every other row. Always sent by the message lists; optional for the message page, which gives it as MessageExtra does. */
             service_type?: string | null;
         };
@@ -3091,6 +3095,8 @@ export interface components {
             kind?: components["schemas"]["ContentType"];
             /** @description When an album item was deleted; absent while it is not. Album items only. */
             deleted_at?: string;
+            /** @description Present and true when an album item's deletion was found by a recheck against Telegram rather than seen as it happened (ChatMessage.deleted_on_recheck). Album items only. */
+            deleted_on_recheck?: boolean;
         };
         ChatMessage: components["schemas"]["MessageExtra"] & components["schemas"]["MessageKinds"] & components["schemas"]["ChatMessageBase"];
         ChatMessageBase: {
@@ -3129,6 +3135,8 @@ export interface components {
             edits: components["schemas"]["Edit"][];
             edited_at: string | null;
             deleted_at: string | null;
+            /** @description Present and true when the deletion was found by a recheck against Telegram (the message was gone from the stretch Telegram returned) rather than seen as it happened; then deleted_at is when the recheck found it. Absent otherwise; an album message has it when all its items were deleted and one of them was found so. */
+            deleted_on_recheck?: boolean;
             link_preview: components["schemas"]["LinkPreview"] | null;
         };
         /** @description A message's link preview card (telegram_link_previews): the site, the page's title and description, its URL, its media, and what the preview's type adds (docs/design/message-types.md section 4.8). Previews logged before the daemon kept a preview's extras have only type, site, title, desc, url and the photo as media. */
@@ -3274,6 +3282,8 @@ export interface components {
                 sender: components["schemas"]["UserSummary"];
                 snippet: string;
                 deleted_at: string;
+                /** @description Present and true when the deletion was found by a recheck against Telegram (MessageRow.deleted_on_recheck). */
+                deleted_on_recheck?: boolean;
                 /** Format: int64 */
                 message_id: number;
             }[];
