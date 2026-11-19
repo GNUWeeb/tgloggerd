@@ -7,20 +7,26 @@ import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
 import { MessageMedia, kindOf } from './chat-media.tsx';
-import { Counts, KindDetail, Reactions, TEXT_INSIDE } from './chat-kinds.tsx';
+import { Counts, KindDetail, Reactions, TEXT_INSIDE, topicColor } from './chat-kinds.tsx';
+import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
 import { entitiesOf } from '../api/entities.ts';
 import { RichText } from '../ui/richtext.tsx';
-import type { MessageFull } from '../types.ts';
+import type { ChatMessage, MessageFull } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
 export type MessageProps = S['MessageProps'];
 
+// The link preview and the forum topic, as the chat gives them. Until
+// openapi.yaml has them on MessageFull they are typed here; drop this
+// once it does.
+type PageMessage = MessageFull & { link_preview?: ChatMessage['link_preview']; topic?: S['ChatTopic'] | null };
+
 const ORIGIN = { user: 'a user', hidden_user: 'a user who hides their account', chat: 'a group', channel: 'a channel' } as const;
 
 function MessagePage({ page }: { page: PageData<MessageProps> }) {
-	const m = page.props.message;
+	const m: PageMessage = page.props.message;
 	const v = page.viewer;
 	const chatHref = m.chat.kind === 'group' ? `/groups/${m.chat.id}` : `/users/${m.chat.id}`;
 	// Hashtags search the message's chat.
@@ -87,6 +93,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						)}
 						{m.detail && <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} /></div>}
 						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext"><RichText text={m.text} entities={ents} chat={chat} /></div> : !m.media && !m.detail && <p className="a-muted">{svcType ? svcType.replace(/_/g, ' ') : '(no text)'}</p>}
+						{m.link_preview && <LinkPreview lp={m.link_preview} />}
 						{svcAbout !== null && <p className="a-muted sm"><Link to={`${chatPath(m).split('?')[0]}?at=${svcAbout}`} className="a-link">The message this is about</Link></p>}
 						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies) && (
 							<div className="a-msginteract">
@@ -137,7 +144,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						m.forwarded ? [null, 'Forwarded from', fromLink] : null,
 						m.author_signature ? [null, 'Signature', m.author_signature] : null,
 						svcType ? [null, 'Service action', svcType, true] : null,
-						m.topic_id !== null && m.scope === 'group' ? [null, 'Forum topic', <Link to={`/groups/${m.chat.id}/chat?topic=${m.topic_id}`} className="a-rowlink">topic {m.topic_id}</Link>] : null,
+						m.topic_id !== null && m.scope === 'group' ? [null, 'Forum topic', <Link to={`/groups/${m.chat.id}/chat?topic=${m.topic_id}`} className="a-rowlink">{m.topic ? <><span className="k-topicdot a-topicdot" style={{ background: topicColor(m.topic) }} />{m.topic.name}</> : `topic ${m.topic_id}`}</Link>] : null,
 						m.views !== null ? [null, 'Views', fmt(m.views)] : null,
 						m.forwards !== null ? [null, 'Forwards', fmt(m.forwards)] : null,
 						m.replies !== null ? [null, 'Replies', fmt(m.replies)] : null,

@@ -2,12 +2,13 @@
 // or on its own as the public page of a group exposed through MCP.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { track } from '../ui/busy.ts';
-import { ArrowLeft, CalendarDays, ChevronDown, ChevronsUp, ExternalLink, CloudOff, Download, Forward, Globe, Info, Pencil, Play, Radio, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronDown, ChevronsUp, CloudOff, Download, Forward, Globe, Info, Pencil, Play, Radio, Search, Trash2, X } from 'lucide-react';
 import Shell from '../ui/Shell.tsx';
 import { PublicFrame } from '../ui/PublicFrame.tsx';
 import { Link, setQuery, useNav } from '../nav.tsx';
 import { Avatar } from '../ui/primitives.tsx';
 import { MessageMedia } from './chat-media.tsx';
+import { LinkPreview } from './chat-preview.tsx';
 import { Counts, KindDetail, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
 import { fetchMembers, seesMembers, type MemberCount } from '../api/members.ts';
@@ -73,20 +74,6 @@ function ForwardLine({ m }: { m: ChatMessage }) {
 function EditMedia({ m, type }: { m: NonNullable<ChatMessage['edits'][number]['media']>; type: string }) {
 	if (m.thumb) return <a className="c-editmedia" href={m.url ?? undefined} target="_blank" rel="noopener" aria-label={`Earlier ${type}`}><img src={m.thumb} alt="" loading="lazy" /></a>;
 	return <div className="c-editfile c-sub">{type}{m.name ? `: ${m.name}` : ''}{m.url ? '' : ' (not stored)'}</div>;
-}
-
-// A link preview: its site, title and description, and its picture,
-// linking to the page.
-function LinkPreview({ lp }: { lp: NonNullable<ChatMessage['link_preview']> }) {
-	const inner = (
-		<>
-			<b className="c-lp-site">{lp.site}</b><b>{lp.title}</b><span>{lp.desc}</span>
-			{lp.media?.thumb && <img className="c-lp-img" src={lp.media.thumb} alt="" loading="lazy" style={lp.media.w && lp.media.h ? { aspectRatio: `${lp.media.w} / ${lp.media.h}` } : undefined} />}
-		</>
-	);
-	return lp.url
-		? <a className="c-lp" href={lp.url} target="_blank" rel="noopener noreferrer nofollow">{inner}<span className="c-lp-url"><ExternalLink size={11} />{lp.url.replace(/^https?:\/\//, '')}</span></a>
-		: <div className="c-lp">{inner}</div>;
 }
 
 function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: ChatMessage; v: Viewer; isGroup: boolean; first: boolean; last: boolean; flash: boolean; onReply: (id: number) => void; tag?: ReactNode; chat?: RichChat }) {

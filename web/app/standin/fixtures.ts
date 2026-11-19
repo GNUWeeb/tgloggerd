@@ -593,6 +593,10 @@ export function load(url: string, persona: Persona): Loaded {
 					...messageRow(x), ...extra, content_type: c.content_type, text: c.text, sender: c.sender ?? messageRow(x).sender,
 					reply_to: x.reply_to ? { scope: x.scope, id: x.reply_to.id, sender_name: senderOf(x.reply_to)?.name ?? '', snippet: x.reply_to.text || `[${x.reply_to.content_type}]` } : null,
 					edits: c.edits, edited_at: c.edited_at, media,
+					// The link preview, as the chat gives it.
+					link_preview: c.link_preview,
+					// The forum topic itself, not only its id: its name and colour.
+					topic: topicsOf(x.chat).find((t) => t.id === c.topic_id) ?? null,
 				},
 			},
 		};
