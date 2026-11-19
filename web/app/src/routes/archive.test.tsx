@@ -54,6 +54,8 @@ describe('files', () => {
 	});
 	afterEach(() => { vi.restoreAllMocks(); });
 
+	// Renders the list in grid, list and mobile form: in a loaded full run
+	// this takes longer than the default five seconds.
 	it('opens and closes a file preview in place, without reloading the list', async () => {
 		const calls = fakeApi('superadmin');
 		const { page } = renderPage('/files?view=list');
@@ -79,7 +81,7 @@ describe('files', () => {
 		await screen.findByRole('dialog', { name: f.name });
 		expect(new URLSearchParams(location.search).get('file')).toBe(String(f.id));
 		expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(1);
-	});
+	}, 20_000);
 
 	it('shows the server\'s preview on a direct visit to ?file=, and closes it in place', async () => {
 		const calls = fakeApi('superadmin');
