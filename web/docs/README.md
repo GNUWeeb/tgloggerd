@@ -23,6 +23,10 @@ one in the description.
 - [contact-names.md](contact-names.md) — a contact's own name versus the
   name the logging account saved them under: what each column means, what
   the pages show, and the admin action "Look up real name" with its routes.
+- [dashboard-series.md](dashboard-series.md) — the dashboard chart's
+  messages per period (`/api/dashboard/series`): the periods and their
+  limits in the viewer's timezone across daylight saving changes, what is
+  counted, snapping, the live end and the cache of finished periods.
 - [db-naming.md](db-naming.md) — database table naming convention: the
   per-platform prefixes (`telegram_`, `discord_`), what is and isn't prefixed,
   and the rule to follow when adding tables for a new messaging platform.

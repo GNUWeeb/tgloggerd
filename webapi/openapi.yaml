@@ -1548,7 +1548,6 @@ paths:
 
   /api/dashboard/series:
     get:
-      x-tgd-status: planned
       operationId: getDashboardSeries
       tags: [pages]
       summary: The dashboard's messages per period
