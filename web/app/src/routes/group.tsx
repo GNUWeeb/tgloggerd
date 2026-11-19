@@ -16,19 +16,17 @@ import type { PageData } from '../page.ts';
 import type { GroupAdmin, GroupFull, GroupHistoryEntry, UserSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
-import { seesMembers, type MemberCount, type MemberListFlags } from '../api/members.ts';
+import { seesMembers } from '../api/members.ts';
 import { HideMemberList, Members, type MembersProps } from './group-members.tsx';
 import type { GroupFilesPage, GroupPollsPage } from '../api/groupfiles.ts';
 import { GroupFiles } from './group-files.tsx';
 import { GroupPolls } from './group-polls.tsx';
 
-// The member count and the list's switch are local until the API
-// description has them (api/members.ts).
-export type GroupProps = Omit<S['GroupProps'], 'group'> & MemberListFlags & { group: S['GroupProps']['group'] & MemberCount };
+export type GroupProps = S['GroupProps'];
 // An exposed group to a viewer whose scope does not see it (signed out,
 // a member it is not granted to, an admin it is hidden from): the group
 // alone, without admins, history, posters, activity or files.
-export type GroupPublicProps = Omit<S['GroupPublicProps'], 'group'> & { group: S['GroupPublicProps']['group'] & MemberCount };
+export type GroupPublicProps = S['GroupPublicProps'];
 // The Members tab (group_members) and the Files tab (group_files): the
 // tab's list beside the group. The other tabs' parts are taken as
 // optional there, so a tab still draws if the service sends the group

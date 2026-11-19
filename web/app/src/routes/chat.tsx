@@ -11,7 +11,7 @@ import { MessageMedia } from './chat-media.tsx';
 import { LinkPreview } from './chat-preview.tsx';
 import { Counts, KindDetail, Reactions, TEXT_INSIDE, TopicStrip, TopicTag } from './chat-kinds.tsx';
 import { fetchChatWindow } from '../api/chat.ts';
-import { fetchMembers, seesMembers, type MemberCount } from '../api/members.ts';
+import { fetchMembers, seesMembers } from '../api/members.ts';
 import { RichText, type RichChat } from '../ui/richtext.tsx';
 import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
@@ -400,7 +400,7 @@ function Chat({ page }: { page: PageData<ChatProps> }) {
 	const info = publicView ? (isGroup ? back : null) : back;
 	// Telegram's member count, when the archive has it; beside it the
 	// members the archive has seen.
-	const counted = p.chat.kind === 'group' ? (group as MemberCount | null)?.member_count ?? (p.chat.group as MemberCount).member_count : null;
+	const counted = p.chat.kind === 'group' ? group?.member_count ?? p.chat.group.member_count : null;
 	const sub = p.chat.kind === 'group'
 		? `${TYPE_LABEL[p.chat.group.type]}${counted != null ? ` . ${fmt(counted)} members` : ''}${p.chat.group.members ? ` . ${fmt(p.chat.group.members)} members seen` : ''} . ${fmt(group?.msg_count ?? p.chat.group.msg_count)} messages`
 		: `private chat with the logging account . ${fmt(p.chat.count)} messages`;
