@@ -266,6 +266,15 @@ public:
 	std::unordered_map<int64_t, int64_t> newestStoredMessageIds(
 		const std::vector<int64_t> &chat_ids);
 
+	/*
+	 * For each supergroup or channel in @newest (chat -> newest stored
+	 * message id), how many messages are stored among the
+	 * recheck::kDenseWindow ids up to that newest one; for the catch-up's
+	 * test of a gap below the newest message.
+	 */
+	std::unordered_map<int64_t, int64_t> storedNearNewest(
+		const std::unordered_map<int64_t, int64_t> &newest);
+
 	/* How many of @message_ids are stored for @chat_id (deleted or not). */
 	size_t countStoredMessages(int64_t chat_id, bool is_group,
 				   const std::vector<int64_t> &message_ids);

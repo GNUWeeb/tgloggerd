@@ -184,10 +184,20 @@ std::vector<int64_t> catchUpChats(
 	return out;
 }
 
+bool sparseNearNewest(int64_t chat_id, int64_t stored_max,
+		      int64_t stored_near_max)
+{
+	if (!isSupergroupId(chat_id) || stored_max <= 0)
+		return false;
+	const int64_t window = std::min(kDenseWindow, stored_max);
+	return (double)stored_near_max < kDenseShare * (double)window;
+}
+
 std::vector<int64_t> gapChats(
 	const std::vector<int64_t> &chats,
 	const std::unordered_map<int64_t, int64_t> &tdlib_last,
-	const std::unordered_map<int64_t, int64_t> &stored_max)
+	const std::unordered_map<int64_t, int64_t> &stored_max,
+	const std::unordered_map<int64_t, int64_t> &stored_near_max)
 {
 	std::vector<int64_t> out;
 	for (int64_t c : chats) {
@@ -196,7 +206,10 @@ std::vector<int64_t> gapChats(
 			continue; /* TDLib named no last message: nothing to compare */
 		auto s = stored_max.find(c);
 		const int64_t have = s == stored_max.end() ? 0 : s->second;
-		if (have < t->second)
+		auto n = stored_near_max.find(c);
+		if (have < t->second ||
+		    (n != stored_near_max.end() &&
+		     sparseNearNewest(c, have, n->second)))
 			out.push_back(c);
 	}
 	return out;

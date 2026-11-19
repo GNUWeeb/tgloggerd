@@ -254,7 +254,29 @@ std::vector<int64_t> catchUpChats(
 std::vector<int64_t> gapChats(
 	const std::vector<int64_t> &chats,
 	const std::unordered_map<int64_t, int64_t> &tdlib_last,
-	const std::unordered_map<int64_t, int64_t> &stored_max);
+	const std::unordered_map<int64_t, int64_t> &stored_max,
+	const std::unordered_map<int64_t, int64_t> &stored_near_max = {});
+
+/*
+ * A gap below the newest stored message. A supergroup's or channel's
+ * server message ids count up by one per message, so of the
+ * kDenseWindow ids up to the newest stored one (fewer in a chat with
+ * fewer messages) nearly all are stored when nothing is missing; fewer
+ * than kDenseShare of them means a gap even though the newest message is
+ * stored (as after a recheck that got only TDLib's short first answer).
+ * Basic groups and private chats number messages per account, not per
+ * chat, so the test does not apply to them.
+ */
+constexpr int64_t kDenseWindow = 50;
+constexpr double kDenseShare = 0.8;
+
+/* A supergroup or channel id: -100 followed by the channel id. */
+inline bool isSupergroupId(int64_t chat_id)
+{
+	return chat_id < -1000000000000LL;
+}
+bool sparseNearNewest(int64_t chat_id, int64_t stored_max,
+		      int64_t stored_near_max);
 
 } /* namespace recheck */
 } /* namespace tgloggerd */
