@@ -67,14 +67,14 @@ var adminRoles = map[uint64]string{1: "superadmin", 3: "admin", 5: "member"}
 type joinDaemon struct {
 	mu      sync.Mutex
 	answers map[string]func(w http.ResponseWriter)
-	asked   []string // "<path> <body>"
+	asked   []string // "<path and query> <body>"
 	auth    string
 }
 
 func (d *joinDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	d.mu.Lock()
-	d.asked = append(d.asked, r.URL.Path+" "+strings.TrimSpace(string(body)))
+	d.asked = append(d.asked, r.URL.RequestURI()+" "+strings.TrimSpace(string(body)))
 	f := d.answers[r.URL.Path]
 	ok := r.Header.Get("Authorization") == d.auth
 	d.mu.Unlock()

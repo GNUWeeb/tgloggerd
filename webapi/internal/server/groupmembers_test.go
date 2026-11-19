@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -305,5 +306,279 @@ func TestHideMemberList(t *testing.T) {
 	}
 	if got := e.audits(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("audits\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// memberCalls are the daemon's member list calls for a group, with
+// their query.
+func memberCalls(e *adminEnv, id int64) []string {
+	var out []string
+	for _, c := range e.daemon.calls() {
+		if p := fmt.Sprintf("/v1/chats/%d/members?", id); strings.HasPrefix(c, p) {
+			out = append(out, strings.TrimSpace(strings.TrimPrefix(c, p)))
+		}
+	}
+	return out
+}
+
+const gmUnstored = int64(9299555555) // a member the archive has no row of
+
+// A superadmin and an admin get a page of the members, named from
+// telegram_users (one not stored named by its id); a member and a
+// signed-out visitor get 404, as for an unknown group.
+func TestGroupMembersList(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmFresh), 200, "",
+		fmt.Sprintf(`{"available":true,"reason":"","total":1300,"members":[`+
+			`{"user_id":9299000003,"status":"creator","joined_at":null},`+
+			`{"user_id":9299000001,"status":"administrator","joined_at":1700000000},`+
+			`{"user_id":%d,"status":"restricted","joined_at":1700000100}]}`, gmUnstored))
+	path := fmt.Sprintf("/api/groups/%d/members", gmFresh)
+
+	for _, role := range []string{"superadmin", "admin"} {
+		b := e.want(200, role, "GET", path, nil)
+		if b["available"] != true || b["reason"] != "" || num(b["total"]) != 1300 ||
+			num(b["offset"]) != 0 || num(b["limit"]) != 50 {
+			t.Errorf("%s: %v", role, b)
+		}
+		ms := b["members"].([]any)
+		if len(ms) != 3 {
+			t.Fatalf("%s: members %v", role, ms)
+		}
+		m0, m1, m2 := ms[0].(map[string]any), ms[1].(map[string]any), ms[2].(map[string]any)
+		u0, u1, u2 := m0["user"].(map[string]any), m1["user"].(map[string]any), m2["user"].(map[string]any)
+		if num(u0["id"]) != 9299000003 || u0["name"] != "Sari Wulandari" || m0["status"] != "creator" ||
+			m0["joined_at"] != nil {
+			t.Errorf("%s: first %v", role, m0)
+		}
+		if num(u1["id"]) != 9299000001 || u1["name"] != "Dewi Kusuma" || u1["photo"] == nil ||
+			m1["status"] != "administrator" || m1["joined_at"] != "2023-11-14T22:13:20Z" {
+			t.Errorf("%s: second %v", role, m1)
+		}
+		if num(u2["id"]) != gmUnstored || u2["name"] != fmt.Sprintf("#%d", gmUnstored) ||
+			u2["type"] != "unknown" || m2["status"] != "restricted" {
+			t.Errorf("%s: unstored %v", role, m2)
+		}
+	}
+	for _, role := range []string{"member", ""} {
+		if st, b, _ := e.call(role, "GET", path, nil); st != 404 {
+			t.Errorf("%q: %d %v", role, st, b)
+		}
+	}
+	e.want(404, "admin", "GET", "/api/groups/-1009999999999/members", nil)
+	e.want(404, "admin", "GET", "/api/groups/42/members", nil)
+	for _, q := range []string{"?limit=0", "?limit=201", "?offset=-1", "?offset=1000001", "?limit=x"} {
+		e.want(400, "admin", "GET", path+q, nil)
+	}
+	// The daemon was asked once for the first page (the first page is
+	// kept), with the page's offset and limit.
+	if c := memberCalls(e, gmFresh); len(c) != 1 || c[0] != "offset=0&limit=50" {
+		t.Errorf("daemon calls %v", c)
+	}
+}
+
+// A group hidden from an admin has no members list for it.
+func TestGroupMembersHiddenGroup(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	if _, err := e.app.Exec("INSERT INTO web_admin_hidden_groups (web_user_id, group_id) VALUES (?, ?)",
+		e.uids["admin"], gmFresh); err != nil {
+		t.Fatal(err)
+	}
+	e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmFresh), 200, "",
+		`{"available":true,"reason":"","total":1,"members":[]}`)
+	e.want(404, "admin", "GET", fmt.Sprintf("/api/groups/%d/members", gmFresh), nil)
+	if st, _ := e.page("admin", fmt.Sprintf("/groups/%d/members", gmFresh)); st != 404 {
+		t.Errorf("page: %d", st)
+	}
+	if c := memberCalls(e, gmFresh); len(c) != 0 {
+		t.Errorf("daemon asked: %v", c)
+	}
+}
+
+// The first page of a group's members is kept for two minutes per
+// group and limit; other pages are asked every time.
+func TestGroupMembersFirstPageCache(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmFresh), 200, "",
+		`{"available":true,"reason":"","total":2,"members":[{"user_id":9299000001,"status":"member","joined_at":null}]}`)
+	now := time.Now()
+	var later atomic.Int64
+	e.with(func(d *Deps) {
+		d.clock = func() time.Time { return now.Add(time.Duration(later.Load())) }
+	})
+	path := fmt.Sprintf("/api/groups/%d/members", gmFresh)
+	for range 3 {
+		e.want(200, "superadmin", "GET", path, nil)
+		e.want(200, "admin", "GET", path, nil)
+	}
+	e.want(200, "admin", "GET", path+"?limit=10", nil)
+	e.want(200, "admin", "GET", path+"?offset=50", nil)
+	e.want(200, "admin", "GET", path+"?offset=50", nil)
+	// The group_members page uses the same first page.
+	if st, b := e.page("admin", fmt.Sprintf("/groups/%d/members", gmFresh)); st != 200 {
+		t.Fatalf("page: %d %v", st, b)
+	}
+	want := []string{"offset=0&limit=50", "offset=0&limit=10", "offset=50&limit=50", "offset=50&limit=50"}
+	if c := memberCalls(e, gmFresh); strings.Join(c, " ") != strings.Join(want, " ") {
+		t.Errorf("daemon calls %v", c)
+	}
+	// Two minutes on, the first page is asked again.
+	later.Store(int64(memberPageTTL - time.Second))
+	e.want(200, "admin", "GET", path, nil)
+	later.Store(int64(memberPageTTL))
+	e.want(200, "admin", "GET", path, nil)
+	e.want(200, "admin", "GET", path, nil)
+	if c := memberCalls(e, gmFresh); len(c) != 5 || c[4] != "offset=0&limit=50" {
+		t.Errorf("after two minutes: %v", c)
+	}
+}
+
+// When the list is not available, the answer says why, with the
+// stored count as its total and no members.
+func TestGroupMembersUnavailable(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	set := func(id int64, status int, body string) {
+		e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", id), status, "", body)
+	}
+	get := func(id int64, q string) map[string]any {
+		t.Helper()
+		b := e.want(200, "admin", "GET", fmt.Sprintf("/api/groups/%d/members%s", id, q), nil)
+		if b["available"] != false || len(b["members"].([]any)) != 0 {
+			t.Errorf("%d%s: %v", id, q, b)
+		}
+		return b
+	}
+	set(gmChannel, 200, `{"available":false,"reason":"not_allowed","total":880,"members":[]}`)
+	if b := get(gmChannel, ""); b["reason"] != "not_allowed" || num(b["total"]) != 880 {
+		t.Errorf("not allowed: %v", b)
+	}
+	set(gmStale, 200, `{"available":false,"reason":"flood_wait","retry_after":42,"total":null,"members":[]}`)
+	if b := get(gmStale, "?offset=50"); b["reason"] != "flood_wait" || num(b["retry_after"]) != 42 ||
+		num(b["total"]) != 500 {
+		t.Errorf("flood wait: %v", b)
+	}
+	set(gmStale, 200, `{"available":false,"reason":"error","message":"CHAT_ADMIN_REQUIRED","total":null,"members":[]}`)
+	if b := get(gmStale, "?offset=100"); b["reason"] != "error" || b["retry_after"] != nil {
+		t.Errorf("error: %v", b)
+	}
+	// A reason this service does not know yet passes through.
+	set(gmStale, 200, `{"available":false,"reason":"something_new","total":null,"members":[]}`)
+	if b := get(gmStale, "?offset=150"); b["reason"] != "something_new" {
+		t.Errorf("new reason: %v", b)
+	}
+	set(gmStale, 504, `{"error":"timeout"}`)
+	if b := get(gmStale, "?offset=200"); b["reason"] != "unavailable" || num(b["total"]) != 500 {
+		t.Errorf("daemon timeout: %v", b)
+	}
+	// No count stored and no list: total null.
+	if b := get(gmNone, ""); b["reason"] != "unavailable" || b["total"] != nil {
+		t.Errorf("unknown chat: %v", b)
+	}
+	e.with(func(d *Deps) { d.Daemon = nil })
+	if b := get(gmFresh, ""); b["reason"] != "unavailable" || num(b["total"]) != 1234 {
+		t.Errorf("daemon off: %v", b)
+	}
+}
+
+// A hidden channel list answers reason hidden to admins, without
+// asking the daemon, and is listed for superadmins.
+func TestGroupMembersHiddenList(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmChannel), 200, "",
+		`{"available":true,"reason":"","total":880,"members":[{"user_id":9299000002,"status":"member","joined_at":null}]}`)
+	e.want(200, "superadmin", "PATCH", fmt.Sprintf("/api/groups/%d", gmChannel),
+		map[string]any{"hide_member_list": true})
+	path := fmt.Sprintf("/api/groups/%d/members", gmChannel)
+	b := e.want(200, "admin", "GET", path, nil)
+	if b["available"] != false || b["reason"] != "hidden" || num(b["total"]) != 880 ||
+		len(b["members"].([]any)) != 0 {
+		t.Errorf("admin: %v", b)
+	}
+	if c := memberCalls(e, gmChannel); len(c) != 0 {
+		t.Errorf("asked the daemon for the admin: %v", c)
+	}
+	b = e.want(200, "superadmin", "GET", path, nil)
+	if b["available"] != true || len(b["members"].([]any)) != 1 {
+		t.Errorf("superadmin: %v", b)
+	}
+	// Cached for the superadmin: the admin still gets hidden.
+	if b := e.want(200, "admin", "GET", path, nil); b["reason"] != "hidden" {
+		t.Errorf("admin after the superadmin: %v", b)
+	}
+	st, p := e.page("admin", fmt.Sprintf("/groups/%d/members", gmChannel))
+	if props := p["props"].(map[string]any); st != 200 || props["reason"] != "hidden" ||
+		props["hide_member_list"] != true || props["can_hide_member_list"] != false {
+		t.Errorf("admin page: %d %v", st, p)
+	}
+	st, p = e.page("superadmin", fmt.Sprintf("/groups/%d/members", gmChannel))
+	if props := p["props"].(map[string]any); st != 200 || props["available"] != true ||
+		props["hide_member_list"] != true || props["can_hide_member_list"] != true {
+		t.Errorf("superadmin page: %d %v", st, p)
+	}
+}
+
+// The group_members page: the group's page as its other tabs have it
+// and a page of members; not_found for a member, sign in for a
+// signed-out visitor.
+func TestGroupMembersPage(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmFresh), 200, "",
+		`{"available":true,"reason":"","total":1300,"members":[{"user_id":9299000001,"status":"member","joined_at":null}]}`)
+	st, b := e.page("admin", fmt.Sprintf("/groups/%d/members?offset=50", gmFresh))
+	if st != 200 || b["route"] != "group_members" {
+		t.Fatalf("%d %v", st, b)
+	}
+	p := b["props"].(map[string]any)
+	g := p["group"].(map[string]any)
+	if g["title"] != "GNU/Weeb" || memberCountOf(t, "page", g) != int64(1234) || p["admins"] == nil ||
+		p["available"] != true || num(p["total"]) != 1300 || num(p["offset"]) != 50 ||
+		len(p["members"].([]any)) != 1 {
+		t.Errorf("props %v", p)
+	}
+	if c := memberCalls(e, gmFresh); len(c) != 1 || c[0] != "offset=50&limit=50" {
+		t.Errorf("daemon calls %v", c)
+	}
+	if st, _ := e.page("member", fmt.Sprintf("/groups/%d/members", gmFresh)); st != 404 {
+		t.Errorf("member: %d", st)
+	}
+	if st, _ := e.page("", fmt.Sprintf("/groups/%d/members", gmFresh)); st != 401 {
+		t.Errorf("signed out: %d", st)
+	}
+	if st, _ := e.page("admin", "/groups/-1009999999999/members"); st != 404 {
+		t.Errorf("unknown group: %d", st)
+	}
+}
+
+// The members are named in one query, however many there are.
+func TestGroupMembersBatched(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, groupMembersFixture)
+	n := countTable(t, e, "telegram_users")
+	list := func(k int) string {
+		var ms []string
+		for i := range k {
+			ms = append(ms, fmt.Sprintf(`{"user_id":%d,"status":"member","joined_at":null}`, 9299000001+i))
+		}
+		return `{"available":true,"reason":"","total":40,"members":[` + strings.Join(ms, ",") + `]}`
+	}
+	cost := func(k, offset int) int64 {
+		t.Helper()
+		e.daemon.answer(fmt.Sprintf("/v1/chats/%d/members", gmFresh), 200, "", list(k))
+		before := n.Load()
+		b := e.want(200, "admin", "GET", fmt.Sprintf("/api/groups/%d/members?offset=%d", gmFresh, offset), nil)
+		if len(b["members"].([]any)) != k {
+			t.Fatalf("%d members: %v", k, b)
+		}
+		return n.Load() - before
+	}
+	few, many := cost(2, 0), cost(40, 50)
+	if few == 0 || few != many {
+		t.Errorf("statements on telegram_users: %d for 2 members, %d for 40", few, many)
 	}
 }

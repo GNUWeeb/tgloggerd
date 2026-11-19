@@ -26,6 +26,10 @@ one in the description.
 - [db-naming.md](db-naming.md) — database table naming convention: the
   per-platform prefixes (`telegram_`, `discord_`), what is and isn't prefixed,
   and the rule to follow when adding tables for a new messaging platform.
+- [group-members.md](group-members.md) — a group's real member count
+  (cached from the daemon, refreshed in the background), the member list
+  of the group page's Members tab and who gets it, and the superadmin's
+  switch hiding a channel's list.
 - [join-chat.md](join-chat.md) — the admin `/join-chat` page: preview and
   join a group or channel by invite link or username through the daemon's
   internal API, the outcomes it reports, and the `chat_join` audit rows.

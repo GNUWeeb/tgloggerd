@@ -459,14 +459,24 @@ func loadGroupPage(ctx context.Context, pr *pageRequest) (any, error) {
 }
 
 func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
+	p, _, err := groupPage(ctx, pr)
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// groupPage is the group page's props, and the group, for a viewer
+// that sees it.
+func groupPage(ctx context.Context, pr *pageRequest) (groupProps, logdb.Group, error) {
 	p, err := logdb.LoadGroupPage(ctx, pr.s.ro, pr.scope, pr.pathID(), pr.now(),
 		pr.historyCursor(logdb.ValidGroupCursor))
 	if err != nil {
-		return nil, notFoundOr(err)
+		return groupProps{}, logdb.Group{}, notFoundOr(err)
 	}
 	members, err := logdb.Chat{Group: true, ID: pr.pathID()}.KnownMembers(ctx, pr.s.ro)
 	if err != nil {
-		return nil, err
+		return groupProps{}, logdb.Group{}, err
 	}
 	pr.s.refreshMemberCount(p.Group.Group)
 	v := pr.view()
@@ -482,7 +492,7 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 		Activity: p.Activity, CanHideMemberList: mayHideMemberList(pr.scope, p.Group.Group),
 	}
 	if out.HideMemberList, err = webdb.MemberListHidden(ctx, pr.s.app, pr.pathID()); err != nil {
-		return nil, err
+		return groupProps{}, logdb.Group{}, err
 	}
 	// The people named here appear in the group, so its viewer sees
 	// them, but only in full when it sees users in full.
@@ -500,7 +510,7 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 		out.TopPosters = append(out.TopPosters, posterJSON{User: v.userOf(p.Users, t.UserID),
 			Msgs: t.Msgs})
 	}
-	return out, nil
+	return out, p.Group.Group, nil
 }
 
 type chatGroupJSON struct {
