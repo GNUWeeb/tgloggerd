@@ -652,4 +652,15 @@ describe('MCP', () => {
 		await screen.findByText('tgmcp_test_once');
 		expect(screen.getByText(/Copy this token now/)).toBeTruthy();
 	});
+
+	it('keeps password managers out of the token name', () => {
+		renderPage('/mcp-admin/tokens');
+		fireEvent.click(screen.getByRole('button', { name: /Mint a token/ }));
+		const i = dialog().querySelector('input')!;
+		expect(i.name).toBe('mcp-token-label');
+		expect(i.getAttribute('autocomplete')).toBe('off');
+		expect(i.getAttribute('data-1p-ignore')).not.toBeNull();
+		expect(i.getAttribute('data-lpignore')).toBe('true');
+		expect(i.getAttribute('data-form-type')).toBe('other');
+	});
 });
