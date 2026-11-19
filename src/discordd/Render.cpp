@@ -88,6 +88,71 @@ std::string poll_result_field(const gwdiscord::Message &m, const char *name)
 	return std::string();
 }
 
+/*
+ * The parts of an ordinary (not a system) message @m that a route forwarding
+ * @types takes, one after the other, without the author line; @skip as for
+ * render_message().
+ */
+std::string parts_text(const gwdiscord::Message &m, unsigned types,
+		       const gwdiscord::Attachment *skip)
+{
+	std::string body;
+
+	if (types & FWD_TEXT)
+		body = m.content;
+
+	/* Media goes across as a link line each. */
+	for (const auto &a : m.attachments) {
+		if (&a == skip)
+			continue;
+		const unsigned t = attachment_type(m, a);
+		if (!(types & t))
+			continue;
+		if (t == FWD_VOICE)
+			add_line(body, "[voice message, " +
+					       duration_str(a.duration_secs) +
+					       "] " + a.url);
+		else
+			add_line(body, "[" + a.filename + "] " + a.url);
+	}
+	for (const auto &st : m.stickers) {
+		if (types & FWD_STICKER)
+			add_line(body, "[sticker: " + st.name + "] " +
+					       st.url());
+	}
+
+	/*
+	 * Only a bot's or webhook's own embeds: the others are Discord
+	 * unfurling a link the content carries already, and Telegram shows a
+	 * preview of that link itself.
+	 */
+	for (const auto &e : m.embeds) {
+		if ((types & FWD_EMBED) && e.is_rich())
+			add_line(body, embed_text(e));
+	}
+	if (m.poll && (types & FWD_POLL))
+		add_line(body, poll_text(*m.poll));
+	return body;
+}
+
+/*
+ * What forward @m forwarded, as a message of its own, so that its parts are
+ * filtered and rendered exactly as an ordinary message's: its flags come
+ * along, so a forwarded voice message's recording still follows FWD_VOICE.
+ */
+gwdiscord::Message snapshot_message(const gwdiscord::Snapshot &s)
+{
+	gwdiscord::Message m;
+	m.content = s.content;
+	m.timestamp = s.timestamp;
+	m.type = s.type;
+	m.flags = s.flags;
+	m.attachments = s.attachments;
+	m.stickers = s.stickers;
+	m.embeds = s.embeds;
+	return m;
+}
+
 /* @what, then ": " and @detail when there is one. */
 std::string with_detail(const char *what, const std::string &detail)
 {
@@ -197,40 +262,22 @@ std::string render_message(const gwdiscord::Message &m, unsigned types,
 		if (types & FWD_SYSTEM)
 			body = system_line(m);
 	} else {
-		if (types & FWD_TEXT)
-			body = m.content;
+		body = parts_text(m, types, skip);
+	}
 
-		/* Media goes across as a link line each. */
-		for (const auto &a : m.attachments) {
-			if (&a == skip)
-				continue;
-			const unsigned t = attachment_type(m, a);
-			if (!(types & t))
-				continue;
-			if (t == FWD_VOICE)
-				add_line(body, "[voice message, " +
-						       duration_str(a.duration_secs) +
-						       "] " + a.url);
-			else
-				add_line(body, "[" + a.filename + "] " + a.url);
+	/*
+	 * A forward: a "Forwarded:" line, then the forwarded message's parts,
+	 * each under the flag it would follow if it had been posted here.
+	 * The line comes only with a part the route takes, never alone. The
+	 * forwarded message is rendered as an ordinary one, whatever its type.
+	 */
+	if (m.snapshot) {
+		const std::string fwd =
+			parts_text(snapshot_message(*m.snapshot), types, nullptr);
+		if (!fwd.empty()) {
+			add_line(body, "Forwarded:");
+			add_line(body, fwd);
 		}
-		for (const auto &st : m.stickers) {
-			if (types & FWD_STICKER)
-				add_line(body, "[sticker: " + st.name + "] " +
-						       st.url());
-		}
-
-		/*
-		 * Only a bot's or webhook's own embeds: the others are
-		 * Discord unfurling a link the content carries already, and
-		 * Telegram shows a preview of that link itself.
-		 */
-		for (const auto &e : m.embeds) {
-			if ((types & FWD_EMBED) && e.is_rich())
-				add_line(body, embed_text(e));
-		}
-		if (m.poll && (types & FWD_POLL))
-			add_line(body, poll_text(*m.poll));
 	}
 
 	/*
@@ -241,6 +288,13 @@ std::string render_message(const gwdiscord::Message &m, unsigned types,
 	if (body.empty())
 		return std::string();
 	return author_handle(m) + ":\n" + body;
+}
+
+std::string archived_content(const gwdiscord::Message &m)
+{
+	if (m.content.empty() && m.snapshot)
+		return m.snapshot->content;
+	return m.content;
 }
 
 } /* namespace discordd */

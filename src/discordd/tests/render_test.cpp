@@ -4,9 +4,9 @@
  */
 /*
  * discordd_render_test -- the Telegram text a Discord message is rendered as
- * for a route's content types: embeds, polls, system messages and voice
- * messages each under their own flag, and nothing at all when the route
- * takes none of a message's parts.
+ * for a route's content types: embeds, polls, system messages, voice
+ * messages and forwards' parts each under their own flag, and nothing at all
+ * when the route takes none of a message's parts.
  */
 #include "../Render.hpp"
 #include "../RouteFilter.hpp"
@@ -193,6 +193,85 @@ static void test_voice(void)
 	check("audio file, voice only", render_message(m, FWD_VOICE), "");
 }
 
+/* What alice forwards: text, a photo, a sticker and a rich embed. */
+static Message forward(void)
+{
+	Message m = base();
+	gwdiscord::MessageReference ref;
+	ref.type = gwdiscord::MessageReference::TYPE_FORWARD;
+	ref.message_id = 42;
+	m.reference = ref;
+
+	gwdiscord::Snapshot s;
+	s.content = "look at this";
+	gwdiscord::Attachment a;
+	a.filename = "dog.jpg";
+	a.content_type = "image/jpeg";
+	a.url = "https://cdn.example/dog.jpg";
+	s.attachments.push_back(a);
+	gwdiscord::Sticker st;
+	st.id = 7;
+	st.name = "Hi";
+	st.format_type = gwdiscord::Sticker::FORMAT_PNG;
+	s.stickers.push_back(st);
+	gwdiscord::Embed e;
+	e.title = "Note";
+	e.description = "forwarded embed";
+	s.embeds.push_back(e);
+	m.snapshot = s;
+	return m;
+}
+
+static void test_forwards(void)
+{
+	printf("forwarded messages\n");
+
+	const Message m = forward();
+	check("forward, everything", render_message(m, ALL),
+	      "alice#0:\nForwarded:\nlook at this\n"
+	      "[dog.jpg] https://cdn.example/dog.jpg\n"
+	      "[sticker: Hi] https://cdn.discordapp.com/stickers/7.png\n"
+	      "Note\nforwarded embed");
+	check("forward, text off", render_message(m, ALL & ~FWD_TEXT),
+	      "alice#0:\nForwarded:\n"
+	      "[dog.jpg] https://cdn.example/dog.jpg\n"
+	      "[sticker: Hi] https://cdn.discordapp.com/stickers/7.png\n"
+	      "Note\nforwarded embed");
+	check("forward, text only", render_message(m, FWD_TEXT),
+	      "alice#0:\nForwarded:\nlook at this");
+	check("forward, photos only", render_message(m, FWD_PHOTO),
+	      "alice#0:\nForwarded:\n[dog.jpg] https://cdn.example/dog.jpg");
+	check("forward, embeds only", render_message(m, FWD_EMBED),
+	      "alice#0:\nForwarded:\nNote\nforwarded embed");
+	check("forward, nothing it holds passes",
+	      render_message(m, FWD_VIDEO | FWD_POLL | FWD_SYSTEM), "");
+
+	/* A forwarded voice message: a link line, never a voice note. */
+	Message v = base();
+	v.reference = m.reference;
+	gwdiscord::Snapshot s;
+	s.flags = Message::FLAG_IS_VOICE_MESSAGE;
+	gwdiscord::Attachment a;
+	a.filename = "voice-message.ogg";
+	a.content_type = "audio/ogg";
+	a.url = "https://cdn.example/v.ogg";
+	a.duration_secs = 12;
+	s.attachments.push_back(a);
+	v.snapshot = s;
+	check("forwarded voice message", render_message(v, FWD_VOICE),
+	      "alice#0:\nForwarded:\n[voice message, 0:12] "
+	      "https://cdn.example/v.ogg");
+	check("forwarded voice message, audio only",
+	      render_message(v, FWD_AUDIO), "");
+
+	/* What is archived as the forward's text. */
+	check("archived text of a forward", archived_content(m),
+	      "look at this");
+	Message own = base();
+	own.content = "mine";
+	check("archived text of a message", archived_content(own), "mine");
+}
+
 int main(void)
 {
 	test_text_and_nothing();
@@ -200,6 +279,7 @@ int main(void)
 	test_polls();
 	test_system();
 	test_voice();
+	test_forwards();
 
 	if (g_failures) {
 		printf("%d check(s) failed\n", g_failures);

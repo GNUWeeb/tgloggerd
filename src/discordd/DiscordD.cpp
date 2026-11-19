@@ -575,10 +575,15 @@ void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 	 *
 	 * Partial update payloads can also omit content entirely; those are
 	 * dropped whole rather than overwriting recorded text with "".
+	 *
+	 * A forward has no content of its own: the archived text is what it
+	 * forwarded (archived_content()), and its attachments are archived
+	 * with the forward's own.
 	 */
+	const std::string content = archived_content(m);
 	const bool metadata_only = edited && m.edited_timestamp.empty();
 	if (metadata_only) {
-		if (m.content.empty())
+		if (content.empty())
 			return;
 		edited = false;
 	}
@@ -591,13 +596,25 @@ void DiscordD::Impl::on_message(uint64_t bot, const gwdiscord::Message &m,
 			       m.author.global_name, m.author.discriminator,
 			       m.author.avatar, m.author.bot);
 		db->upsertMessage(m.id, m.channel_id, m.guild_id, m.author.id,
-				  m.webhook_id, m.content,
-				  m.reference ? m.reference->message_id : 0,
+				  m.webhook_id, content,
+				  m.is_reply() ? m.reference->message_id : 0,
 				  gwdiscord::snowflake_created_ms(m.id), edited);
 		for (const auto &a : m.attachments) {
 			db->upsertAttachment(a.id, m.id, a.filename,
 					     a.content_type, a.size, a.url,
 					     a.width, a.height);
+		}
+		/*
+		 * A forwarded attachment keyed by an id the archive holds
+		 * already (the original's, when its channel is archived
+		 * too) stays with the message it was first stored for; only
+		 * its URL is refreshed.
+		 */
+		if (m.snapshot) {
+			for (const auto &a : m.snapshot->attachments)
+				db->upsertAttachment(a.id, m.id, a.filename,
+						     a.content_type, a.size,
+						     a.url, a.width, a.height);
 		}
 	} catch (const std::exception &e) {
 		log(LOG_ERROR, std::string("logging failed: ") + e.what());
