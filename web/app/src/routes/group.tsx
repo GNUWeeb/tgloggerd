@@ -15,12 +15,15 @@ import type { PageData } from '../page.ts';
 import type { GroupAdmin, GroupFull, GroupHistoryEntry, UserSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
+import type { MemberCount, MemberListFlags } from '../api/members.ts';
 
-export type GroupProps = S['GroupProps'];
+// The member count and the list's switch are local until the API
+// description has them (api/members.ts).
+export type GroupProps = Omit<S['GroupProps'], 'group'> & MemberListFlags & { group: S['GroupProps']['group'] & MemberCount };
 // An exposed group to a viewer whose scope does not see it (signed out,
 // a member it is not granted to, an admin it is hidden from): the group
 // alone, without admins, history, posters, activity or files.
-export type GroupPublicProps = S['GroupPublicProps'];
+export type GroupPublicProps = Omit<S['GroupPublicProps'], 'group'> & { group: S['GroupPublicProps']['group'] & MemberCount };
 export type GroupPageProps = GroupProps | GroupPublicProps;
 const isPublic = (p: GroupPageProps): p is GroupPublicProps => 'public' in p && p.public === true;
 
@@ -131,6 +134,7 @@ function PublicGroup({ page }: { page: PageData<GroupPublicProps> }) {
 			</div>
 			<div className="a-stats">
 				<Stat label="Messages" value={fmt(g.msg_count)} />
+				{g.member_count != null && <Stat label="Members" value={fmt(g.member_count)} />}
 				<Stat label="Members seen" value={fmt(g.members)} />
 				<Stat label="First seen" value={ago(g.created_at, v)} sub={dateTime(g.created_at, v)} />
 			</div>
@@ -176,6 +180,7 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 						{g.username && <span>@{g.username}</span>}
 						<span className="mono">{g.id}</span>
 						<Pill tone={g.type === 'channel' ? 'info' : ''}>{TYPE_LABEL[g.type]}</Pill>
+						{g.member_count != null && <span title={g.member_count_at ? `Counted ${dateTime(g.member_count_at, v)}` : undefined}>{fmt(g.member_count)} members</span>}
 						{g.exposed && <Pill tone="ok"><Globe size={11} />public</Pill>}
 					</div>
 				</div>
@@ -190,9 +195,12 @@ function Group({ page }: { page: PageData<GroupProps> }) {
 			]} />
 			{tab === 'group' && (
 				<div className="a-overview">
-					<div className="a-stats">
+					<div className={g.member_count != null ? 'a-stats a-stats-5' : 'a-stats'}>
 						<Stat label="Messages" value={fmt(g.msg_count)} />
-						<Stat label="Members" value={fmt(g.members)} />
+						{/* Telegram's count, when known; and the people the archive
+						    has seen there (posters and admins). */}
+						{g.member_count != null && <Stat label="Members" value={fmt(g.member_count)} />}
+						<Stat label="Members seen" value={fmt(g.members)} />
 						<Stat label="First seen" value={ago(g.created_at, v)} sub={dateTime(g.created_at, v)} />
 						<div className="a-card a-stat a-stat-spark"><span className="a-muted">Last 30 days</span><b className="num">{fmt(activity.reduce((a, b) => a + b, 0))}</b><span className="a-spark"><Sparkline data={activity} /></span></div>
 					</div>
