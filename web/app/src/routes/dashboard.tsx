@@ -4,8 +4,9 @@ import Shell from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
 import { Avatar, Card, PageHead } from '../ui/primitives.tsx';
 import { Bar } from '../ui/bits.tsx';
+import { deletedTitle, onRecheck } from '../ui/deletion.ts';
 import { MessagesChart } from './dashboard-chart.tsx';
-import { ago, compact, fmt } from '../format.ts';
+import { ago, compact, dateTime, fmt } from '../format.ts';
 import { savePrefs } from '../api/prefs.ts';
 import { dashboardKpis, type KPI } from '../api/dashboard.ts';
 import { useLive } from '../live/react.tsx';
@@ -142,7 +143,9 @@ function Dashboard({ page }: { page: PageData<DashboardProps> }) {
 								<div className="a-ellipsis"><b>{m.sender.name}</b> <span className="a-muted">in {m.chat.title}</span></div>
 								<Link to={`/messages/${m.scope}/${m.id}`} className="a-ellipsis a-delsnip">{m.snippet}</Link>
 							</div>
-							<span className="a-muted sm">{ago(m.deleted_at, v)}</span>
+							{onRecheck(m)
+								? <span className="a-muted sm" title={deletedTitle(m, dateTime(m.deleted_at, v))}>found on recheck {ago(m.deleted_at, v)}</span>
+								: <span className="a-muted sm">{ago(m.deleted_at, v)}</span>}
 						</li>
 					))}</ul>
 				</Card>

@@ -177,6 +177,10 @@ function listedKind(m) {
 	return { content_type: ct, service_type: svc, tdlib_type: k?.tdlib_type };
 }
 
+// Some sample deletions were found by a recheck against Telegram rather
+// than seen live; the flag is present only when true, as Go sends it.
+const recheckFlag = (m) => m.deleted_at && m.message_id % 3 === 0 ? { deleted_on_recheck: true } : {};
+
 function messageRow(m) {
 	const s = senderOf(m);
 	const k = sampleOf(m);
@@ -185,7 +189,7 @@ function messageRow(m) {
 		id: m.id, scope: m.scope, message_id: m.message_id, date: iso(m.date), chat: chatRef(m.chat),
 		sender: m.is_outgoing ? null : userSummary(s, false), content_type: ct,
 		snippet: k ? k.text || `[${ct}]` : m.content_type === 'service' ? m.text : m.text || m.media?.name || `[${m.content_type}]`,
-		forwarded: m.forward?.from ?? null, edited: !!m.edits, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
+		forwarded: m.forward?.from ?? null, edited: !!m.edits, deleted_at: m.deleted_at ? iso(m.deleted_at) : null, ...recheckFlag(m),
 		...(svc ? { service_type: svc } : {}),
 	};
 }
@@ -241,7 +245,7 @@ const typeOf = (m) => (m.content_type === 'video' && m.media && m.media.fileId %
 // stand-in gives them a range of their own.
 function albumItem(a, fetch) {
 	const kind = a.fileId % 5 === 0 ? 'video' : 'photo';
-	const extra = { kind, message_id: 10_000_000 + a.fileId, ...(a.fileId % 7 === 0 ? { deleted_at: iso('2026-11-16 10:00:00') } : {}) };
+	const extra = { kind, message_id: 10_000_000 + a.fileId, ...(a.fileId % 7 === 0 ? { deleted_at: iso('2026-11-16 10:00:00'), ...(a.fileId % 2 === 0 ? { deleted_on_recheck: true } : {}) } : {}) };
 	return chatMedia({ ...a, w: 4, h: 3, stored: a.fileId % 6 !== 0, ...(kind === 'video' ? { duration: 12 + (a.fileId % 50) } : {}) }, kind, fetch, extra);
 }
 
@@ -397,7 +401,7 @@ export function chatMessage(m, view: boolean | View = false) {
 			at: iso(e.at), text: e.text, content_type: ct, entities: [], detail: null,
 			...(i === 0 && m.media ? { media: chatMedia({ ...m.media, fileId: m.media.fileId + 500000 }, ct, fetch) } : {}),
 		})),
-		edited_at: m.edited_at ? iso(m.edited_at) : null, deleted_at: m.deleted_at ? iso(m.deleted_at) : null,
+		edited_at: m.edited_at ? iso(m.edited_at) : null, deleted_at: m.deleted_at ? iso(m.deleted_at) : null, ...recheckFlag(m),
 		link_preview: lp ? linkPreview(m, lp, v) : null,
 		...(m.forward ? { forward_from: forwardFrom(m.forward, m) } : {}),
 		...(channel ? { sender_chat: groupSummary(m.chat), is_channel_post: true, ...(m.message_id % 3 === 0 && s ? { author_signature: s.name } : {}) } : {}),
@@ -638,7 +642,7 @@ export function load(url: string, persona: Persona): Loaded {
 				busiest: vis.sort((a, b) => b.msg_count - a.msg_count).slice(0, 6).map((g) => ({ ...groupSummary(g), msg_count: g.msg_count })),
 				deleted: groupMessages().filter((x) => x.deleted_at && s.group(x.chat)).slice(0, 5).map((x) => ({
 					id: x.id, scope: 'group', chat: groupSummary(x.chat), sender: userSummary(senderOf(x), false),
-					snippet: x.text || `[${x.content_type}]`, deleted_at: iso(x.deleted_at), message_id: x.message_id,
+					snippet: x.text || `[${x.content_type}]`, deleted_at: iso(x.deleted_at), ...recheckFlag(x), message_id: x.message_id,
 				})),
 				status: s.role === 'member' ? undefined : { session: 'connected', last_message_at: '2026-11-17T15:59:56Z', forwarding_active: 6, store_used: '5.3 TB', store_total: '8 TB', store_ratio: 0.66 },
 			},

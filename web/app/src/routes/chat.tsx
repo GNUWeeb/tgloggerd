@@ -23,6 +23,7 @@ import { ServiceText } from '../ui/serviceparts.tsx';
 import { ServiceDetailView, topicInText } from '../ui/servicedetail.tsx';
 import { loggerName } from '../ui/logger.ts';
 import { EditDetail, useEditList } from '../ui/editdetail.tsx';
+import { deletedTag, deletedTitle } from '../ui/deletion.ts';
 import type { PageData, Viewer } from '../page.ts';
 import type { ChatMedia, ChatMessage, GroupSummary } from '../types.ts';
 import type { RouteDef } from './index.tsx';
@@ -132,7 +133,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 				<div className="c-meta">
 					<EffectMark id={m.effect_id} effect={m.effect} />
 					<Counts k={m} />
-					{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}
+					{m.deleted_at && <span className="c-deltag" title={deletedTitle(m, m.deleted_at)}><Trash2 size={11} />{deletedTag(m)}</span>}
 					{pref.showEdited && m.edits.length > 0 && <button type="button" className="c-edited" onClick={() => setEdits((x) => !x)} aria-expanded={edits}><Pencil size={10} />edited</button>}
 					{/* Edited, but no earlier version was recorded. */}
 					{pref.showEdited && m.edits.length === 0 && m.edited_at && <span className="c-edited" title={`Edited ${m.edited_at}; no earlier version recorded`}><Pencil size={10} />edited</span>}
@@ -188,7 +189,7 @@ function Feed({ msgs: all, v, isGroup, flash, onReply, tag, chat, topicHref }: {
 			const actor = sentence ? null : m.sender_chat ? <Link to={`/groups/${m.sender_chat.id}`}>{m.sender_chat.title}</Link> : m.sender ? (m.sender.id !== 0 ? <Link to={`/users/${m.sender.id}`}>{m.sender.name}</Link> : <span>{m.sender.name}</span>) : <span>{loggerName(v)}</span>;
 			out.push(
 				<div key={m.id} id={`m${m.message_id}`} className={`c-service ${m.deleted_at ? 'deleted' : ''}`}>
-					<span>{actor} <ServiceText service={m.service} text={svcText} capital={sentence} plain={plain} /><ServiceDetailView service={m.service} text={svcText} v={v} topicHref={topicHref} self={!sentence && !m.sender_chat && !m.sender && v.signed_in} /> <Link to={`/messages/${m.scope}/${m.id}`} className="c-svctime" title={m.date}>{hm(m.date, v)}</Link>{m.deleted_at && <span className="c-deltag" title={`Deleted ${m.deleted_at}`}><Trash2 size={11} />deleted</span>}</span>
+					<span>{actor} <ServiceText service={m.service} text={svcText} capital={sentence} plain={plain} /><ServiceDetailView service={m.service} text={svcText} v={v} topicHref={topicHref} self={!sentence && !m.sender_chat && !m.sender && v.signed_in} /> <Link to={`/messages/${m.scope}/${m.id}`} className="c-svctime" title={m.date}>{hm(m.date, v)}</Link>{m.deleted_at && <span className="c-deltag" title={deletedTitle(m, m.deleted_at)}><Trash2 size={11} />{deletedTag(m)}</span>}</span>
 				</div>,
 			);
 			return;

@@ -5,6 +5,7 @@ import { Avatar, PageHead } from '../ui/primitives.tsx';
 import { DataTable, emptyText, FilterBar, useListNav, type Col } from '../ui/list.tsx';
 import { TypeIcon, CONTENT_TYPES } from '../ui/media.tsx';
 import { CONTENT_LABELS, typeLabel } from '../ui/labels.ts';
+import { deletedLabel } from '../ui/deletion.ts';
 import { ago, dateTime, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
 import type { Cond, FieldDef, ListProps, MessageRow } from '../types.ts';
@@ -56,7 +57,7 @@ export function MsgFlags({ m }: { m: MessageRow }) {
 		<span className="a-msgflags">
 			{m.forwarded && <span title={`Forwarded from ${m.forwarded}`}><Forward size={13} /></span>}
 			{m.edited && <span title="Edited"><Pencil size={13} /></span>}
-			{m.deleted_at && <span className="a-del" title="Deleted"><Trash2 size={13} /></span>}
+			{m.deleted_at && <span className="a-del" title={deletedLabel(m)}><Trash2 size={13} /></span>}
 		</span>
 	);
 }
