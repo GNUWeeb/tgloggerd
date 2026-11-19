@@ -228,6 +228,14 @@ service messages keep `content_type = 'service'` and get the
 | messageTonWalletTransfer | not | sender, transaction, peer address, amount, comment | ton_wallet_transfer |
 | messageTonConnectRequest | not | session, state, dApp name, topic | ton_connect_request |
 
+A gift is kept as Telegram shows it: its sticker (an upgraded gift's
+model and symbol stickers) and the animation stickers of gifted
+Premium, Stars, grams and giveaway prizes, and a giveaway's prize
+sticker, are message files with role `gift` (section 4.3); an upgraded
+gift's model, symbol, backdrop and original details, and the gift a
+chat theme comes from, are curated keys (section 4.2.3). Rows stored
+before keep what they have. A Premium gift code's code is never kept.
+
 Every service_type is the TDLib class name without its `message`
 prefix in snake case, which is what the existing ones already are
 except `chat_create` (two classes share it) and `payment_successful`
@@ -544,14 +552,14 @@ A video note's round video is now the main file, like any other media.
 | `thumbnail` | the still thumbnail TDLib offers with a video, an animation, a video note or a video (.webm) sticker, when it is an image (JPEG, PNG or WebP; MPEG-4, GIF, TGS and WebM thumbnails are not stored), file_type `thumbnail`: the picture the web shows before the video plays |
 | `poll`, `preview` | reserved: poll media (msg-polls); other thumbnails (a document's, a photo's sizes) and a video's other qualities are not stored, since they repeat the media |
 | `rich` | the media inside a rich message's page blocks, `position` their order of appearance, depth first through collages, slideshows, quotes, lists, collapsible blocks, covers and embedded posts: each photo (largest size), video, animation, audio file, document and voice note, an embedded page's poster, an embedded post's author photo, the photos of related articles; not a chat link's photo (the chat's own) nor the icons inside rich text |
-| `gift` | a gift's sticker, an upgraded gift's model sticker, the animation sticker of a gifted premium, stars, grams or giveaway prize (msg-gifts) |
+| `gift` | file_type `sticker`: at position 0 the gift's sticker (gift, refunded_upgraded_gift), an upgraded gift's model sticker (upgraded_gift and the two purchase offer types), the animation sticker of gifted_premium, gifted_stars, gifted_grams and giveaway_prize_stars, or a giveaway's prize sticker; at position 1 an upgraded gift's symbol sticker. Each keeps its position when the other is missing. Not a premium_gift_code's sticker |
 | `background` | a chat background's document at position 0: the wallpaper (JPEG) or the pattern (PNG or TGV), file_type `document`; a fill or a chat theme has none |
 | `preview_media` | a link preview's own video, animation or audio, beyond its image in `telegram_link_previews.photo_file_id` (msg-link-preview-media) |
 
 The last four roles come with migration 000045; nothing writes them
 until their items land (`rich` is written since msg-rich-store,
 `preview_media` since msg-link-preview-media, `background` since
-msg-chat-backgrounds). The
+msg-chat-backgrounds, `gift` since msg-gifts). The
 ENUM append keeps every existing value's number, so it is instant
 (`ALGORITHM=INSTANT`, confirmed on a copy with rows), and its down
 file first deletes the rows that use them.

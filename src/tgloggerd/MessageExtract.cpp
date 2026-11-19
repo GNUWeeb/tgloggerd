@@ -2829,6 +2829,37 @@ const td_api::file *chat_photo_best_size(const td_api::chatPhoto *p)
 	return best;
 }
 
+/* @s's file as a message file of @role at @position, when there is one. */
+static void add_sticker_file(std::vector<ExtraFile> &out,
+			     const td_api::sticker *s, const char *role,
+			     int position)
+{
+	if (s && s->sticker_)
+		out.push_back(ExtraFile{ s->sticker_.get(), "sticker", "",
+					 role, position });
+}
+
+/* A regular gift's sticker, role "gift" at position 0. */
+static void add_gift_sticker(std::vector<ExtraFile> &out, const td_api::gift *g)
+{
+	if (g)
+		add_sticker_file(out, g->sticker_.get(), "gift", 0);
+}
+
+/* An upgraded gift's model sticker (role "gift", position 0) and symbol
+ * sticker (position 1); each keeps its position when the other is
+ * missing. */
+static void add_upgraded_gift_stickers(std::vector<ExtraFile> &out,
+				       const td_api::upgradedGift *g)
+{
+	if (!g)
+		return;
+	if (g->model_)
+		add_sticker_file(out, g->model_->sticker_.get(), "gift", 0);
+	if (g->symbol_)
+		add_sticker_file(out, g->symbol_->sticker_.get(), "gift", 1);
+}
+
 /*
  * The video of an animated chat photo: the big animation (up to
  * 1280x1280), else the small one (160x160) when TDLib gives only that;
@@ -2853,11 +2884,12 @@ const td_api::file *chat_photo_animation(const td_api::chatPhoto *p)
  * is animated, a chat background's document (the wallpaper or the
  * pattern), the still thumbnail of a video, an animation, a video note
  * or a video sticker (the picture shown before it plays), the media in
- * a rich message's page blocks (rich_message_files), and a text
- * message's link preview's own video, animation or audio
- * (link_preview_media_files). Other thumbnails and a video's other
- * qualities are not listed: the first only repeat the media, the second
- * are the same video again.
+ * a rich message's page blocks (rich_message_files), a text message's
+ * link preview's own video, animation or audio
+ * (link_preview_media_files), and the stickers of gift, gifted Premium,
+ * Stars, grams and giveaway messages (role "gift"). Other thumbnails and
+ * a video's other qualities are not listed: the first only repeat the
+ * media, the second are the same video again.
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content)
 {
@@ -3011,6 +3043,56 @@ std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content
 			out = link_preview_media_files(*c.link_preview_);
 		break;
 	}
+	/*
+	 * Role "gift": the gift's sticker, or an upgraded gift's model
+	 * sticker, at position 0 and an upgraded gift's symbol sticker at
+	 * 1; the animation sticker of a gifted Premium, Stars, grams or
+	 * giveaway prize, and a giveaway's prize sticker, at 0.
+	 */
+	case td_api::messageGift::ID:
+		add_gift_sticker(out, static_cast<const td_api::messageGift &>(
+			content).gift_.get());
+		break;
+	case td_api::messageRefundedUpgradedGift::ID:
+		add_gift_sticker(out,
+			static_cast<const td_api::messageRefundedUpgradedGift &>(
+				content).gift_.get());
+		break;
+	case td_api::messageUpgradedGift::ID:
+		add_upgraded_gift_stickers(out,
+			static_cast<const td_api::messageUpgradedGift &>(
+				content).gift_.get());
+		break;
+	case td_api::messageUpgradedGiftPurchaseOffer::ID:
+		add_upgraded_gift_stickers(out,
+			static_cast<const td_api::messageUpgradedGiftPurchaseOffer &>(
+				content).gift_.get());
+		break;
+	case td_api::messageUpgradedGiftPurchaseOfferRejected::ID:
+		add_upgraded_gift_stickers(out,
+			static_cast<const td_api::messageUpgradedGiftPurchaseOfferRejected &>(
+				content).gift_.get());
+		break;
+	case td_api::messageGiftedPremium::ID:
+		add_sticker_file(out, static_cast<const td_api::messageGiftedPremium &>(
+			content).sticker_.get(), "gift", 0);
+		break;
+	case td_api::messageGiftedStars::ID:
+		add_sticker_file(out, static_cast<const td_api::messageGiftedStars &>(
+			content).sticker_.get(), "gift", 0);
+		break;
+	case td_api::messageGiftedGrams::ID:
+		add_sticker_file(out, static_cast<const td_api::messageGiftedGrams &>(
+			content).sticker_.get(), "gift", 0);
+		break;
+	case td_api::messageGiveawayPrizeStars::ID:
+		add_sticker_file(out, static_cast<const td_api::messageGiveawayPrizeStars &>(
+			content).sticker_.get(), "gift", 0);
+		break;
+	case td_api::messageGiveaway::ID:
+		add_sticker_file(out, static_cast<const td_api::messageGiveaway &>(
+			content).sticker_.get(), "gift", 0);
+		break;
 	default:
 		break;
 	}

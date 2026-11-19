@@ -6,7 +6,8 @@
  * gift_test -- how gift service messages are stored, over hand-built
  * TDLib objects: no TDLib client. It checks the curated content_extra of
  * an upgraded gift (model, symbol, backdrop, original details) and of a
- * chat theme set from a gift.
+ * chat theme set from a gift, and the stickers kept as message files
+ * (role "gift").
  */
 #include <tgloggerd/MessageExtract.hpp>
 
@@ -16,7 +17,9 @@
 
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <string>
+#include <vector>
 
 using namespace tgloggerd;
 namespace td_api = td::td_api;
@@ -191,10 +194,133 @@ static void test_gift_theme_keys(void)
 	      "an emoji theme is unchanged");
 }
 
+/* Whether @x is exactly the role "gift" stickers @ids, at positions 0, 1... */
+static bool gift_files(const std::vector<ExtraFile> &x,
+		       std::initializer_list<int32_t> ids)
+{
+	if (x.size() != ids.size())
+		return false;
+	int pos = 0;
+	for (int32_t id : ids) {
+		const ExtraFile &f = x[pos];
+		if (f.file->id_ != id || strcmp(f.role, "gift") ||
+		    strcmp(f.category, "sticker") || f.position != pos)
+			return false;
+		pos++;
+	}
+	return true;
+}
+
+static td_api::object_ptr<td_api::gift> regular_gift(int32_t sticker_id)
+{
+	auto g = td_api::make_object<td_api::gift>();
+	g->id_ = 6000000000000000001LL;
+	g->star_count_ = 50;
+	g->sticker_ = sticker(sticker_id);
+	return g;
+}
+
+static void test_gift_files(void)
+{
+	printf("test: gift stickers as message files\n");
+	{
+		auto c = td_api::make_object<td_api::messageGift>();
+		c->gift_ = regular_gift(21);
+		CHECK(gift_files(message_extra_files(*c), { 21 }),
+		      "a gift's sticker at position 0");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageRefundedUpgradedGift>();
+		c->gift_ = regular_gift(22);
+		CHECK(gift_files(message_extra_files(*c), { 22 }),
+		      "a refunded upgraded gift's regular sticker");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageUpgradedGift>();
+		c->gift_ = upgraded();
+		CHECK(gift_files(message_extra_files(*c), { 11, 12 }),
+		      "an upgraded gift's model at 0 and symbol at 1");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageUpgradedGift>();
+		c->gift_ = upgraded();
+		c->gift_->model_ = nullptr;
+		auto x = message_extra_files(*c);
+		CHECK(x.size() == 1 && x[0].file->id_ == 12 && x[0].position == 1,
+		      "the symbol keeps position 1 without a model");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageUpgradedGiftPurchaseOffer>();
+		c->gift_ = upgraded();
+		CHECK(gift_files(message_extra_files(*c), { 11, 12 }),
+		      "a purchase offer's gift stickers");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageUpgradedGiftPurchaseOfferRejected>();
+		c->gift_ = upgraded();
+		CHECK(gift_files(message_extra_files(*c), { 11, 12 }),
+		      "a rejected offer's gift stickers");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageGiftedPremium>();
+		c->sticker_ = sticker(31);
+		CHECK(gift_files(message_extra_files(*c), { 31 }),
+		      "a gifted Premium's animation sticker");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageGiftedStars>();
+		c->sticker_ = sticker(32);
+		CHECK(gift_files(message_extra_files(*c), { 32 }),
+		      "gifted Stars' animation sticker");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageGiftedGrams>();
+		c->sticker_ = sticker(33);
+		CHECK(gift_files(message_extra_files(*c), { 33 }),
+		      "gifted grams' animation sticker");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageGiveawayPrizeStars>();
+		c->sticker_ = sticker(34);
+		CHECK(gift_files(message_extra_files(*c), { 34 }),
+		      "a giveaway prize's animation sticker");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageGiveaway>();
+		c->sticker_ = sticker(35);
+		CHECK(gift_files(message_extra_files(*c), { 35 }),
+		      "a giveaway's prize sticker");
+	}
+	{
+		auto c = td_api::make_object<td_api::messageGiftedPremium>();
+		CHECK(message_extra_files(*c).empty(),
+		      "no sticker, no file");
+		auto g = td_api::make_object<td_api::messageGift>();
+		CHECK(message_extra_files(*g).empty(), "no gift, no file");
+	}
+	{
+		/* The code of a Premium gift code is never stored, nor is
+		 * its sticker a gift file. */
+		auto c = td_api::make_object<td_api::messagePremiumGiftCode>();
+		c->code_ = "SECRETCODE";
+		c->sticker_ = sticker(36);
+		CHECK(message_extra_files(*c).empty(),
+		      "a Premium gift code has no gift file");
+		models::MessageContent out;
+		extract_message_content(*c, out);
+		CHECK(out.content_extra.value_or("").find("SECRETCODE") ==
+				      std::string::npos &&
+			      (!out.text.has_value() ||
+			       out.text->find("SECRETCODE") == std::string::npos),
+		      "and its code is not stored");
+	}
+}
+
 int main(void)
 {
 	test_upgraded_gift_keys();
 	test_gift_theme_keys();
+	test_gift_files();
 
 	if (g_failures) {
 		printf("%d check(s) failed\n", g_failures);

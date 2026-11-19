@@ -195,7 +195,9 @@ struct ExtraFile {
  * change or suggestion and its video, a chat background's wallpaper or
  * pattern, the still thumbnail of a video, an animation, a video note or
  * a video sticker, the media in a rich message's blocks, a link
- * preview's own medium (link_preview_media_files).
+ * preview's own medium (link_preview_media_files), the stickers of a
+ * gift (an upgraded gift's model and symbol), of a gifted Premium, Stars
+ * or grams, of a giveaway prize and of a giveaway (role "gift").
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
 
