@@ -171,7 +171,19 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		// Only a superadmin; only for an admin; only that restriction.
 		expect(patch(admin.id, { restrict: hide }, 'admin')[0]).toBe(403);
 		expect(patch(member.id, { restrict: hide })[0]).toBe(400);
-		expect(patch(admin.id, { restrict: { ...hide, join_chat: true } })[1]).toMatchObject({ error: 'not_supported' });
+		// The Join chat grant: an admin's alone, and it opens the menu
+		// entry, the page and its API; taking it back closes them.
+		expect(patch(member.id, { restrict: { hide_private: false, hide_groups: [], join_chat: true } })[0]).toBe(400);
+		const [gst, granted] = patch(admin.id, { restrict: { hide_private: false, hide_groups: [], join_chat: true } });
+		expect(gst).toBe(200);
+		expect((granted as { restrict: { join_chat: boolean } }).restrict.join_chat).toBe(true);
+		expect(pageData('/', 'admin').viewer.nav).toContain('join_chat');
+		expect(pageData('/join-chat', 'admin').route).toBe('join_chat');
+		expect(adminApi('POST', 'join-chat/preview', { link: 'https://t.me/example' }, 'admin')[0]).not.toBe(404);
+		expect(patch(admin.id, { restrict: { hide_private: false, hide_groups: [], join_chat: false } })[0]).toBe(200);
+		expect(pageData('/', 'admin').viewer.nav).not.toContain('join_chat');
+		expect(pageData('/join-chat', 'admin').route).toBe('not_found');
+		expect(adminApi('POST', 'join-chat/preview', { link: 'https://t.me/example' }, 'admin')[0]).toBe(404);
 		expect(patch(admin.id, { restrict: { ...hide, hide_groups: [-1] } })[1]).toMatchObject({ error: 'bad_request', field: 'hide_groups' });
 		const [st, row] = patch(admin.id, { restrict: hide });
 		expect(st).toBe(200);

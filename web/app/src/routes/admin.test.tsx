@@ -267,6 +267,24 @@ describe('accounts', () => {
 		});
 	});
 
+	describe('the Join chat grant', () => {
+		it('lets a superadmin allow an admin Join chat, sent with the restrictions', async () => {
+			const p = fixture<AccountsProps>('/settings/accounts').props;
+			expect(p.editable.restrictions).toBe(true);
+			const admin = p.accounts.find((a) => a.role === 'admin' && !a.restrict?.join_chat)!;
+			const calls = fakeApi('superadmin', { 'PATCH /api/accounts/:id': () => ({}) });
+			renderPage('/settings/accounts');
+			fireEvent.click(screen.getByRole('button', { name: `Edit ${admin.username}` }));
+			fireEvent.click(within(dialog()).getByRole('tab', { name: 'Access' }));
+			const box = within(dialog()).getByRole('checkbox', { name: /Allow Join chat/ }) as HTMLInputElement;
+			expect(box.checked).toBe(false);
+			fireEvent.click(box);
+			fireEvent.click(within(dialog()).getByRole('button', { name: 'Save changes' }));
+			await waitFor(() => expect(callsTo(calls, 'PATCH', `/api/accounts/${admin.id}`)).toHaveLength(1));
+			expect((callsTo(calls, 'PATCH', `/api/accounts/${admin.id}`)[0]!.body as { restrict: { join_chat: boolean } }).restrict.join_chat).toBe(true);
+		});
+	});
+
 	describe('hiding private messages and groups', () => {
 		const flags = { federations: true, group_grants: true, restrictions: false, restrict_private: true, restrict_groups: true, abilities: true };
 		const withGroups = () => {
