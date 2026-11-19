@@ -36,8 +36,10 @@ const FIELDS: Record<'group' | 'private', FieldDef[]> = {
 		{ key: 'date', label: 'Sent', type: 'date' },
 	],
 };
+// The kinds "Media" means: those with a file to show or play.
+export const MEDIA: S['ContentType'][] = ['photo', 'video', 'video_note', 'document', 'audio', 'voice', 'sticker', 'animation', 'paid_media'];
 const QUICK: Record<'group' | 'private', [string, Cond[]][]> = {
-	group: [['Media', [{ field: 'content_type', op: '!=', value: 'text' }]], ['Deleted', [{ field: 'is_deleted', op: 'is', value: 'yes' }]], ['Edited', [{ field: 'is_edited', op: 'is', value: 'yes' }]]],
+	group: [['Media', [{ field: 'content_type', op: 'in', value: MEDIA }]], ['Deleted', [{ field: 'is_deleted', op: 'is', value: 'yes' }]], ['Edited', [{ field: 'is_edited', op: 'is', value: 'yes' }]]],
 	private: [['Outgoing', [{ field: 'is_outgoing', op: 'is', value: 'yes' }]], ['Deleted', [{ field: 'is_deleted', op: 'is', value: 'yes' }]]],
 };
 

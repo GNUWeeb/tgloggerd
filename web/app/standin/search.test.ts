@@ -41,6 +41,13 @@ describe('stand-in list search', () => {
 		}
 	});
 
+	it('matches one of a list with in, which takes a list only', () => {
+		expect(ids([{ field: 'id', op: 'in', value: ['1', '3'] }])).toEqual([1, 3]);
+		expect(ids([{ field: 'name', op: 'in', value: ['Bima'] }])).toEqual([2]);
+		for (const c of [{ field: 'id', op: 'in', value: '1' }, { field: 'id', op: 'in', value: [] }, { field: 'id', op: '=', value: ['1'] }])
+			expect(typeof compile([c], own, REGISTRY.users!)).toBe('object');
+	});
+
 	it('reads a Drogon list URL as the same list', () => {
 		const q = legacyQuery(new URLSearchParams({ search: JSON.stringify([{ c: 'first_name', o: 'LIKE', v: 'D%', n: 'OR' }, { c: 'id', o: '=', v: '2', n: 'AND' }]), offset: '100', limit: '50', sort: 'id', order: 'ASC' }))!;
 		expect(JSON.parse(q.get('f')!)).toEqual([{ field: 'first_name', op: 'LIKE', value: 'D%', n: 'OR' }, { field: 'id', op: '=', value: '2' }]);

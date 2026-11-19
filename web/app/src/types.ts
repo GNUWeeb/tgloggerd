@@ -20,8 +20,10 @@ export type ChatWindow = S['ChatWindow'];
 // chat. `sub` is a short second line ("supergroup", "private chat").
 export type PickItem = S['PickItem'];
 
-export type Cond = S['Cond'];
-export type Op = Cond['op'];
+// A filter, with the `in` operator Go is adding: one of a list of
+// values, sent as an array. Back to S['Cond'] once the schema has it.
+export type Op = S['Cond']['op'] | 'in';
+export type Cond = Omit<S['Cond'], 'op' | 'value'> & { op: Op; value: string | string[] };
 // A list page's props: its rows and the list state they were read with.
 export type ListProps<T> = S['ListState'] & { rows: T[] };
 

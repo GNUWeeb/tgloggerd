@@ -161,7 +161,10 @@ export function FilterBar<T>({ L, fields: own, placeholder, quick, name }: { L: 
 	const fields = listFields(own, L.fields);
 	const joins = !!L.fields;
 	const label = (c: Cond) => fields.find((x) => x.key === c.field)?.label ?? c.field;
-	const valueOf = (c: Cond) => fields.find((x) => x.key === c.field)?.labels?.[c.value] ?? c.value;
+	const valueOf = (c: Cond) => {
+		const labels = fields.find((x) => x.key === c.field)?.labels;
+		return (Array.isArray(c.value) ? c.value : [c.value]).map((v) => labels?.[v] ?? v).join(', ');
+	};
 	const shown = (c: Cond) => `${label(c)} ${c.op}${needsValue(c.op) ? ' ' + valueOf(c) : ''}`;
 	const toggle = (i: number) => L.setConds(L.conds.map((c, j) => {
 		if (j !== i) return c;
