@@ -224,7 +224,7 @@ Both pages show them as a row of checkboxes in the add/edit form, and the route
 table summarises them in its *Forwards* column (`Everything`, a list, or
 `Nothing`). Only the ticked types are forwarded.
 
-The types, in the order of each direction's `type_options` (decision
+The types (decision
 [2026-11-20-fwd-more-types](../../docs/design/decisions/2026-11-20-fwd-more-types.md)):
 
 | Type (`fwd_<key>`) | Telegram → Discord | Discord → Telegram |
@@ -236,9 +236,9 @@ The types, in the order of each direction's `type_options` (decision
 | `video_note` | a round video note | — |
 | `document`   | a document (file) | every other attachment, including one with no MIME type |
 | `sticker`    | a sticker | a sticker (`sticker_items`) |
-| `voice`      | a voice note | — |
-| `audio`      | an audio file | an attachment whose MIME type is `audio/*` |
-| `poll`       | a poll or a quiz | — |
+| `voice`      | a voice note | a voice message, sent as a voice note |
+| `audio`      | an audio file | an attachment whose MIME type is `audio/*` (but a voice message's recording) |
+| `poll`       | a poll or a quiz | a poll: its question and answers, as text lines |
 | `checklist`  | a checklist | — |
 | `dice`       | a dice (any of its emoji) | — |
 | `game`       | a game | — |
@@ -249,11 +249,15 @@ The types, in the order of each direction's `type_options` (decision
 | `invoice`    | an invoice | — |
 | `service`    | a service (system) message | — |
 | `other`      | every kind without a type of its own: rich messages, calls, giveaways, and every kind added later | — (no such class) |
+| `embed`      | — | a bot's or webhook's rich embeds, as text lines (not the ones Discord adds when it unfurls a link) |
+| `system`     | — | a system message (a member joining, a pin, a boost, ...), as one line |
 
 `other` stays the catch-all on Telegram → Discord, so a kind added
-later is never dropped silently. Discord → Telegram voice messages,
-embeds, polls and system messages are not told apart yet (item
-`fwd-discord-kinds`).
+later is never dropped silently. The table lists the types in the
+Telegram → Discord order; Discord → Telegram's `type_options` are
+`text`, `photo`, `video`, `animation`, `document`, `sticker`, `audio`,
+`voice`, `embed`, `poll`, `system`. What discordd sends for each part
+is in [message-types.md](../../docs/design/message-types.md) section 4.10.
 
 A message is filtered **part by part**, not as a whole:
 
@@ -272,11 +276,14 @@ Edits are filtered like the message.
 
 The flags are the `fwd_*` columns of `telegram_discord_webhooks` and
 `discord_telegram_routes` (migration `000031` for the first six, then
-`000048` for the rest), all defaulting to `1`, so a route forwards
-everything until told otherwise. When `000048` added its flags, it gave each
-the value of the flag its type followed until then (Telegram → Discord:
-`fwd_other`; Discord → Telegram: `audio` from `fwd_document`, `animation` from
-`fwd_photo`), so no existing route changed what it forwards. The daemons pick a change up on
+`000048` for the rest, and `000050` for Discord → Telegram's `voice`,
+`embed`, `poll` and `system`), all defaulting to `1`, so a route forwards
+everything until told otherwise. When `000048` and `000050` added their
+flags, each got the value of the flag its type followed until then
+(Telegram → Discord: `fwd_other`; Discord → Telegram: `audio` from
+`fwd_document`, `animation` from `fwd_photo`, `voice` from `fwd_audio`, and
+`embed`, `poll` and `system` from `fwd_text`), so no existing route changed
+what it forwards. The daemons pick a change up on
 their next reload of the table, like any other edit (see *Propagation*).
 
 Changing a filter affects **new** messages only. An edit or delete of a message

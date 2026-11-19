@@ -52,9 +52,11 @@ INSERT INTO discord_channels (id, guild_id, name, type) VALUES
 
 INSERT INTO discord_telegram_routes (id, discord_channel_id, telegram_chat_id, telegram_bot_id,
 	enabled, fwd_sticker, fwd_text, fwd_photo, fwd_video, fwd_document, fwd_audio,
-	fwd_animation, created_at) VALUES
-	(1, 710000000000000001, -1001000000001, 1, 1, 1, 1, 1, 1, 1, 1, 1, '2026-10-05 10:00:00'),
-	(2, 710000000000000002, -1001000000002, 2, 1, 1, 1, 0, 0, 1, 1, 0, '2026-10-06 10:00:00');
+	fwd_animation, fwd_voice, fwd_embed, fwd_poll, fwd_system, created_at) VALUES
+	(1, 710000000000000001, -1001000000001, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+		'2026-10-05 10:00:00'),
+	(2, 710000000000000002, -1001000000002, 2, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1,
+		'2026-10-06 10:00:00');
 
 INSERT INTO discord_telegram_sent_messages (discord_message_id, route_id, telegram_chat_id,
 	telegram_message_id, created_at) VALUES

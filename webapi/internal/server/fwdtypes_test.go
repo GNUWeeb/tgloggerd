@@ -20,7 +20,7 @@ import (
 
 // The content types of the forwarding routes (decision
 // 2026-11-20-fwd-more-types): every flag on its own, type_options, the
-// refusals, and the migration that added the flags beyond 000031's.
+// refusals, and the migrations that added the flags beyond 000031's.
 
 // The types of each direction, in the form's order. Written out rather
 // than read from logdb, so a change to the order or the set shows here.
@@ -28,7 +28,8 @@ var (
 	t2dTypes = []string{"text", "photo", "video", "animation", "video_note", "document",
 		"sticker", "voice", "audio", "poll", "checklist", "dice", "game", "location", "contact",
 		"story", "paid_media", "invoice", "service", "other"}
-	d2tTypes = []string{"text", "photo", "video", "animation", "document", "sticker", "audio"}
+	d2tTypes = []string{"text", "photo", "video", "animation", "document", "sticker", "audio",
+		"voice", "embed", "poll", "system"}
 )
 
 // flagsOf is the CONCAT_WS of the fwd_<type> columns of types.
@@ -155,7 +156,8 @@ func TestFwdTypesRefused(t *testing.T) {
 		{t2dBase + "/1", []string{"text", "giveaway"}},
 		{t2dBase + "/1", []string{"Text"}},
 		{d2tBase + "/1", []string{}},
-		{d2tBase + "/1", []string{"voice"}},
+		{d2tBase + "/1", []string{"video_note"}},
+		{d2tBase + "/1", []string{"embeds"}},
 		{d2tBase + "/1", []string{"text", "other"}},
 		{d2tBase + "/1", []string{"service"}},
 	} {
@@ -174,13 +176,13 @@ func TestFwdTypesRefused(t *testing.T) {
 	}
 }
 
-// migrationFile is the forwarding types migration's up or down file,
-// found by name so that renumbering it does not break the test.
-func migrationFile(t *testing.T, dir string) string {
+// migrationFile is a migration's up or down file, found by name so
+// that renumbering it does not break the test.
+func migrationFile(t *testing.T, name, dir string) string {
 	t.Helper()
-	m, err := filepath.Glob("../../../migrations/*_forward_more_content_types." + dir + ".sql")
+	m, err := filepath.Glob("../../../migrations/*_" + name + "." + dir + ".sql")
 	if err != nil || len(m) != 1 {
-		t.Fatalf("forward_more_content_types.%s.sql: %v %v", dir, m, err)
+		t.Fatalf("%s.%s.sql: %v %v", name, dir, m, err)
 	}
 	b, err := os.ReadFile(m[0])
 	if err != nil {
@@ -194,44 +196,13 @@ func migrationFile(t *testing.T, dir string) string {
 // and its down migration undoes it.
 func TestFwdTypesMigrationCopiesFlags(t *testing.T) {
 	t.Parallel()
-	d := testdb.New(t, testdb.Logger)
-	cfg, err := mysql.ParseDSN(d.DSN)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.MultiStatements = true
-	db, err := sql.Open("mysql", cfg.FormatDSN())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	exec := func(q string, args ...any) {
-		t.Helper()
-		if _, err := db.Exec(q, args...); err != nil {
-			t.Fatal(err)
-		}
-	}
-	one := func(q string) string {
-		t.Helper()
-		var v string
-		if err := db.QueryRow(q).Scan(&v); err != nil {
-			t.Fatal(err)
-		}
-		return v
-	}
-	up, down := migrationFile(t, "up"), migrationFile(t, "down")
+	_, exec, one := migrationDB(t)
+	up := migrationFile(t, "forward_more_content_types", "up")
+	down := migrationFile(t, "forward_more_content_types", "down")
 
-	// A later migration adds Discord route flags after these; undo it
-	// first, so this one's down and up run on the schema they expect.
-	if later, _ := filepath.Glob("../../../migrations/*_discord_forward_more_kinds.down.sql"); len(later) == 1 {
-		b, err := os.ReadFile(later[0])
-		if err != nil {
-			t.Fatal(err)
-		}
-		exec(string(b))
-	}
-
-	// Back to the schema before it, with routes as they were then.
+	// Back to the schema before it, with routes as they were then;
+	// the Discord kinds migration came later and goes first.
+	exec(migrationFile(t, "discord_forward_more_kinds", "down"))
 	exec(down)
 	exec("INSERT INTO telegram_discord_webhooks (id, telegram_chat_id, telegram_chat_type, " +
 		"webhook_url, fwd_sticker, fwd_text, fwd_photo, fwd_video, fwd_document, fwd_other) VALUES " +
@@ -285,6 +256,83 @@ func TestFwdTypesMigrationCopiesFlags(t *testing.T) {
 		"AND TABLE_NAME IN ('telegram_discord_webhooks', 'discord_telegram_routes') " +
 		"AND COLUMN_NAME LIKE 'fwd\\_%'"); got != "11" {
 		t.Errorf("down left %s fwd_ columns, want 11 (000031's)", got)
+	}
+	exec(up)
+	check("up again")
+}
+
+// migrationDB is a logger database of the test's own that runs
+// several statements at once, with exec and one (a single value) on it.
+func migrationDB(t *testing.T) (*sql.DB, func(string, ...any), func(string) string) {
+	t.Helper()
+	d := testdb.New(t, testdb.Logger)
+	cfg, err := mysql.ParseDSN(d.DSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MultiStatements = true
+	db, err := sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	one := func(q string) string {
+		t.Helper()
+		var v string
+		if err := db.QueryRow(q).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	return db, exec, one
+}
+
+// The Discord kinds migration gives voice the value of fwd_audio and
+// embed, poll and system that of fwd_text, the flags they followed
+// until then, and its down migration undoes it.
+func TestFwdDiscordKindsMigrationCopiesFlags(t *testing.T) {
+	t.Parallel()
+	_, exec, one := migrationDB(t)
+	up := migrationFile(t, "discord_forward_more_kinds", "up")
+	down := migrationFile(t, "discord_forward_more_kinds", "down")
+
+	exec(down)
+	exec("INSERT INTO telegram_bots (id, token) VALUES (1, '1:x')")
+	exec("INSERT INTO discord_telegram_routes (id, discord_channel_id, telegram_chat_id, " +
+		"telegram_bot_id, fwd_text, fwd_audio) VALUES " +
+		"(1, 11, -1001, 1, 1, 0), (2, 12, -1001, 1, 0, 1), (3, 13, -1001, 1, 0, 0)")
+
+	kinds := []string{"voice", "embed", "poll", "system"}
+	check := func(when string) {
+		t.Helper()
+		for id, want := range map[int]string{1: "0 1 1 1", 2: "1 0 0 0", 3: "0 0 0 0"} {
+			got := one(fmt.Sprintf("SELECT %s FROM discord_telegram_routes WHERE id = %d",
+				flagsOf(kinds), id))
+			if got != want {
+				t.Errorf("%s: route %d voice, embed, poll, system %q, want %q", when, id, got, want)
+			}
+		}
+		// A route made afterwards forwards everything by default.
+		exec("INSERT INTO discord_telegram_routes (id, discord_channel_id, telegram_chat_id, " +
+			"telegram_bot_id) VALUES (9, 19, -1001, 1)")
+		if got := one("SELECT " + flagsOf(d2tTypes) + " FROM discord_telegram_routes WHERE id = 9"); got !=
+			oneHot(d2tTypes, d2tTypes...) {
+			t.Errorf("%s: new route %q", when, got)
+		}
+		exec("DELETE FROM discord_telegram_routes WHERE id = 9")
+	}
+	exec(up)
+	check("up")
+	exec(down)
+	if got := one("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " +
+		"AND TABLE_NAME = 'discord_telegram_routes' AND COLUMN_NAME LIKE 'fwd\\_%'"); got != "7" {
+		t.Errorf("down left %s fwd_ columns, want 7 (000031's and 000048's)", got)
 	}
 	exec(up)
 	check("up again")

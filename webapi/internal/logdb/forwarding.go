@@ -62,9 +62,12 @@ var T2D = FwdDir{Keys: []string{
 
 // D2T is Discord to Telegram: an attachment is audio (audio/*), an
 // animation (image/gif, and animated stickers), a photo (image/*), a
-// video (video/*) or else a document.
+// video (video/*) or else a document; a voice message, embeds, a poll
+// and a system message (migration 000050) each have a flag of their
+// own.
 var D2T = FwdDir{Keys: []string{
 	"text", "photo", "video", "animation", "document", "sticker", "audio",
+	"voice", "embed", "poll", "system",
 }}
 
 // FwdTypes is the set of types a route forwards, by key.
