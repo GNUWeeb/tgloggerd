@@ -134,18 +134,17 @@ type photosAnswer struct {
 	CurrentID *uint64     `json:"current_id"`
 }
 
-// photos turns the recorded photos into their answer; current is the
-// file of the photo now (0 for none).
-func (v view) photos(ps []logdb.Photo, current uint64) photosAnswer {
+// photos turns a photo list into its answer: every photo with its
+// URL, given whenever the file may be served, from the store or
+// fetched from Telegram through /files/ (Server.fileURL).
+func (v view) photos(l logdb.PhotoList) photosAnswer {
 	a := photosAnswer{Items: []photoJSON{}}
-	for _, p := range ps {
+	for _, p := range l.Photos {
 		a.Items = append(a.Items, photoJSON{ID: p.ID, At: iso(p.At), URL: v.photo(p.File),
 			FileID: ptrTo(p.File.ID)})
-		// The current photo is the newest time its file was set; the
-		// same file may have been the photo before.
-		if a.CurrentID == nil && current != 0 && p.File.ID == current {
-			a.CurrentID = ptrTo(p.ID)
-		}
+	}
+	if l.Current && len(a.Items) > 0 {
+		a.CurrentID = ptrTo(a.Items[0].ID)
 	}
 	return a
 }
@@ -161,11 +160,11 @@ func photoOwnerID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
-// getUserPhotos answers GET /api/users/{id}/photos: every recorded
-// profile photo of the user, newest first, for the user page's
-// carousel. The ids are the history's photo_id, so a photo change on
-// the timeline opens the carousel at its photo. The same access as
-// the history.
+// getUserPhotos answers GET /api/users/{id}/photos, the user page's
+// carousel: the current profile photo first, then every recorded one
+// newest first, each file once (logdb.UserPhotos). The ids are the
+// history's photo_id, so a photo change on the timeline opens the
+// carousel at its photo. The same access as the history.
 func (s *Server) getUserPhotos(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	sc := ScopeFrom(r.Context())
@@ -173,7 +172,7 @@ func (s *Server) getUserPhotos(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	u, ok := s.userInFull(w, r, sc, id, "photos")
+	_, ok = s.userInFull(w, r, sc, id, "photos")
 	if !ok {
 		return
 	}
@@ -182,7 +181,7 @@ func (s *Server) getUserPhotos(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "photos", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.viewFor(sc, true).photos(ps, u.Photo.ID))
+	writeJSON(w, http.StatusOK, s.viewFor(sc, true).photos(ps))
 }
 
 // getGroupPhotos answers GET /api/groups/{id}/photos, the group page's
@@ -209,7 +208,7 @@ func (s *Server) getGroupPhotos(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "photos", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.viewFor(sc, true).photos(ps, gs[0].Photo.ID))
+	writeJSON(w, http.StatusOK, s.viewFor(sc, true).photos(ps))
 }
 
 // getGroupHistory answers GET /api/groups/{id}/history, for a group the

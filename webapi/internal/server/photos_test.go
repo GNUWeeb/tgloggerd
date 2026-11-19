@@ -68,9 +68,11 @@ func TestUserPhotos(t *testing.T) {
 	t.Parallel()
 	e, _ := newPhotosEnv(t)
 
-	// Every photo newest first (a tie by row id), the removal left
-	// out, another user's absent; the file that cannot be served has
-	// no URL; the current photo is the newest item with its file.
+	// The current photo first, as the newest item with its file,
+	// though a later photo was recorded at the same second; then every
+	// photo newest first (a tie by row id), each file once, the
+	// removal left out, another user's absent; the file that cannot be
+	// served has no URL.
 	var p tPhotos
 	e.decode(photosPath(fotoBanyak), e.as("admin"), 200, &p)
 	type want struct {
@@ -80,10 +82,9 @@ func TestUserPhotos(t *testing.T) {
 		url  bool
 	}
 	ws := []want{
-		{1005, "2026-07-01T10:00:00Z", 850003, true},
 		{1004, "2026-07-01T10:00:00Z", 850001, true},
+		{1005, "2026-07-01T10:00:00Z", 850003, true},
 		{1003, "2026-05-01T10:00:00Z", 850002, false},
-		{1001, "2026-03-01T10:00:00Z", 850001, true},
 	}
 	if len(p.Items) != len(ws) {
 		t.Fatalf("items %+v", p.Items)
@@ -112,13 +113,20 @@ func TestUserPhotos(t *testing.T) {
 	}
 
 	// Another user's photo is its own; a user whose photo changes
-	// were never recorded has none and no current one, although it
-	// has a profile photo.
+	// were never recorded has its current photo all the same, as item
+	// 0, set when its file was recorded; a user without a photo or
+	// history has none and no current one.
 	e.decode(photosPath(fotoLain), e.as("admin"), 200, &p)
 	if len(p.Items) != 1 || p.Items[0].ID != 1006 || p.CurrentID == nil || *p.CurrentID != 1006 {
 		t.Errorf("foto lain %+v %v", p.Items, p.CurrentID)
 	}
 	e.decode(photosPath(9299000001), e.as("admin"), 200, &p)
+	if len(p.Items) != 1 || p.Items[0].ID != 0 || p.Items[0].At != "2026-10-01T08:00:00Z" ||
+		p.Items[0].FileID == nil || *p.Items[0].FileID != 880007 || p.Items[0].URL == nil ||
+		p.CurrentID == nil || *p.CurrentID != 0 {
+		t.Errorf("unrecorded current photo %+v %v", p.Items, p.CurrentID)
+	}
+	e.decode(photosPath(9299000002), e.as("admin"), 200, &p)
 	if len(p.Items) != 0 || p.Items == nil || p.CurrentID != nil {
 		t.Errorf("no photos %+v %v", p.Items, p.CurrentID)
 	}
@@ -159,11 +167,12 @@ func histPhotoIDs(t *testing.T, es []map[string]json.RawMessage) []uint64 {
 func TestUserHistoryPhotoID(t *testing.T) {
 	t.Parallel()
 	e, _ := newPhotosEnv(t)
-	want := fmt.Sprint([]uint64{1005, 1004, 1003, 0, 1001})
+	want := fmt.Sprint([]uint64{1005, 1004, 1003, 0, 1004})
 
 	// The API's page and the user page and history page carry the
 	// photos' ids, the same as the photos answer's; a removal has
-	// none.
+	// none, and an earlier change to a file set again has the newest
+	// one's, the item that stands for that file.
 	var a struct{ Entries []map[string]json.RawMessage }
 	e.decode(histPath("users", fotoBanyak, "", 0), e.as("admin"), 200, &a)
 	if got := fmt.Sprint(histPhotoIDs(t, a.Entries)); got != want {
@@ -185,7 +194,7 @@ func TestUserHistoryPhotoID(t *testing.T) {
 	for _, it := range p.Items {
 		ids = append(ids, it.ID)
 	}
-	if fmt.Sprint(ids) != fmt.Sprint([]uint64{1005, 1004, 1003, 1001}) {
+	if fmt.Sprint(ids) != fmt.Sprint([]uint64{1004, 1005, 1003}) {
 		t.Errorf("photos ids %v", ids)
 	}
 

@@ -3575,19 +3575,25 @@ paths:
     get:
       operationId: getUserPhotos
       tags: [history]
-      summary: Every recorded profile photo of a user
+      summary: A user's profile photos, the current one first
       description: >-
-        The user's profile photos as the logger recorded them
-        (telegram_user_hist_profile_photo), newest first and at most
-        500, for the user page's photo carousel; the photo removals are
-        left out. Each item's id is the photo_id of its photo change in
-        the user's history (HistoryEntry), so the timeline can open the
-        carousel at that photo. current_id is the item of the user's
-        current photo: the newest one with the file that is the
-        profile photo now, or null when there is none (no photo, or its
-        file not among them). The same access as the history: only for
-        a viewer who sees users in full; to a member, as for a user the
-        viewer may not see or the logger never saw, it is 404.
+        The user's profile photos for the user page's photo carousel,
+        at most 500: the current photo (telegram_users.profile_photo_file_id)
+        first, then the ones the history records
+        (telegram_user_hist_profile_photo) newest first, each file once
+        (its newest entry); the photo removals are left out. Opening the
+        user page has the daemon add the photos Telegram lists and the
+        history lacks, in the background, so a later answer may hold
+        more. Each item's id is the photo_id of its photo change in the
+        user's history (HistoryEntry), so the timeline can open the
+        carousel at that photo; the current photo is item 0 when the
+        history has no entry for its file. current_id is the current
+        photo's item, the first, or null when the user has no photo.
+        A photo whose bytes are not stored has a URL all the same when
+        the viewer may have files fetched from Telegram (see url). The
+        same access as the history: only for a viewer who sees users in
+        full; to a member, as for a user the viewer may not see or the
+        logger never saw, it is 404.
       security:
         - session: []
       parameters:
@@ -3788,19 +3794,21 @@ paths:
     get:
       operationId: getGroupPhotos
       tags: [history]
-      summary: Every recorded photo of a group
+      summary: A group's photos, the current one first
       description: >-
-        The group's photos as the logger recorded them
-        (telegram_group_hist_photo), newest first and at most 500, for
-        the group page's photo carousel, as getUserPhotos answers for a
-        user; the photo removals are left out. Each item's id is the
-        photo_id of its photo change in the group's history
-        (GroupHistoryEntry). current_id is the item of the group's
-        current photo (telegram_groups.photo_file_id): the newest one
-        with that file, or null. For a group the viewer sees, as the
-        group page and its history; any other, a group hidden from an
-        admin included, is 404. Not public, not even for an exposed
-        group.
+        The group's photos for the group page's photo carousel, as
+        getUserPhotos answers for a user: the current photo
+        (telegram_groups.photo_file_id) first, then the ones the history
+        records (telegram_group_hist_photo) newest first, each file
+        once, at most 500, the removals left out; opening the group page
+        has the daemon add the photos Telegram has that the history
+        lacks. Each item's id is the photo_id of its photo change in the
+        group's history (GroupHistoryEntry), 0 for a current photo the
+        history has no entry for. current_id is the first item's, or
+        null when the group has no photo. For a group the viewer sees,
+        as the group page and its history; any other, a group hidden
+        from an admin included, is 404. Not public, not even for an
+        exposed group.
       security:
         - session: []
       parameters:
@@ -4950,18 +4958,21 @@ components:
           format: int64
           description: >-
             A photo change's photo: the id of its item in
-            GET /api/users/{id}/photos. Absent for a removal and for
-            the other kinds.
+            GET /api/users/{id}/photos, the newest change to the same
+            file (the list holds each file once). Absent for a removal
+            and for the other kinds.
     UserPhotos:
       type: object
       description: >-
-        A user's recorded profile photos (getUserPhotos), or a group's
-        recorded photos (getGroupPhotos).
+        A user's profile photos (getUserPhotos), or a group's photos
+        (getGroupPhotos): the current one first, then the recorded ones
+        newest first, each file once.
       required: [items, current_id]
       properties:
         items:
           type: array
-          description: Newest first, at most 500.
+          description: >-
+            The current photo first, then newest first, at most 500.
           items:
             $ref: '#/components/schemas/UserPhoto'
         current_id:
@@ -4969,7 +4980,8 @@ components:
           format: int64
           description: >-
             The id of the item that is the user's or group's current
-            photo, or null.
+            photo, always the first item's (possibly 0), or null when
+            there is no current photo.
     UserPhoto:
       type: object
       required: [id, at, url, file_id]
@@ -4978,17 +4990,26 @@ components:
           type: integer
           format: int64
           description: >-
-            The photo's history row; the photo_id of its photo change
-            in the user's or group's history.
+            The newest history row with the photo's file; the photo_id
+            of its photo changes in the user's or group's history. 0
+            for the current photo when the history has no row for its
+            file.
         at:
           type: string
-          description: When the photo was set (recorded), RFC 3339.
+          description: >-
+            The time the archive has for the photo, RFC 3339: its
+            history row's date (for a row taken from Telegram's photo
+            list, when the photo became current; for an older row, when
+            the logger saw the change), or for item 0 when the logger
+            recorded its file. Not always when the photo was set.
         url:
           type: [string, 'null']
           description: >-
-            The picture, a /files/<token> URL of the full file; null
-            when the file cannot be served (its bytes are not stored
-            and may not be fetched).
+            The picture, a /files/<token> URL of the full file, whether
+            its bytes are stored or not: opening it fetches a file the
+            store does not hold from Telegram. null when the file
+            cannot be served (not stored, and the viewer may not have
+            files fetched or the daemon is not configured).
         file_id:
           type: [integer, 'null']
           format: int64
@@ -5052,8 +5073,8 @@ components:
           format: int64
           description: >-
             A photo change's photo: the id of its item in
-            GET /api/groups/{id}/photos. Absent for a removal and for
-            the other kinds.
+            GET /api/groups/{id}/photos, the newest change to the same
+            file. Absent for a removal and for the other kinds.
         user:
           $ref: '#/components/schemas/UserSummary'
     MessageScope:

@@ -417,18 +417,34 @@ paths that are no page and for things the scope hides, 404 either way.
     themselves. The cursor is the last entry's time, kind and row id,
     the timeline's sort key, so a page costs the same however deep it
     is. A member sees no user's history (404).
-  - GET /api/users/{id}/photos is every recorded profile photo of the
-    user (telegram_user_hist_profile_photo, removals left out), newest
-    first and at most 500, with its URL (null when the file cannot be
-    served) and file id, and current_id, the newest item with the
-    user's current photo file, for the user page's photo carousel. An
-    item's id is the history row's: a user's photo change in the
-    timeline carries it as photo_id, so the page opens the carousel at
-    that photo. The same access as the user's history.
-    GET /api/groups/{id}/photos answers the same for a group's photos
-    (telegram_group_hist_photo, current_id from the group's photo
-    file), whose photo changes carry photo_id too, for a group the
-    request scope sees, as its history (a hidden group is 404).
+  - GET /api/users/{id}/photos is the user's photo list for the user
+    page's photo carousel (logdb.UserPhotos): the current profile
+    photo first, then the photos the history records
+    (telegram_user_hist_profile_photo, removals left out) newest
+    first, each file once, at most 500, each with its URL and file
+    id, and current_id, the first item's when the user has a photo.
+    The history records only the changes the logger saw, so the
+    current photo may be missing from it: it is then item 0, dated
+    when its file was recorded. An item's id is the newest history
+    row with its file: a user's photo change in the timeline carries
+    it as photo_id, so the page opens the carousel at that photo. A
+    photo whose bytes the store no longer holds keeps its URL
+    (fileURL), and /files/ fetches it through the daemon. The same
+    access as the user's history. GET /api/groups/{id}/photos answers
+    the same for a group's photos (telegram_group_hist_photo, the
+    current one from the group's photo file), whose photo changes
+    carry photo_id too, for a group the request scope sees, as its
+    history (a hidden group is 404).
+  - Opening a user page in full or a group page has the daemon list
+    that user's or group's photos from Telegram (GET
+    /v1/users/{id}/photos, GET /v1/chats/{id}/photos;
+    internal/server/photorefresh.go), which adds the photos and
+    history rows the archive lacks, so the next photo list is whole.
+    The ask runs in the background, never holding the page up: one in
+    flight per user or group, none again within ten minutes of the
+    last (or a flood wait's retry_after), whatever came of it;
+    failures are only logged, and the times live in memory. Without
+    WEB_TGLOGGERD_API nothing is asked.
   - The user page's profile is every field the logger records, as
     the Drogon page shows it: birthday, personal channel, paid message
     stars, emoji status, accent colours and background emojis (64-bit

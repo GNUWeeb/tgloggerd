@@ -287,7 +287,7 @@ func (v view) history(e logdb.HistoryEntry) historyJSON {
 			j.Removed = true
 		} else {
 			j.Photo = v.photo(e.Photo)
-			j.PhotoID = ptrTo(e.RowID())
+			j.PhotoID = ptrTo(e.PhotoID())
 		}
 	}
 	return j
@@ -334,6 +334,9 @@ func loadUserPage(ctx context.Context, pr *pageRequest, history bool) (any, erro
 	if err != nil {
 		return nil, err
 	}
+	// The viewer sees the user's photos: complete them from Telegram
+	// for the carousel, in the background.
+	pr.s.photoAsks.user(pr.pathID())
 	up := userProps{
 		User: uj, Groups: []userGroupJSON{}, History: []historyJSON{}, Activity: p.Activity,
 		CanPrivate: pr.scope.SeesPrivate(),
@@ -479,6 +482,9 @@ func groupPage(ctx context.Context, pr *pageRequest) (groupProps, logdb.Group, e
 		return groupProps{}, logdb.Group{}, err
 	}
 	pr.s.refreshMemberCount(p.Group.Group)
+	// The viewer sees the group's photos: complete them from Telegram
+	// for the carousel, in the background.
+	pr.s.photoAsks.group(pr.pathID())
 	v := pr.view()
 	gs := v.group(p.Group.Group)
 	gs.MsgCount = nil

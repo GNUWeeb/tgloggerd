@@ -38,6 +38,8 @@ type HistoryEntry struct {
 	// administrator).
 	Status string
 	rowID  uint64 // the row's id in its own table, for the cursor
+	// photoID is a photo change's item in the photo list (photoItems).
+	photoID uint64
 }
 
 // HistoryPage is one page of a timeline.
@@ -196,13 +198,21 @@ func history(ctx context.Context, db *sql.DB, union string, kinds []string, id i
 // (every event), bios, phone numbers and profile photos. Only for a
 // viewer who sees users in full; the caller checks.
 func UserHistory(ctx context.Context, db *sql.DB, id int64, before string, limit int) (HistoryPage, error) {
-	return history(ctx, db, userHistoryUnion, userHistoryKinds, id, before, limit)
+	p, err := history(ctx, db, userHistoryUnion, userHistoryKinds, id, before, limit)
+	if err != nil {
+		return p, err
+	}
+	return p, photoItems(ctx, db, userPhotoTable, id, p.Entries)
 }
 
 // GroupHistory is a page of the group's timeline: titles,
 // descriptions, usernames (every event), photos and admin changes.
 func GroupHistory(ctx context.Context, db *sql.DB, id int64, before string, limit int) (HistoryPage, error) {
-	return history(ctx, db, groupHistoryUnion, groupHistoryKinds, id, before, limit)
+	p, err := history(ctx, db, groupHistoryUnion, groupHistoryKinds, id, before, limit)
+	if err != nil {
+		return p, err
+	}
+	return p, photoItems(ctx, db, groupPhotoTable, id, p.Entries)
 }
 
 // ValidUserCursor is whether s is a cursor of a user's timeline.
@@ -229,36 +239,123 @@ func HistoryUsers(ctx context.Context, db *sql.DB, sc scope.Scope, h HistoryPage
 	return usersByID(ctx, db, sc, ids)
 }
 
-// RowID is the entry's id in its own history table; for a photo
-// change, the photo's id in UserPhotos or GroupPhotos.
-func (e HistoryEntry) RowID() uint64 {
-	return e.rowID
+// PhotoID is a photo change's item in UserPhotos or GroupPhotos: the
+// newest change to the same file, as the list holds each file once.
+func (e HistoryEntry) PhotoID() uint64 {
+	return e.photoID
 }
 
-// MaxPhotos is the most photos UserPhotos and GroupPhotos read.
+// MaxPhotos is the most photos UserPhotos and GroupPhotos answer.
 const MaxPhotos = 500
 
-// Photo is one recorded profile photo of a user, or photo of a group.
+// Photo is one profile photo of a user, or photo of a group.
 type Photo struct {
-	ID   uint64 // the history table's row
+	// ID is the newest history row with the photo's file; 0 for the
+	// current photo when the history has no row for its file.
+	ID   uint64
 	At   int64
 	File FileRef
 }
 
-// photos are the recorded photos in a photo history table (its owner
-// column owner), newest first (as the timeline orders them), at most
-// MaxPhotos; the removals (rows without a file) are left out.
-func photos(ctx context.Context, db *sql.DB, table, owner string, id int64) ([]Photo, error) {
-	rows, err := db.QueryContext(ctx, "SELECT p.id, UNIX_TIMESTAMP(p.created_at), p.file_id, "+
-		fileColumnsOf("f")+" FROM "+table+" p "+
-		"LEFT JOIN telegram_files f ON f.id = p.file_id "+
-		"WHERE p."+owner+" = ? AND p.file_id IS NOT NULL "+
-		"ORDER BY p.created_at DESC, p.id DESC LIMIT ?", id, MaxPhotos)
+// PhotoList is a user's or group's photos: the current one first, then
+// the recorded ones newest first, each file once.
+type PhotoList struct {
+	Photos []Photo
+	// Current: Photos[0] is the current photo.
+	Current bool
+}
+
+// photoTable is a photo history table and the photo's owner.
+type photoTable struct {
+	table, owner string // the history table and its owner column
+	// ownerTable and photoCol: where the current photo is.
+	ownerTable, photoCol string
+}
+
+var (
+	userPhotoTable = photoTable{"telegram_user_hist_profile_photo", "user_id",
+		"telegram_users", "profile_photo_file_id"}
+	groupPhotoTable = photoTable{"telegram_group_hist_photo", "group_id",
+		"telegram_groups", "photo_file_id"}
+)
+
+// photoItems sets the photo changes' PhotoID, in one query for the
+// page: the newest row of the owner's history with each file.
+func photoItems(ctx context.Context, db *sql.DB, t photoTable, id int64, es []HistoryEntry) error {
+	var files []any
+	seen := map[uint64]bool{}
+	for _, e := range es {
+		if e.Kind == "photo" && e.Photo.ID != 0 && !seen[e.Photo.ID] {
+			seen[e.Photo.ID] = true
+			files = append(files, e.Photo.ID)
+		}
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	rows, err := db.QueryContext(ctx, "SELECT file_id, id FROM (SELECT file_id, id, "+
+		"ROW_NUMBER() OVER (PARTITION BY file_id ORDER BY created_at DESC, id DESC) AS rn "+
+		"FROM "+t.table+" WHERE "+t.owner+" = ? AND file_id IN ("+placeholders(len(files))+
+		")) p WHERE rn = 1", append([]any{id}, files...)...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	out := []Photo{}
+	newest := map[uint64]uint64{}
+	for rows.Next() {
+		var file, row uint64
+		if err := rows.Scan(&file, &row); err != nil {
+			return err
+		}
+		newest[file] = row
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range es {
+		if es[i].Kind == "photo" && es[i].Photo.ID != 0 {
+			es[i].photoID = newest[es[i].Photo.ID]
+			if es[i].photoID == 0 {
+				es[i].photoID = es[i].rowID
+			}
+		}
+	}
+	return nil
+}
+
+// photos is the owner's photo list (PhotoList), in two queries: the
+// current photo, and the history table's photos, at most MaxPhotos
+// rows newest first, the removals (rows without a file) left out.
+//
+// The history records only the changes the logger saw, so the current
+// photo may be missing from it, or not be its newest entry; the list
+// starts with it all the same. When the history has no row for it,
+// its time is when the logger recorded its file (else when it last
+// updated the owner's row).
+func photos(ctx context.Context, db *sql.DB, t photoTable, id int64) (PhotoList, error) {
+	var (
+		current   uint64
+		currentAt int64
+		cf        nullFile
+	)
+	err := db.QueryRowContext(ctx, "SELECT COALESCE(o."+t.photoCol+", 0), "+
+		"UNIX_TIMESTAMP(COALESCE(f.created_at, o.updated_at)), "+fileColumnsOf("f")+
+		" FROM "+t.ownerTable+" o LEFT JOIN telegram_files f ON f.id = o."+t.photoCol+
+		" WHERE o.id = ?", id).Scan(append([]any{&current, &currentAt}, cf.dest()...)...)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return PhotoList{}, err
+	}
+
+	rows, err := db.QueryContext(ctx, "SELECT p.id, UNIX_TIMESTAMP(p.created_at), p.file_id, "+
+		fileColumnsOf("f")+" FROM "+t.table+" p "+
+		"LEFT JOIN telegram_files f ON f.id = p.file_id "+
+		"WHERE p."+t.owner+" = ? AND p.file_id IS NOT NULL "+
+		"ORDER BY p.created_at DESC, p.id DESC LIMIT ?", id, MaxPhotos)
+	if err != nil {
+		return PhotoList{}, err
+	}
+	defer rows.Close()
+	var recorded []Photo
 	for rows.Next() {
 		var (
 			p    Photo
@@ -266,22 +363,49 @@ func photos(ctx context.Context, db *sql.DB, table, owner string, id int64) ([]P
 			f    nullFile
 		)
 		if err := rows.Scan(append([]any{&p.ID, &p.At, &file}, f.dest()...)...); err != nil {
-			return nil, err
+			return PhotoList{}, err
 		}
 		p.File = f.ref(file)
-		out = append(out, p)
+		recorded = append(recorded, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return PhotoList{}, err
+	}
+
+	l := PhotoList{Photos: []Photo{}}
+	seen := map[uint64]bool{}
+	if current != 0 {
+		l.Current = true
+		seen[current] = true
+		first := Photo{At: currentAt, File: cf.ref(current)}
+		for _, p := range recorded {
+			if p.File.ID == current {
+				first = p // the newest time its file was set
+				break
+			}
+		}
+		l.Photos = append(l.Photos, first)
+	}
+	for _, p := range recorded {
+		if !seen[p.File.ID] {
+			seen[p.File.ID] = true
+			l.Photos = append(l.Photos, p)
+		}
+	}
+	if len(l.Photos) > MaxPhotos {
+		l.Photos = l.Photos[:MaxPhotos]
+	}
+	return l, nil
 }
 
-// UserPhotos are the user's recorded profile photos (see photos). Only
-// for a viewer who sees users in full; the caller checks.
-func UserPhotos(ctx context.Context, db *sql.DB, id int64) ([]Photo, error) {
-	return photos(ctx, db, "telegram_user_hist_profile_photo", "user_id", id)
+// UserPhotos is the user's photo list (see photos). Only for a viewer
+// who sees users in full; the caller checks.
+func UserPhotos(ctx context.Context, db *sql.DB, id int64) (PhotoList, error) {
+	return photos(ctx, db, userPhotoTable, id)
 }
 
-// GroupPhotos are the group's recorded photos (see photos). Only for a
-// group the viewer's scope sees; the caller checks.
-func GroupPhotos(ctx context.Context, db *sql.DB, id int64) ([]Photo, error) {
-	return photos(ctx, db, "telegram_group_hist_photo", "group_id", id)
+// GroupPhotos is the group's photo list (see photos). Only for a group
+// the viewer's scope sees; the caller checks.
+func GroupPhotos(ctx context.Context, db *sql.DB, id int64) (PhotoList, error) {
+	return photos(ctx, db, groupPhotoTable, id)
 }
