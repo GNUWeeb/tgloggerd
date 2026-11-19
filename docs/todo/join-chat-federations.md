@@ -1,7 +1,7 @@
 # join-chat-federations
 
-Gate Join chat by a per-admin `join_chat` permission, and let that
-admin put the joined group into its federations.
+Let whoever joins a chat (a superadmin, or an admin granted
+`join_chat`) put the joined group into its federations.
 
 ## Why
 
@@ -10,7 +10,6 @@ the right federation (docs/design/web-accounts.md section 3).
 
 ## Scope
 
-- Join chat for superadmins and admins holding `join_chat` only.
 - On the confirmation step, the admin's federations as toggle chips
   (none selected = the group stays in Default); after a successful
   join, the group is added to the chosen federations, audited.
@@ -24,10 +23,10 @@ the right federation (docs/design/web-accounts.md section 3).
 
 ## Depends on
 
-- `web-admin-restrictions`
+Nothing. (The per-admin `join_chat` grant that gates Join chat is
+built: web/docs/accounts.md.)
 
 ## Done when
 
 - An admin with `join_chat` joins a group and ticks two of its
-  federations, and the group appears in both; an admin without it gets
-  404 on the page.
+  federations, and the group appears in both.
