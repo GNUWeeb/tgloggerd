@@ -1803,6 +1803,32 @@ nlohmann::json gift_json(const td_api::gift *g)
 	return j;
 }
 
+/*
+ * The rarity of an upgraded gift's model, symbol or backdrop into @j:
+ * "rarity_per_mille" (kept at 0, which means under 0.1%) or, for a named
+ * rarity, "rarity": "uncommon", "rare", "epic" or "legendary".
+ */
+void put_gift_rarity(nlohmann::json &j,
+		     const td_api::UpgradedGiftAttributeRarity *r)
+{
+	if (!r)
+		return;
+	if (r->get_id() == td_api::upgradedGiftAttributeRarityPerMille::ID)
+		j["rarity_per_mille"] = static_cast<
+			const td_api::upgradedGiftAttributeRarityPerMille &>(*r)
+						.per_mille_;
+	else
+		put_str(j, "rarity",
+			tl_variant(r, "upgradedGiftAttributeRarity"));
+}
+
+/*
+ * An upgraded gift: its ids, title, name, number and owner, and what it
+ * looks like: the model {name, rarity, crafted}, the symbol {name,
+ * rarity}, the backdrop {name, four 0xRRGGBB colours, rarity} and the
+ * details of the gift it was upgraded from. The model's and the
+ * symbol's stickers are message files (role "gift"), not in the JSON.
+ */
 nlohmann::json upgraded_gift_json(const td_api::upgradedGift *g)
 {
 	if (!g)
@@ -1815,6 +1841,40 @@ nlohmann::json upgraded_gift_json(const td_api::upgradedGift *g)
 	put_num(j, "number", g->number_);
 	put_num(j, "publisher_chat_id", g->publisher_chat_id_);
 	put_json(j, "owner", sender_json(g->owner_id_.get()));
+	if (auto *m = g->model_.get()) {
+		nlohmann::json o = nlohmann::json::object();
+		put_str(o, "name", m->name_);
+		put_gift_rarity(o, m->rarity_.get());
+		put_flag(o, "crafted", m->is_crafted_);
+		j["model"] = std::move(o);
+	}
+	if (auto *s = g->symbol_.get()) {
+		nlohmann::json o = nlohmann::json::object();
+		put_str(o, "name", s->name_);
+		put_gift_rarity(o, s->rarity_.get());
+		j["symbol"] = std::move(o);
+	}
+	if (auto *b = g->backdrop_.get()) {
+		/* A colour keeps its value even when 0 (black). */
+		nlohmann::json o = nlohmann::json::object();
+		put_str(o, "name", b->name_);
+		if (auto *c = b->colors_.get()) {
+			o["center_color"] = c->center_color_;
+			o["edge_color"] = c->edge_color_;
+			o["symbol_color"] = c->symbol_color_;
+			o["text_color"] = c->text_color_;
+		}
+		put_gift_rarity(o, b->rarity_.get());
+		j["backdrop"] = std::move(o);
+	}
+	if (auto *d = g->original_details_.get()) {
+		nlohmann::json o = nlohmann::json::object();
+		put_json(o, "sender", sender_json(d->sender_id_.get()));
+		put_json(o, "receiver", sender_json(d->receiver_id_.get()));
+		put_formatted(o, "text", d->text_.get());
+		put_num(o, "date", d->date_);
+		j["original_details"] = std::move(o);
+	}
 	return j;
 }
 
@@ -1910,6 +1970,14 @@ std::optional<std::string> service_extra_json(const td_api::MessageContent &c)
 			put_str(j, "theme_name", static_cast<const td_api::chatThemeEmoji &>(*m.theme_).name_);
 		else if (m.theme_)
 			put_str(j, "theme_kind", tl_variant(m.theme_.get(), "chatTheme"));
+		/* A gift theme names its upgraded gift. */
+		if (m.theme_ && m.theme_->get_id() == td_api::chatThemeGift::ID) {
+			auto &t = static_cast<const td_api::chatThemeGift &>(*m.theme_);
+			if (t.gift_theme_ && t.gift_theme_->gift_) {
+				put_id(j, "gift_id", t.gift_theme_->gift_->id_);
+				put_str(j, "gift_name", t.gift_theme_->gift_->name_);
+			}
+		}
 		break;
 	}
 	case td_api::messageChatSetMessageAutoDeleteTime::ID: {

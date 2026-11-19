@@ -269,6 +269,17 @@ target_compile_options(chat_background_test PRIVATE -Wall -Wextra)
 target_link_libraries(chat_background_test PRIVATE Td::TdStatic tdjson_private
 	nlohmann_json::nlohmann_json Threads::Threads)
 
+# How gift service messages are stored (curated keys, their stickers)
+# over hand-built TDLib objects; not part of the default build:
+#   cmake --build build --target gift_test && build/gift_test
+add_executable(gift_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/gift_test.cpp
+	src/tgloggerd/MessageExtract.cpp)
+target_include_directories(gift_test PRIVATE src)
+target_compile_options(gift_test PRIVATE -Wall -Wextra)
+target_link_libraries(gift_test PRIVATE Td::TdStatic tdjson_private
+	nlohmann_json::nlohmann_json Threads::Threads)
+
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
 # Telegram). Added last: it links Td::TdStatic and connector-jdbc from the
 # subprojects above, and pulls in the self-contained gwdiscord library. Its
