@@ -7273,6 +7273,7 @@ components:
         - $ref: '#/components/schemas/CallDetail'
         - $ref: '#/components/schemas/PaidMediaDetail'
         - $ref: '#/components/schemas/RichDetail'
+        - $ref: '#/components/schemas/WidgetDetail'
         - $ref: '#/components/schemas/PlaceholderDetail'
       discriminator:
         propertyName: kind
@@ -7290,7 +7291,7 @@ components:
           call: '#/components/schemas/CallDetail'
           paid_media: '#/components/schemas/PaidMediaDetail'
           rich: '#/components/schemas/RichDetail'
-          widget: '#/components/schemas/PlaceholderDetail'
+          widget: '#/components/schemas/WidgetDetail'
           expired: '#/components/schemas/PlaceholderDetail'
           unsupported: '#/components/schemas/PlaceholderDetail'
     LocationDetail:
@@ -7653,17 +7654,52 @@ components:
                 oneOf:
                   - $ref: '#/components/schemas/ChatMedia'
                   - type: 'null'
+    WidgetDetail:
+      type: object
+      description: >-
+        A widget (messageWidget): a bot's HTML page, which Telegram
+        draws in a box of the given size. This archive never renders
+        it (decision 2026-11-20-msg-widgets-html): a client shows the
+        box at its size with a note, and on the message page the HTML
+        as escaped source text, never through innerHTML, an iframe or
+        a page of its own, since a bot's HTML on the web's origin would
+        run with the viewer's session. Its caption is the message
+        text.
+      required: [kind, width, height, has_caption, widget_id, html]
+      properties:
+        kind:
+          const: widget
+        width:
+          type: integer
+          description: The box's width as TDLib gives it; 0 is the whole width of the bubble.
+        height:
+          type: integer
+          description: The box's height as TDLib gives it; 0 is a height that is not fixed.
+        has_caption:
+          type: boolean
+          description: Whether the widget has a caption (the message text).
+        widget_id:
+          type: [string, 'null']
+          description: The shared widget's id (an int64 as a string); null for a widget that is not shared.
+        html:
+          type: [string, 'null']
+          description: >-
+            The widget's HTML, to be shown as text only. Sent by the
+            message page alone: the chat window and the other lists
+            send null, to keep their pages small. Null on the message
+            page too when the daemon did not keep it (TDLib's JSON was
+            over its cap, or the row has none).
     PlaceholderDetail:
       type: object
       description: >-
-        A kind the chat shows as a one-line placeholder: a widget (not
-        rendered by this archive), expired self-destructing media, or
-        content TDLib itself could not read.
+        A kind the chat shows as a one-line placeholder: expired
+        self-destructing media, or content TDLib itself could not
+        read.
       required: [kind]
       properties:
         kind:
           type: string
-          enum: [widget, expired, unsupported]
+          enum: [expired, unsupported]
     RichDetail:
       type: object
       description: >-

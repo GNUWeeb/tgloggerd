@@ -13,12 +13,20 @@ No widget appears in the archive so far, so this is low priority.
 
 - Daemon (TDLib session): curated `{width, height, widget_id,
   has_caption}` alongside `tdlib`, no migration.
+  Done: the keys and their meaning are in message-types.md section
+  4.2; `widget_id` is a string, present only for a shared widget.
 - How the HTML is shown, decided by the owner on 2026-11-20 (decision
   file 2026-11-20-msg-widgets-html): never rendered. The message page
   shows the widget's box at its size with a note, and the HTML as
   escaped source text.
 - Go (webapi): a `WidgetDetail` with the size and the HTML as a
   string, sent as text only; nothing serves it as a page.
+  Done: `WidgetDetail` in webapi/openapi.yaml and
+  web/docs/message-kinds.md; `html` is sent by the message page only
+  (null in the chat window and the lists, and over the daemon's cap).
+  The "widgets" fixture is the sample widget, and widget_test.go
+  checks that the served document and JSON carry the HTML as escaped
+  data only.
 - React (frontend): the widget's box at its size with a note, and on
   the message page the HTML as escaped source (a code block), never
   through innerHTML or an iframe.

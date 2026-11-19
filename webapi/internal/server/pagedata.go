@@ -846,6 +846,7 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 	// The stretch around the message, as the chat opened at it
 	// (?at=) names it.
 	pr.s.rechecks.ask(d.ChatID, d.Message.MessageID, pr.sess != nil)
+	k.widgetHTML = true
 	v := pr.view()
 	n := names{d.Users, d.Groups}
 	m := d.Message

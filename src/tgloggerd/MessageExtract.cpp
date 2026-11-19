@@ -1061,12 +1061,14 @@ void page_blocks_files(
  * source (decision 2026-11-19-msg-rich-raw-json). The curated keys come from
  * the live object, so a message whose JSON is over the cap still has them.
  */
-std::string rich_extra_json(const td_api::messageRichMessage &c)
+/*
+ * @cur, a curated object, with TDLib's JSON of @c under "tdlib" beside it
+ * (tdlib_extra_json, so a message over the cap keeps only its class): for
+ * the classes the web draws from TDLib's own shape.
+ */
+std::string curated_beside_tdlib(const nlohmann::json &cur,
+				 const td_api::MessageContent &c)
 {
-	nlohmann::json cur = {
-		{ "blocks", c.message_ ? c.message_->blocks_.size() : 0 },
-		{ "is_rtl", c.message_ ? c.message_->is_rtl_ : false },
-	};
 	std::string out = cur.dump();
 	std::optional<std::string> raw = tdlib_extra_json(c);
 	if (raw && raw->size() > 2 && (*raw)[0] == '{') {
@@ -1075,6 +1077,15 @@ std::string rich_extra_json(const td_api::messageRichMessage &c)
 		out.append(*raw, 1, std::string::npos);
 	}
 	return out;
+}
+
+std::string rich_extra_json(const td_api::messageRichMessage &c)
+{
+	nlohmann::json cur = {
+		{ "blocks", c.message_ ? c.message_->blocks_.size() : 0 },
+		{ "is_rtl", c.message_ ? c.message_->is_rtl_ : false },
+	};
+	return curated_beside_tdlib(cur, c);
 }
 
 
@@ -1134,6 +1145,24 @@ void put_id(nlohmann::json &j, const char *key, int64_t v)
 {
 	if (v != 0)
 		j[key] = std::to_string(v);
+}
+
+/*
+ * A widget's content_extra: the curated {width, height, widget_id,
+ * has_caption} beside TDLib's JSON, which holds the HTML the web shows as
+ * escaped source, never rendered (decision 2026-11-20-msg-widgets-html).
+ * width 0 is the whole width of the bubble and height 0 a height that is
+ * not fixed, so both are kept; widget_id is left out when 0 (not shared).
+ */
+std::string widget_extra_json(const td_api::messageWidget &w)
+{
+	nlohmann::json cur = {
+		{ "width", w.width_ },
+		{ "height", w.height_ },
+		{ "has_caption", w.caption_ && !w.caption_->text_.empty() },
+	};
+	put_id(cur, "widget_id", w.widget_id_);
+	return curated_beside_tdlib(cur, w);
 }
 
 void put_minithumbnail(nlohmann::json &j, const td_api::minithumbnail *m)
@@ -2765,6 +2794,12 @@ void extract_message_content(const td_api::MessageContent &content,
 	 * 4.2.3); every other class keeps what it carries as TDLib's JSON
 	 * until a curated mapping replaces it (section 4.2).
 	 */
+	if (id == td_api::messageWidget::ID) {
+		out.content_extra = widget_extra_json(
+			static_cast<const td_api::messageWidget &>(content));
+		return;
+	}
+
 	bool curated = false;
 	std::optional<std::string> extra = media_extra_json(content, curated);
 	if (!curated)

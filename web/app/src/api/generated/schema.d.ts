@@ -2693,7 +2693,7 @@ export interface components {
             gift_name: string | null;
         };
         /** @description A message kind's detail, from content_extra (docs/design/message-types.md section 4.2.2), the poll tables and telegram_message_files. Lists that can be long (poll options, checklist tasks, giveaway chats, group call participants) hold at most the first 20, with the full count in the matching *_total; a total counts the people and chats left out as hidden too, which says how many there were but not who. A user or a chat is a ChatRef (kind user or group). */
-        MessageDetail: components["schemas"]["LocationDetail"] | components["schemas"]["VenueDetail"] | components["schemas"]["ContactDetail"] | components["schemas"]["DiceDetail"] | components["schemas"]["GameDetail"] | components["schemas"]["PollDetail"] | components["schemas"]["ChecklistDetail"] | components["schemas"]["StoryDetail"] | components["schemas"]["InvoiceDetail"] | components["schemas"]["GiveawayDetail"] | components["schemas"]["CallDetail"] | components["schemas"]["PaidMediaDetail"] | components["schemas"]["RichDetail"] | components["schemas"]["PlaceholderDetail"];
+        MessageDetail: components["schemas"]["LocationDetail"] | components["schemas"]["VenueDetail"] | components["schemas"]["ContactDetail"] | components["schemas"]["DiceDetail"] | components["schemas"]["GameDetail"] | components["schemas"]["PollDetail"] | components["schemas"]["ChecklistDetail"] | components["schemas"]["StoryDetail"] | components["schemas"]["InvoiceDetail"] | components["schemas"]["GiveawayDetail"] | components["schemas"]["CallDetail"] | components["schemas"]["PaidMediaDetail"] | components["schemas"]["RichDetail"] | components["schemas"]["WidgetDetail"] | components["schemas"]["PlaceholderDetail"];
         /** @description A location, in degrees. A live location shows its latest position, with how many times it moved (its edit versions; the logger keeps at most one a minute), not a track. */
         LocationDetail: {
             /**
@@ -2916,13 +2916,31 @@ export interface components {
                 media: components["schemas"]["ChatMedia"] | null;
             }[];
         };
-        /** @description A kind the chat shows as a one-line placeholder: a widget (not rendered by this archive), expired self-destructing media, or content TDLib itself could not read. */
+        /** @description A widget (messageWidget): a bot's HTML page, which Telegram draws in a box of the given size. This archive never renders it (decision 2026-11-20-msg-widgets-html): a client shows the box at its size with a note, and on the message page the HTML as escaped source text, never through innerHTML, an iframe or a page of its own, since a bot's HTML on the web's origin would run with the viewer's session. Its caption is the message text. */
+        WidgetDetail: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "widget";
+            /** @description The box's width as TDLib gives it; 0 is the whole width of the bubble. */
+            width: number;
+            /** @description The box's height as TDLib gives it; 0 is a height that is not fixed. */
+            height: number;
+            /** @description Whether the widget has a caption (the message text). */
+            has_caption: boolean;
+            /** @description The shared widget's id (an int64 as a string); null for a widget that is not shared. */
+            widget_id: string | null;
+            /** @description The widget's HTML, to be shown as text only. Sent by the message page alone: the chat window and the other lists send null, to keep their pages small. Null on the message page too when the daemon did not keep it (TDLib's JSON was over its cap, or the row has none). */
+            html: string | null;
+        };
+        /** @description A kind the chat shows as a one-line placeholder: expired self-destructing media, or content TDLib itself could not read. */
         PlaceholderDetail: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            kind: "widget" | "expired" | "unsupported";
+            kind: "expired" | "unsupported";
         };
         /** @description A rich message (messageRichMessage): its page blocks, converted from the TDLib JSON the daemon keeps beside its curated keys (web/docs/message-kinds.md, "Rich messages"). blocks is null when the layout was not kept (a message whose JSON was over the daemon's cap, or a row stored before the mapping and not read again yet): the chat then shows the message text, which holds the plain text of every block either way. A client draws the blocks instead of the text when blocks is not null. */
         RichDetail: {

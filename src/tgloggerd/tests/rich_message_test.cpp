@@ -197,8 +197,68 @@ static td_api::object_ptr<td_api::messageRichMessage> sample(void)
 	return rich(std::move(b), true);
 }
 
+/* A widget as TDLib gives it. */
+static td_api::object_ptr<td_api::messageWidget>
+widget(int32_t w, int32_t h, int64_t id, const std::string &caption)
+{
+	auto c = td_api::make_object<td_api::messageWidget>();
+	c->width_ = w;
+	c->height_ = h;
+	c->html_ = "<script>alert(1)</script><b>hi</b>";
+	c->widget_id_ = id;
+	c->caption_ = td_api::make_object<td_api::formattedText>(
+		caption, std::vector<td_api::object_ptr<td_api::textEntity>>());
+	return c;
+}
+
+static void test_widget(void)
+{
+	printf("test: a widget's content_extra\n");
+	{
+		auto c = widget(320, 200, 1234567890123456789LL, "Live score");
+		models::MessageContent out;
+		extract_message_content(*c, out);
+		CHECK(out.content_type == models::MessageContentType::Widget,
+		      "stored as widget");
+		CHECK(out.text.value_or("") == "Live score",
+		      "the caption is the text");
+		nlohmann::json j = nlohmann::json::parse(
+			out.content_extra.value_or("null"), nullptr, false);
+		CHECK(j.is_object() && j.value("width", -1) == 320 &&
+			      j.value("height", -1) == 200,
+		      "width and height");
+		CHECK(j.is_object() &&
+			      j.value("widget_id", "") == "1234567890123456789",
+		      "widget_id as a string");
+		CHECK(j.is_object() && j.value("has_caption", false),
+		      "has_caption");
+		CHECK(j.is_object() && j.contains("tdlib") &&
+			      j["tdlib"].is_object() &&
+			      j["tdlib"].value("html", "").find("<script>") !=
+				      std::string::npos,
+		      "TDLib's JSON beside it holds the HTML as given");
+	}
+	{
+		auto c = widget(0, 0, 0, "");
+		models::MessageContent out;
+		extract_message_content(*c, out);
+		nlohmann::json j = nlohmann::json::parse(
+			out.content_extra.value_or("null"), nullptr, false);
+		CHECK(j.is_object() && j.value("width", -1) == 0 &&
+			      j.value("height", -1) == 0,
+		      "a full-width, unfixed widget keeps 0 and 0");
+		CHECK(j.is_object() && !j.contains("widget_id"),
+		      "no widget_id when it is not shared");
+		CHECK(j.is_object() && !j.value("has_caption", true),
+		      "has_caption false without a caption");
+		CHECK(!out.text.has_value(), "no caption, no text");
+	}
+}
+
 int main(void)
 {
+	test_widget();
+
 	printf("test: which rich messages are asked for in full\n");
 	{
 		auto whole = rich(Blocks());

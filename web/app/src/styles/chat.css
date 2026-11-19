@@ -389,6 +389,11 @@
 /* A paid media item that does not open: locked, unsupported, not stored. */
 .app .k-paidtile { min-height: 90px; text-align: center; padding: 6px; }
 .app .k-placeholder { display: flex; align-items: center; gap: 6px; }
+/* A widget (chat-widget.tsx): its box at its size, never its page. */
+.app .k-widgetbox { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px; box-sizing: border-box; text-align: center; border: 1px dashed color-mix(in srgb, var(--c-accent) 45%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--c-accent) 6%, transparent); overflow: hidden; }
+.app .k-widgetbox > svg { color: var(--c-accent); }
+.app .k-widgetsrc > summary { cursor: pointer; font-weight: 600; }
+.app .k-widgetsrc pre { max-height: 360px; overflow: auto; }
 .app .k-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
 .app .k-reaction { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 12px; font-size: 13px; background: color-mix(in srgb, var(--c-accent) 14%, transparent); }
 .app .k-reaction svg { color: #e9a700; }

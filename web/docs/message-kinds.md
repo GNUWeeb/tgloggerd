@@ -58,8 +58,20 @@ read in one batch per page of messages.
   part, and `sticker`, the prize's sticker (the message's file of role
   gift) as ChatMedia; null when it is not recorded.
 - `rich`: the page blocks; see "Rich messages" below.
-- `widget`, `expired`, `unsupported`: the kind alone; the chat shows
-  a one-line placeholder.
+- `widget` (WidgetDetail): a bot's HTML page, as `width` and `height`
+  (0: the whole width of the bubble, a height that is not fixed),
+  `has_caption` (the caption is the message text), `widget_id` (a shared
+  widget's id as a string, else null) and `html`. The HTML is never
+  rendered (decision 2026-11-20-msg-widgets-html): a bot's page on the
+  web's origin would run with the viewer's session. The chat draws the
+  box at its size with a note; the message page also shows the HTML as
+  escaped source text, never through innerHTML or an iframe, and nothing
+  serves it as a page. `html` is sent by the message page only (the chat
+  window and the other lists send null, to stay small), and is null
+  there too when the daemon kept TDLib's class alone (its JSON over the
+  cap).
+- `expired`, `unsupported`: the kind alone; the chat shows a one-line
+  placeholder.
 
 Long lists stop at the first 20 items: poll options, checklist tasks,
 giveaway chats and group call participants. The matching `*_total`

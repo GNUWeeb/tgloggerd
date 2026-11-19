@@ -21,6 +21,8 @@ export interface View {
 	fetch: boolean;
 	// Sees users in full (superadmins, admins): a contact's phone.
 	full: boolean;
+	// The message page, which alone gets a widget's HTML.
+	page?: boolean;
 	user: (id: number) => boolean;
 	group: (id: number) => boolean;
 }
@@ -266,7 +268,7 @@ function samples(): Sample[] {
 		// A rich message with every block type the web draws.
 		{ content_type: 'rich', text: RICH_TEXT, detail: richDetail, edited_at: '2026-11-10T09:30:00Z',
 			edits: () => [{ at: '2026-11-10T09:00:00Z', text: RICH_EDIT_TEXT, content_type: 'rich', entities: [], detail: richEditDetail() }] },
-		{ content_type: 'widget', detail: () => ({ kind: 'widget' }) },
+		{ content_type: 'widget', text: 'The build board', detail: () => widget(320, 180, true, '5012345678901234567', WIDGET_HTML) },
 		{ content_type: 'expired', detail: () => ({ kind: 'expired' }) },
 		{ content_type: 'unsupported', detail: () => ({ kind: 'unsupported' }) },
 		{ content_type: 'unknown', tdlib_type: 'messageFancyNewThing' },
@@ -340,6 +342,20 @@ function giftSamples(): Sample[] {
 	];
 }
 
+// A widget as Go sends it to the message page; kindsOf leaves its HTML
+// out elsewhere. The sample HTML tries to run a script two ways, which
+// the web must show as text and never run.
+const WIDGET_HTML = '<!doctype html><html><body><h1>Build board</h1>'
+	+ '<script>document.title = "widget ran"</script>'
+	+ '<img src="x" onerror="document.title = \'widget ran\'"></body></html>';
+const widget = (width: number, height: number, has_caption: boolean, widget_id: string | null, html: string | null) =>
+	({ kind: 'widget', width, height, has_caption, widget_id, html });
+// A widget of no fixed size, and one whose HTML was not kept.
+const MORE_WIDGETS: Sample[] = [
+	{ content_type: 'widget', detail: () => widget(0, 0, false, null, '<div class="w">Hello from a widget</div>') },
+	{ content_type: 'widget', detail: () => widget(400, 300, false, null, null) },
+];
+
 // The sample of a message, by chat and message id.
 let byKey: Map<string, Sample> | null = null;
 function table(): Map<string, Sample> {
@@ -360,9 +376,13 @@ function table(): Map<string, Sample> {
 	});
 	const older = all.slice(0, start).filter((m: { content_type: string }) => m.content_type === 'service').reverse();
 	// The custom emoji sample takes the newest text message before the
-	// samples, so no other sample moves.
-	const plain = all.slice(0, start).reverse().find((m: { content_type: string }) => m.content_type === 'text');
-	if (plain) byKey.set(`group${KINDS_GROUP.id}:${plain.message_id}`, EMOJI_SAMPLE);
+	// samples, and the further widgets the next ones, so no other sample
+	// moves.
+	const texts = all.slice(0, start).reverse().filter((m: { content_type: string }) => m.content_type === 'text');
+	[EMOJI_SAMPLE, ...MORE_WIDGETS].forEach((s, i) => {
+		const m = texts[i];
+		if (m) byKey!.set(`group${KINDS_GROUP.id}:${m.message_id}`, s);
+	});
 	const gifts = giftSamples();
 	[...namingSamples(), ...gifts.slice(0, GROUP_GIFTS)].forEach((s, i) => {
 		const m = older[i];
@@ -519,8 +539,10 @@ export const sampleOf = (m: { chat: { id: number; kind: string }; message_id: nu
 export function kindsOf(m: { chat: { id: number; kind: string }; message_id: number; content_type: string; text?: string }, v: View) {
 	const s = sampleOf(m);
 	const svc = s?.service?.(v);
+	const detail = s?.detail ? s.detail(v) as { kind?: string } | null : null;
 	const base = {
-		detail: s?.detail ? s.detail(v) : null,
+		// Only the message page gets a widget's HTML, as in Go.
+		detail: detail?.kind === 'widget' && !v.page ? { ...detail, html: null } : detail,
 		// Every service message says its action; the stand-in's own ones
 		// name nobody.
 		service: svc ? { type: svc.type, refs: svc.refs, ...(svc.parts ? { parts: svc.parts } : {}), ...(svc.detail != null ? { detail: svc.detail } : {}) } : null,

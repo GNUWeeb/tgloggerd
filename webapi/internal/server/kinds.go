@@ -119,6 +119,28 @@ type kindExtra struct {
 	Items     []struct {
 		Kind string `json:"kind"`
 	} `json:"items"`
+	// widget: the curated keys beside TDLib's JSON, which holds the
+	// HTML (docs/design/message-types.md section 4.2). Width and
+	// height are pointers, as 0 has a meaning of its own.
+	Width      *int64       `json:"width"`
+	Height     *int64       `json:"height"`
+	HasCaption *bool        `json:"has_caption"`
+	WidgetID   string       `json:"widget_id"`
+	Tdlib      *widgetTdlib `json:"tdlib"`
+}
+
+// widgetTdlib is what a widget's detail reads of TDLib's JSON of it:
+// the HTML, and the size, id and caption for a row stored before the
+// daemon kept them as curated keys. Over the daemon's cap the JSON is
+// the class alone, so HTML is nil.
+type widgetTdlib struct {
+	HTML     *string         `json:"html"`
+	Width    int64           `json:"width"`
+	Height   int64           `json:"height"`
+	WidgetID json.RawMessage `json:"widget_id"`
+	Caption  *struct {
+		Text string `json:"text"`
+	} `json:"caption"`
 }
 
 // detailKinds are the content types that have a detail.
@@ -231,6 +253,9 @@ type kinds struct {
 	// previews are the link previews' extra (linkpreview.go), by
 	// row id.
 	previews map[uint64]*previewExtra
+	// widgetHTML is whether the widgets' detail carries their HTML:
+	// on the message page only (widgetDetail).
+	widgetHTML bool
 }
 
 // pollClosed is whether a poll is closed: stored as closed, or past its
@@ -626,6 +651,58 @@ type placeholderJSON struct {
 	Kind string `json:"kind"`
 }
 
+type widgetJSON struct {
+	Kind       string  `json:"kind"`
+	Width      int64   `json:"width"`
+	Height     int64   `json:"height"`
+	HasCaption bool    `json:"has_caption"`
+	WidgetID   *string `json:"widget_id"`
+	HTML       *string `json:"html"`
+}
+
+// widgetDetail is a widget's WidgetDetail from its content_extra x
+// (nil without one), with its HTML when html is set: the message page
+// sends it, the other pages do not, to stay small. The HTML is sent as
+// a string for display as escaped source only; nothing serves it as a
+// page (decision 2026-11-20-msg-widgets-html).
+func widgetDetail(x *kindExtra, html bool) widgetJSON {
+	j := widgetJSON{Kind: "widget"}
+	if x == nil {
+		return j
+	}
+	t := x.Tdlib
+	if t == nil {
+		t = &widgetTdlib{}
+	}
+	j.Width, j.Height = t.Width, t.Height
+	if x.Width != nil {
+		j.Width = *x.Width
+	}
+	if x.Height != nil {
+		j.Height = *x.Height
+	}
+	if x.HasCaption != nil {
+		j.HasCaption = *x.HasCaption
+	} else {
+		j.HasCaption = t.Caption != nil && t.Caption.Text != ""
+	}
+	id := x.WidgetID
+	if id == "" && len(t.WidgetID) > 0 {
+		// TDLib writes an int64 as a string; a number is read too.
+		var n json.Number
+		if json.Unmarshal(t.WidgetID, &id) != nil && json.Unmarshal(t.WidgetID, &n) == nil {
+			id = n.String()
+		}
+	}
+	if id != "" && id != "0" {
+		j.WidgetID = &id
+	}
+	if html {
+		j.HTML = t.HTML
+	}
+	return j
+}
+
 // formattedText reads a content_extra text that is either a string or
 // a formatted text {text, entities}.
 func formattedText(raw json.RawMessage) string {
@@ -708,7 +785,9 @@ func (v view) kindDetail(k kinds, m logdb.Message, ctype string, x *kindExtra, u
 	switch ctype {
 	case "rich":
 		return v.richDetail(k, m, nil)
-	case "widget", "expired", "unsupported":
+	case "widget":
+		return widgetDetail(x, k.widgetHTML)
+	case "expired", "unsupported":
 		return placeholderJSON{Kind: ctype}
 	}
 	if x == nil {
