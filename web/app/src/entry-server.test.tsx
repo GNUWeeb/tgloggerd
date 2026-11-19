@@ -3,7 +3,7 @@ import { render, BUILD } from './entry-server.tsx';
 import { headHtml } from './head.ts';
 import type { PageData } from './page.ts';
 
-const page = (route: string): PageData => ({ v: 1, route, url: '/x', status: 404, props: {}, viewer: { signed_in: false, now: '2026-11-18T00:00:00Z' } });
+const page = (route: string): PageData => ({ v: 1, route, url: '/x', status: 404, props: {}, viewer: { signed_in: false, now: '2026-11-18T00:00:00Z', logger: null } });
 
 describe('server entry', () => {
 	it('carries the build id', () => {

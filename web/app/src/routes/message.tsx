@@ -4,7 +4,7 @@ import { Link } from '../nav.tsx';
 import { Avatar, Btn, Card, KV, Pill } from '../ui/primitives.tsx';
 import { Thumb, TypeIcon, duration } from '../ui/media.tsx';
 import { contentLabel, serviceLabel, typeLabel } from '../ui/labels.ts';
-import { loggerName, loggerOf } from '../ui/logger.ts';
+import { loggerName } from '../ui/logger.ts';
 import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
@@ -47,7 +47,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 	// Posted as a chat (a channel, an anonymous admin): link that chat.
 	const asChat = m.sender_chat;
 	// No sender: the logging account ("You" when signed in).
-	const logger = v.signed_in ? null : loggerOf(v);
+	const logger = v.signed_in ? null : v.logger;
 	const senderLink = asChat ? <Link to={`/groups/${asChat.id}`} className="a-rowlink"><b>{asChat.title}</b></Link>
 		: m.sender ? (m.sender.id !== 0 ? <Link to={`/users/${m.sender.id}`} className="a-rowlink"><b>{m.sender.name}</b></Link> : <b className="a-muted">{m.sender.name}</b>) : <b>{v.signed_in ? 'You (logging account)' : loggerName(v)}</b>;
 	const f = m.forward_from;

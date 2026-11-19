@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { documentHtml, scriptJson } from './document.ts';
 import type { PageData } from '../src/page.ts';
 
-const page: PageData = { v: 1, route: 'users', url: '/users', status: 200, props: { name: '</script><script>alert(1)</script> & \u2028' }, viewer: { signed_in: true, now: '2026-11-18T00:00:00Z', theme: 'dark' } };
+const page: PageData = { v: 1, route: 'users', url: '/users', status: 200, props: { name: '</script><script>alert(1)</script> & \u2028' }, viewer: { signed_in: true, now: '2026-11-18T00:00:00Z', theme: 'dark', logger: null } };
 
 describe('document assembly', () => {
 	it('escapes the page data like encoding/json', () => {
