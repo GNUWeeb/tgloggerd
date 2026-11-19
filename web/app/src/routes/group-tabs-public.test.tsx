@@ -38,7 +38,7 @@ describe('public group tabs', () => {
 		expect(cards).toHaveLength(rows.length);
 		const card = cards[0]!;
 		const f = rows[0]!;
-		expect(within(card).getByText(f.sender.name).closest('a')).toBeNull();
+		expect(within(card).getByText(f.sender!.name).closest('a')).toBeNull();
 		expect(within(card).getByRole('link', { name: 'In the chat' }).getAttribute('href')).toBe(f.chat_link);
 		expect(document.querySelector('a[href^="/messages/"]')).toBeNull();
 		expect(document.querySelector('a[href^="/users/"]')).toBeNull();
@@ -53,7 +53,7 @@ describe('public group tabs', () => {
 		const d = await screen.findByRole('dialog', { name: f.name });
 		expect(within(d).getByRole('link', { name: 'In the chat' })).toBeTruthy();
 		expect(within(d).queryByRole('link', { name: 'Message' })).toBeNull();
-		expect(within(d).getByText(f.sender.name).closest('a')).toBeNull();
+		expect(within(d).getByText(f.sender!.name).closest('a')).toBeNull();
 	});
 
 	it('page the public files from the JSON twin', async () => {
@@ -76,7 +76,7 @@ describe('public group tabs', () => {
 		expect(cards).toHaveLength(rows.length);
 		expect(cards[0]!.querySelector('.k-poll')).not.toBeNull();
 		expect(within(cards[0]!).getByRole('link', { name: 'In the chat' }).getAttribute('href')).toBe(rows[0]!.chat_link);
-		expect(within(cards[0]!).getByText(rows[0]!.sender.name).closest('a')).toBeNull();
+		expect(within(cards[0]!).getByText(rows[0]!.sender!.name).closest('a')).toBeNull();
 		expect(document.querySelector('a[href^="/messages/"], a[href^="/users/"]')).toBeNull();
 	});
 
@@ -89,7 +89,7 @@ describe('public group tabs', () => {
 		expect(document.querySelector('.a-crumbs, nav[aria-label="Main"]')).not.toBeNull();
 		expect(within(tabRow()).getAllByRole('link').map((a) => a.textContent!.replace(/\d.*$/, ''))).toEqual(['Overview', 'Files', 'Polls']);
 		const f = (p.props as GroupFilesPage).rows[0]!;
-		expect(within(document.querySelector<HTMLElement>('.a-groupfile')!).getByText(f.sender.name).closest('a')).toBeNull();
+		expect(within(document.querySelector<HTMLElement>('.a-groupfile')!).getByText(f.sender!.name).closest('a')).toBeNull();
 		expect(document.querySelector('.a-groupfile a[href^="/messages/"], .a-groupfile a[href^="/users/"]')).toBeNull();
 		expect(screen.getAllByRole('link', { name: 'In the chat' }).length).toBeGreaterThan(0);
 	});

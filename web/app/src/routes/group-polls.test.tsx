@@ -29,7 +29,7 @@ describe('group polls tab', () => {
 			expect(within(c).getByRole('link', { name: 'In the chat' }).getAttribute('href')).toBe(r.chat_link);
 			expect(within(c).getByRole('link', { name: 'Message' }).getAttribute('href')).toBe(`/messages/group/${r.message_row_id}`);
 			expect(c.querySelector('time')!.getAttribute('datetime')).toBe(r.date);
-			if (r.sender.id !== null) expect(within(c).getByRole('link', { name: r.sender.name }).getAttribute('href')).toBe(`/users/${r.sender.id}`);
+			if (r.sender!.id !== null) expect(within(c).getByRole('link', { name: r.sender!.name }).getAttribute('href')).toBe(`/users/${r.sender!.id}`);
 		});
 		// The closed quiz marks its correct option; the long poll says how
 		// many options it leaves out.
@@ -67,12 +67,24 @@ describe('group polls tab', () => {
 	it('names a sender without an id without linking it, and says when a poll was not stored', () => {
 		const p = fixture<GroupPollsPage>(pollsUrl(FILES_GROUP.id));
 		const r = p.props.rows[0]!;
-		const rows = [{ ...r, sender: { id: null, name: '(hidden chat)', username: null, photo: null }, poll: null }];
+		const rows = [{ ...r, sender: { id: null, name: '(hidden chat)', username: '', photo: null }, poll: null }];
 		fakeApi('superadmin');
 		renderPage(pollsUrl(FILES_GROUP.id), 'superadmin', { props: { ...p.props, rows, next_before: null } });
 		const c = cards()[0]!;
 		expect(within(c).getByText('(hidden chat)').closest('a')).toBeNull();
 		expect(within(c).getByText('This poll was not stored.')).toBeTruthy();
 		expect(within(c).getByRole('link', { name: 'Message' }).getAttribute('href')).toBe(`/messages/group/${r.message_row_id}`);
+	});
+
+	it('draws a poll whose message has no sender, without a name or a user link', () => {
+		const p = fixture<GroupPollsPage>(pollsUrl(FILES_GROUP.id));
+		const r = p.props.rows[0]!;
+		fakeApi('superadmin');
+		renderPage(pollsUrl(FILES_GROUP.id), 'superadmin', { props: { ...p.props, rows: [{ ...r, sender: null }], next_before: null } });
+		const c = cards()[0]!;
+		expect(c.querySelector('.a-sentby')).toBeNull();
+		expect([...c.querySelectorAll('a')].map((a) => a.textContent)).toEqual(['In the chat', 'Message']);
+		expect(c.querySelector('.k-poll')).not.toBeNull();
+		expect(within(c).getByRole('link', { name: 'In the chat' }).getAttribute('href')).toBe(r.chat_link);
 	});
 });

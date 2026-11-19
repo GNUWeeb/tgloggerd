@@ -120,4 +120,30 @@ describe('group files tab', () => {
 		renderPage(filesUrl(mine), 'member');
 		expect(kindNav()).toBeTruthy();
 	});
+
+	it('draws a file whose message has no sender in the grid, the list and the preview', async () => {
+		const p = fixture<GroupFilesPage>(filesUrl(FILES_GROUP.id));
+		const f = { ...p.props.rows[0]!, sender: null };
+		fakeApi('superadmin');
+		const props = { ...p.props, rows: [f], next_before: null };
+		const noSender = (el: Element) => {
+			expect(el.querySelector('.a-sentby')).toBeNull();
+			// No sender's page (/users/{id}, or /groups/{id} for a chat).
+			expect([...el.querySelectorAll('a')].filter((a) => /^\/(users|groups)\/-?\d+$/.test(a.getAttribute('href')!))).toEqual([]);
+		};
+		const { unmount } = renderPage(filesUrl(FILES_GROUP.id, '?view=list'), 'superadmin', { props });
+		const row = document.querySelector<HTMLElement>('.a-table tbody tr')!;
+		noSender(row);
+		expect(within(row).getByRole('link', { name: 'Message' }).getAttribute('href')).toBe(`/messages/group/${f.message_row_id}`);
+		unmount();
+		renderPage(filesUrl(FILES_GROUP.id), 'superadmin', { props });
+		const card = document.querySelector<HTMLElement>('.a-groupfile')!;
+		noSender(card);
+		expect(within(card).getByRole('link', { name: 'In the chat' }).getAttribute('href')).toBe(f.chat_link);
+		fireEvent.click(card.querySelector<HTMLElement>('.a-filecard')!);
+		const d = await screen.findByRole('dialog', { name: f.name });
+		noSender(d);
+		expect(within(d).queryByText('Sender')).toBeNull();
+		expect(within(d).getByRole('link', { name: 'Message' })).toBeTruthy();
+	});
 });

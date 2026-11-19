@@ -3,8 +3,8 @@
 // /api/groups/{id}/files and /polls), as the Go service is to answer
 // them: the files of the group's messages and its poll messages, newest
 // message first, 50 to a page, paged backwards by ?before=<message id>.
-// The shapes are not in webapi/openapi.yaml yet (src/api/groupfiles.ts
-// has them for the app).
+// GroupFileRow has no duration in webapi/openapi.yaml yet; the rows
+// carry it as the service is to send it.
 //
 // The files follow what the chat shows: a message's media and its album
 // items, kinds as the chat renders them (every fourth video is a GIF, a
@@ -27,7 +27,7 @@ type Msg = {
 	media?: { fileId: number; ext?: string; name?: string; size?: number; stored?: boolean; w?: number; h?: number; duration?: number } | null;
 	album?: { fileId: number; size?: number; name?: string }[];
 };
-type Sender = { id: number | null; name: string; username: string | null; photo: string | null };
+type Sender = { id: number | null; name: string; username: string; photo: string | null };
 
 const iso = (s: string) => s.replace(' ', 'T') + 'Z';
 const STICKER_FORMATS = ['webp', 'webm', 'tgs'];
@@ -35,13 +35,13 @@ const EXT_OF: Record<string, string> = { photo: 'jpg', video: 'mp4', animation: 
 
 // Who sent a message, as the viewer may see them: a channel's post is
 // sent as the channel; one the viewer may not see is named but has no
-// id, as Go sends a hidden chat ("(hidden chat)"). Never null. Every
-// third sender has a profile photo.
+// id, as Go sends a hidden chat ("(hidden chat)"). Never null; no
+// username is an empty one. Every third sender has a profile photo.
 function senderFor(m: Msg, v: View): Sender {
-	if (m.chat.type === 'channel') return { id: m.chat.id, name: m.chat.title ?? '', username: m.chat.username ?? null, photo: null };
+	if (m.chat.type === 'channel') return { id: m.chat.id, name: m.chat.title ?? '', username: m.chat.username ?? '', photo: null };
 	const s = senderOf(m) as { id: number; name: string; username?: string | null } | null;
-	if (!s || !s.id || !v.user(s.id)) return { id: null, name: '(hidden chat)', username: null, photo: null };
-	return { id: s.id, name: s.name, username: s.username ?? null, photo: s.id % 3 === 0 ? `/files/standin-${800000 + (s.id % 100000)}` : null };
+	if (!s || !s.id || !v.user(s.id)) return { id: null, name: '(hidden chat)', username: '', photo: null };
+	return { id: s.id, name: s.name, username: s.username ?? '', photo: s.id % 3 === 0 ? `/files/standin-${800000 + (s.id % 100000)}` : null };
 }
 
 // A file as the list carries it: FileRow's own fields and the message.
@@ -53,7 +53,7 @@ function fileOf(m: Msg, md: { fileId: number; ext?: string; name?: string; size?
 	// Only a stored picture an <img> can draw has a thumb here.
 	const picture = kind === 'photo' || (kind === 'sticker' && ext === 'webp');
 	return {
-		file_type: kind === 'video_note' ? 'video_note' : kind, name: md.name || `${kind}_${md.fileId}.${ext}`, ext,
+		id: md.fileId, file_type: kind === 'video_note' ? 'video_note' : kind, name: md.name || `${kind}_${md.fileId}.${ext}`, ext,
 		size: md.size || 30000 + (md.fileId % 997) * 311, stored, fetchable, url, thumb: stored && picture ? url : null,
 		...(md.duration ? { duration: md.duration } : {}),
 		message_id: m.message_id, message_row_id: m.id, date: iso(m.date), sender: senderFor(m, v),
