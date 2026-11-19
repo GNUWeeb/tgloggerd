@@ -109,6 +109,29 @@ Storing every kind of Telegram message faithfully:
 [design/message-types.md](design/message-types.md).
 
 - [`msg-interaction`](todo/msg-interaction.md): Choose the interval at which interaction totals are written, from a day of the live update rate.
+- [`msg-repair-census`](todo/msg-repair-census.md): Count what the repair pass left without a kind or detail, turn it off, and adjust these items.
+- [`msg-schema-prep`](todo/msg-schema-prep.md): Add the file roles, the link preview extras column and the custom emoji table the lossy kinds need.
+- [`msg-rich-store`](todo/msg-rich-store.md): Store a rich message's plain text, a short summary and the media in its page blocks.
+- [`msg-custom-emoji-store`](todo/msg-custom-emoji-store.md): Fill the custom emoji table on demand from a daemon endpoint, with each sticker's file.
+- [`msg-type-labels`](todo/msg-type-labels.md): Give every content type and service type a human label, shared by the chat, the message page and the lists.
+- [`msg-service-lines`](todo/msg-service-lines.md): Make service lines read as sentences: "You" for the logging account, no actor before a plain notice.
+- [`msg-service-links`](todo/msg-service-links.md): Link the people and chats a service line names, from text parts the API sends.
+- [`msg-service-detail`](todo/msg-service-detail.md): Show a service action's stored detail: the new photo, durations, the pinned snippet, the topic, the community.
+- [`msg-service-text`](todo/msg-service-text.md): Rebuild with names the service types whose stored line names nobody, such as gifts and auto-delete changes.
+- [`msg-kind-leftovers`](todo/msg-kind-leftovers.md): Close the small gaps in the cards of kinds that have a detail, and in their placeholders and fallbacks.
+- [`msg-message-page-parity`](todo/msg-message-page-parity.md): Show a message's link preview and its forum topic's name on the message page.
+- [`msg-kind-snippets`](todo/msg-kind-snippets.md): Summarise a textless message by its detail in reply quotes and list snippets instead of "[poll]".
+- [`msg-list-filters`](todo/msg-list-filters.md): Filter the message and file lists by kind as expected: private service rows, real media, typed service types.
+- [`msg-paid-media-viewer`](todo/msg-paid-media-viewer.md): Open a paid media message's photos in the viewer and play its videos.
+- [`msg-edit-detail`](todo/msg-edit-detail.md): Show the detail of a message's earlier versions, such as a live location's earlier positions.
+- [`msg-contact-vcard`](todo/msg-contact-vcard.md): Show the numbers, addresses and organisation in a shared contact's vCard (optional).
+- [`msg-files-roles`](todo/msg-files-roles.md): Show and filter by the role a file plays in its message on /files (optional).
+- [`msg-rich-render`](todo/msg-rich-render.md): Draw a rich message's page blocks and media in the chat and on its message page.
+- [`msg-custom-emoji-web`](todo/msg-custom-emoji-web.md): Draw custom emoji as their stickers in text, reactions, topic icons and effects.
+- [`msg-link-preview-media`](todo/msg-link-preview-media.md): Keep and show a link preview's own video or audio, embed size and Telegram target.
+- [`msg-chat-backgrounds`](todo/msg-chat-backgrounds.md): Keep and show a background change's wallpaper and fill, and an animated chat photo's video.
+- [`msg-gifts`](todo/msg-gifts.md): Keep and show a gift's sticker, an upgraded gift's model, symbol and backdrop, and prize stickers.
+- [`msg-widgets`](todo/msg-widgets.md): Show a widget message's size and, once a sandbox is chosen, its HTML (optional).
 
 ## Web backend in Go
 
