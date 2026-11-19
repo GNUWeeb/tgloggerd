@@ -5875,6 +5875,14 @@ components:
           description: >-
             A custom_emoji's id, as a string (it does not fit a
             double).
+        custom_emoji:
+          description: >-
+            Present exactly when custom_emoji_id is: the sticker behind
+            it, or null while the archive does not know it (the
+            entity's text, its fallback emoji, stands in).
+          oneOf:
+            - $ref: '#/components/schemas/CustomEmoji'
+            - type: 'null'
         media_timestamp:
           type: integer
           description: >-
@@ -6032,7 +6040,7 @@ components:
         is resolved through the request scope, by the same rules as
         the senders: one the viewer may not see is left out (null, or
         absent from its list), never named.
-      required: [detail, service, topic_id, pinned, views, forwards, replies, reactions]
+      required: [detail, service, topic_id, pinned, views, forwards, replies, reactions, effect_id, effect]
       properties:
         detail:
           description: >-
@@ -6079,17 +6087,76 @@ components:
             them; empty when there are none or none were observed.
           items:
             $ref: '#/components/schemas/Reaction'
+        effect_id:
+          type: [string, 'null']
+          description: >-
+            The message effect Telegram showed when the message was
+            sent (meta.effect_id), as a string; null for none.
+        effect:
+          description: >-
+            The effect of effect_id, or null: for none, and while the
+            archive does not know it.
+          oneOf:
+            - $ref: '#/components/schemas/MessageEffect'
+            - type: 'null'
+    CustomEmoji:
+      type: object
+      description: >-
+        The sticker behind a custom emoji id (telegram_custom_emoji),
+        resolved for the page (web/docs/message-kinds.md, "Custom
+        emoji"). emoji is its fallback emoji. url is the sticker's
+        /files/<token> URL in format, null when the archive has no
+        file for it, its format is not known, or the viewer may not
+        have it fetched; the fallback emoji is shown then.
+        needs_repainting: the sticker is drawn in the text colour.
+      required: [emoji, format, url, needs_repainting]
+      properties:
+        emoji:
+          type: string
+        format:
+          type: [string, 'null']
+          enum: [webp, tgs, webm, null]
+        url:
+          type: [string, 'null']
+        needs_repainting:
+          type: boolean
+    MessageEffect:
+      type: object
+      description: >-
+        A message effect (telegram_message_effects), resolved for the
+        page as custom emoji are. emoji is the effect's emoji. url is
+        a small picture of it in format: its static icon (webp), else
+        a premium sticker effect's sticker, else an emoji reaction
+        effect's select animation (tgs); null when there is none the
+        viewer may have, and the emoji is shown then. The full-screen
+        animation is not sent.
+      required: [emoji, format, url]
+      properties:
+        emoji:
+          type: string
+        format:
+          type: [string, 'null']
+          enum: [webp, tgs, webm, null]
+        url:
+          type: [string, 'null']
     Reaction:
       type: object
       description: >-
-        One reaction's total: an emoji, a custom emoji (its id; the web
-        does not have its image), or the paid star reaction.
+        One reaction's total: an emoji, a custom emoji (its id, and
+        its sticker when known), or the paid star reaction.
       required: [count]
       properties:
         emoji:
           type: string
         custom_emoji_id:
           type: string
+        custom_emoji:
+          description: >-
+            Present exactly when custom_emoji_id is: the sticker behind
+            it, or null while the archive does not know it.
+          oneOf:
+            - $ref: '#/components/schemas/CustomEmoji'
+            - type: 'null'
         paid:
           type: boolean
         count:
@@ -6223,10 +6290,10 @@ components:
       type: object
       description: >-
         A forum topic a service line names. id is the message's own
-        forum topic (link to ?topic={id}); name and icon_color (an RGB
-        colour) are the action's own, else the topic's as last seen.
-        Each is null when not known.
-      required: [id, name, icon_color]
+        forum topic (link to ?topic={id}); name, icon_color (an RGB
+        colour) and icon_custom_emoji_id are the action's own, else
+        the topic's as last seen. Each is null when not known.
+      required: [id, name, icon_color, icon_custom_emoji_id, icon_custom_emoji]
       properties:
         id:
           type: [integer, 'null']
@@ -6236,6 +6303,18 @@ components:
         icon_color:
           type: [integer, 'null']
           format: int64
+        icon_custom_emoji_id:
+          type: [string, 'null']
+          description: >-
+            The icon's custom emoji, as a string; null for a topic
+            drawn with icon_color alone, and when not known.
+        icon_custom_emoji:
+          description: >-
+            The sticker of icon_custom_emoji_id; null for none and
+            while the archive does not know it.
+          oneOf:
+            - $ref: '#/components/schemas/CustomEmoji'
+            - type: 'null'
     ServiceCommunityDetail:
       type: object
       description: >-
@@ -6726,7 +6805,7 @@ components:
     ChatTopic:
       type: object
       description: A forum topic, as last seen (telegram_forum_topics).
-      required: [id, name, icon_color, closed, hidden]
+      required: [id, name, icon_color, icon_custom_emoji_id, icon_custom_emoji, closed, hidden]
       properties:
         id:
           type: integer
@@ -6737,6 +6816,18 @@ components:
         icon_color:
           type: integer
           description: The icon's colour, RGB.
+        icon_custom_emoji_id:
+          type: [string, 'null']
+          description: >-
+            The icon's custom emoji, as a string; null for a topic
+            drawn with icon_color alone.
+        icon_custom_emoji:
+          description: >-
+            The sticker of icon_custom_emoji_id; null for none and
+            while the archive does not know it.
+          oneOf:
+            - $ref: '#/components/schemas/CustomEmoji'
+            - type: 'null'
         closed:
           type: boolean
         hidden:
