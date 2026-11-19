@@ -117,6 +117,7 @@ Storing every kind of Telegram message faithfully:
 - [`msg-gifts`](todo/msg-gifts.md): Keep and show a gift's sticker, an upgraded gift's model, symbol and backdrop, and prize stickers.
 - [`msg-communities`](todo/msg-communities.md): Store the communities service lines name, so their lines give the community's name.
 - [`msg-widgets`](todo/msg-widgets.md): Show a widget message's size and, once a sandbox is chosen, its HTML (optional).
+- [`msg-link-preview-types`](todo/msg-link-preview-types.md): Store and show the link preview types still kept as unsupported, and the media of the mapped ones.
 
 ## Web backend in Go
 
