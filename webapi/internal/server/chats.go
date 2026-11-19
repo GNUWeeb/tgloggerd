@@ -571,7 +571,7 @@ func (v view) chatMessage(n names, k kinds, group bool, chatID int64, m logdb.Me
 	if m.EditDate > 0 {
 		j.EditedAt = isoPtr(m.EditDate)
 	}
-	j.LinkPreview = v.linkPreview(m)
+	j.LinkPreview = v.linkPreview(k, m)
 	return j
 }
 

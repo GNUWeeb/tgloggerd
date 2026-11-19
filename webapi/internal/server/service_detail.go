@@ -367,12 +367,8 @@ func (b *backgroundExtra) look() backgroundLookJSON {
 		t := b.Type
 		j.Type = &t
 	}
-	if fl := b.Fill; fl != nil && fillTypes[fl.Type] && (b.Type == "fill" || b.Type == "pattern") {
-		colors := make([]int64, 0, len(fl.Colors))
-		for _, c := range fl.Colors {
-			colors = append(colors, c&0xffffff)
-		}
-		j.Fill = &backgroundFill{Type: fl.Type, Colors: colors, RotationAngle: fl.RotationAngle}
+	if b.Type == "fill" || b.Type == "pattern" {
+		j.Fill = cleanFill(b.Fill)
 	}
 	switch b.Type {
 	case "pattern":
@@ -388,6 +384,19 @@ func (b *backgroundExtra) look() backgroundLookJSON {
 		}
 	}
 	return j
+}
+
+// cleanFill is a fill this service knows, its colours to 24 bits; nil
+// for none and for a fill type it does not know.
+func cleanFill(fl *backgroundFill) *backgroundFill {
+	if fl == nil || !fillTypes[fl.Type] {
+		return nil
+	}
+	colors := make([]int64, 0, len(fl.Colors))
+	for _, c := range fl.Colors {
+		colors = append(colors, c&0xffffff)
+	}
+	return &backgroundFill{Type: fl.Type, Colors: colors, RotationAngle: fl.RotationAngle}
 }
 
 // serviceTopicIcon is the custom emoji of the icon of the topic a

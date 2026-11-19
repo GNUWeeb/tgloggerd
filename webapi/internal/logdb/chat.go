@@ -150,9 +150,12 @@ type LinkPreview struct {
 	// Extra is the type's own fields (docs/design/message-types.md
 	// section 4.8), nil when it has none or was logged before them.
 	Extra []byte
-	// Media is the preview's own video, animation or audio
-	// (telegram_message_files, role preview_media); ID 0 = none.
+	// Media is the preview's own medium (telegram_message_files, role
+	// preview_media, position 0); ID 0 = none.
 	Media FileRef
+	// Files are all its preview_media files, by position
+	// (docs/design/message-types.md section 4.3), Media among them.
+	Files []MessageFile
 	// Target is the archived message a message preview's link names,
 	// nil when it names none or that message is not in the archive.
 	// It is not checked against any scope: the caller shows it when
@@ -651,47 +654,82 @@ func completeMessages(ctx context.Context, db *sql.DB, group bool, ms []Message)
 	}
 	rows, err := db.QueryContext(ctx, "SELECT p."+t.fk+", p.url, p.site_name, p.title, "+
 		"LEFT(COALESCE(p.description, ''), 1000), p.author, p.type, p.extra, "+
-		"COALESCE(p.photo_file_id, 0), "+fileColumnsOf("f")+", COALESCE(mf.file_id, 0), "+
-		fileColumnsOf("pf")+" FROM telegram_link_previews p "+
-		"LEFT JOIN telegram_files f ON f.id = p.photo_file_id "+
-		"LEFT JOIN telegram_message_files mf ON mf."+t.fk+" = p."+t.fk+
-		" AND mf.role = 'preview_media' AND mf.position = 0 "+
-		"LEFT JOIN telegram_files pf ON pf.id = mf.file_id WHERE p."+t.fk+
+		"COALESCE(p.photo_file_id, 0), "+fileColumnsOf("f")+" FROM telegram_link_previews p "+
+		"LEFT JOIN telegram_files f ON f.id = p.photo_file_id WHERE p."+t.fk+
 		" IN ("+idList(ms)+")")
 	if err != nil {
 		return err
 	}
-	var previews []*LinkPreview
+	var (
+		previews []*LinkPreview
+		with     []Message
+	)
 	for rows.Next() {
 		var (
-			mid          uint64
-			p            LinkPreview
-			photo, media uint64
-			f, pf        nullFile
+			mid   uint64
+			p     LinkPreview
+			photo uint64
+			f     nullFile
 		)
 		dest := append([]any{&mid, &p.URL, &p.Site, &p.Title, &p.Description, &p.Author,
 			&p.Type, &p.Extra, &photo}, f.dest()...)
-		dest = append(dest, &media)
-		if err := rows.Scan(append(dest, pf.dest()...)...); err != nil {
+		if err := rows.Scan(dest...); err != nil {
 			rows.Close()
 			return err
 		}
 		if photo != 0 {
 			p.Photo = f.ref(photo)
 		}
-		if media != 0 {
-			p.Media = pf.ref(media)
-		}
 		if m := byRow[mid]; m != nil {
 			m.Preview = &p
 			previews = append(previews, &p)
+			with = append(with, *m)
 		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	if err := previewMedia(ctx, db, t, byRow, with); err != nil {
+		return err
+	}
 	return previewTargets(ctx, db, previews)
+}
+
+// previewMedia adds the preview_media files of the previews of with,
+// the messages among byRow that have one, in one query.
+func previewMedia(ctx context.Context, db *sql.DB, t chatTables, byRow map[uint64]*Message, with []Message) error {
+	if len(with) == 0 {
+		return nil
+	}
+	rows, err := db.QueryContext(ctx, "SELECT mf."+t.fk+", mf.position, mf.file_id, "+
+		fileColumnsOf("f")+" FROM telegram_message_files mf JOIN telegram_files f ON f.id = mf.file_id "+
+		"WHERE mf."+t.fk+" IN ("+idList(with)+") AND mf.role = 'preview_media' "+
+		"ORDER BY mf."+t.fk+", mf.position")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			mid, fileID uint64
+			mf          = MessageFile{Role: "preview_media"}
+			f           nullFile
+		)
+		if err := rows.Scan(append([]any{&mid, &mf.Position, &fileID}, f.dest()...)...); err != nil {
+			return err
+		}
+		m := byRow[mid]
+		if m == nil || m.Preview == nil {
+			continue
+		}
+		mf.File = f.ref(fileID)
+		if mf.Position == 0 {
+			m.Preview.Media = mf.File
+		}
+		m.Preview.Files = append(m.Preview.Files, mf)
+	}
+	return rows.Err()
 }
 
 // messageLink is the target of a message preview's link as the daemon
