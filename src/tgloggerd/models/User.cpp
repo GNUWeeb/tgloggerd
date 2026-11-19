@@ -481,8 +481,23 @@ bool DB::ensurePhotoHistory(mysql::Transaction &tx, bool is_group,
 	const char *col = is_group ? "group_id" : "user_id";
 	if (!tx.query(std::string("SELECT 1 FROM ") + tbl + " WHERE " + col +
 		      " = ? AND file_id = ? LIMIT 1",
-		      { owner_id, (int64_t)file_id }).empty())
+		      { owner_id, (int64_t)file_id }).empty()) {
+		/*
+		 * Already recorded. A photo cannot have become current
+		 * before its own date, so a row dated later than the date
+		 * Telegram gives was dated by when the daemon saw it (or,
+		 * under the old rule, by when it was replaced): take the
+		 * photo's own date. A row dated at or before it is left as
+		 * it is.
+		 */
+		if (date > 0)
+			tx.execute(std::string("UPDATE ") + tbl +
+				   " SET created_at = FROM_UNIXTIME(?) WHERE " +
+				   col + " = ? AND file_id = ?"
+				   " AND created_at > FROM_UNIXTIME(?)",
+				   { date, owner_id, (int64_t)file_id, date });
 		return false;
+	}
 	if (date > 0)
 		tx.insert(std::string("INSERT INTO ") + tbl + " (" + col +
 			  ", file_id, created_at) VALUES (?, ?, FROM_UNIXTIME(?))",

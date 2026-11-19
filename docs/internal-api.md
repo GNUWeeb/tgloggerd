@@ -614,7 +614,9 @@ For each photo the daemon records, never twice:
   (`POST /v1/files/{id}/fetch`), and the current photo is downloaded by
   the daemon's own profile photo handling as before;
 - a `telegram_user_hist_profile_photo` row dated with the photo's own
-  date, unless the history has a row for that file already.
+  date, unless the history has a row for that file already; a row
+  dated later than the photo's own date (dated by when the daemon saw
+  the photo) takes the photo's date.
 
 `photo_id` is TDLib's photo id as a string; `is_current` marks the
 user's current photo. A history photo whose bytes are not stored can be

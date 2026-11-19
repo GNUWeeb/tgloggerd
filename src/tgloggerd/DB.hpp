@@ -430,7 +430,8 @@ public:
 	 * Add a photo to a user's (@is_group false) or group's photo history
 	 * unless it has a row for that file already. @date (Unix time) is
 	 * the photo's own date when Telegram gives one, else 0 for "now".
-	 * Returns whether a row was added.
+	 * A row of the file dated later than @date gets @date: it was dated
+	 * by when the photo was seen. Returns whether a row was added.
 	 */
 	bool ensurePhotoHistory(int64_t owner_id, bool is_group,
 				uint64_t file_id, int64_t date);
