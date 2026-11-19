@@ -17,6 +17,9 @@ get no detail.
 - Daemon (TDLib session): record each community a message or chat
   names (id, name, photo, username if any) in a new table, filled when
   the line is logged and on demand; a migration for it.
+  Done: migration 000049 (telegram_communities and
+  telegram_community_chats; a community has no username in TDLib),
+  described in message-types.md section 4.13.
 - Go (webapi): resolve the community detail from that table, under the
   same visibility rule the detail has now (a community whose chats the
   viewer may see); OpenAPI and web/docs/message-kinds.md follow.
