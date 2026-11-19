@@ -8,6 +8,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -473,5 +474,50 @@ func TestMCPFileLinks(t *testing.T) {
 	s := &Server{tokens: auth.NewFileTokens(testKey)}
 	if u := s.mcpFileURL(770002); u != "" {
 		t.Errorf("without a base URL: %q", u)
+	}
+}
+
+// A match value MySQL's full-text parser cannot read is a tool error
+// that says how to write it, not the parser's bare message; a valid
+// value with operators still searches.
+func TestMCPMatchSyntax(t *testing.T) {
+	t.Parallel()
+	cases, _ := loadMCPCases(t)
+	var base mcpCase
+	for _, c := range cases {
+		if c.Name == "search-match" {
+			base = c
+		}
+	}
+	if base.Name == "" {
+		t.Fatal("no search-match case")
+	}
+	e := newMCPEnv(t, MCPConfig{Threads: 2})
+	call := func(value string) map[string]any {
+		c := base
+		v, _ := json.Marshal(value)
+		c.Body = strings.Replace(base.Body, `"value":"kernel"`, `"value":`+string(v), 1)
+		rec := e.do(c)
+		if rec.Code != 200 {
+			t.Fatalf("%q: status %d %s", value, rec.Code, rec.Body)
+		}
+		var ans struct {
+			Result map[string]any `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &ans); err != nil {
+			t.Fatal(err)
+		}
+		return ans.Result
+	}
+	for _, bad := range []string{"+", "kernel +", "-", "(kernel"} {
+		r := call(bad)
+		text := fmt.Sprint(r["content"])
+		if r["isError"] != true || !strings.Contains(text, "not valid full-text search syntax") ||
+			!strings.Contains(text, "(MySQL: syntax error,") {
+			t.Errorf("%q: %v", bad, r)
+		}
+	}
+	if r := call("+kernel -rust"); r["isError"] == true {
+		t.Errorf("a valid value refused: %v", r)
 	}
 }

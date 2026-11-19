@@ -229,6 +229,23 @@ drogon::orm::Result execTool(const drogon::orm::DbClientPtr &db,
 				"same search is ordered by relevance, which "
 				"the full-text index can serve directly.");
 		}
+		/*
+		 * MySQL's full-text parser reports a value it cannot read with
+		 * a message of its own, "syntax error, unexpected ..." (error
+		 * 1064, as an SQL syntax error, whose message reads "You have
+		 * an error in your SQL syntax"). Such a value is the caller's
+		 * to fix, so say how; the Go service answers the same words.
+		 */
+		if (msg.find("syntax error,") != std::string::npos) {
+			throw ToolError(
+				std::string(what) +
+				": the match value is not valid full-text search "
+				"syntax (MySQL boolean mode). Write plain words, a "
+				"phrase in double quotes, and the operators "
+				"+ - ~ < > * ( ) only next to a word they apply to; "
+				"a value of operators alone, or ending in one, is "
+				"refused (MySQL: " + msg + ")");
+		}
 		throw ToolError(std::string(what) + ": " + msg);
 	}
 }

@@ -112,8 +112,24 @@ func execTool(ctx context.Context, db *sql.DB, q string, binds []any, what strin
 			"same search is ordered by relevance, which " +
 			"the full-text index can serve directly.")
 	}
+	if strings.Contains(msg, ftSyntaxPrefix) {
+		return nil, toolErr(what + ": " + ftSyntaxHint + " (MySQL: " + msg + ")")
+	}
 	return nil, toolErr(what + ": " + msg)
 }
+
+// MySQL's full-text parser reports a value it cannot read with a
+// message of its own, "syntax error, unexpected ..." (error 1064, as an
+// SQL syntax error, whose message reads "You have an error in your SQL
+// syntax"). Such a value is the caller's to fix, so say how; the
+// Drogon web's execTool answers the same words.
+const (
+	ftSyntaxPrefix = "syntax error,"
+	ftSyntaxHint   = "the match value is not valid full-text search syntax " +
+		"(MySQL boolean mode). Write plain words, a phrase in double quotes, " +
+		"and the operators + - ~ < > * ( ) only next to a word they apply to; " +
+		"a value of operators alone, or ending in one, is refused"
+)
 
 const queryFailed = "query failed"
 
