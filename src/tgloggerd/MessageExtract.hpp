@@ -254,7 +254,9 @@ bool telegram_message_link_target(const std::string &url,
  * animation, audio file, document and voice note, an embedded page's
  * poster, an embedded post's author photo and the photos of related
  * articles, including those inside collages, slideshows, quotes, lists,
- * collapsible blocks, covers and embedded posts.
+ * collapsible blocks, covers and embedded posts. After them, the still
+ * thumbnail (JPEG, PNG or WebP) of each video and animation among them,
+ * role "thumbnail", position that of its medium.
  */
 std::vector<ExtraFile> rich_message_files(const td_api::richMessage &m);
 
