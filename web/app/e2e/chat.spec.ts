@@ -102,6 +102,19 @@ test('on its message page, a lone photo whose size is not stored is drawn whole'
 	expect(Math.abs(drawn - natural) / natural).toBeLessThan(0.02);
 });
 
+test('an album\'s photos sit in cells of one size, each drawn whole', async ({ page }) => {
+	await page.goto(`/groups/${G}/chat?at=555422`);
+	const cells = page.locator('#m555422 .c-album .c-media');
+	await expect(cells.first().locator('img')).toHaveJSProperty('complete', true);
+	const boxes = await cells.evaluateAll((els) => els.map((e) => {
+		const r = e.getBoundingClientRect();
+		const img = e.querySelector('img:not(.c-mini)');
+		return { w: Math.round(r.width), h: Math.round(r.height), fit: img ? getComputedStyle(img).objectFit : '' };
+	}));
+	expect(boxes.length).toBeGreaterThan(1);
+	for (const b of boxes) expect(b).toEqual({ w: boxes[0]!.w, h: boxes[0]!.w, fit: 'contain' });
+});
+
 test('a photo opens full size in the viewer above the chat; Esc closes it', async ({ page }) => {
 	await page.goto(`/groups/${G}/chat?at=555422`);
 	await expect(page.locator('.a-livestate')).toBeVisible();
