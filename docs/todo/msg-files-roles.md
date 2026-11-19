@@ -22,7 +22,7 @@ own file. Whether and how they are listed was not confirmed.
 
 ## Depends on
 
-`msg-list-filters` (the same filter fields).
+Nothing.
 
 ## Done when
 
