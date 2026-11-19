@@ -720,10 +720,27 @@ cannot return keeps its JSON. The dry run counts them as `rich`.
 
 ### 4.10 Forwarding to Discord
 
-The new kinds are forwarded under the existing `fwd_other` flag
-(migration 000031). A kind with nothing to read but its structure is
-forwarded as a short plain-text line after its text or caption, which
-keeps the caption's formatting offsets valid:
+Each kind follows a forwarding flag of its own (migrations 000031 and
+000049; decision
+[2026-11-20-fwd-more-types](decisions/2026-11-20-fwd-more-types.md)):
+`fwd_animation`, `fwd_video_note`, `fwd_voice`, `fwd_audio`,
+`fwd_poll` (quizzes too), `fwd_checklist`, `fwd_dice`, `fwd_game`,
+`fwd_location` (venues and live locations too), `fwd_contact`,
+`fwd_story`, `fwd_paid_media`, `fwd_invoice` and `fwd_service`, beside
+text, photo, video, document and sticker. Rich messages, calls,
+giveaways and every kind added later follow `fwd_other`. A message is
+filtered part by part: its file follows its kind's flag; a message's
+text or caption (a text message, a message with a file, paid media)
+follows `fwd_text`; text that belongs to the kind (a poll's
+description, a game's text, a checklist's title, a service line, a
+rich message) follows the kind's flag. The rules are in
+`src/tgloggerd/ForwardFilter.hpp`.
+
+A kind with nothing to read but its structure is forwarded as a short
+plain-text line after its text or caption, which keeps the caption's
+formatting offsets valid; the line follows the kind's flag, so a
+webhook can get the caption without it or the line without the
+caption:
 
 | Kind | Line |
 |---|---|
