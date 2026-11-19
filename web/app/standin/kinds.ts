@@ -34,6 +34,9 @@ const refs = (v: View, ids: number[]) => ids.map((id) => refOf(v, id)).filter((r
 // The sample chats: kinds in a group, topics in a forum group.
 export const KINDS_GROUP = groups[4]!;
 export const FORUM_GROUP = groups[2]!;
+// An exposed group with polls, for the public Polls tab: two older
+// messages of its chat are polls.
+export const PUBLIC_POLLS_GROUP = groups[9]!;
 
 export const TOPICS = [
 	{ id: 1, name: 'General', icon_color: 0x6fb9f0, closed: false, hidden: false },
@@ -82,7 +85,7 @@ function samples(): Sample[] {
 		{ content_type: 'dice', detail: () => ({ kind: 'dice', emoji: '', value: 6, stake: true }) },
 		{ content_type: 'game', text: 'Beat my score!', detail: () => ({ kind: 'game', title: 'Lumberjack', description: 'Chop the tree, dodge the branches.', short_name: 'lumberjack', photo: null }) },
 		{ content_type: 'poll', text: 'For the next meetup.', detail: poll('Which editor do you use?', 'regular', ['Vim', 'Neovim', 'Emacs', 'VS Code', 'Helix']), kinds: { pinned: true, views: 1534, forwards: 12, replies: 4, reactions: REACTIONS } },
-		{ content_type: 'poll', detail: poll('Who wrote the first Linux kernel?', 'quiz', ['Richard Stallman', 'Linus Torvalds', 'Andrew Tanenbaum']) },
+		{ content_type: 'poll', detail: poll('Who wrote the first Linux kernel?', 'quiz', ['Richard Stallman', 'Linus Torvalds', 'Andrew Tanenbaum'], { closed: true, close_date: '2026-11-10T12:00:00Z' }) },
 		{ content_type: 'poll', detail: poll('Pick your favourite syscall', 'regular', Array.from({ length: 25 }, (_, i) => `syscall_${i + 1}`)) },
 		{ content_type: 'checklist', text: 'Release checklist', detail: (v) => ({
 			kind: 'checklist', tasks_total: 4, others_can_add: true, others_can_mark: true,
@@ -143,7 +146,27 @@ function table(): Map<string, Sample> {
 	return byKey;
 }
 
-export const sampleOf = (m: { chat: { id: number; kind: string }; message_id: number }) => table().get(`${m.chat.kind}${m.chat.id}:${m.message_id}`) ?? null;
+// The public polls group's samples, looked up only once its chat is
+// asked about: generating a chat stream early would move the mockup's
+// file ids, which are handed out in the order chats are generated.
+let pubKeys: Map<number, Sample> | null = null;
+function publicPolls(): Map<number, Sample> {
+	if (pubKeys) return pubKeys;
+	pubKeys = new Map();
+	const pub = chatStream(PUBLIC_POLLS_GROUP);
+	const list: Sample[] = [
+		{ content_type: 'poll', detail: poll('Which CTF category next week?', 'regular', ['Pwn', 'Web', 'Crypto', 'Forensics']) },
+		{ content_type: 'poll', detail: poll('What does ROP stand for?', 'quiz', ['Read Only Page', 'Return Oriented Programming', 'Remote Object Pointer'], { explanation: 'It chains short code pieces that end in a return.' }) },
+	];
+	list.forEach((s, i) => {
+		const m = pub[pub.length - 40 - 20 * i];
+		if (m) pubKeys!.set(m.message_id, s);
+	});
+	return pubKeys;
+}
+
+export const sampleOf = (m: { chat: { id: number; kind: string }; message_id: number }) =>
+	(m.chat.kind === 'group' && m.chat.id === PUBLIC_POLLS_GROUP.id ? publicPolls().get(m.message_id) : table().get(`${m.chat.kind}${m.chat.id}:${m.message_id}`)) ?? null;
 
 // The MessageKinds of a message for a viewer, and what a sample changes
 // of the message itself.

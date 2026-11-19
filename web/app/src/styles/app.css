@@ -373,6 +373,20 @@
 .app .a-filecard-media .a-thumb-sticker { font-size: 64px !important; }
 .app .a-dur { position: absolute; left: 8px; bottom: 8px; background: rgb(0 0 0 / .55); color: #fff; font-size: 11.5px; padding: 1px 6px; border-radius: 6px; font-variant-numeric: tabular-nums; }
 .app .a-filecard-meta { display: flex; flex-direction: column; padding: 8px 10px; min-width: 0; }
+/* A group's files: the card with its sender and message links under it;
+   the sub tabs are links styled as the segmented buttons. */
+.app .a-groupfiles-bar { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.app .a-seg-links a { height: 28px; padding: 0 12px; border-radius: 7px; color: var(--fg-2); font-weight: 550; display: inline-flex; align-items: center; }
+.app .a-seg-links a.on { background: var(--panel); color: var(--fg); box-shadow: var(--shadow), 0 0 0 1px var(--border); }
+.app .a-groupfile { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.app .a-groupfile-from { display: flex; flex-direction: column; gap: 4px; padding: 0 2px; min-width: 0; font-size: 12.5px; }
+.app .a-sentby { gap: 6px; min-width: 0; }
+.app .a-msglinks { display: inline-flex; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
+.app .a-msglinks a { display: inline-flex; align-items: center; gap: 4px; }
+/* A group's polls: compact cards, the chat's poll inside each. */
+.app .a-pollcards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+.app .a-pollcard { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; min-width: 0; }
+.app .a-pollcard-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 12.5px; }
 .app .a-break { overflow-wrap: anywhere; }
 .app .a-btn:disabled { opacity: .5; cursor: default; }
 .app .a-chatcell { display: inline-flex; align-items: center; gap: 8px; max-width: 220px; min-width: 0; }

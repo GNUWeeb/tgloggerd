@@ -18,6 +18,9 @@ import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 import { seesMembers, type MemberCount, type MemberListFlags } from '../api/members.ts';
 import { HideMemberList, Members, type MembersProps } from './group-members.tsx';
+import type { GroupFilesPage, GroupPollsPage } from '../api/groupfiles.ts';
+import { GroupFiles } from './group-files.tsx';
+import { GroupPolls } from './group-polls.tsx';
 
 // The member count and the list's switch are local until the API
 // description has them (api/members.ts).
@@ -26,13 +29,23 @@ export type GroupProps = Omit<S['GroupProps'], 'group'> & MemberListFlags & { gr
 // a member it is not granted to, an admin it is hidden from): the group
 // alone, without admins, history, posters, activity or files.
 export type GroupPublicProps = Omit<S['GroupPublicProps'], 'group'> & { group: S['GroupPublicProps']['group'] & MemberCount };
-// The Members tab (group_members): the list's page beside the group.
-// The other tabs' parts are taken as optional there, so the tab still
-// draws if the service sends the group alone with it.
+// The Members tab (group_members) and the Files tab (group_files): the
+// tab's list beside the group. The other tabs' parts are taken as
+// optional there, so a tab still draws if the service sends the group
+// alone with it (api/members.ts, api/groupfiles.ts).
 export type GroupMembersProps = Partial<Omit<GroupProps, 'group'>> & Pick<GroupProps, 'group'> & MembersProps;
-export type GroupPageProps = GroupProps | GroupMembersProps | GroupPublicProps;
-const isMembers = (p: GroupProps | GroupMembersProps): p is GroupMembersProps => 'available' in p && Array.isArray((p as GroupMembersProps).members);
-const isPublic = (p: GroupPageProps): p is GroupPublicProps => 'public' in p && p.public === true;
+export type GroupFilesProps = Partial<Omit<GroupProps, 'group'>> & Pick<GroupProps, 'group'> & GroupFilesPage;
+// The Polls tab (group_polls), likewise.
+export type GroupPollsProps = Partial<Omit<GroupProps, 'group'>> & Pick<GroupProps, 'group'> & GroupPollsPage;
+// An exposed group's Files or Polls tab to a viewer whose scope does not
+// see the group (signed out, an ungranted member, an admin it is hidden
+// from): the public page's summary with the tab's list
+// (GroupFilesPublicProps, GroupPollsPublicProps).
+export type GroupPublicTabProps = Pick<GroupPublicProps, 'group'> & { public: true } & (GroupFilesPage | GroupPollsPage);
+export type GroupPageProps = GroupProps | GroupMembersProps | GroupFilesProps | GroupPollsProps | GroupPublicProps | GroupPublicTabProps;
+type GroupTabProps = GroupProps | GroupMembersProps | GroupFilesProps | GroupPollsProps;
+const isMembers = (p: GroupTabProps): p is GroupMembersProps => 'available' in p && Array.isArray((p as GroupMembersProps).members);
+const isPublic = (p: GroupPageProps): p is GroupPublicProps | GroupPublicTabProps => 'public' in p && p.public === true;
 
 const KIND = {
 	title: [Type, 'Title changed'], description: [Quote, 'Description changed'], username: [AtSign, 'Username'],
@@ -122,9 +135,15 @@ function Admins({ admins, v }: { admins: GroupAdmin[]; v: PageData['viewer'] }) 
 // The public page of an exposed group: what it is, what it is about,
 // and its chat. Signed out it has the public frame; to a signed-in
 // viewer without the group, the usual shell.
-function PublicGroup({ page }: { page: PageData<GroupPublicProps> }) {
+function PublicGroup({ page }: { page: PageData<GroupPublicProps | GroupPublicTabProps> }) {
 	const g = page.props.group;
 	const v = page.viewer;
+	// Its Files and Polls tabs are public too (no Members, Admins, History
+	// or Messages: those stay with the group's own viewers).
+	const tab = page.route === 'group_files' ? 'files' : page.route === 'group_polls' ? 'polls' : 'group';
+	const fp = tab === 'files' ? page.props as GroupPublicTabProps & GroupFilesPage : null;
+	const pp = tab === 'polls' ? page.props as GroupPublicTabProps & GroupPollsPage : null;
+	const base = `/groups/${g.id}`;
 	const body = (
 		<div className="a-publicgroup">
 			<div className="a-profilehead">
@@ -132,35 +151,53 @@ function PublicGroup({ page }: { page: PageData<GroupPublicProps> }) {
 				<div className="a-ph-main">
 					<h1>{g.title}</h1>
 					<div className="a-ph-meta">
-						{g.usernames.length ? g.usernames.map((n) => <UsernamePill key={n.username} n={n} />) : g.username && <span>@{g.username}</span>}
+						{g.usernames?.length ? g.usernames.map((n) => <UsernamePill key={n.username} n={n} />) : g.username && <span>@{g.username}</span>}
 						<Pill tone={g.type === 'channel' ? 'info' : ''}>{TYPE_LABEL[g.type]}</Pill>
 						<Pill tone="ok"><Globe size={11} />public</Pill>
 					</div>
 				</div>
 				<div className="a-head-actions"><Btn primary to={`/groups/${g.id}/chat`} icon={MessageCircle}>Open chat</Btn></div>
 			</div>
-			<div className="a-stats">
-				<Stat label="Messages" value={fmt(g.msg_count)} />
-				{g.member_count != null && <Stat label="Members" value={fmt(g.member_count)} />}
-				<Stat label="Members seen" value={fmt(g.members)} />
-				<Stat label="First seen" value={ago(g.created_at, v)} sub={dateTime(g.created_at, v)} />
-			</div>
-			<Card title="About">
-				{g.description ? <p className="a-multiline">{g.description}</p> : <p className="a-muted">No description.</p>}
-			</Card>
-			<p className="a-muted sm"><Globe size={13} /> This group's chat is public: anyone can read its archive here, without signing in.</p>
+			<Tabs items={[
+				['Overview', base, tab === 'group'],
+				['Files', `${base}/files`, tab === 'files', fp ? filesBadge(fp) : undefined],
+				['Polls', `${base}/polls`, tab === 'polls', pp ? pollsBadge(pp) : undefined],
+			]} />
+			{fp && <GroupFiles groupId={g.id} url={page.url} p={fp} v={v} pub />}
+			{pp && <GroupPolls groupId={g.id} p={pp} v={v} pub />}
+			{tab === 'group' && <>
+				<div className="a-stats">
+					<Stat label="Messages" value={fmt(g.msg_count)} />
+					{g.member_count != null && <Stat label="Members" value={fmt(g.member_count)} />}
+					<Stat label="Members seen" value={fmt(g.members)} />
+					<Stat label="First seen" value={ago(g.created_at, v)} sub={dateTime(g.created_at, v)} />
+				</div>
+				<Card title="About">
+					{g.description ? <p className="a-multiline">{g.description}</p> : <p className="a-muted">No description.</p>}
+				</Card>
+				<p className="a-muted sm"><Globe size={13} /> This group's chat is public: anyone can read its archive here, without signing in.</p>
+			</>}
 		</div>
 	);
 	if (!v.signed_in) return <PublicFrame viewer={v} url={page.url}><main className="a-content a-publicmain">{body}</main></PublicFrame>;
-	return <Shell crumbs={[['Groups', '/groups'], [g.title, null]]}>{body}</Shell>;
+	const crumbs: [string, string | null][] = [['Groups', '/groups'], [g.title, tab === 'group' ? null : base]];
+	if (tab !== 'group') crumbs.push([tab === 'files' ? 'Files' : 'Polls', null]);
+	return <Shell crumbs={crumbs}>{body}</Shell>;
 }
+
+// The Files tab's badge: every file, when each kind is counted.
+const filesBadge = (p: GroupFilesPage) => (p.kinds.length && p.kinds.every((k) => k.count !== null) ? compact(p.kinds.reduce((a, k) => a + k.count!, 0)) : undefined);
+// The Polls tab's badge: the first page's polls, + when there are more.
+const pollsBadge = (p: GroupPollsPage) => (p.next_before !== null ? `${p.rows.length}+` : p.rows.length);
 
 function GroupPage({ page }: { page: PageData<GroupPageProps> }) {
 	const p = page.props;
-	return isPublic(p) ? <PublicGroup page={{ ...page, props: p }} /> : <Group page={{ ...page, props: p }} />;
+	return isPublic(p)
+		? <PublicGroup page={{ ...page, props: p as GroupPublicProps | GroupPublicTabProps }} />
+		: <Group page={{ ...page, props: p as GroupTabProps }} />;
 }
 
-function Group({ page }: { page: PageData<GroupProps | GroupMembersProps> }) {
+function Group({ page }: { page: PageData<GroupTabProps> }) {
 	const { group: g, admins = [], history: first = [], history_next = null, top_posters = [], activity = [] } = page.props;
 	const v = page.viewer;
 	const load = useCallback((before: string) => ok(api.GET('/api/groups/{id}/history', { params: { path: { id: g.id }, query: { before } } })), [g.id]);
@@ -168,15 +205,17 @@ function Group({ page }: { page: PageData<GroupProps | GroupMembersProps> }) {
 	const history = h.entries;
 	// The photo carousel: undefined is closed, null opens at the current photo.
 	const [photos, setPhotos] = useState<number | null | undefined>(undefined);
-	const tab = page.route === 'group_admins' ? 'admins' : page.route === 'group_history' ? 'history' : page.route === 'group_members' ? 'members' : 'group';
+	const tab = page.route === 'group_admins' ? 'admins' : page.route === 'group_history' ? 'history' : page.route === 'group_members' ? 'members' : page.route === 'group_files' ? 'files' : page.route === 'group_polls' ? 'polls' : 'group';
 	const mp = isMembers(page.props) ? page.props : null;
 	// Telegram's count: the list's own when on its tab, else the group's.
 	const memberCount = mp?.total ?? g.member_count ?? null;
+	const fp = tab === 'files' ? page.props as GroupFilesProps : null;
+	const pp = tab === 'polls' ? page.props as GroupPollsProps : null;
 	const [kind, setKind] = useState<'all' | GroupHistoryEntry['kind']>('all');
 	const shown = kind === 'all' ? history : history.filter((e) => e.kind === kind);
 	const base = `/groups/${g.id}`;
 	const crumbs: [string, string | null][] = [['Groups', '/groups'], [g.title, tab === 'group' ? null : base]];
-	if (tab !== 'group') crumbs.push([tab === 'admins' ? 'Admins' : tab === 'members' ? 'Members' : 'History', null]);
+	if (tab !== 'group') crumbs.push([tab === 'admins' ? 'Admins' : tab === 'members' ? 'Members' : tab === 'files' ? 'Files' : tab === 'polls' ? 'Polls' : 'History', null]);
 	const msgsHref = `/group_messages?f=${encodeURIComponent(JSON.stringify([{ field: 'chat_id', op: '=', value: String(g.id) }]))}`;
 	return (
 		<Shell crumbs={crumbs}>
@@ -203,6 +242,8 @@ function Group({ page }: { page: PageData<GroupProps | GroupMembersProps> }) {
 				...(seesMembers(v) ? [['Members', `${base}/members`, tab === 'members', memberCount != null ? compact(memberCount) : undefined] as [string, string, boolean, string | undefined]] : []),
 				['Admins', `${base}/admins`, tab === 'admins', g.admin_count],
 				['History', `${base}/history`, tab === 'history', page.props.history === undefined ? undefined : h.hasMore ? `${history.length}+` : history.length],
+				['Files', `${base}/files`, tab === 'files', fp ? filesBadge(fp) : undefined],
+				['Polls', `${base}/polls`, tab === 'polls', pp ? pollsBadge(pp) : undefined],
 				['Messages', msgsHref, false, compact(g.msg_count)],
 			]} />
 			{tab === 'group' && (
@@ -249,6 +290,8 @@ function Group({ page }: { page: PageData<GroupProps | GroupMembersProps> }) {
 			{tab === 'admins' && <Admins admins={admins} v={v} />}
 			{tab === 'members' && mp?.can_hide_member_list && <HideMemberList groupId={g.id} hidden={!!mp.hide_member_list} />}
 			{tab === 'members' && mp && <Members groupId={g.id} count={g.member_count ?? null} p={mp} v={v} />}
+			{fp && <GroupFiles groupId={g.id} url={page.url} p={fp} v={v} />}
+			{pp && <GroupPolls groupId={g.id} p={pp} v={v} />}
 			{tab === 'history' && (
 				<div className="a-history">
 					<div className="a-seg" role="tablist">

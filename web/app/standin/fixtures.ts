@@ -16,6 +16,7 @@ import { ALL, kindsOf, sampleOf, topicOf, topicsOf, type View } from './kinds.ts
 import { engineAnswer } from './engine.ts';
 import { memberCount, memberFlags, membersPage } from './members.ts';
 export { membersApi, patchGroup } from './members.ts';
+import { groupFiles, groupPolls } from './groupfiles.ts';
 export { engineOf, setEngine } from './engine.ts';
 import { queryRows } from '../../mockup/src/data/seed.js';
 import type { PageData, Viewer } from '../src/page.ts';
@@ -460,7 +461,7 @@ export function load(url: string, persona: Persona): Loaded {
 	if (path === '/account/email/verify') return { route: 'email_verify', status: 200, props: {} };
 	const acct = persona === 'public' ? null : accounts.find((a) => a.id === PERSONAS[persona]);
 	if (acct && mustChange.has(acct.id)) return { route: 'password_change', status: 200, props: { username: acct.username, next: path + u.search } };
-	if (persona === 'public' && !/^\/groups\/-?\d+(\/chat)?$/.test(path)) return notFound;
+	if (persona === 'public' && !/^\/groups\/-?\d+(\/chat|\/files|\/polls)?$/.test(path)) return notFound;
 	if (path === '/') {
 		const vis = groups.slice(0, 12).filter(s.group);
 		return {
@@ -510,14 +511,16 @@ export function load(url: string, persona: Persona): Loaded {
 		const { st, r, extra } = searchList(listState(u.searchParams, 'msg_count', 25, persona), 'groups', groups, s.role === 'superadmin' ? null : s.group, queryGroups);
 		return { route: 'groups', status: 200, props: { ...st, ...r, ...extra, rows: r.rows.map((g) => ({ ...groupSummary(g), msg_count: g.msg_count, admin_count: g.admin_count, description: g.description, created_at: iso(g.created_at), updated_at: iso(g.updated_at), ...memberCount(g) })), archive_total: s.role === 'member' ? undefined : TOTALS.groups } };
 	}
-	if ((m = path.match(/^\/groups\/(-\d+)(\/admins|\/history|\/members)?$/))) {
+	if ((m = path.match(/^\/groups\/(-\d+)(\/admins|\/history|\/members|\/files|\/polls)?$/))) {
 		const g = getGroup(m[1]);
 		// An exposed group the viewer's scope does not see (signed out, a
 		// member without it, an admin it is hidden from) has a public page:
 		// the group itself, without admins, history, posters or activity.
-		if (g && g.exposed && (persona === 'public' || !s.group(g)) && !m[2]) {
+		// Its Files and Polls tabs are public too, with the same summary.
+		if (g && g.exposed && (persona === 'public' || !s.group(g)) && (!m[2] || m[2] === '/files' || m[2] === '/polls')) {
 			return {
-				route: 'group', status: 200, props: {
+				route: !m[2] ? 'group' : m[2] === '/files' ? 'group_files' : 'group_polls', status: 200, props: {
+					...(m[2] ? groupTab(g, m[2], u.searchParams, persona) : {}),
 					public: true,
 					group: {
 						id: g.id, title: g.title, username: g.username, type: g.type, photo: null, description: g.description, members: g.members, msg_count: g.msg_count, ...memberCount(g),
@@ -531,8 +534,10 @@ export function load(url: string, persona: Persona): Loaded {
 		// ?offset=; 404 to viewers who do not see users in full.
 		const mp = m[2] === '/members' ? membersPage(g, s.role, Number(q(u, 'offset')) || 0) : undefined;
 		if (mp === null) return notFound;
+		// The files and polls tabs (groupfiles.ts); a bad query is read as none.
+		const tabPart = m[2] === '/files' || m[2] === '/polls' ? groupTab(g, m[2], u.searchParams, persona) : {};
 		return {
-			route: m[2] === '/admins' ? 'group_admins' : m[2] === '/history' ? 'group_history' : m[2] === '/members' ? 'group_members' : 'group', status: 200, props: {
+			route: m[2] === '/admins' ? 'group_admins' : m[2] === '/history' ? 'group_history' : m[2] === '/members' ? 'group_members' : m[2] === '/files' ? 'group_files' : m[2] === '/polls' ? 'group_polls' : 'group', status: 200, props: {
 				...(mp ? { ...mp, offset: Number(q(u, 'offset')) || 0, limit: 50 } : {}),
 				...memberFlags(g, s.role),
 				group: {
@@ -543,6 +548,7 @@ export function load(url: string, persona: Persona): Loaded {
 				...(() => { const h = historyPage(groupHistory(g), q(u, 'before'), HISTORY_FIRST) ?? historyPage(groupHistory(g), null, HISTORY_FIRST)!; return { history: h.entries, history_next: h.next }; })(),
 				top_posters: getTopPosters(g).map((p) => ({ user: userSummary(p.user, false), msgs: p.msgs })),
 				activity: getActivity(-g.id, g.msg_count / 40),
+				...tabPart,
 			},
 		};
 	}
@@ -1377,6 +1383,35 @@ export function liveVisible(persona: Persona, e: { kind: string; chat_id?: numbe
 }
 
 // A group the persona may see, for the pin endpoint.
+// A group's files or polls, for its tab's page (a bad ?kind= or
+// ?before= is read as none there) or for GET /api/groups/{id}/files and
+// /polls (400 for it).
+// The view of a group's tab: an exposed group's senders are named to
+// anyone, as in its public chat.
+function tabView(g, persona: Persona): View {
+	const v = viewOf(persona, g.id);
+	return g.exposed && !scopeOf(persona).fullUser ? { ...v, user: () => true } : v;
+}
+function groupTab(g, tab: string, q: URLSearchParams, persona: Persona) {
+	const v = tabView(g, persona);
+	const one = (p: URLSearchParams) => (tab === '/files' ? groupFiles(g, p, v, persona) : groupPolls(g, p, v));
+	const r = one(q);
+	if (typeof r !== 'string') return r;
+	const clean = new URLSearchParams(q);
+	clean.delete(r);
+	return one(clean) as Record<string, unknown>;
+}
+export function groupTabApi(tab: 'files' | 'polls', id: string, q: URLSearchParams, persona: Persona): [number, unknown] {
+	// An exposed group's tabs answer anyone, signed out too.
+	const any = getGroup(id);
+	const g = any?.exposed ? any : groupFor(persona, id);
+	if (!g || (persona === 'public' && !g.exposed)) return [404, { error: 'not_found' }];
+	const v = tabView(g, persona);
+	const r = tab === 'files' ? groupFiles(g, q, v, persona) : groupPolls(g, q, v);
+	if (typeof r === 'string') return [400, { error: 'bad_request', message: `Bad ${r}.`, field: r }];
+	return [200, r];
+}
+
 export function groupFor(persona: Persona, id: string) {
 	const g = getGroup(id);
 	return g && scopeOf(persona).group(g) ? g : null;
