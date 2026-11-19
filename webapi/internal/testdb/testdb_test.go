@@ -192,3 +192,32 @@ func TestFixtures(t *testing.T) {
 		t.Errorf("the next account id is %d", id)
 	}
 }
+
+// The pending schema changes are applied after the migrations, and a
+// pending file run again (as when its migration has made the change
+// already) does nothing.
+func TestPendingChanges(t *testing.T) {
+	t.Parallel()
+	d := New(t, Logger)
+	q := "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? " +
+		"AND TABLE_NAME = 'telegram_groups' AND COLUMN_NAME IN " +
+		"('member_count', 'member_count_at', 'can_get_members')"
+	if n := count(t, d, q, d.Name); n != 3 {
+		t.Fatalf("%d of the member count columns", n)
+	}
+	b, err := pending.ReadFile("pending/logger/member_count.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := srv.admin.Conn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(t.Context(), "USE "+quote(d.Name)+";\n"+string(b)); err != nil {
+		t.Fatalf("again: %v", err)
+	}
+	if n := count(t, d, q, d.Name); n != 3 {
+		t.Fatalf("%d of the member count columns after a second run", n)
+	}
+}

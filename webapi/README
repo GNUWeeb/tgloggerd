@@ -1130,6 +1130,13 @@ named lock, so test binaries running at once, from `go test ./...` or
 from separate runs, share it; each test's database is made from the
 template's table definitions. A new migration needs nothing more.
 
+A schema change whose migration is still being written elsewhere (a
+daemon migration the web already reads) goes in
+internal/testdb/pending/<schema>/*.sql, applied after the migrations.
+Each such file makes its change only when it is missing (a prepared
+ALTER behind an information_schema check), so it does nothing once
+the migration is in, and is removed then.
+
 The fixtures are invented data, nothing from production, following the
 named samples of the app's stand-in (web/mockup/src/data). The header
 of each file lists the ids it uses, so a test can add rows beside them
