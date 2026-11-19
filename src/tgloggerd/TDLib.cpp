@@ -6,6 +6,7 @@
 #include <tgloggerd/MessageExtract.hpp>
 #include <tgloggerd/EmojiExtract.hpp>
 #include <tgloggerd/CommunityExtract.hpp>
+#include <tgloggerd/CommunityPacer.hpp>
 
 #include <td/telegram/Client.h>
 #include <td/telegram/td_api.h>
@@ -948,7 +949,7 @@ struct TDLib::Impl {
 	 * community_full_done_ / community_full_failed_ (time of failure)
 	 * the outcome of their full info: loop thread only. The fetch queue
 	 * is filled from the serial worker (fetchCommunityFullInfo) under
-	 * refetch_mtx_ and drained at kCommunityFullInfoPerSecond.
+	 * refetch_mtx_ and drained at community_pacer_'s pace.
 	 */
 	std::unordered_map<int64_t, models::Community>	communities_;
 	std::unordered_set<int64_t>			community_checked_;
@@ -956,8 +957,7 @@ struct TDLib::Impl {
 	std::unordered_map<int64_t, time_t>		community_full_failed_;
 	std::deque<int64_t>				community_fetch_pending_;
 	std::unordered_set<int64_t>			community_fetch_queued_;
-	time_t						community_tick_ = 0;
-	int						community_in_tick_ = 0;
+	CommunityFullInfoPacer			community_pacer_;
 
 	/*
 	 * Rich messages TDLib delivered without all of their blocks
@@ -2713,11 +2713,13 @@ void TDLib::Impl::enqueue_community_full_info(int64_t community_id)
 }
 
 /*
- * At most this many getCommunityFullInfo calls per second. A backfill can
- * name many communities at once; each is asked for once per run when it
- * succeeds, and not again within kCommunityRetrySecs after it failed.
+ * getCommunityFullInfo is paced by community_pacer_ (CommunityPacer.hpp):
+ * one at a time, a few a minute for the whole account, none during a
+ * flood wait. A backfill can name many communities at once; each is
+ * asked for once per run when it succeeds, and not again within
+ * kCommunityRetrySecs after it failed for another reason than a flood
+ * wait, which instead holds every ask back and retries it.
  */
-constexpr int kCommunityFullInfoPerSecond = 2;
 constexpr time_t kCommunityRetrySecs = 3600;
 
 /* At most this many getFullRichMessage calls per second, and a failed one
@@ -2728,11 +2730,7 @@ constexpr time_t kRichFullRetrySecs = 3600;
 void TDLib::Impl::drain_community_full_info(void)
 {
 	time_t now = std::time(nullptr);
-	if (now != community_tick_) {
-		community_tick_ = now;
-		community_in_tick_ = 0;
-	}
-	while (community_in_tick_ < kCommunityFullInfoPerSecond) {
+	while (community_pacer_.mayAsk(now)) {
 		int64_t id;
 		{
 			std::lock_guard<std::mutex> lk(refetch_mtx_);
@@ -2748,11 +2746,12 @@ void TDLib::Impl::drain_community_full_info(void)
 		if (f != community_full_failed_.end() &&
 		    now - f->second < kCommunityRetrySecs)
 			continue;
-		community_in_tick_++;
+		community_pacer_.asked(now);
 		send_query(td_api::make_object<td_api::getCommunityFullInfo>(id),
 			[this, id](Object obj) {
 				if (obj->get_id() ==
 				    td_api::communityFullInfo::ID) {
+					community_pacer_.answered();
 					emit_community_full_info(id,
 						static_cast<const td_api::communityFullInfo &>(
 							*obj));
@@ -2762,9 +2761,29 @@ void TDLib::Impl::drain_community_full_info(void)
 				if (obj->get_id() == td_api::error::ID) {
 					auto &e = static_cast<const td_api::error &>(
 						*obj);
+					if (e.code_ == 429 || e.code_ == 420) {
+						const long secs =
+							retryAfterSecs(
+								e.message_, 60);
+						community_pacer_.floodWait(
+							std::time(nullptr), secs);
+						pr_info(l_, "community full info:"
+							" paused %lds by a flood"
+							" wait (community %lld"
+							" retried after it)",
+							secs, (long long)id);
+						std::lock_guard<std::mutex> lk(
+							refetch_mtx_);
+						if (community_fetch_queued_
+							    .insert(id).second)
+							community_fetch_pending_
+								.push_front(id);
+						return;
+					}
 					why = std::to_string(e.code_) + " " +
 					      e.message_;
 				}
+				community_pacer_.answered();
 				pr_info(l_, "community %lld: no full info (%s);"
 					" not asked again for an hour",
 					(long long)id, why.c_str());
