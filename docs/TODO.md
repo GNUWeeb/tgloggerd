@@ -113,7 +113,6 @@ Storing every kind of Telegram message faithfully:
 - [`msg-rich-store`](todo/msg-rich-store.md): Store a rich message's plain text, a short summary and the media in its page blocks.
 - [`msg-custom-emoji-store`](todo/msg-custom-emoji-store.md): Fill the custom emoji table on demand from a daemon endpoint, with each sticker's file.
 - [`msg-service-detail`](todo/msg-service-detail.md): Show a service action's stored detail: the new photo, durations, the pinned snippet, the topic, the community.
-- [`msg-service-text`](todo/msg-service-text.md): Rebuild with names the service types whose stored line names nobody, such as gifts and auto-delete changes.
 - [`msg-edit-detail`](todo/msg-edit-detail.md): Show the detail of a message's earlier versions, such as a live location's earlier positions.
 - [`msg-contact-vcard`](todo/msg-contact-vcard.md): Show the numbers, addresses and organisation in a shared contact's vCard (optional).
 - [`msg-files-roles`](todo/msg-files-roles.md): Show and filter by the role a file plays in its message on /files (optional).
