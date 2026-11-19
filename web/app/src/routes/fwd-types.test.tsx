@@ -124,3 +124,27 @@ describe('forwarding content types', () => {
 		expect(box('hologram').checked).toBe(true);
 	});
 });
+
+describe('forwarding route list', () => {
+	it('sums up each route\'s types in one line, the full list in its title', () => {
+		fakeApi('superadmin');
+		renderPage(T2D);
+		const cells = fixture<T2DProps>(T2D).props.routes.map((r) => [...document.querySelectorAll('tbody tr')].find((x) => x.textContent!.includes(r.chat.title))!.querySelector('.a-wrapcell > span')!);
+		const texts = cells.map((c) => c.textContent);
+		expect(texts).toContain('All content');
+		expect(texts).toContain('Messages and media');
+		expect(texts).toContain('All except Stickers, Service messages');
+		expect(texts).toContain('Text, Media (1/6)');
+		expect(texts).toContain('Text only');
+		expect(cells[texts.indexOf('Text, Media (1/6)')]!.getAttribute('title')).toBe('Text, Photos');
+		expect(document.querySelectorAll('tbody .a-wrapcell .a-pill')).toHaveLength(0);
+	});
+
+	it('says All content for a Discord to Telegram route with every option', () => {
+		fakeApi('superadmin');
+		renderPage(D2T);
+		const texts = [...document.querySelectorAll('tbody .a-wrapcell > span')].map((c) => c.textContent);
+		expect(texts).toContain('All content');
+		expect(texts).toContain('Text only');
+	});
+});

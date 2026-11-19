@@ -16,7 +16,7 @@ import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 import { BOT_STATUS, BotAvatar, BotName } from './bots.tsx';
 import { TypePicker } from '../ui/TypePicker.tsx';
-import { typeLabel } from '../ui/fwdtypes.ts';
+import { summaryOf } from '../ui/fwdtypes.ts';
 
 type Person = S['FwdPerson'];
 type Owned = S['Owned'];
@@ -31,9 +31,10 @@ export type D2TProps = S['D2TProps'];
 
 function errText(x: unknown) { return x instanceof ApiError ? x.message : 'The server could not be reached.'; }
 
+// One short line per route; the full list is in its title.
 function Types({ types, all }: { types: string[]; all: readonly string[] }) {
-	if (types.length === all.length) return <span className="a-muted">All content</span>;
-	return <>{types.map((t) => <Pill key={t}>{typeLabel(t)}</Pill>)}</>;
+	const s = summaryOf(all, types);
+	return <span className={s.text === 'All content' ? 'a-muted' : ''} title={s.title}>{s.text}</span>;
 }
 
 function ChatCell({ c }: { c: PickItem }) {
