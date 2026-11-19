@@ -185,6 +185,12 @@ func (v view) storedRef(k kinds, id int64) *chatRefJSON {
 // variants above; nil when its type has none or nothing of it is
 // known or visible.
 func (v view) serviceDetail(k kinds, m logdb.Message) any {
+	switch t := m.ServiceType; {
+	case isGiftType(t):
+		return v.giftDetail(k, m)
+	case t == "chat_set_theme":
+		return v.themeDetail(k, m)
+	}
 	x := k.serviceDetail[m.RowID]
 	if x == nil {
 		return nil
