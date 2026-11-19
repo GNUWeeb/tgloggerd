@@ -707,6 +707,31 @@ keeps the caption's formatting offsets valid:
 A video note forwards its round video as its file, like any other
 media; paid media has no main file and forwards its line only.
 
+### 4.11 Custom emoji (`telegram_custom_emoji`)
+
+Messages refer to a custom emoji by its id only: in text entities
+(`textEntityTypeCustomEmoji`), reactions, forum topic icons, emoji
+statuses and a sticker's `custom_emoji_id`. To draw one, the web needs
+the sticker behind it. Migration 000046 adds a table for them:
+
+    telegram_custom_emoji (migration 000046)
+      custom_emoji_id BIGINT PRIMARY KEY,
+      emoji VARCHAR(16), set_id BIGINT NULL,
+      format ENUM('webp','tgs','webm') NULL,
+      needs_repainting TINYINT(1),
+      file_id (FK telegram_files, ON DELETE SET NULL),
+      created_at, updated_at
+
+One row per custom emoji, shared by every message that uses it. It is
+filled on demand from `getCustomEmojiStickers` (up to 200 ids a call)
+when the daemon stores an id it has no row for; the sticker's file is
+an ordinary `telegram_files` row, recorded without its bytes until
+someone views it, under the storage cache rules. `needs_repainting`
+says the sticker is drawn in the text colour, as emoji statuses are.
+How the table is filled, and whether a message effect's sticker
+(`meta.effect_id`) shares it or needs a sibling table, is decided by
+msg-custom-emoji-store; the web side is msg-custom-emoji-web.
+
 ## 5. Web impact (Go port)
 
 Done in the Go service (web/docs/message-kinds.md); the Drogon web
