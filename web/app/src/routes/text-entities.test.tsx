@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
-// Text entities where the chat shows texts: bubbles, the edit history,
-// polls and checklists, from the stand-in's formatted samples
-// (standin/kinds.ts).
+// Text entities where texts are shown: the chat's bubbles, edit
+// history, polls and checklists, and the message page, from the
+// stand-in's formatted samples (standin/kinds.ts).
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
 import { KINDS_GROUP } from '../../standin/kinds.ts';
 import type { ChatProps } from './chat.tsx';
+import type { MessageProps } from './message.tsx';
 import type { ChatMessage } from '../types.ts';
 import type { HasEntities, TextEntity } from '../api/entities.ts';
 
@@ -141,5 +142,41 @@ describe('text entities in the chat', () => {
 		const text = 'see #tag here';
 		renderPage(purl, 'public', { props: { ...fixture<ChatProps>(purl, 'public').props, messages: [{ ...m, text, entities: [{ offset: 4, length: 4, type: 'hashtag' }] } as ChatMessage] } });
 		expect(screen.getByText('#tag').tagName).toBe('SPAN');
+	});
+});
+
+describe('text entities on the message page', () => {
+	const open = (m: ChatMessage) => {
+		fakeApi('superadmin');
+		renderPage(`/messages/group/${m.id}`);
+		return fixture<MessageProps>(`/messages/group/${m.id}`).props.message;
+	};
+
+	it('draws the text with its entities', () => {
+		const m = open(formatted());
+		const t = document.querySelector('.a-msgtext')!;
+		expect(t.tagName).toBe('DIV');
+		expect(t.textContent).toBe(m.text);
+		expect(within(t as HTMLElement).getByText('the changelog').getAttribute('href')).toBe('https://example.org/changelog');
+		expect(within(t as HTMLElement).getByText('#release').getAttribute('href')).toBe(hashtagHref('#release'));
+		const known = ent(m as unknown as ChatMessage, 'mention', 0);
+		expect(within(t as HTMLElement).getByText(textOf(m, known)).getAttribute('href')).toBe(`/users/${known.user_id}`);
+		fireEvent.click(within(t as HTMLElement).getByRole('button', { name: /spoiler/i }));
+		expect(t.querySelector('.rt-spoiler.shown')).toBeTruthy();
+	});
+
+	it('draws the edit history with entities', () => {
+		open(editedOne());
+		const card = screen.getByText('Edit history').closest('.a-card') ?? document.body;
+		const w = within(card as HTMLElement);
+		expect(w.getByText('#meetup').getAttribute('href')).toBe(hashtagHref('#meetup'));
+		expect(w.getAllByText('Friday').some((x) => x.tagName === 'STRONG')).toBe(true);
+	});
+
+	it('draws code blocks and quotes', () => {
+		open(blocks());
+		const t = document.querySelector('.a-msgtext')!;
+		expect(t.querySelector('pre.rt-pre code.language-rust')).toBeTruthy();
+		expect(within(t as HTMLElement).getByRole('button', { name: 'Show more' })).toBeTruthy();
 	});
 });
