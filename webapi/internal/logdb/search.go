@@ -134,6 +134,12 @@ type Field struct {
 	// internal fields are for the page loaders only: the API neither
 	// lists nor accepts them.
 	internal bool
+	// Pred builds the condition of a field that is neither one column
+	// nor one EXISTS table (Files' role): the SQL, within the request
+	// scope, that holds for a row matching any of vals, already
+	// checked against Enum, with its values. = and in use it as it
+	// is, != negates it.
+	Pred func(sc scope.Scope, vals []string) (string, []any)
 	// NeedsChat fields have no index of their own on a big table: a
 	// search may use one only beside a chat_id = condition that every
 	// row must meet (chatBound), so it reads one chat's rows through
@@ -514,6 +520,15 @@ func (e *Entity) chain(sc scope.Scope, conds []Cond, internal bool, exists *int,
 		if !c.HasV {
 			return "", nil, refuse("field '%s' requires a value", c.C)
 		}
+		if f.Pred != nil {
+			w, b, err := predCond(sc, f, op, c, exists)
+			if err != nil {
+				return "", nil, err
+			}
+			where.WriteString(w + ")")
+			binds = append(binds, b...)
+			continue
+		}
 		if op == OpIn {
 			w, b, err := inList(f, c)
 			if err != nil {
@@ -569,6 +584,37 @@ func (e *Entity) chain(sc scope.Scope, conds []Cond, internal bool, exists *int,
 		binds = append(binds, val)
 	}
 	return where.String(), binds, nil
+}
+
+// predCond is a condition of a Pred field: its values (one, or the
+// list of an "in") checked as the field's single values are, and the
+// predicate, negated for !=. It counts as one EXISTS condition.
+func predCond(sc scope.Scope, f *Field, op Op, c Cond, exists *int) (string, []any, error) {
+	vals := []string{c.V}
+	if op == OpIn {
+		if !c.IsList {
+			return "", nil, refuse("operator 'in' expects a list of values for field '%s'", f.Key)
+		}
+		if len(c.L) == 0 || len(c.L) > MaxInValues {
+			return "", nil, refuse("operator 'in' takes 1 to %d values", MaxInValues)
+		}
+		vals = c.L
+	} else if c.IsList {
+		return "", nil, refuse("operator '%s' takes one value, not a list", c.O)
+	}
+	for _, v := range vals {
+		if err := validValue(f, v); err != nil {
+			return "", nil, err
+		}
+	}
+	if *exists++; *exists > MaxExists {
+		return "", nil, refuse("too many history conditions (max %d)", MaxExists)
+	}
+	w, b := f.Pred(sc, vals)
+	if op == OpNE {
+		w = "NOT (" + w + ")"
+	}
+	return w, b, nil
 }
 
 // inList is an "in" condition of a column field: `<Expr> IN (?, ...)`,
