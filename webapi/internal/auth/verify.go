@@ -82,6 +82,7 @@ func (v *Verifier) Verify(ctx context.Context, r *http.Request) (Session, Check)
 	s.MustChangePassword = st.MustChangePassword
 	s.AdminOf = webdb.JoinIDs(st.AdminOf)
 	s.HidePrivate = st.HidePrivate
+	s.JoinChat = st.JoinChat
 	s.HideGroups = webdb.JoinGroupIDs(st.HideGroups)
 	s.GrantedGroups = webdb.JoinGroupIDs(st.GrantedGroups)
 	s.Abilities = webdb.JoinAbilities(st.Abilities)

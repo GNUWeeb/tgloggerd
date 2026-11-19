@@ -79,7 +79,7 @@ func TestAdminHideGroups(t *testing.T) {
 	expect("unrestricted", true)
 
 	// Only a superadmin restricts, only an admin, only groups the
-	// archive has, and join_chat is not built.
+	// archive has.
 	if st, b, _ := e.call("admin", "PATCH", adminPath, restrict(kernelID)); st != 403 && st != 404 {
 		t.Errorf("by an admin: %d %v", st, b)
 	}
@@ -88,10 +88,6 @@ func TestAdminHideGroups(t *testing.T) {
 	}
 	if st, b, _ := e.call("superadmin", "PATCH", adminPath, restrict(-1009999999999)); st != 400 || b["field"] != "hide_groups" {
 		t.Errorf("an unknown group: %d %v", st, b)
-	}
-	if st, b, _ := e.call("superadmin", "PATCH", adminPath, map[string]any{"restrict": map[string]any{
-		"hide_private": false, "hide_groups": []any{}, "join_chat": true}}); st != 400 || b["error"] != "not_supported" {
-		t.Errorf("join_chat: %d %v", st, b)
 	}
 	expect("after refusals", true)
 

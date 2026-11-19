@@ -72,21 +72,13 @@ func TestAdminHidePrivate(t *testing.T) {
 		return map[string]any{"restrict": map[string]any{"hide_private": hide, "hide_groups": []any{}, "join_chat": false}}
 	}
 
-	// Only a superadmin restricts, only an admin, and join_chat is not
-	// built.
+	// Only a superadmin restricts, and only an admin.
 	// An admin does not manage admins: the account is not found.
 	if st, b, _ := e.call("admin", "PATCH", adminPath, restrict(true)); st != 403 && st != 404 {
 		t.Errorf("by an admin: %d %v", st, b)
 	}
 	if st, b, _ := e.call("superadmin", "PATCH", "/api/accounts/5", restrict(true)); st != 400 || b["error"] != "bad_request" {
 		t.Errorf("a member: %d %v", st, b)
-	}
-	for _, body := range []map[string]any{
-		{"restrict": map[string]any{"hide_private": false, "hide_groups": []any{}, "join_chat": true}},
-	} {
-		if st, b, _ := e.call("superadmin", "PATCH", adminPath, body); st != 400 || b["error"] != "not_supported" {
-			t.Errorf("%v: %d %v", body, st, b)
-		}
 	}
 	expect("after refusals", true)
 
@@ -98,7 +90,7 @@ func TestAdminHidePrivate(t *testing.T) {
 	// The accounts page shows it, and offers it.
 	_, p := e.page("superadmin", "/settings/accounts")
 	props := p["props"].(map[string]any)
-	if ed := props["editable"].(map[string]any); ed["restrict_private"] != true || ed["restrictions"] != false {
+	if ed := props["editable"].(map[string]any); ed["restrict_private"] != true || ed["restrictions"] != true {
 		t.Errorf("editable %v", ed)
 	}
 	for _, a := range props["accounts"].([]any) {

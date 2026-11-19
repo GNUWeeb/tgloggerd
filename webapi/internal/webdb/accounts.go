@@ -42,6 +42,9 @@ type Account struct {
 	// HidePrivate is an admin's restriction: private chats are hidden
 	// from it (false for the other roles).
 	HidePrivate bool
+	// JoinChat is an admin's grant of Join chat (false for the other
+	// roles).
+	JoinChat bool
 	// HideGroups are the groups hidden from an admin, ascending.
 	HideGroups []int64
 	// Grants are a member's granted groups by federation (ascending),
@@ -75,7 +78,7 @@ const accountColumns = "SELECT u.id, u.username, u.display_name, " +
 	"u.must_change_password, COALESCE(u.created_by, 0), " +
 	"UNIX_TIMESTAMP(u.created_at), " +
 	"(SELECT UNIX_TIMESTAMP(MAX(a.created_at)) FROM web_audit a " +
-	"WHERE a.web_user_id = u.id AND a.action = 'login_ok'), u.hide_private, " +
+	"WHERE a.web_user_id = u.id AND a.action = 'login_ok'), u.hide_private, u.join_chat, " +
 	adminOfColumn + ", " + memberOfColumn + ", " + hiddenGroupsColumn + ", " + grantsColumn +
 	", " + abilitiesColumn +
 	"FROM web_users u "
@@ -94,7 +97,7 @@ func scanAccount(row scanner) (Account, error) {
 	)
 	err := row.Scan(&a.ID, &a.Username, &a.DisplayName, &a.Email, &a.EmailVerified, &a.Role,
 		&a.Active, &a.HasPassword, &a.MustChangePassword, &a.CreatedBy,
-		&created, &signin, &a.HidePrivate, &adminOf, &memberOf, &hidden,
+		&created, &signin, &a.HidePrivate, &a.JoinChat, &adminOf, &memberOf, &hidden,
 		&grants, &abilities)
 	if err != nil {
 		return Account{}, err
@@ -293,6 +296,9 @@ type AccountChange struct {
 	// HidePrivate sets an admin's restriction on private chats. It is
 	// cleared whenever the account ends as another role.
 	HidePrivate *bool
+	// JoinChat grants or withdraws an admin's Join chat. It is cleared
+	// whenever the account ends as another role.
+	JoinChat *bool
 	// HideGroups replaces the groups hidden from an admin; they are
 	// dropped whenever the account ends as another role.
 	HideGroups *[]int64
@@ -338,12 +344,12 @@ func UpdateAccount(ctx context.Context, db *sql.DB, actor, id uint64, c AccountC
 	}
 
 	var cur struct {
-		name, email, role   string
-		active, hidePrivate bool
+		name, email, role             string
+		active, hidePrivate, joinChat bool
 	}
 	err = tx.QueryRowContext(ctx, "SELECT display_name, COALESCE(email, ''), role, "+
-		"is_active, hide_private FROM web_users WHERE id = ? FOR UPDATE", id).
-		Scan(&cur.name, &cur.email, &cur.role, &cur.active, &cur.hidePrivate)
+		"is_active, hide_private, join_chat FROM web_users WHERE id = ? FOR UPDATE", id).
+		Scan(&cur.name, &cur.email, &cur.role, &cur.active, &cur.hidePrivate, &cur.joinChat)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, ErrNoUser
 	}
@@ -398,6 +404,17 @@ func UpdateAccount(ctx context.Context, db *sql.DB, actor, id uint64, c AccountC
 	if hide != cur.hidePrivate {
 		sets, args = append(sets, "hide_private = ?"), append(args, hide)
 		detail = append(detail, map[bool]string{true: "hide_private on", false: "hide_private off"}[hide])
+	}
+	join := cur.joinChat
+	if c.JoinChat != nil {
+		join = *c.JoinChat
+	}
+	if endRole != "admin" {
+		join = false
+	}
+	if join != cur.joinChat {
+		sets, args = append(sets, "join_chat = ?"), append(args, join)
+		detail = append(detail, map[bool]string{true: "join_chat on", false: "join_chat off"}[join])
 	}
 	if c.HideGroups != nil || endRole != "admin" {
 		var want []int64

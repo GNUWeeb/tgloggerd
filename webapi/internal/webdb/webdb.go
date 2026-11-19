@@ -80,6 +80,8 @@ type SessionState struct {
 	AdminOf []uint64
 	// HidePrivate: a superadmin hid private chats from this admin.
 	HidePrivate bool
+	// JoinChat: a superadmin granted this admin Join chat.
+	JoinChat bool
 	// HideGroups are the groups a superadmin hid from this admin
 	// (web_admin_hidden_groups), ascending, nil for none.
 	HideGroups []int64
@@ -105,13 +107,13 @@ func LoadSessionState(ctx context.Context, db *sql.DB, id uint64, key [32]byte) 
 		"SELECT u.session_epoch, u.role, u.is_active, u.must_change_password, "+
 			"COALESCE(s.id, 0), s.revoked_at IS NOT NULL, "+
 			"COALESCE(s.last_used_at < NOW() - INTERVAL ? SECOND, 0), "+
-			"u.hide_private, "+adminOfColumn+", "+hiddenGroupsColumn+", "+
+			"u.hide_private, u.join_chat, "+adminOfColumn+", "+hiddenGroupsColumn+", "+
 			grantedGroupsColumn+", "+abilitiesColumn+
 			"FROM web_users u LEFT JOIN web_sessions s "+
 			"ON s.token_hash = ? AND s.web_user_id = u.id WHERE u.id = ?",
 		int(TouchInterval.Seconds()), key[:], id).
 		Scan(&st.Epoch, &st.Role, &st.Active, &st.MustChangePassword,
-			&st.SessionRow, &st.SessionEnded, &st.SessionStale, &st.HidePrivate, &adminOf, &hidden,
+			&st.SessionRow, &st.SessionEnded, &st.SessionStale, &st.HidePrivate, &st.JoinChat, &adminOf, &hidden,
 			&granted, &abilities)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SessionState{}, ErrNoUser

@@ -772,9 +772,9 @@ export function load(url: string, persona: Persona): Loaded {
 				accounts: list.map((a) => accountRow(a, s)),
 				federations: feds.map((f) => ({ id: f.id, name: f.name, default: f.id === 0, group_count: fedGroups(f).filter(s.group).length })),
 				all_federations: allFeds().map((f) => ({ id: f.id, name: f.name, default: f.id === 0 })),
-				// As Go has them: of the admin restrictions, hiding private
-				// messages and hiding groups are built; Join chat is not.
-				editable: { federations: true, group_grants: true, restrictions: false, restrict_private: true, restrict_groups: true, abilities: true },
+				// As Go has them: every admin restriction is built, the Join
+				// chat grant included.
+				editable: { federations: true, group_grants: true, restrictions: true, restrict_private: true, restrict_groups: true, abilities: true },
 				// The stand-in has mail set up.
 				mail: true,
 			},
@@ -1121,14 +1121,13 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		if (!m[2] && method === 'PATCH') {
 			if (a.role === 'superadmin' && body.role && body.role !== 'superadmin' && activeSuperadmins().length === 1) return [409, { error: 'last_superadmin', message: 'The last active superadmin cannot be demoted.' }];
 			// Hiding private messages and hiding groups are the admin
-			// restrictions built, as in Go: a superadmin's, for an account
-			// that is or becomes admin; Join chat is not built.
+			// restrictions, as in Go: a superadmin's, for an account that is
+			// or becomes admin; the Join chat grant among them.
 			const roleAfter = body.role ?? a.role;
 			if (body.restrict) {
 				const ids: number[] = body.restrict.hide_groups || [];
 				if (s.role !== 'superadmin') return [403, { error: 'forbidden', message: 'Only a superadmin restricts an admin.' }];
-				if (body.restrict.join_chat) return [400, { error: 'not_supported', message: 'Join chat is not available yet.' }];
-				if (roleAfter !== 'admin' && (body.restrict.hide_private || ids.length)) return [400, { error: 'bad_request', message: 'Only an admin can be restricted.' }];
+				if (roleAfter !== 'admin' && (body.restrict.hide_private || ids.length || body.restrict.join_chat)) return [400, { error: 'bad_request', message: 'Only an admin can be restricted.' }];
 				const unknown = ids.find((id) => !getGroup(id));
 				if (unknown !== undefined) return [400, { error: 'bad_request', message: `There is no group ${unknown}.`, field: 'hide_groups' }];
 			}
@@ -1142,7 +1141,7 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 			if (body.email !== undefined) { a.email = body.email; a.verified = false; }
 			if (body.admin_of) a.adminOf = body.admin_of;
 			// The list replaces the stored one, in its order.
-			if (body.restrict) a.restrict = { hide_private: !!body.restrict.hide_private, hide_groups: [...new Set<number>(body.restrict.hide_groups || [])], join_chat: false };
+			if (body.restrict) a.restrict = { hide_private: !!body.restrict.hide_private, hide_groups: [...new Set<number>(body.restrict.hide_groups || [])], join_chat: !!body.restrict.join_chat };
 			// A restriction ends with the admin role.
 			if (roleAfter !== 'admin' && a.restrict) a.restrict = { hide_private: false, hide_groups: [], join_chat: false };
 			// Grants replace the federations the member is filed in among

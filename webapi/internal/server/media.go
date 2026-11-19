@@ -121,6 +121,7 @@ func (s *Server) requestScope(_ *http.Request, sess *auth.Session) scope.Scope {
 		MustChangePassword: sess.MustChangePassword,
 		AdminOf:            webdb.SplitIDs(sess.AdminOf),
 		HidePrivate:        sess.HidePrivate,
+		JoinChat:           sess.JoinChat,
 		HideGroups:         webdb.SplitGroupIDs(sess.HideGroups),
 		GrantedGroups:      webdb.SplitGroupIDs(sess.GrantedGroups),
 		Abilities:          abilitiesOf(webdb.SplitAbilities(sess.Abilities)),

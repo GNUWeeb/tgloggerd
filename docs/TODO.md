@@ -125,10 +125,9 @@ The web backend moves from Drogon to Go:
 Accounts, roles and federations:
 [design/web-accounts.md](design/web-accounts.md).
 
-- [`web-admin-restrictions`](todo/web-admin-restrictions.md): Let a superadmin hide private messages and specific groups from an admin, with 404 everywhere.
 - [`discord-forwarded-messages`](todo/discord-forwarded-messages.md): Forward Discord messages forwarded from another channel as "Forwarded:" text.
 - [`forwarding-per-user`](todo/forwarding-per-user.md): Give each forwarding configuration an owner and a federation, and let members set up their own.
-- [`join-chat-federations`](todo/join-chat-federations.md): Gate Join chat by a per-admin permission and let that admin file the joined group into its federations.
+- [`join-chat-federations`](todo/join-chat-federations.md): Let whoever joins a chat file the joined group into its federations.
 - [`web-fetch-permission`](todo/web-fetch-permission.md): Make fetching an unstored file from Telegram an explicit action for admins and permitted members.
 - [`search-engine-profiles`](todo/search-engine-profiles.md): Index users' bios and groups' descriptions in the optional search engine (optional).
 - [`video-thumbnails`](todo/video-thumbnails.md): Show a still thumbnail for every video before it is played, wherever the web shows one.
