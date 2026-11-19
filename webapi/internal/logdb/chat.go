@@ -202,7 +202,8 @@ type Message struct {
 	Thumbnail FileRef
 	// Files are the message's other files (telegram_message_files)
 	// for the kinds whose detail shows them: a game's photo, an
-	// invoice's, paid media's items, a service message's new photo.
+	// invoice's, paid media's items, a service message's new photo, a
+	// rich message's block media and their thumbnails.
 	Files     []MessageFile
 	DeletedAt int64 // 0 = not deleted
 	// DeletedOnRecheck: the deletion was found by a recheck against
@@ -838,8 +839,10 @@ var filesKinds = map[string]string{
 	"paid_media": "'paid'",
 	// A giveaway's prize sticker (role gift).
 	"giveaway": "'gift'",
-	// The media of a rich message's page blocks, by position.
-	"rich": "'rich'",
+	// The media of a rich message's page blocks, by position, and the
+	// still thumbnails of its videos and animations, each at the
+	// position of its medium.
+	"rich": "'rich', 'thumbnail'",
 	// A new group photo, or a profile photo suggested (role
 	// chat_photo, and an animated one's video), a chat background's
 	// image (role background) and a gift's stickers (role gift), for
@@ -891,6 +894,11 @@ func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uin
 			}
 			continue
 		case "thumbnail":
+			// A rich message has no main file: its thumbnails are
+			// its blocks' (rich.go pairs them by position).
+			if m.ContentType == "rich" {
+				break
+			}
 			if mf.Position == 0 {
 				m.Thumbnail = mf.File
 			}

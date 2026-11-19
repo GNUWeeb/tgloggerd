@@ -7769,7 +7769,9 @@ components:
         for a block this archive does not draw; a client shows it as
         such.
         media is the block's file (telegram_message_files, role rich,
-        by its position in the page), absent when none is known.
+        by its position in the page), absent when none is known; a
+        video's or an animation's poster (and thumb) is the stored
+        still thumbnail at the same position (role thumbnail).
       required: [type]
       properties:
         type:

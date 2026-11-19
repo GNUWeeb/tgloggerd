@@ -26,7 +26,8 @@ import (
 // the daemon numbers them in order of appearance, depth first, counting
 // only the media that have a file (message_extra_files in
 // src/tgloggerd/MessageExtract.cpp), and richConv counts them the same
-// way. A block type this service does not know is sent as type unknown
+// way. A video's or an animation's still thumbnail is the file of role
+// thumbnail at the same position (section 4.3). A block type this service does not know is sent as type unknown
 // with its class name.
 
 // richBlockTypes are the block types RichBlock names: TDLib's classes
@@ -733,7 +734,17 @@ func (v view) richDetail(k kinds, m logdb.Message, d *richDoc) richDetailJSON {
 	}
 	for _, md := range d.media {
 		if f, ok := messageFile(m, "rich", md.pos); ok {
-			md.set(v.media(md.ctype, f, md.extra))
+			j := v.media(md.ctype, f, md.extra)
+			// A video's or an animation's still thumbnail is the
+			// file of role thumbnail at its position, its poster
+			// when stored, as a main video's is (poster in
+			// chats.go); a block has no cover.
+			if t, ok := messageFile(m, "thumbnail", md.pos); ok && j != nil && storedFile(t) &&
+				(j.Render == "video" || j.Render == "animation") {
+				u := v.photo(t)
+				j.Poster, j.Thumb = u, u
+			}
+			md.set(j)
 		} else {
 			md.set(nil)
 		}

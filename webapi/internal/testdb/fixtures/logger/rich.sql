@@ -5,16 +5,18 @@
 --
 -- Ids, beside the sample's and the other fixtures':
 --   groups     -1001000000042 (Rich Lab, not exposed)
---   files      896001 - 896002
+--   files      896001 - 896003
 --   messages   group rows 4301 - 4302 (Rich Lab, message ids 730001 -
 --              730002)
 -- Its only sender is Dewi, so a member granted Rich Lab does not see
 -- Bima, whom message 1 mentions. By row:
 --   4301  a page of a title, a paragraph mentioning Bima, a photo
 --         (two sizes; the larger is file 896001, position 0), a list
---         holding a video (896002, position 1), a table and a block of
---         a class this service does not know; edited once (its earlier
---         version: the title and the photo, not full)
+--         holding a video (896002, position 1, not stored) with its
+--         stored still thumbnail (896003, role thumbnail, position 1),
+--         a table and a block of a class this service does not know;
+--         edited once (its earlier version: the title and the photo,
+--         not full)
 --   4302  a page whose JSON was over the daemon's cap: the class and
 --         curated keys only
 
@@ -23,7 +25,9 @@ INSERT INTO telegram_files (id, tg_file_id, tg_unique_id, file_type, file_size, 
 	(896001, 'rich-896001', 'rich-u-896001', 'photo', 40000, 1,
 	 UNHEX(SHA2('rich 896001', 256)), 'jpg', '', '2026-11-17 10:00:00', '2026-11-17 10:00:00'),
 	(896002, 'rich-896002', 'rich-u-896002', 'video', 900000, 0,
-	 NULL, 'mp4', 'clip.mp4', '2026-11-17 10:00:00', '2026-11-17 10:00:00');
+	 NULL, 'mp4', 'clip.mp4', '2026-11-17 10:00:00', '2026-11-17 10:00:00'),
+	(896003, 'rich-896003', 'rich-u-896003', 'thumbnail', 3000, 1,
+	 UNHEX(SHA2('rich 896003', 256)), 'jpg', '', '2026-11-17 10:00:00', '2026-11-17 10:00:00');
 
 INSERT INTO telegram_groups (id, type, title, description, msg_count, created_at, updated_at)
 	VALUES (-1001000000042, 'supergroup', 'Rich Lab', 'Rich messages.', 2,
@@ -45,4 +49,5 @@ INSERT INTO telegram_group_message_edits (group_message_id, content_type, text, 
 
 INSERT INTO telegram_message_files (group_message_id, role, position, file_id) VALUES
 	(4301, 'rich', 0, 896001),
-	(4301, 'rich', 1, 896002);
+	(4301, 'rich', 1, 896002),
+	(4301, 'thumbnail', 1, 896003);

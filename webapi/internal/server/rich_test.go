@@ -340,8 +340,9 @@ func TestRichNoPage(t *testing.T) {
 }
 
 // TestRichDetail: over the "rich" fixture, the chat and the message
-// page send the page with its media from the message's files, the
-// person mentioned for a viewer that sees him only, an earlier version
+// page send the page with its media from the message's files (a
+// video's poster from the thumbnail at its position), the person
+// mentioned for a viewer that sees him only, an earlier version
 // without media, and a page over the cap without blocks.
 func TestRichDetail(t *testing.T) {
 	e := newAdminEnv(t, "rich")
@@ -378,6 +379,14 @@ func TestRichDetail(t *testing.T) {
 		if video == nil || video["stored"] != false || video["render"] != "video" ||
 			num(video["duration"]) != 12 || video["name"] != "clip.mp4" {
 			t.Errorf("%s: video %v", role, item)
+		}
+		// Its still thumbnail, at the video's position, is its
+		// poster and thumb though the video is not stored.
+		if video != nil && (video["poster"] == nil || video["thumb"] != video["poster"]) {
+			t.Errorf("%s: video poster %v", role, video)
+		}
+		if photo != nil && photo["poster"] != nil {
+			t.Errorf("%s: photo poster %v", role, photo)
 		}
 		if blk(4)["type"] != "table" || blk(5)["type"] != "unknown" || blk(5)["name"] != "fancy_new" {
 			t.Errorf("%s: %v %v", role, blk(4), blk(5))

@@ -911,13 +911,25 @@ void page_blocks_text(
 /* telegram_message_files.position is a SMALLINT. */
 constexpr size_t kMaxRichFiles = 32767;
 
+/* What the walk over a rich message's blocks collects: the media as role
+ * "rich", and apart from them their still thumbnails, so a thumbnail
+ * never shifts the position of a medium after it. */
+struct RichFiles {
+	std::vector<ExtraFile>	files;
+	std::vector<ExtraFile>	thumbs;
+};
+
+const td_api::file *still_thumbnail(const td_api::thumbnail *t);
+
 void page_blocks_files(
 	const std::vector<td_api::object_ptr<td_api::PageBlock>> &blocks,
-	std::vector<ExtraFile> &out);
+	RichFiles &acc);
 
 /*
- * The media of one page block, appended to @out in order of appearance
- * as role "rich", position its index in @out: a photo (largest size), a
+ * The media of one page block, appended to @acc.files in order of
+ * appearance as role "rich", position its index there, and the still
+ * thumbnail of a video or an animation to @acc.thumbs as role
+ * "thumbnail" at its medium's position: a photo (largest size), a
  * video, an animation, an audio file, a document or a voice note, an
  * embedded page's poster, an embedded post's author photo and the
  * photos of related articles; the blocks inside a cover, a collage, a
@@ -925,13 +937,26 @@ void page_blocks_files(
  * A chat link's photo (the chat's own) and the icons inside rich text
  * are not listed.
  */
-void page_block_files(const td_api::PageBlock *b, std::vector<ExtraFile> &out)
+void page_block_files(const td_api::PageBlock *b, RichFiles &acc)
 {
-	auto add = [&out](const td_api::file *f, const char *category,
+	/* Returns the position given, or -1 when nothing was added. */
+	auto add = [&acc](const td_api::file *f, const char *category,
 			  std::string name) {
-		if (f && out.size() < kMaxRichFiles)
-			out.push_back(ExtraFile{ f, category, std::move(name),
-						 "rich", (int)out.size() });
+		if (!f || acc.files.size() >= kMaxRichFiles)
+			return -1;
+		const int pos = (int)acc.files.size();
+		acc.files.push_back(ExtraFile{ f, category, std::move(name),
+					       "rich", pos });
+		return pos;
+	};
+	/* A video's or an animation's still thumbnail, role "thumbnail" at
+	 * the position of the medium it belongs to. */
+	auto thumb = [&acc](int pos, const td_api::thumbnail *t) {
+		if (pos < 0)
+			return;
+		if (const td_api::file *f = still_thumbnail(t))
+			acc.thumbs.push_back(ExtraFile{ f, "thumbnail", "",
+						       "thumbnail", pos });
 	};
 	if (!b)
 		return;
@@ -943,14 +968,17 @@ void page_block_files(const td_api::PageBlock *b, std::vector<ExtraFile> &out)
 	case td_api::pageBlockVideo::ID: {
 		auto &v = static_cast<const td_api::pageBlockVideo &>(*b);
 		if (v.video_)
-			add(v.video_->video_.get(), "video", v.video_->file_name_);
+			thumb(add(v.video_->video_.get(), "video",
+				  v.video_->file_name_),
+			      v.video_->thumbnail_.get());
 		break;
 	}
 	case td_api::pageBlockAnimation::ID: {
 		auto &a = static_cast<const td_api::pageBlockAnimation &>(*b);
 		if (a.animation_)
-			add(a.animation_->animation_.get(), "animation",
-			    a.animation_->file_name_);
+			thumb(add(a.animation_->animation_.get(), "animation",
+				  a.animation_->file_name_),
+			      a.animation_->thumbnail_.get());
 		break;
 	}
 	case td_api::pageBlockAudio::ID: {
@@ -979,7 +1007,7 @@ void page_block_files(const td_api::PageBlock *b, std::vector<ExtraFile> &out)
 	case td_api::pageBlockEmbeddedPost::ID: {
 		auto &p = static_cast<const td_api::pageBlockEmbeddedPost &>(*b);
 		add(photo_best_size(p.author_photo_.get()), "photo", "");
-		page_blocks_files(p.blocks_, out);
+		page_blocks_files(p.blocks_, acc);
 		break;
 	}
 	case td_api::pageBlockRelatedArticles::ID:
@@ -990,29 +1018,29 @@ void page_block_files(const td_api::PageBlock *b, std::vector<ExtraFile> &out)
 		break;
 	case td_api::pageBlockCover::ID:
 		page_block_files(static_cast<const td_api::pageBlockCover &>(*b)
-					 .cover_.get(), out);
+					 .cover_.get(), acc);
 		break;
 	case td_api::pageBlockCollage::ID:
 		page_blocks_files(static_cast<const td_api::pageBlockCollage &>(
-					  *b).blocks_, out);
+					  *b).blocks_, acc);
 		break;
 	case td_api::pageBlockSlideshow::ID:
 		page_blocks_files(static_cast<const td_api::pageBlockSlideshow &>(
-					  *b).blocks_, out);
+					  *b).blocks_, acc);
 		break;
 	case td_api::pageBlockBlockQuote::ID:
 		page_blocks_files(static_cast<const td_api::pageBlockBlockQuote &>(
-					  *b).blocks_, out);
+					  *b).blocks_, acc);
 		break;
 	case td_api::pageBlockDetails::ID:
 		page_blocks_files(static_cast<const td_api::pageBlockDetails &>(
-					  *b).blocks_, out);
+					  *b).blocks_, acc);
 		break;
 	case td_api::pageBlockList::ID:
 		for (const auto &it : static_cast<const td_api::pageBlockList &>(
 					      *b).items_)
 			if (it)
-				page_blocks_files(it->blocks_, out);
+				page_blocks_files(it->blocks_, acc);
 		break;
 	default:
 		break;
@@ -1021,10 +1049,10 @@ void page_block_files(const td_api::PageBlock *b, std::vector<ExtraFile> &out)
 
 void page_blocks_files(
 	const std::vector<td_api::object_ptr<td_api::PageBlock>> &blocks,
-	std::vector<ExtraFile> &out)
+	RichFiles &acc)
 {
 	for (const auto &b : blocks)
-		page_block_files(b.get(), out);
+		page_block_files(b.get(), acc);
 }
 
 /*
@@ -2774,8 +2802,11 @@ std::string rich_message_text(const td_api::richMessage &m)
 
 std::vector<ExtraFile> rich_message_files(const td_api::richMessage &m)
 {
-	std::vector<ExtraFile> out;
-	page_blocks_files(m.blocks_, out);
+	RichFiles acc;
+	page_blocks_files(m.blocks_, acc);
+	std::vector<ExtraFile> out = std::move(acc.files);
+	out.insert(out.end(), std::make_move_iterator(acc.thumbs.begin()),
+		   std::make_move_iterator(acc.thumbs.end()));
 	return out;
 }
 

@@ -313,6 +313,62 @@ int main(void)
 		CHECK(message_extra_files(*c).empty(),
 		      "a photo block without a photo has no file");
 	}
+
+	printf("test: the still thumbnails of a rich message's videos\n");
+	{
+		auto thumbnail = [](td_api::object_ptr<td_api::ThumbnailFormat> fmt,
+				    int32_t id) {
+			return td_api::make_object<td_api::thumbnail>(
+				std::move(fmt), 320, 180, file(id));
+		};
+		Blocks b;
+		auto v1 = td_api::make_object<td_api::video>();
+		v1->video_ = file(30);
+		v1->thumbnail_ = thumbnail(
+			td_api::make_object<td_api::thumbnailFormatJpeg>(), 40);
+		b.push_back(td_api::make_object<td_api::pageBlockVideo>(
+			std::move(v1), nullptr, false, false, false));
+		b.push_back(photo_block(31, 32));
+		auto anim = td_api::make_object<td_api::animation>();
+		anim->animation_ = file(33);
+		anim->thumbnail_ = thumbnail(
+			td_api::make_object<td_api::thumbnailFormatMpeg4>(), 41);
+		b.push_back(td_api::make_object<td_api::pageBlockAnimation>(
+			std::move(anim), nullptr, true, false));
+		Blocks collage;
+		auto v2 = td_api::make_object<td_api::video>();
+		v2->video_ = file(34);
+		v2->thumbnail_ = thumbnail(
+			td_api::make_object<td_api::thumbnailFormatWebp>(), 42);
+		collage.push_back(td_api::make_object<td_api::pageBlockVideo>(
+			std::move(v2), nullptr, false, false, false));
+		b.push_back(td_api::make_object<td_api::pageBlockCollage>(
+			std::move(collage), caption("c")));
+		auto c = rich(std::move(b));
+		auto x = message_extra_files(*c);
+		CHECK(x.size() == 6, "four media and two still thumbnails");
+		CHECK(x.size() == 6 && is_rich(x[0], 30, "video", 0) &&
+			      is_rich(x[1], 32, "photo", 1) &&
+			      is_rich(x[2], 33, "animation", 2) &&
+			      is_rich(x[3], 34, "video", 3),
+		      "the media keep their positions");
+		auto is_thumb = [](const ExtraFile &f, int32_t id, int pos) {
+			return f.file && f.file->id_ == id &&
+			       !strcmp(f.role, "thumbnail") &&
+			       !strcmp(f.category, "thumbnail") &&
+			       f.position == pos;
+		};
+		CHECK(x.size() == 6 && is_thumb(x[4], 40, 0) &&
+			      is_thumb(x[5], 42, 3),
+		      "a thumbnail at the position of its video, nested too");
+		bool moving = false;
+		for (const auto &f : x)
+			moving |= f.file && f.file->id_ == 41;
+		CHECK(!moving, "an MPEG-4 thumbnail is not stored");
+		const ExtraFile *f = rich_file_with_unique_id(x, "unique-42");
+		CHECK(f && !strcmp(f->role, "thumbnail"),
+		      "a thumbnail is found again by unique id");
+	}
 	{
 		Blocks b;
 		b.push_back(td_api::make_object<td_api::pageBlockCover>(
