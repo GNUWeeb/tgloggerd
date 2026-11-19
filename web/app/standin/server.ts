@@ -153,6 +153,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 	// A file's bytes (/files/<token>): a picture in a colour of its id,
 	// whatever the file's type, so the media in the pages have something
 	// to show. Videos and audio do not play.
+	// A photo no longer stored, which Telegram could not give back.
+	if (/^\/files\/standin-gone-\d+$/.test(url.pathname)) {
+		send(res, 502, { error: 'fetch_failed', message: 'The file could not be fetched from Telegram.' });
+		return;
+	}
 	const fm = url.pathname.match(/^\/files\/standin-(\d+)(\.tgs)?$/);
 	if (fm?.[2]) {
 		// A Lottie sticker: a circle that pulses, gzipped as .tgs files are.

@@ -5,6 +5,7 @@ import { PublicFrame } from '../ui/PublicFrame.tsx';
 import { Link, useNav } from '../nav.tsx';
 import { ApiError, api, ok } from '../api/client.ts';
 import { PhotoCarousel } from '../ui/PhotoCarousel.tsx';
+import { PhotoImg } from '../ui/PhotoImg.tsx';
 import { OlderChanges, UsernamePill, useHistoryPages, usernameTitle } from '../ui/history.tsx';
 import { Avatar, Btn, Card, Empty, KV, Pill, Stat, Tabs } from '../ui/primitives.tsx';
 import { Bar, Sparkline, UserCell } from '../ui/bits.tsx';
@@ -69,7 +70,7 @@ function histItem(e: GroupHistoryEntry, onPhoto?: (id: number) => void): TlItem 
 	const [icon, title] = KIND[e.kind];
 	let body;
 	if (e.kind === 'photo') {
-		const img = e.photo ? <img className="a-tl-photo" src={e.photo} alt="" width={72} height={72} /> : null;
+		const img = e.photo ? <PhotoImg className="a-tl-photo" src={e.photo} alt="" width={72} height={72} /> : null;
 		// A photo set opens the carousel at it.
 		body = e.removed || !img ? <span className="a-muted">Photo removed</span>
 			: e.photo_id !== undefined && onPhoto ? <button type="button" className="a-tl-photobtn" onClick={() => onPhoto(e.photo_id!)} aria-label="Show this photo">{img}</button> : img;
