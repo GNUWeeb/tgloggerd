@@ -215,6 +215,11 @@ type kinds struct {
 	serviceDetail map[uint64]*serviceDetailExtra
 	pins          map[int64]logdb.Target
 	topics        map[int64]logdb.Topic
+	// rich and richEdits are the rich messages' pages (rich.go), by
+	// row id, and their earlier versions' in the order of Edits (nil
+	// for a version of another kind).
+	rich      map[uint64]*richDoc
+	richEdits map[uint64][]*richDoc
 }
 
 // pollClosed is whether a poll is closed: stored as closed, or past its
@@ -230,7 +235,8 @@ func pollClosed(closed bool, closeDate, now int64) bool {
 // entities mention, as sc may see them.
 func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms []logdb.Message) (kinds, error) {
 	k := kinds{chat: chat, extra: map[uint64]*kindExtra{}, edits: map[uint64][]*kindExtra{},
-		service: map[uint64]*serviceExtra{}}
+		service: map[uint64]*serviceExtra{}, rich: map[uint64]*richDoc{},
+		richEdits: map[uint64][]*richDoc{}}
 	var users, chats, polls, pins, topics []int64
 	for _, m := range ms {
 		if m.ContentType == "service" {
@@ -251,6 +257,13 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 		// for a poll's: the poll tables keep only the latest results,
 		// so a poll's versions have none.
 		for i, e := range m.Edits {
+			if e.ContentType == "rich" {
+				if k.richEdits[m.RowID] == nil {
+					k.richEdits[m.RowID] = make([]*richDoc, len(m.Edits))
+				}
+				k.richEdits[m.RowID][i] = parseRich(e.Extra)
+				continue
+			}
 			if !detailKinds[e.ContentType] || e.ContentType == "poll" {
 				continue
 			}
@@ -264,6 +277,10 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 			k.edits[m.RowID][i] = x
 			u, c := x.parties(e.ContentType)
 			users, chats = append(users, u...), append(chats, c...)
+		}
+		if m.ContentType == "rich" {
+			k.rich[m.RowID] = parseRich(m.Extra)
+			continue
 		}
 		if !detailKinds[m.ContentType] {
 			continue
@@ -309,8 +326,12 @@ func (s *Server) loadKinds(ctx context.Context, sc scope.Scope, chat int64, ms [
 			continue
 		}
 		mc.add(m.Text, m.Entities, "message")
+		mc.addRich(k.rich[m.RowID])
 		for i, e := range m.Edits {
 			mc.add(e.Text, e.Entities, "edit")
+			if xs := k.richEdits[m.RowID]; xs != nil {
+				mc.addRich(xs[i])
+			}
 			if xs := k.edits[m.RowID]; xs != nil && e.ContentType == "checklist" {
 				mc.addTasks(xs[i])
 			}
@@ -608,6 +629,9 @@ func callOutcome(x *kindExtra) string {
 
 // detail is a message's MessageDetail, or nil (see MessageKinds.detail).
 func (v view) detail(k kinds, m logdb.Message) any {
+	if m.ContentType == "rich" {
+		return v.richDetail(k, m, k.rich[m.RowID])
+	}
 	return v.kindDetail(k, m, m.ContentType, k.extra[m.RowID], len(m.Edits))
 }
 
@@ -617,6 +641,13 @@ func (v view) detail(k kinds, m logdb.Message) any {
 // version shows none; a live location's updates are the versions
 // before it.
 func (v view) editDetail(k kinds, m logdb.Message, i int) any {
+	if m.Edits[i].ContentType == "rich" {
+		var d *richDoc
+		if xs := k.richEdits[m.RowID]; xs != nil {
+			d = xs[i]
+		}
+		return v.richDetail(k, logdb.Message{}, d)
+	}
 	var x *kindExtra
 	if xs := k.edits[m.RowID]; xs != nil {
 		x = xs[i]
@@ -629,7 +660,9 @@ func (v view) editDetail(k kinds, m logdb.Message, i int) any {
 // positions of a live location; nil without one.
 func (v view) kindDetail(k kinds, m logdb.Message, ctype string, x *kindExtra, updates int) any {
 	switch ctype {
-	case "rich", "widget", "expired", "unsupported":
+	case "rich":
+		return v.richDetail(k, m, nil)
+	case "widget", "expired", "unsupported":
 		return placeholderJSON{Kind: ctype}
 	}
 	if x == nil {

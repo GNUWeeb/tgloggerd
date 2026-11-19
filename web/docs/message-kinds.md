@@ -7,9 +7,9 @@ sections 4.1 to 4.7): what the chat window
 message page (`/api/page/messages/{scope}/{id}`) send beyond the text
 and the media, and what each viewer may see of it. The shapes are in
 webapi/openapi.yaml: ContentType, MessageKinds, MessageDetail,
-ServiceInfo, ChatTopic, LinkPreview, TextEntity; the code is
-webapi/internal/server/kinds.go, service.go, service_detail.go and
-textentities.go.
+ServiceInfo, ChatTopic, LinkPreview, TextEntity, RichDetail; the code
+is webapi/internal/server/kinds.go, service.go, service_detail.go,
+textentities.go and rich.go.
 
 ## Content types
 
@@ -54,8 +54,9 @@ of messages.
   phones; a member gets null for both. The chat reads the vCard for
   its other numbers, e-mail addresses and organisation, and offers it
   as a `.vcf` download.
-- `rich`, `widget`, `expired`, `unsupported`: the kind alone; the chat
-  shows a one-line placeholder.
+- `rich`: the page blocks; see "Rich messages" below.
+- `widget`, `expired`, `unsupported`: the kind alone; the chat shows
+  a one-line placeholder.
 
 Long lists stop at the first 20 items: poll options, checklist tasks,
 giveaway chats and group call participants. The matching `*_total`
@@ -79,6 +80,53 @@ results, so they keep only their text. A version shows none of the
 message's other files (a game's or an invoice's photo, paid media's
 items), which are the message's as it is now. A version without
 `content_extra`, or of a kind without a detail, gets null.
+
+## Rich messages
+
+A rich message (`messageRichMessage`) is a page of blocks. The daemon
+keeps its plain text in `text`, a summary and TDLib's own JSON of the
+content in `content_extra`, and the media inside its blocks as message
+files of role `rich`, numbered in order of appearance
+(docs/design/message-types.md sections 4.2 and 4.3). Its `detail`
+(RichDetail) is built from that JSON:
+
+- `blocks`: the page's blocks (RichBlock), each with `type`, TDLib's
+  class in snake_case without its `pageBlock` prefix (`paragraph`,
+  `section_heading`, `list`, `table`, `photo`, ...), and the fields of
+  that type; nested blocks (quotes, lists, collages, slideshows,
+  collapsible blocks, covers, embedded posts) hold their own
+  `blocks`. Every type TDLib has is converted; a block of a class this
+  service does not know yet, and one TDLib itself could not read, is
+  `unknown` with its class in `name`, so the page says it holds a
+  block it does not show.
+- Text is a RichText, `{text, entities}` in the shape of a message's
+  text (offsets in UTF-16 code units), so it is drawn by the same
+  text formatting renderer. Bold, italic, links, mentions, custom
+  emoji and the rest map onto the entity types of "Text formatting";
+  subscript, superscript and marked (highlighted) text are three types
+  only a rich text has. A mention by user id is resolved like a
+  message's `mention_name`: its `user_id` is null for a viewer that
+  may not see that user.
+- Links (a text link, a photo's link, an embed's or a post's address,
+  a button's URL) are sent only when they are http, https, tg, mailto
+  or tel links; a client opens them with `rel=noopener`. An embed's
+  HTML is never sent: it needs a third party's script, so the page
+  shows it as a link with its poster.
+- A block's medium (`media`, a related article's `photo`) is a
+  ChatMedia from the message's file at the position the daemon gave
+  it, absent when no file is known. The position is counted the
+  daemon's way: depth first, and only the media that have a file
+  (a photo's largest size, a video, an animation, an audio file, a
+  document, a voice note, an embed's poster, an embedded post's author
+  photo, a related article's photo).
+- `blocks` is null when the page was not kept: its JSON was over the
+  daemon's cap (256 KiB), or the row was stored before the mapping and
+  not read again yet. The chat then shows the message `text`, which
+  holds the plain text of every block either way.
+- `is_full` is false when TDLib had only the start of the message.
+
+An earlier version (`edits[]`) of a rich message carries its own page
+from the edit row, without media, as other kinds' versions do.
 
 ## Summaries
 

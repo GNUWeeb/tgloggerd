@@ -218,10 +218,13 @@ func TestKindDetails(t *testing.T) {
 		i0["media"] == nil || i1["kind"] != "preview" || i1["media"] != nil {
 		t.Errorf("paid items %v", items)
 	}
-	for row, kind := range map[int]string{4016: "rich", 4017: "expired"} {
-		if d := detailOf(t, ms, row); len(d) != 1 || d["kind"] != kind {
-			t.Errorf("row %d: %v", row, d)
-		}
+	if d := detailOf(t, ms, 4017); len(d) != 1 || d["kind"] != "expired" {
+		t.Errorf("row 4017: %v", d)
+	}
+	// A rich row stored before its mapping keeps only its class: no
+	// page to draw (rich_test.go has the pages).
+	if d := detailOf(t, ms, 4016); d["kind"] != "rich" || d["blocks"] != nil {
+		t.Errorf("row 4016: %v", d)
 	}
 	// Service messages and rows logged before migration 000034 have
 	// no detail.

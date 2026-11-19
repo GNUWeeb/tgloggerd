@@ -110,6 +110,49 @@
 .app .rt-spoiler:not(.shown) { background: var(--fg-3); border-radius: 3px; cursor: pointer; }
 .app .rt-spoiler:not(.shown), .app .rt-spoiler:not(.shown) * { color: transparent !important; }
 .app .rt-spoiler:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+.app .rt-mark { background: color-mix(in srgb, var(--c-accent) 28%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+/* A rich message's page blocks (src/ui/richblocks.tsx). The blocks set
+   their own spacing; text inside keeps the chat's line breaks. */
+.app .rb-page { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 4px; min-width: min(260px, 100%); white-space: pre-wrap; line-height: 1.4; }
+.app .rb-page h2, .app .rb-page h3, .app .rb-page h4, .app .rb-page h5 { margin: 4px 0 0; line-height: 1.25; }
+.app .rb-page h2 { font-size: 1.3em; }
+.app .rb-page h3 { font-size: 1.12em; }
+.app .rb-page h4, .app .rb-page h5 { font-size: 1em; }
+.app .rb-subtitle { color: var(--fg-2); font-weight: 500; }
+.app .rb-kicker { text-transform: uppercase; letter-spacing: .04em; font-size: 12px; color: var(--c-accent); font-weight: 600; }
+.app .rb-p { margin: 0; }
+.app .rb-hr { border: 0; border-top: 1px solid var(--border-2); width: 100%; margin: 4px 0; }
+.app .rb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.app .rb-list > li { display: flex; gap: 6px; align-items: baseline; }
+.app .rb-list > li > svg { align-self: center; flex: none; color: var(--c-accent); }
+.app .rb-list > li.done .rb-item { color: var(--fg-3); text-decoration: line-through; }
+.app .rb-label { flex: none; min-width: 1.2em; color: var(--fg-2); }
+.app .rb-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.app .rb-quote { display: flex; flex-direction: column; gap: 3px; }
+.app .rb-pull { margin: 2px 0; padding: 4px 10px; text-align: center; font-style: italic; font-size: 1.05em; }
+.app .rb-credit { display: block; font-style: normal; font-size: 12.5px; color: var(--fg-3); }
+.app .rb-figure { margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.app .rb-caption { font-size: 13px; color: var(--fg-2); }
+.app .rb-sub { font-size: 12.5px; overflow-wrap: anywhere; }
+.app .rb-spoiler { width: 260px; aspect-ratio: 16 / 9; cursor: pointer; font: inherit; font-size: 13px; }
+.app .rb-collage, .app .rb-slideshow { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; width: 320px; max-width: 100%; }
+.app .rb-collage .c-media, .app .rb-slideshow .c-media { width: 100%; border-radius: 4px; }
+.app .rb-tablewrap { overflow-x: auto; max-width: 100%; }
+.app .rb-table { border-collapse: collapse; font-size: 13px; white-space: normal; }
+.app .rb-table caption { caption-side: top; text-align: left; font-weight: 600; padding-bottom: 3px; }
+.app .rb-table th, .app .rb-table td { padding: 3px 8px; }
+.app .rb-table th { font-weight: 600; }
+.app .rb-table.bordered th, .app .rb-table.bordered td { border: 1px solid var(--border-2); }
+.app .rb-table.striped tr:nth-child(even) { background: var(--hover); }
+.app .rb-details > summary { cursor: pointer; font-weight: 600; }
+.app .rb-details[open] > summary { margin-bottom: 3px; }
+.app .rb-related ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.app .rb-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.app .rb-buttons.center { justify-content: center; }
+.app .rb-buttons.right { justify-content: flex-end; }
+.app .rb-button.off { border: 1px solid var(--border-2); border-radius: 6px; padding: 3px 10px; color: var(--fg-3); cursor: default; }
+.app .rb-math code { white-space: pre-wrap; }
+.app .rb-all { align-self: flex-start; }
 .app .c-media { display: grid; place-items: center; width: 100%; border: 0; border-radius: 10px; cursor: zoom-in; padding: 0; }
 .app .c-media.single { width: 320px; max-width: 100%; }
 .app .c-bubble:not(.mediaonly) .c-media { margin: 2px 0 6px; }

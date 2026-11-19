@@ -662,6 +662,8 @@ var filesKinds = map[string]string{
 	"game":       "'game'",
 	"invoice":    "'invoice'",
 	"paid_media": "'paid'",
+	// The media of a rich message's page blocks, by position.
+	"rich": "'rich'",
 	// A new group photo, or a profile photo suggested (role
 	// chat_photo), for the service message's detail.
 	"service": "'chat_photo'",
@@ -682,7 +684,7 @@ func completeCovers(ctx context.Context, db *sql.DB, t chatTables, byRow map[uin
 	}
 	rows, err := db.QueryContext(ctx, "SELECT mf."+t.fk+", mf.role, mf.position, mf.file_id, "+
 		fileColumnsOf("f")+" FROM telegram_message_files mf JOIN telegram_files f ON f.id = mf.file_id "+
-		"WHERE mf."+t.fk+" IN ("+idList(with)+") AND mf.role IN ('cover', 'thumbnail', 'game', 'invoice', 'paid', 'chat_photo') "+
+		"WHERE mf."+t.fk+" IN ("+idList(with)+") AND mf.role IN ('cover', 'thumbnail', 'game', 'invoice', 'paid', 'chat_photo', 'rich') "+
 		"ORDER BY mf."+t.fk+", mf.role, mf.position")
 	if err != nil {
 		return err

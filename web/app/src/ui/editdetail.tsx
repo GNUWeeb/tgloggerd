@@ -7,6 +7,7 @@ import { useState, type ReactNode } from 'react';
 import { MapPin, Square, SquareCheck } from 'lucide-react';
 import { KindDetail, coords, osm } from '../routes/chat-kinds.tsx';
 import { RichText, type RichChat } from './richtext.tsx';
+import { RichBlocks } from './richblocks.tsx';
 import { fmt } from '../format.ts';
 import type { Viewer } from '../page.ts';
 import type { S } from '../api/schema.ts';
@@ -38,6 +39,8 @@ export function EditDetail({ d, text, entities, chat, v }: { d: Detail; text: st
 			</div>
 		);
 	}
+	// A rich version's page comes without media.
+	if (d.kind === 'rich') return d.blocks ? <div className="e-detail"><RichBlocks d={{ ...d, blocks: d.blocks }} chat={chat} v={v} collapse edit /></div> : null;
 	return <div className="e-detail"><KindDetail d={d} text={text} entities={entities} chat={chat} v={v} /></div>;
 }
 

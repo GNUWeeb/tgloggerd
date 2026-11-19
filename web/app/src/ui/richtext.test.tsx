@@ -34,6 +34,15 @@ describe('RichText', () => {
 		expect(el.textContent).toBe(t);
 	});
 
+	it('draws a rich page\'s subscript, superscript and marked text', () => {
+		const t = 'H2O, x2 and a marked word';
+		const el = show(t, [at(t, '2', 'subscript'), at(t, '2', 'superscript', {}, 5), at(t, 'marked', 'marked')]);
+		expect(el.querySelector('sub')!.textContent).toBe('2');
+		expect(el.querySelector('sup')!.textContent).toBe('2');
+		expect(el.querySelector('mark.rt-mark')!.textContent).toBe('marked');
+		expect(el.textContent).toBe(t);
+	});
+
 	it('links urls, text urls, emails and phone numbers to new tabs', () => {
 		const t = 'see example.org/x or here, mail a@b.co, call +62 812 0000';
 		const el = show(t, [at(t, 'example.org/x', 'url'), at(t, 'here', 'text_url', { url: 'https://kernel.org/' }), at(t, 'a@b.co', 'email'), at(t, '+62 812 0000', 'phone_number')]);

@@ -6363,6 +6363,7 @@ components:
         - $ref: '#/components/schemas/GiveawayDetail'
         - $ref: '#/components/schemas/CallDetail'
         - $ref: '#/components/schemas/PaidMediaDetail'
+        - $ref: '#/components/schemas/RichDetail'
         - $ref: '#/components/schemas/PlaceholderDetail'
       discriminator:
         propertyName: kind
@@ -6379,7 +6380,7 @@ components:
           giveaway: '#/components/schemas/GiveawayDetail'
           call: '#/components/schemas/CallDetail'
           paid_media: '#/components/schemas/PaidMediaDetail'
-          rich: '#/components/schemas/PlaceholderDetail'
+          rich: '#/components/schemas/RichDetail'
           widget: '#/components/schemas/PlaceholderDetail'
           expired: '#/components/schemas/PlaceholderDetail'
           unsupported: '#/components/schemas/PlaceholderDetail'
@@ -6737,14 +6738,315 @@ components:
     PlaceholderDetail:
       type: object
       description: >-
-        A kind the chat shows as a one-line placeholder: a rich message
-        or a widget (not rendered by this archive), expired
-        self-destructing media, or content TDLib itself could not read.
+        A kind the chat shows as a one-line placeholder: a widget (not
+        rendered by this archive), expired self-destructing media, or
+        content TDLib itself could not read.
       required: [kind]
       properties:
         kind:
           type: string
-          enum: [rich, widget, expired, unsupported]
+          enum: [widget, expired, unsupported]
+    RichDetail:
+      type: object
+      description: >-
+        A rich message (messageRichMessage): its page blocks, converted
+        from the TDLib JSON the daemon keeps beside its curated keys
+        (web/docs/message-kinds.md, "Rich messages"). blocks is null
+        when the layout was not kept (a message whose JSON was over the
+        daemon's cap, or a row stored before the mapping and not read
+        again yet): the chat then shows the message text, which holds
+        the plain text of every block either way. A client draws the
+        blocks instead of the text when blocks is not null.
+      required: [kind, blocks, is_rtl, is_full]
+      properties:
+        kind:
+          const: rich
+        blocks:
+          oneOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/RichBlock'
+            - type: 'null'
+        is_rtl:
+          type: boolean
+          description: The page reads right to left.
+        is_full:
+          type: boolean
+          description: >-
+            false when TDLib had only the start of the message and the
+            rest was not logged.
+    RichText:
+      type: object
+      description: >-
+        A run of a rich message's text with its formatting, in the
+        shape of a message's text and entities (TextEntity, offsets in
+        UTF-16 code units), so the text entities renderer draws it.
+        Formatting maps onto the entity types bold, italic, underline,
+        strikethrough, spoiler, code (fixed width, and a formula's
+        source), text_url (a link, a button's URL), email,
+        phone_number, mention (an @username), mention_name (user_id
+        resolved through the scope as for message entities), hashtag,
+        cashtag, bot_command, bank_card_number and custom_emoji, plus
+        three a message's text never has: subscript, superscript and
+        marked (highlighted). A custom emoji's text is its alternative
+        text, a formula's its source; an icon and an anchor add no
+        text. A text_url's url is an http, https, tg, mailto or tel
+        link; a link of another scheme keeps its text without the
+        entity.
+      required: [text, entities]
+      properties:
+        text:
+          type: string
+        entities:
+          type: array
+          items:
+            $ref: '#/components/schemas/TextEntity'
+    RichCaption:
+      type: object
+      description: A media block's caption and its credit line; either may be empty.
+      required: [text, credit]
+      properties:
+        text:
+          $ref: '#/components/schemas/RichText'
+        credit:
+          $ref: '#/components/schemas/RichText'
+    RichBlock:
+      type: object
+      description: >-
+        One page block of a rich message. type is TDLib's class in
+        snake_case without its pageBlock prefix; the fields a type
+        does not use are absent. By type:
+        title, subtitle, header, subheader, kicker, paragraph, footer,
+        thinking (a reasoning step): text.
+        section_heading: text, size (1 the largest).
+        author_date: text (the author), date.
+        preformatted: text, language (may be empty).
+        divider: nothing.
+        mathematical_expression: expression (its source).
+        anchor: name (a target of links inside the page).
+        list: items.
+        block_quote: blocks, credit.
+        expandable_block_quote, pull_quote: text, credit.
+        photo: media, caption, spoiler, url (where it links, if
+        anywhere).
+        video: media, caption, spoiler, autoplay, loop.
+        animation: media, caption, spoiler, autoplay.
+        audio, document, voice_note: media, caption.
+        cover: blocks (the one block the page opens with).
+        embedded: url, media (its poster), width, height, caption;
+        the embed itself needs a third party's script and is drawn as
+        a link.
+        embedded_post: url, author, media (the author's photo), date,
+        blocks, caption; drawn as a quote with a link.
+        collage, slideshow: blocks, caption.
+        chat_link: title, username.
+        table: text (the caption), rows, bordered, striped.
+        details (a collapsible block): text (its summary), blocks,
+        open (shown open at first).
+        related_articles: text (the header), articles.
+        map: lat, lon, zoom, width, height, caption.
+        button_row: buttons, align.
+        unknown: name, the TDLib class in snake_case without its
+        prefix (unsupported for a block TDLib itself could not read),
+        for a block this archive does not draw; a client shows it as
+        such.
+        media is the block's file (telegram_message_files, role rich,
+        by its position in the page), absent when none is known.
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum:
+            - title
+            - subtitle
+            - author_date
+            - header
+            - subheader
+            - section_heading
+            - kicker
+            - paragraph
+            - preformatted
+            - footer
+            - thinking
+            - divider
+            - mathematical_expression
+            - anchor
+            - list
+            - block_quote
+            - expandable_block_quote
+            - pull_quote
+            - photo
+            - video
+            - animation
+            - audio
+            - document
+            - voice_note
+            - cover
+            - embedded
+            - embedded_post
+            - collage
+            - slideshow
+            - chat_link
+            - table
+            - details
+            - related_articles
+            - map
+            - button_row
+            - unknown
+        text:
+          $ref: '#/components/schemas/RichText'
+        credit:
+          $ref: '#/components/schemas/RichText'
+        caption:
+          $ref: '#/components/schemas/RichCaption'
+        size:
+          type: integer
+        language:
+          type: string
+        date:
+          type: [string, 'null']
+          description: ISO 8601; null when TDLib gives none.
+        expression:
+          type: string
+        name:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/RichBlock'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RichListItem'
+        media:
+          $ref: '#/components/schemas/ChatMedia'
+        spoiler:
+          type: boolean
+        autoplay:
+          type: boolean
+        loop:
+          type: boolean
+        url:
+          type: string
+          description: >-
+            A link: only http, https, tg, mailto and tel links are
+            sent, others are left out; a client opens it with
+            rel=noopener.
+        author:
+          type: string
+        title:
+          type: string
+        username:
+          type: string
+          description: A chat link's public username, for a t.me link; may be empty.
+        width:
+          type: integer
+        height:
+          type: integer
+        rows:
+          type: array
+          items:
+            type: array
+            items:
+              $ref: '#/components/schemas/RichTableCell'
+        bordered:
+          type: boolean
+        striped:
+          type: boolean
+        open:
+          type: boolean
+        articles:
+          type: array
+          items:
+            $ref: '#/components/schemas/RichArticle'
+        lat:
+          type: number
+        lon:
+          type: number
+        zoom:
+          type: integer
+        buttons:
+          type: array
+          items:
+            $ref: '#/components/schemas/RichButton'
+        align:
+          type: string
+          enum: [left, center, right]
+    RichListItem:
+      type: object
+      description: >-
+        A list item: its label (a bullet, a number, a letter; may be
+        empty), its blocks, and for a checklist item whether it has a
+        checkbox and whether that is checked.
+      required: [label, blocks, checkbox, checked]
+      properties:
+        label:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/RichBlock'
+        checkbox:
+          type: boolean
+        checked:
+          type: boolean
+    RichTableCell:
+      type: object
+      description: >-
+        A table cell. A cell of colspan or rowspan above 1 covers the
+        cells it spans, which are not listed.
+      required: [text, header, colspan, rowspan, align, valign]
+      properties:
+        text:
+          $ref: '#/components/schemas/RichText'
+        header:
+          type: boolean
+        colspan:
+          type: integer
+          minimum: 1
+        rowspan:
+          type: integer
+          minimum: 1
+        align:
+          type: string
+          enum: [left, center, right]
+        valign:
+          type: string
+          enum: [top, middle, bottom]
+    RichArticle:
+      type: object
+      description: >-
+        A related article. url is empty for a link that is not http,
+        https, tg, mailto or tel; photo is absent when no file is
+        known.
+      required: [url, title, description, author, date]
+      properties:
+        url:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        author:
+          type: string
+        date:
+          type: [string, 'null']
+          description: ISO 8601; null when TDLib gives none.
+        photo:
+          $ref: '#/components/schemas/ChatMedia'
+    RichButton:
+      type: object
+      description: >-
+        A button of a button row. url is where a link button goes;
+        absent for the other buttons (callbacks and the like), which an
+        archive cannot press, and for a link that is not http, https,
+        tg, mailto or tel.
+      required: [text]
+      properties:
+        text:
+          $ref: '#/components/schemas/RichText'
+        url:
+          type: string
     ChatTopic:
       type: object
       description: A forum topic, as last seen (telegram_forum_topics).

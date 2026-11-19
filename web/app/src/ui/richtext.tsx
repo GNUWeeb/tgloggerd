@@ -131,6 +131,10 @@ function draw(n: Node | string, text: string, chat: RichChat | undefined, inLink
 		case 'italic': return <em key={key}>{kids}</em>;
 		case 'underline': return <u key={key}>{kids}</u>;
 		case 'strikethrough': return <s key={key}>{kids}</s>;
+		// Only a rich message's page text has these three.
+		case 'subscript': return <sub key={key}>{kids}</sub>;
+		case 'superscript': return <sup key={key}>{kids}</sup>;
+		case 'marked': return <mark key={key} className="rt-mark">{kids}</mark>;
 		case 'spoiler': return <Spoiler key={key}>{kids}</Spoiler>;
 		case 'code': return <code key={key} className="rt-code">{kids}</code>;
 		case 'pre': case 'pre_code': {
