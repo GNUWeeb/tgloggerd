@@ -760,13 +760,47 @@ the sticker behind it. Migration 000046 adds a table for them:
 
 One row per custom emoji, shared by every message that uses it. It is
 filled on demand from `getCustomEmojiStickers` (up to 200 ids a call)
-when the daemon stores an id it has no row for; the sticker's file is
+when an id without a row is asked for; the sticker's file is
 an ordinary `telegram_files` row, recorded without its bytes until
 someone views it, under the storage cache rules. `needs_repainting`
 says the sticker is drawn in the text colour, as emoji statuses are.
-How the table is filled, and whether a message effect's sticker
-(`meta.effect_id`) shares it or needs a sibling table, is decided by
-msg-custom-emoji-store; the web side is msg-custom-emoji-web.
+The daemon fills it through `POST /v1/custom-emoji`
+(docs/internal-api.md), which the web calls with the ids it is about
+to draw: ids with a row are answered from the table, the rest are
+asked of Telegram in one call. A sticker's file whose reference has
+expired is found again by asking for its custom emoji afresh. The web
+side is msg-custom-emoji-web.
+
+### 4.12 Message effects (`telegram_message_effects`)
+
+A message's effect (`meta.effect_id`) is not a custom emoji: its
+`messageEffect` has up to four files, none keyed by a custom emoji id,
+so it gets a sibling table
+([2026-11-19-msg-effects-sibling-table](decisions/2026-11-19-msg-effects-sibling-table.md)):
+
+    telegram_message_effects (migration 000047)
+      effect_id BIGINT PRIMARY KEY,
+      emoji VARCHAR(16), is_premium TINYINT(1),
+      effect_type ENUM('emoji_reaction','premium_sticker') NULL,
+      static_icon_file_id, select_animation_file_id,
+      effect_animation_file_id, sticker_file_id
+        (each FK telegram_files, ON DELETE SET NULL),
+      sticker_format ENUM('webp','tgs','webm') NULL,
+      created_at, updated_at
+
+- `static_icon_file_id`: the static icon (WEBP), if the effect has
+  one; `emoji` stands in for it otherwise.
+- `emoji_reaction`: `select_animation_file_id` and
+  `effect_animation_file_id` are the reaction's select and effect
+  animations (TGS).
+- `premium_sticker`: `sticker_file_id` is the sticker (in
+  `sticker_format`) and `effect_animation_file_id` its premium
+  animation.
+
+Rows are filled on demand from `getMessageEffect` through
+`POST /v1/message-effects`, like the custom emoji; each file is a
+metadata-only `telegram_files` row until someone views it, found again
+by asking for the effect afresh when its reference has expired.
 
 ## 5. Web impact (Go port)
 
