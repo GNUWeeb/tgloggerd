@@ -113,6 +113,8 @@ add_executable(tgloggerd
 	src/tgloggerd/ChatRef.hpp
 	src/tgloggerd/ChatApi.cpp
 	src/tgloggerd/ChatApi.hpp
+	src/tgloggerd/ChatRecheck.cpp
+	src/tgloggerd/ChatRecheck.hpp
 	src/tgloggerd/ContactLookup.cpp
 	src/tgloggerd/ContactLookup.hpp
 	src/tgloggerd/ContactApi.cpp
@@ -311,6 +313,15 @@ target_include_directories(community_db_test PRIVATE src)
 target_compile_options(community_db_test PRIVATE -Wall -Wextra)
 target_link_libraries(community_db_test PRIVATE connector-jdbc
 	nlohmann_json::nlohmann_json Threads::Threads)
+
+# The chat recheck's queue limits, deletion selection and restart
+# catch-up over plain data; not part of the default build:
+#   cmake --build build --target chat_recheck_test && build/chat_recheck_test
+add_executable(chat_recheck_test EXCLUDE_FROM_ALL
+	src/tgloggerd/tests/chat_recheck_test.cpp
+	src/tgloggerd/ChatRecheck.cpp)
+target_include_directories(chat_recheck_test PRIVATE src)
+target_compile_options(chat_recheck_test PRIVATE -Wall -Wextra)
 
 # discordd -- the Discord daemon (logs Discord messages, forwards them to
 # Telegram). Added last: it links Td::TdStatic and connector-jdbc from the
