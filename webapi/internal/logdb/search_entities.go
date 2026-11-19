@@ -672,7 +672,8 @@ var PrivateMessages = &Entity{
 		"(SELECT un.username FROM telegram_user_usernames un " +
 		"WHERE un.user_id = m.chat_id AND un.kind='active' " +
 		"ORDER BY un.position LIMIT 1) AS peer_username",
-	pageSel:  "m.date AS date_unix, m.edit_date, u.type AS peer_type, m.service_type, " + kindSummaryCols,
+	pageSel: "m.date AS date_unix, m.edit_date, u.type AS peer_type, m.service_type, " +
+		deletedOnRecheck + " AS deleted_on_recheck, " + kindSummaryCols,
 	idCol:    "m.id",
 	defSort:  "m.date",
 	defOrder: "DESC",
@@ -745,6 +746,7 @@ var GroupMessages = &Entity{
 		"ORDER BY un.position LIMIT 1) AS su_username, " +
 		"sg.title AS sg_title, sg.photo_file_id AS sg_photo",
 	pageSel: "m.date AS date_unix, m.edit_date, su.type AS su_type, m.service_type, " +
+		deletedOnRecheck + " AS deleted_on_recheck, " +
 		"(SELECT gu.username FROM telegram_group_usernames gu " +
 		"WHERE gu.group_id = m.sender_chat_id AND gu.kind='active' " +
 		"ORDER BY gu.position LIMIT 1) AS sg_username, " + kindSummaryCols,

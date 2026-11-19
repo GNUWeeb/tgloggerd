@@ -1260,6 +1260,8 @@ type listMessage struct {
 	Forwarded   *string   `json:"forwarded"`
 	Edited      bool      `json:"edited"`
 	DeletedAt   *string   `json:"deleted_at"`
+	// DeletedOnRecheck: found deleted by a recheck (onRecheck).
+	DeletedOnRecheck bool `json:"deleted_on_recheck,omitempty"`
 	// ServiceType is a service message's action (chat_add_members,
 	// pin_message, ...), as the chat's MessageExtra gives it, so a
 	// list can label the row; null for every other row.
@@ -1332,7 +1334,8 @@ func loadMessages(ctx context.Context, pr *pageRequest, l *listSpec, msgScope st
 			Date: unixTime(r.Int("date_unix")), ContentType: r.Str("content_type"),
 			Snippet: v.listSnippet(k, r.Uint("id"), r.Str("text"), r.Str("content_type"),
 				r.Str("kind_file")),
-			Edited: r.Int("edit_date") != 0, DeletedAt: dbTimePtr(r, "deleted_at")}
+			Edited: r.Int("edit_date") != 0, DeletedAt: dbTimePtr(r, "deleted_at"),
+			DeletedOnRecheck: !r.Null("deleted_at") && r.Bool("deleted_on_recheck")}
 		if st := r.Str("service_type"); st != "" && m.ContentType == "service" {
 			m.ServiceType = &st
 		}

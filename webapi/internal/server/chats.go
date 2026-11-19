@@ -163,9 +163,10 @@ type chatMediaJSON struct {
 	// The item's own message, for the items of an album (the album
 	// message's media and album), which may differ in kind and in
 	// whether they were deleted.
-	MessageID int64   `json:"message_id,omitempty"`
-	Kind      string  `json:"kind,omitempty"`
-	DeletedAt *string `json:"deleted_at,omitempty"`
+	MessageID        int64   `json:"message_id,omitempty"`
+	Kind             string  `json:"kind,omitempty"`
+	DeletedAt        *string `json:"deleted_at,omitempty"`
+	DeletedOnRecheck bool    `json:"deleted_on_recheck,omitempty"`
 }
 
 // poster adds the picture a video (an animation, a video note, a
@@ -268,9 +269,18 @@ type chatMessageJSON struct {
 	Edits       []editJSON       `json:"edits"`
 	EditedAt    *string          `json:"edited_at"`
 	DeletedAt   *string          `json:"deleted_at"`
-	LinkPreview *linkPreviewJSON `json:"link_preview"`
+	// DeletedOnRecheck: the deletion was found by a recheck against
+	// Telegram (onRecheck); sent only when true.
+	DeletedOnRecheck bool             `json:"deleted_on_recheck,omitempty"`
+	LinkPreview      *linkPreviewJSON `json:"link_preview"`
 	messageExtraJSON
 	messageKindsJSON
+}
+
+// onRecheck is whether a message's deletion is to be shown as found by
+// a recheck: the flag counts only on a message marked deleted.
+func onRecheck(m logdb.Message) bool {
+	return m.DeletedAt != 0 && m.DeletedOnRecheck
 }
 
 // messageKindsJSON are the fields of MessageKinds, which ChatMessage
@@ -565,8 +575,8 @@ func (v view) chatMessage(n names, k kinds, group bool, chatID int64, m logdb.Me
 		Entities: v.messageEntities(k, m, m.Text, m.Entities),
 		Media:    v.media(m.ContentType, m.File, m.Extra), Album: []chatMediaJSON{},
 		ReplyTo: v.reply(n, k, chatID, m), Forward: v.forwardName(n, m), Edits: v.edits(k, m),
-		DeletedAt: isoPtr(m.DeletedAt), messageExtraJSON: v.messageExtra(n, m),
-		messageKindsJSON: v.messageKinds(k, m),
+		DeletedAt: isoPtr(m.DeletedAt), DeletedOnRecheck: onRecheck(m),
+		messageExtraJSON: v.messageExtra(n, m), messageKindsJSON: v.messageKinds(k, m),
 	}
 	v.poster(j.Media, m)
 	if m.EditDate > 0 {
@@ -596,12 +606,13 @@ func (v view) chatMessages(n names, kd kinds, group bool, chatID int64, ms []log
 		j := v.chatMessage(n, kd, group, chatID, ms[i])
 		if k-i > 1 {
 			var lastDeleted int64
-			allDeleted := true
+			allDeleted, anyRecheck := true, false
 			for x := i; x < k; x++ {
 				item := v.chatMessage(n, kd, group, chatID, ms[x])
 				if md := item.Media; md != nil {
 					md.MessageID, md.Kind, md.DeletedAt = ms[x].MessageID, item.ContentType,
 						item.DeletedAt
+					md.DeletedOnRecheck = item.DeletedOnRecheck
 					if x == i {
 						j.Media = md
 					} else {
@@ -622,10 +633,11 @@ func (v view) chatMessages(n names, kd kinds, group bool, chatID int64, ms []log
 					allDeleted = false
 				}
 				lastDeleted = max(lastDeleted, ms[x].DeletedAt)
+				anyRecheck = anyRecheck || onRecheck(ms[x])
 			}
-			j.DeletedAt = nil
+			j.DeletedAt, j.DeletedOnRecheck = nil, false
 			if allDeleted {
-				j.DeletedAt = isoPtr(lastDeleted)
+				j.DeletedAt, j.DeletedOnRecheck = isoPtr(lastDeleted), anyRecheck
 			}
 		}
 		out = append(out, j)

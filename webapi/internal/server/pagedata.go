@@ -65,6 +65,9 @@ type deletedJSON struct {
 	Snippet   string           `json:"snippet"`
 	DeletedAt string           `json:"deleted_at"`
 	MessageID int64            `json:"message_id"`
+
+	// DeletedOnRecheck: found deleted by a recheck (onRecheck).
+	DeletedOnRecheck bool `json:"deleted_on_recheck,omitempty"`
 }
 
 type dashboardProps struct {
@@ -127,7 +130,8 @@ func loadDashboard(ctx context.Context, pr *pageRequest) (any, error) {
 		}
 		p.Deleted = append(p.Deleted, deletedJSON{ID: m.RowID, Scope: "group", Chat: v.group(g),
 			Sender: *s, Snippet: v.snippetOf(sk, m.Text, m.RowID, m.ContentType, m.File.Name),
-			DeletedAt: iso(m.DeletedAt), MessageID: m.MessageID})
+			DeletedAt: iso(m.DeletedAt), DeletedOnRecheck: onRecheck(m),
+			MessageID: m.MessageID})
 	}
 	if probe != nil {
 		if p.Status, err = pr.s.loggerStatus(ctx, pr.scope, probe); err != nil {
@@ -800,6 +804,8 @@ type messageFullJSON struct {
 	// it, so the page can show its name; null when topic_id is, or the
 	// topic was never seen.
 	Topic *topicJSON `json:"topic"`
+	// DeletedOnRecheck: found deleted by a recheck (onRecheck).
+	DeletedOnRecheck bool `json:"deleted_on_recheck,omitempty"`
 	messageExtraJSON
 	messageKindsJSON
 }
@@ -850,6 +856,7 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 		Text: m.Text, Entities: entities, Edits: v.edits(k, m), LinkPreview: v.linkPreview(m),
 		messageExtraJSON: v.messageExtra(n, m), messageKindsJSON: v.messageKinds(k, m),
 	}
+	j.DeletedOnRecheck = onRecheck(m)
 	if t := d.Topic; t != nil {
 		tj := v.topic(k, *t)
 		j.Topic = &tj
@@ -886,6 +893,7 @@ func loadMessage(ctx context.Context, pr *pageRequest) (any, error) {
 		md := v.media(it.ContentType, it.File, it.Extra)
 		v.poster(md, it)
 		md.MessageID, md.Kind, md.DeletedAt = it.MessageID, chatType(it.ContentType), isoPtr(it.DeletedAt)
+		md.DeletedOnRecheck = onRecheck(it)
 		j.Album = append(j.Album, *md)
 	}
 	return messageProps{Message: j}, nil
