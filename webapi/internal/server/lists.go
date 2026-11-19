@@ -943,8 +943,19 @@ type filesProps struct {
 }
 
 // thumbTypes are the file types whose bytes are an image the pages
-// can show as a thumbnail.
-var thumbTypes = map[string]bool{"photo": true, "sticker": true}
+// can show as a thumbnail; notImage are the extensions of those that
+// are not one after all: a video sticker (webm) and an animated one
+// (tgs, Lottie), which an image cannot draw.
+var (
+	thumbTypes = map[string]bool{"photo": true, "sticker": true}
+	notImage   = map[string]bool{"webm": true, "tgs": true}
+)
+
+// hasThumb is whether a file's own bytes serve as its thumbnail: a
+// stored picture that is an image.
+func hasThumb(stored bool, fileType, ext string) bool {
+	return stored && thumbTypes[fileType] && !notImage[strings.ToLower(ext)]
+}
 
 // listFileRows are the rows as FileRow. Every file has a URL the
 // request may open, as each row of the Drogon files list links to
@@ -984,7 +995,7 @@ func (s *Server) listFileRows(ctx context.Context, sc scope.Scope, signedIn bool
 			f.SHA256 = &h
 		}
 		f.URL, f.Fetchable = s.fileURL(sc, signedIn, f.ID, f.Size, f.Stored)
-		if f.Stored && thumbTypes[f.FileType] {
+		if hasThumb(f.Stored, f.FileType, f.Ext) {
 			f.Thumb = f.URL
 		}
 		if o, ok := origins[f.ID]; ok {

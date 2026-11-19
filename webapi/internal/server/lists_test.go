@@ -338,3 +338,27 @@ func TestListMessages(t *testing.T) {
 		t.Errorf("member private messages: %d %v", st, b["route"])
 	}
 }
+
+// A video or animated sticker's bytes are no image, so it has no
+// thumbnail: an <img> of a .webm showed a broken picture in the grid.
+func TestFileThumbOnlyImages(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		stored        bool
+		fileType, ext string
+		want          bool
+	}{
+		{true, "photo", "jpg", true},
+		{true, "sticker", "webp", true},
+		{true, "sticker", "webm", false},
+		{true, "sticker", "WEBM", false},
+		{true, "sticker", "tgs", false},
+		{false, "photo", "jpg", false},
+		{true, "video", "mp4", false},
+		{true, "animation", "mp4", false},
+	} {
+		if got := hasThumb(c.stored, c.fileType, c.ext); got != c.want {
+			t.Errorf("hasThumb(%v, %s, %s) = %v, want %v", c.stored, c.fileType, c.ext, got, c.want)
+		}
+	}
+}

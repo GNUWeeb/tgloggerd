@@ -5284,7 +5284,9 @@ components:
           type: [string, 'null']
           description: >-
             The same URL for a stored photo or sticker, else null; an
-            unstored picture has none, so a list never fetches.
+            unstored picture has none, so a list never fetches. A
+            video (.webm) or animated (.tgs) sticker has none either:
+            its bytes are not an image.
         chat:
           description: >-
             The chat of the first message the viewer sees that carried

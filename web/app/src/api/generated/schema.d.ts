@@ -1953,7 +1953,7 @@ export interface components {
             sha256?: string | null;
             /** @description The /files/<token> URL when the bytes are stored or fetchable, else null (an unstored file the viewer may not have fetched, or fetching from Telegram is off). */
             url: string | null;
-            /** @description The same URL for a stored photo or sticker, else null; an unstored picture has none, so a list never fetches. */
+            /** @description The same URL for a stored photo or sticker, else null; an unstored picture has none, so a list never fetches. A video (.webm) or animated (.tgs) sticker has none either: its bytes are not an image. */
             thumb: string | null;
             /** @description The chat of the first message the viewer sees that carried the file; null when there is none (a profile or group photo, or a message the viewer may not see). */
             chat: {
