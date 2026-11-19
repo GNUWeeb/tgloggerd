@@ -43,6 +43,15 @@ static void test_attachment(void)
 	      voice_note_attachment(m, FWD_AUDIO | FWD_TEXT) == nullptr);
 	m.flags = 0;
 	check("audio file", voice_note_attachment(m, FWD_VOICE) == nullptr);
+
+	/* A forwarded voice message goes as a link line, not a voice note. */
+	Message f;
+	gwdiscord::Snapshot s;
+	s.flags = Message::FLAG_IS_VOICE_MESSAGE;
+	s.attachments.push_back(a);
+	f.snapshot = s;
+	check("forwarded voice message",
+	      voice_note_attachment(f, FWD_VOICE) == nullptr);
 }
 
 static void test_base64(void)

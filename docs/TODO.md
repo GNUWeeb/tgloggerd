@@ -122,7 +122,6 @@ The web backend moves from Drogon to Go:
 Accounts, roles and federations:
 [design/web-accounts.md](design/web-accounts.md).
 
-- [`discord-forwarded-messages`](todo/discord-forwarded-messages.md): Forward Discord messages forwarded from another channel as "Forwarded:" text.
 - [`video-thumbnails`](todo/video-thumbnails.md): Show a still thumbnail for every video before it is played, wherever the web shows one.
 - [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
 
