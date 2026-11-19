@@ -17,7 +17,7 @@ import { useLive, useLiveState, useRefetcher } from '../live/react.tsx';
 import { useFreshGroup, useFreshUser } from '../live/useEntities.tsx';
 import { bytes, fmt } from '../format.ts';
 import { TYPE_LABEL } from './groups.tsx';
-import { serviceLabel } from '../ui/labels.ts';
+import { contentLabel, serviceLabel } from '../ui/labels.ts';
 import { capitalise, isSentence } from '../ui/serviceline.ts';
 import { loggerName } from '../ui/logger.ts';
 import type { PageData, Viewer } from '../page.ts';
@@ -73,9 +73,9 @@ function ForwardLine({ m }: { m: ChatMessage }) {
 
 // An earlier version's media in the edit list: its picture, small, or
 // its type and name.
-function EditMedia({ m, type }: { m: NonNullable<ChatMessage['edits'][number]['media']>; type: string }) {
-	if (m.thumb) return <a className="c-editmedia" href={m.url ?? undefined} target="_blank" rel="noopener" aria-label={`Earlier ${type}`}><img src={m.thumb} alt="" loading="lazy" /></a>;
-	return <div className="c-editfile c-sub">{type}{m.name ? `: ${m.name}` : ''}{m.url ? '' : ' (not stored)'}</div>;
+function EditMedia({ m, type }: { m: NonNullable<ChatMessage['edits'][number]['media']>; type: ChatMessage['content_type'] }) {
+	if (m.thumb) return <a className="c-editmedia" href={m.url ?? undefined} target="_blank" rel="noopener" aria-label={`Earlier ${contentLabel(type).toLowerCase()}`}><img src={m.thumb} alt="" loading="lazy" /></a>;
+	return <div className="c-editfile c-sub">{contentLabel(type)}{m.name ? `: ${m.name}` : ''}{m.url ? '' : ' (not stored)'}</div>;
 }
 
 function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: ChatMessage; v: Viewer; isGroup: boolean; first: boolean; last: boolean; flash: boolean; onReply: (id: number) => void; tag?: ReactNode; chat?: RichChat }) {
@@ -134,7 +134,7 @@ function Bubble({ m, v, isGroup, first, last, flash, onReply, tag, chat }: { m: 
 					<div className="c-editswrap"><div className="c-edits">
 						{m.edits.map((e, i) => (
 							<div key={i}>
-								<span className="c-sub">{hm(e.at, v)}{e.content_type && e.content_type !== m.content_type ? ` . was ${e.content_type}` : ''}</span>
+								<span className="c-sub">{hm(e.at, v)}{e.content_type && e.content_type !== m.content_type ? ` . was ${contentLabel(e.content_type)}` : ''}</span>
 								{e.media && <EditMedia m={e.media} type={e.content_type ?? m.content_type} />}
 								{e.text ? <div><RichText text={e.text} entities={e.entities} chat={chat} /></div> : !e.media && <div className="c-sub">(no text)</div>}
 							</div>

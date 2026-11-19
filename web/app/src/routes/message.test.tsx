@@ -50,9 +50,16 @@ describe('message page', () => {
 			],
 		});
 		const c = card('Edit history');
-		expect(within(c).getByText('Earlier version (document)')).toBeTruthy();
+		expect(within(c).getByText('Earlier version (File)')).toBeTruthy();
 		expect(within(c).getByRole('link', { name: 'notes.pdf' }).getAttribute('href')).toBe('/files/doc');
 		expect(within(c).getByRole('link', { name: 'Earlier file' }).querySelector('img')!.getAttribute('src')).toBe('/files/old');
+	});
+
+	it('names a nameless file by its kind, not its raw content type', () => {
+		render({ content_type: 'game', text: '', media: { ...fixture<MessageProps>(url()).props.message.media!, stored: true, url: '/files/g', thumb: null, name: '', render: undefined, size: 2048, duration: undefined } });
+		const row = document.querySelector('.a-msgmedia .a-filerow') as HTMLElement;
+		expect(within(row).getByText('Game')).toBeTruthy();
+		expect(within(row).queryByText('game')).toBeNull();
 	});
 
 	it('names a chat the viewer may not see without linking it', () => {

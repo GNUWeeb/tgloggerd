@@ -85,7 +85,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						{m.media && (
 							<div className="a-msgmedia">
 								{drawn ? <MessageMedia msg={{ content_type: m.content_type, media: m.media, album: m.album ?? [] }} onClick={v.chat?.media === 'click'} />
-									: <div className="a-filerow"><Thumb type={m.content_type} thumb={m.media.thumb} url={m.media.url} stored={m.media.stored} ext={m.media.ext} size={44} /><div><b>{m.media.name || m.content_type}</b><div className="a-muted sm">{bytes(m.media.size)}{m.media.duration ? ' . ' + duration(m.media.duration) : ''}</div></div></div>}
+									: <div className="a-filerow"><Thumb type={m.content_type} thumb={m.media.thumb} url={m.media.url} stored={m.media.stored} ext={m.media.ext} size={44} /><div><b>{m.media.name || contentLabel(m.content_type)}</b><div className="a-muted sm">{bytes(m.media.size)}{m.media.duration ? ' . ' + duration(m.media.duration) : ''}</div></div></div>}
 							</div>
 						)}
 						{m.detail && <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} /></div>}
@@ -114,7 +114,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						<Card title="Edit history">
 							<Timeline v={v} items={[
 								...m.edits.map((e) => ({
-									icon: Pencil, at: e.at, title: e.content_type && e.content_type !== m.content_type ? `Earlier version (${e.content_type})` : 'Earlier version',
+									icon: Pencil, at: e.at, title: e.content_type && e.content_type !== m.content_type ? `Earlier version (${contentLabel(e.content_type)})` : 'Earlier version',
 									body: <>
 										{e.media && (e.media.thumb
 											? <a href={e.media.url ?? undefined} target="_blank" rel="noopener" className="a-editmedia" aria-label="Earlier file"><img src={e.media.thumb} alt="" width={72} height={72} loading="lazy" /></a>
