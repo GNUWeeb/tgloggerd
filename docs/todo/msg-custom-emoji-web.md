@@ -7,15 +7,18 @@ message text, reactions, forum topic icons and message effects.
 
 A custom emoji reaction shows as a diamond, a custom emoji in a
 message's text as its fallback emoji, and a forum topic's custom icon
-not at all, because the API sends only ids. `msg-custom-emoji-store`
-lets the daemon resolve ids to stickers.
+not at all, because the API sends only ids. The daemon resolves ids
+to stickers on demand (`POST /v1/custom-emoji` and, for effects,
+`POST /v1/message-effects`, docs/internal-api.md; the Go client has
+`CustomEmojiStickers` and `MessageEffects`).
 
 ## Scope
 
 - Go (webapi): resolve the custom emoji ids of a page (text entities,
-  reactions, topic icons, `meta.effect_id`) to their
-  `telegram_custom_emoji` rows, asking the daemon for the ids not yet
-  known, in one batch per page; send each as `{emoji, format, url}`
+  reactions, topic icons) to their `telegram_custom_emoji` rows, and
+  its `meta.effect_id`s to their `telegram_message_effects` rows
+  (message-types.md section 4.12), asking the daemon for the ids not
+  yet known, in one batch per page; send each as `{emoji, format, url}`
   beside the id (OpenAPI and web/docs follow). A page does not wait
   for the daemon: ids it cannot resolve in time keep their fallback.
 - React (frontend): draw them inline at text size (WebP as an image,
@@ -34,7 +37,7 @@ interface section, treated as landed).
 
 ## Depends on
 
-`msg-custom-emoji-store`.
+Nothing.
 
 ## Done when
 
