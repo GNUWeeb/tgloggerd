@@ -1353,6 +1353,8 @@ export interface components {
                 /** Format: int64 */
                 id: number;
                 title: string;
+                /** @description The group's photo, a /files/ URL when its bytes are stored, else null. */
+                photo?: string | null;
             }[];
             chat?: {
                 auto_load?: boolean;

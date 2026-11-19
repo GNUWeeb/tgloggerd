@@ -56,10 +56,12 @@ type Viewer struct {
 	Chat *settings.Chat `json:"chat,omitempty"`
 }
 
-// Pin is a pinned group in the menu.
+// Pin is a pinned group in the menu, with its photo's URL when the
+// photo is stored.
 type Pin struct {
-	ID    int64  `json:"id"`
-	Title string `json:"title"`
+	ID    int64   `json:"id"`
+	Title string  `json:"title"`
+	Photo *string `json:"photo"`
 }
 
 // Page is the page data: the object embedded in the document, sent to

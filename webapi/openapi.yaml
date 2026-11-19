@@ -4084,6 +4084,11 @@ components:
                 format: int64
               title:
                 type: string
+              photo:
+                type: [string, 'null']
+                description: >-
+                  The group's photo, a /files/ URL when its bytes are
+                  stored, else null.
         chat:
           type: object
           properties:

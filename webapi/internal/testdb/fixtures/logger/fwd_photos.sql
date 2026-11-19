@@ -1,5 +1,6 @@
--- Dummy photos for the forwarding pages' chats (fwdphotos_test.go),
--- loaded after "sample", "forwarding" and "bots". Invented for tests.
+-- Dummy photos for the forwarding pages' chats and the pinned groups
+-- (fwdphotos_test.go), loaded after "sample", "forwarding" and "bots".
+-- Invented for tests.
 --
 -- Ids, beside theirs:
 --   files  860002 (metadata only: Rust Programming's photo),

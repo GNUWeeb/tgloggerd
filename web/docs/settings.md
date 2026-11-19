@@ -83,7 +83,9 @@ theme follows the system, `data-theme`.
   the pins the scope sees, in the order pinned, so a group the
   account loses access to drops out of its menu, while the pin stays
   and comes back with the access. Unpinning a hidden group answers
-  404 too.
+  404 too. Each pin carries `photo`, the group's photo as a `/files/`
+  URL when its bytes are stored, else null; all pins are read in one
+  query.
 - A saved search is a title (trimmed, 1 to 128 characters) and the
   search page's path and query string on this site (one leading
   slash, no backslash, no control character, at most 2048 bytes);

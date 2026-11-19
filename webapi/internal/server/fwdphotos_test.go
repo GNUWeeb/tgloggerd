@@ -22,9 +22,9 @@ import (
 	"tgloggerd/webapi/internal/testdb"
 )
 
-// The photos of the forwarding pages' chats on the "fwd_photos"
-// fixture: shown when stored, null when the file is metadata only or
-// there is none.
+// The photos of the forwarding pages' chats and the pinned groups on
+// the "fwd_photos" fixture: shown when stored, null when the file is
+// metadata only or there is none.
 
 const (
 	kernelPhoto    = uint64(860003) // Linux Kernel Indonesia, stored
@@ -91,6 +91,46 @@ func TestForwardingChatPhotos(t *testing.T) {
 	_, p := e.page("member", "/platform-fwd/telegram-discord")
 	if s := js(p); strings.Contains(s, photoOf(gnuWeebPhoto)) || strings.Contains(s, photoOf(dewiPhoto)) {
 		t.Errorf("member sees a hidden chat's photo: %s", s)
+	}
+}
+
+func TestPinnedGroupPhotos(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, fwdPhotosFixtr)
+	pin := func(uid uint64, groups ...int64) {
+		t.Helper()
+		for _, g := range groups {
+			if _, err := e.app.Exec("INSERT INTO web_pinned_groups (web_user_id, group_id) VALUES (?, ?)",
+				uid, g); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	pins := func(role string) []any {
+		t.Helper()
+		_, p := e.page(role, "/platform-fwd")
+		v, _ := p["viewer"].(map[string]any)["pinned"].([]any)
+		return v
+	}
+	pin(e.uids["admin"], gnuWeeb, rustChat, kernelChat)
+	got := pins("admin")
+	if len(got) != 3 {
+		t.Fatalf("admin's pins %v", got)
+	}
+	for i, want := range []any{photoOf(gnuWeebPhoto), nil, photoOf(kernelPhoto)} {
+		if v, ok := got[i].(map[string]any)["photo"]; !ok || v != want {
+			t.Errorf("pin %d photo %v (present %t), want %v", i, v, ok, want)
+		}
+	}
+
+	// A member sees only the pins of groups it may see, with their
+	// photos.
+	grantMember(t, e, memberGroups, "forward")
+	pin(memberUID, gnuWeeb, kernelChat)
+	got = pins("member")
+	if len(got) != 1 || got[0].(map[string]any)["id"] != float64(kernelChat) ||
+		got[0].(map[string]any)["photo"] != photoOf(kernelPhoto) {
+		t.Errorf("member's pins %v", got)
 	}
 }
 
@@ -204,9 +244,20 @@ func TestPhotosAreBatched(t *testing.T) {
 		}
 	}
 
+	pin := func(g int64) {
+		t.Helper()
+		if _, err := e.app.Exec("INSERT INTO web_pinned_groups (web_user_id, group_id) VALUES (?, ?)",
+			e.uids["admin"], g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One pin to begin with: without any, the pins need no query.
+	pin(rustChat)
+
 	t2d, d2t := cost("admin", "/platform-fwd/telegram-discord"), cost("admin", "/platform-fwd/discord-telegram")
-	if t2d == 0 || d2t == 0 {
-		t.Fatalf("the photos are not read with the rows: %d %d", t2d, d2t)
+	pins := cost("admin", "/platform-fwd")
+	if t2d == 0 || d2t == 0 || pins == 0 {
+		t.Fatalf("the photos are not read with the rows: %d %d %d", t2d, d2t, pins)
 	}
 
 	for i := range 6 {
@@ -222,6 +273,9 @@ func TestPhotosAreBatched(t *testing.T) {
 		exec("INSERT INTO discord_telegram_routes (id, discord_channel_id, telegram_chat_id, "+
 			"telegram_bot_id, enabled) VALUES (?, ?, ?, 1, 1)", id, 710000000000000100+id, chat)
 	}
+	for _, g := range []int64{gnuWeeb, kernelChat, -1001000000004, -1001000000005} {
+		pin(g)
+	}
 
 	for _, c := range []struct {
 		path string
@@ -229,6 +283,7 @@ func TestPhotosAreBatched(t *testing.T) {
 	}{
 		{"/platform-fwd/telegram-discord", t2d},
 		{"/platform-fwd/discord-telegram", d2t},
+		{"/platform-fwd", pins},
 	} {
 		if now := cost("admin", c.path); now != c.was {
 			t.Errorf("%s: %d statements on telegram_files, %d with fewer items", c.path, now, c.was)
@@ -238,5 +293,9 @@ func TestPhotosAreBatched(t *testing.T) {
 	if r := routesOf(t, e, "admin", "/platform-fwd/telegram-discord"); len(r) != 9 ||
 		chatPhoto(r["105"]) != photoOf(kernelPhoto) {
 		t.Errorf("webhooks %d %v", len(r), r["105"])
+	}
+	_, p := e.page("admin", "/platform-fwd")
+	if v := p["viewer"].(map[string]any)["pinned"].([]any); len(v) != 5 {
+		t.Errorf("pins %v", v)
 	}
 }
