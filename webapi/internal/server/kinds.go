@@ -209,12 +209,14 @@ type kinds struct {
 	// mentions are the people the text entities name
 	// (textentities.go).
 	mentions textMentions
-	// serviceDetail, pins and topics are what the service messages'
-	// detail reads (service_detail.go): their content_extra by row,
-	// the messages pinned by message id, the forum topics by id.
+	// serviceDetail, pins, topics and communities are what the
+	// service messages' detail reads (service_detail.go): their
+	// content_extra by row, the messages pinned by message id, the
+	// forum topics by id, the communities by TDLib community id.
 	serviceDetail map[uint64]*serviceDetailExtra
 	pins          map[int64]logdb.Target
 	topics        map[int64]logdb.Topic
+	communities   map[int64]logdb.Community
 	// rich and richEdits are the rich messages' pages (rich.go), by
 	// row id, and their earlier versions' in the order of Edits (nil
 	// for a version of another kind).
@@ -249,10 +251,10 @@ func (s *Server) loadKindsWith(ctx context.Context, sc scope.Scope, chat int64, 
 	k := kinds{chat: chat, extra: map[uint64]*kindExtra{}, edits: map[uint64][]*kindExtra{},
 		service: map[uint64]*serviceExtra{}, rich: map[uint64]*richDoc{},
 		richEdits: map[uint64][]*richDoc{}}
-	var users, chats, polls, pins, topics []int64
+	var users, chats, polls, pins, topics, communities []int64
 	for _, m := range ms {
 		if m.ContentType == "service" {
-			k.addServiceDetail(m, &chats, &pins, &topics)
+			k.addServiceDetail(m, &chats, &pins, &topics, &communities)
 			if x := parseServiceExtra(m.Extra); x != nil {
 				k.service[m.RowID] = x
 				for _, id := range x.parties() {
@@ -319,7 +321,7 @@ func (s *Server) loadKindsWith(ctx context.Context, sc scope.Scope, chat int64, 
 			k.addSummarised(r.RowID, r.ContentType, r.Extra, &users, &chats, &polls)
 		}
 	}
-	if err := s.loadServiceDetail(ctx, &k, pins, topics, &users, &chats, &polls); err != nil {
+	if err := s.loadServiceDetail(ctx, &k, pins, topics, communities, &users, &chats, &polls); err != nil {
 		return k, err
 	}
 	var err error

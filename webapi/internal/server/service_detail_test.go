@@ -56,10 +56,13 @@ func serviceDetails(t *testing.T, e *adminEnv, role string) map[int]string {
 	return out
 }
 
-// Each type's detail, as each viewer may see it: the community and the
-// story's poster in the pinned snippet are named only to a viewer that
-// sees C/C++ Study Group, the basic group linked only to one that sees
-// it, and a pin of a message the archive lacks has no snippet.
+// Each type's detail, as each viewer may see it: the story's poster in
+// the pinned snippet is named only to a viewer that sees C/C++ Study
+// Group, the basic group linked only to one that sees it, and a pin of
+// a message the archive lacks has no snippet. A community is shown to
+// a viewer that sees one of its chats, or every chat (one whose chats
+// are not known yet), and only once its name is known; a chat id is no
+// community id.
 func TestServiceDetail(t *testing.T) {
 	t.Parallel()
 	e := serviceDetailEnv(t)
@@ -87,6 +90,20 @@ func TestServiceDetail(t *testing.T) {
 				json.Unmarshal([]byte(want), &b) == nil && reflect.DeepEqual(a, b)
 		}
 	}
+	// community checks the detail of community 9000000002, whose
+	// photo is stored: its URL is a token of this run.
+	community := func(d string) bool {
+		var j struct {
+			Kind      string         `json:"kind"`
+			Community map[string]any `json:"community"`
+		}
+		if json.Unmarshal([]byte(d), &j) != nil || j.Kind != "community" {
+			return false
+		}
+		u, _ := j.Community["photo"].(string)
+		return len(j.Community) == 3 && j.Community["id"] == float64(9000000002) &&
+			j.Community["name"] == "Open Source Lab" && strings.HasPrefix(u, "/files/")
+	}
 	common := map[int]func(string) bool{
 		4201: photo(640),
 		4202: is(`{"kind":"video_chat","duration":3725,"start_date":null}`),
@@ -97,37 +114,43 @@ func TestServiceDetail(t *testing.T) {
 		4210: is(`{"kind":"poll_option","text":"Option B"}`),
 		4211: is(`{"kind":"topic","topic":{"id":11,"name":"Releases","icon_color":7322096,"icon_custom_emoji_id":null,"icon_custom_emoji":null}}`),
 		4212: is(`{"kind":"topic","topic":{"id":11,"name":"Releases 2","icon_color":16749490,"icon_custom_emoji_id":null,"icon_custom_emoji":null}}`),
-		4214: is(""),
+		4214: community,
 		4215: is(""),
 		4216: is(`{"kind":"title","title":"Service Lab","basic_group":null}`),
 		4218: is(`{"kind":"background","only_for_self":true}`),
 		// Without its detail, the photo has no size.
 		4219: photo(0),
 		4220: photo(320),
+		4222: is(""),
+		4223: is(""),
 	}
 	basic := `{"kind":"title","title":"Service Lab (basic)","basic_group":{"id":-4242001,` +
 		`"title":"Service Lab (basic)","kind":"group","photo":null}}`
 	cases := map[string]map[int]func(string) bool{
 		"superadmin": {
 			4207: is(`{"kind":"pin","snippet":"Story by C/C++ Study Group"}`),
-			4213: is(`{"kind":"community","community":{"id":-1001000000004,"title":"C/C++ Study Group",` +
-				`"kind":"group","photo":null}}`),
+			4213: is(`{"kind":"community","community":{"id":9000000001,` +
+				`"name":"Systems Programmers","photo":null}}`),
 			4217: is(basic),
+			4221: is(`{"kind":"community","community":{"id":9000000003,` +
+				`"name":"New Community","photo":null}}`),
 		},
 		"admin": {
 			4207: is(`{"kind":"pin","snippet":"Story"}`),
 			4213: is(""),
 			4217: is(basic),
+			4221: is(""),
 		},
 		"member": {
 			4207: is(`{"kind":"pin","snippet":"Story"}`),
 			4213: is(""),
 			4217: is(`{"kind":"title","title":"Service Lab (basic)","basic_group":null}`),
+			4221: is(""),
 		},
 	}
 	for role, own := range cases {
 		got := serviceDetails(t, e, role)
-		if len(got) != 18 {
+		if len(got) != 21 {
 			t.Errorf("%s: %d service messages", role, len(got))
 		}
 		for row, ok := range common {
@@ -142,7 +165,8 @@ func TestServiceDetail(t *testing.T) {
 		}
 		if role != "superadmin" {
 			for row, d := range got {
-				if strings.Contains(d, "1001000000004") || strings.Contains(d, "C/C++") {
+				if strings.Contains(d, "1001000000004") || strings.Contains(d, "C/C++") ||
+					strings.Contains(d, "Systems Programmers") {
 					t.Errorf("%s row %d names the hidden group: %s", role, row, d)
 				}
 			}
