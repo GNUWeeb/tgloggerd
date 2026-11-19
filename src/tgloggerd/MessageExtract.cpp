@@ -2885,11 +2885,11 @@ const td_api::file *chat_photo_animation(const td_api::chatPhoto *p)
  * pattern), the still thumbnail of a video, an animation, a video note
  * or a video sticker (the picture shown before it plays), the media in
  * a rich message's page blocks (rich_message_files), a text message's
- * link preview's own video, animation or audio
- * (link_preview_media_files), and the stickers of gift, gifted Premium,
- * Stars, grams and giveaway messages (role "gift"). Other thumbnails and
- * a video's other qualities are not listed: the first only repeat the
- * media, the second are the same video again.
+ * link preview's own media (link_preview_media_files), and the stickers
+ * of gift, gifted Premium, Stars, grams and giveaway messages (role
+ * "gift"). Other thumbnails and a video's other qualities are not
+ * listed: the first only repeat the media, the second are the same
+ * video again.
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content)
 {
@@ -3235,10 +3235,10 @@ std::vector<ExtraFile> link_preview_media_files(const td_api::linkPreview &lp)
 {
 	std::vector<ExtraFile> out;
 	auto add = [&out](const td_api::file *f, const char *category,
-			  const std::string &name) {
+			  const std::string &name, int position = 0) {
 		if (f)
 			out.push_back(ExtraFile{ f, category, name,
-						 "preview_media", 0 });
+						 "preview_media", position });
 	};
 	const td_api::LinkPreviewType *t = lp.type_.get();
 	if (!t)
@@ -3246,10 +3246,25 @@ std::vector<ExtraFile> link_preview_media_files(const td_api::linkPreview &lp)
 
 	switch (t->get_id()) {
 	case td_api::linkPreviewTypeVideo::ID: {
+		/* The video at 0, its cover (largest size) at 1. */
 		auto &v = static_cast<const td_api::linkPreviewTypeVideo &>(*t);
 		if (v.video_)
 			add(v.video_->video_.get(), "video",
 			    v.video_->file_name_);
+		add(photo_best_size(v.cover_.get()), "photo", "", 1);
+		break;
+	}
+	case td_api::linkPreviewTypeDocument::ID: {
+		auto &d = static_cast<const td_api::linkPreviewTypeDocument &>(*t);
+		if (d.document_)
+			add(d.document_->document_.get(), "document",
+			    d.document_->file_name_);
+		break;
+	}
+	case td_api::linkPreviewTypeSticker::ID: {
+		auto &s = static_cast<const td_api::linkPreviewTypeSticker &>(*t);
+		if (s.sticker_)
+			add(s.sticker_->sticker_.get(), "sticker", "");
 		break;
 	}
 	case td_api::linkPreviewTypeEmbeddedVideoPlayer::ID: {

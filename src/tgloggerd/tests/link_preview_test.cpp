@@ -94,6 +94,38 @@ static td_api::object_ptr<td_api::audio> audio(int32_t id)
 	return a;
 }
 
+static td_api::object_ptr<td_api::sticker> sticker(int32_t id)
+{
+	auto s = td_api::make_object<td_api::sticker>();
+	s->id_ = 1000 + id;
+	s->set_id_ = 77;
+	s->width_ = 512;
+	s->height_ = 512;
+	s->emoji_ = "\xF0\x9F\x98\x80";
+	s->format_ = td_api::make_object<td_api::stickerFormatWebp>();
+	s->sticker_ = file(id);
+	return s;
+}
+
+/* A photo of two sizes; the larger is file @id. */
+static td_api::object_ptr<td_api::photo> photo(int32_t id)
+{
+	auto p = td_api::make_object<td_api::photo>();
+	auto small = td_api::make_object<td_api::photoSize>();
+	small->type_ = "s";
+	small->width_ = 90;
+	small->height_ = 60;
+	small->photo_ = file(id + 500);
+	auto big = td_api::make_object<td_api::photoSize>();
+	big->type_ = "y";
+	big->width_ = 1200;
+	big->height_ = 800;
+	big->photo_ = file(id);
+	p->sizes_.push_back(std::move(small));
+	p->sizes_.push_back(std::move(big));
+	return p;
+}
+
 /* The extra of @lp parsed, or null when there is none. */
 static json extra(const td_api::linkPreview &lp)
 {
@@ -331,9 +363,40 @@ static void test_media()
 	{
 		auto t = td_api::make_object<td_api::linkPreviewTypeDocument>();
 		t->document_ = td_api::make_object<td_api::document>();
+		t->document_->file_name_ = "paper.pdf";
 		t->document_->document_ = file(27);
-		CHECK(link_preview_media_files(*preview(std::move(t))).empty(),
-		      "a document preview's document is not kept");
+		CHECK(one_medium(*preview(std::move(t)), 27, "document",
+				 "paper.pdf"),
+		      "a document preview's document");
+	}
+	{
+		auto t = td_api::make_object<td_api::linkPreviewTypeSticker>();
+		t->sticker_ = sticker(29);
+		CHECK(one_medium(*preview(std::move(t)), 29, "sticker", ""),
+		      "a sticker preview's sticker");
+	}
+	{
+		/* The video at 0 and its cover after it. */
+		auto t = td_api::make_object<td_api::linkPreviewTypeVideo>();
+		t->video_ = video(30);
+		t->cover_ = photo(31);
+		auto lp = preview(std::move(t));
+		auto x = link_preview_media_files(*lp);
+		CHECK(x.size() == 2 && x[0].file->id_ == 30 &&
+			      x[0].position == 0 && x[1].file->id_ == 31 &&
+			      !strcmp(x[1].category, "photo") &&
+			      !strcmp(x[1].role, "preview_media") &&
+			      x[1].position == 1,
+		      "a video preview's cover at position 1");
+	}
+	{
+		auto t = td_api::make_object<td_api::linkPreviewTypeVideo>();
+		t->cover_ = photo(32);
+		auto lp = preview(std::move(t));
+		auto x = link_preview_media_files(*lp);
+		CHECK(x.size() == 1 && x[0].file->id_ == 32 &&
+			      x[0].position == 1,
+		      "a cover keeps position 1 without its video");
 	}
 	{
 		/* Through the message: what the ingest and the fetcher's

@@ -210,10 +210,11 @@ const td_api::file *link_preview_image(const td_api::LinkPreviewType *t,
 				       const char **type_name);
 
 /*
- * A link preview's own video, animation or audio, role "preview_media"
- * at position 0: the medium of a video, animation or audio preview, or
- * the cached medium of an embedded player. Its image is not listed; it
- * goes to telegram_link_previews.photo_file_id.
+ * A link preview's own media, role "preview_media": at position 0 the
+ * medium of a video, animation, audio, document or sticker preview, or
+ * the cached medium of an embedded player; at position 1 a video
+ * preview's cover. Its image is not listed; it goes to
+ * telegram_link_previews.photo_file_id.
  */
 std::vector<ExtraFile> link_preview_media_files(const td_api::linkPreview &lp);
 

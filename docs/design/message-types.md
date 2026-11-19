@@ -554,7 +554,7 @@ A video note's round video is now the main file, like any other media.
 | `rich` | the media inside a rich message's page blocks, `position` their order of appearance, depth first through collages, slideshows, quotes, lists, collapsible blocks, covers and embedded posts: each photo (largest size), video, animation, audio file, document and voice note, an embedded page's poster, an embedded post's author photo, the photos of related articles; not a chat link's photo (the chat's own) nor the icons inside rich text |
 | `gift` | file_type `sticker`: at position 0 the gift's sticker (gift, refunded_upgraded_gift), an upgraded gift's model sticker (upgraded_gift and the two purchase offer types), the animation sticker of gifted_premium, gifted_stars, gifted_grams and giveaway_prize_stars, or a giveaway's prize sticker; at position 1 an upgraded gift's symbol sticker. Each keeps its position when the other is missing. Not a premium_gift_code's sticker |
 | `background` | a chat background's document at position 0: the wallpaper (JPEG) or the pattern (PNG or TGV), file_type `document`; a fill or a chat theme has none |
-| `preview_media` | a link preview's own video, animation or audio, beyond its image in `telegram_link_previews.photo_file_id` (msg-link-preview-media) |
+| `preview_media` | a link preview's own media, beyond its image in `telegram_link_previews.photo_file_id` (section 4.8): at position 0 the video, animation or audio of such a preview or the cached medium of an embedded player, a document preview's file (file_type `document`) or a sticker preview's sticker (file_type `sticker`); at position 1 a video preview's cover (file_type `photo`, largest size) |
 
 The last four roles come with migration 000045; nothing writes them
 until their items land (`rich` is written since msg-rich-store,
@@ -740,7 +740,7 @@ or false is left out, and an object left empty is stored as NULL:
 |---|---|
 | `article`, `photo`, `app`, `web_app` | `width`, `height` (the image's largest size), `has_stickers`, `minithumbnail` |
 | `embedded_video_player`, `embedded_animation_player`, `embedded_audio_player` | `embed_url`, `embed_width`, `embed_height` (the player's expected size), `duration`; `media`, the cached medium's own keys as for `video`, `animation` or `audio` (without `file_name`, `start_timestamp` and `cover`) when TDLib has it |
-| `video` | `width`, `height`, `duration`, `mime`, `has_stickers`, `streaming`, `minithumbnail`, `file_name`, `start_timestamp`, `cover` (true when the video has a cover; the cover itself is not stored) |
+| `video` | `width`, `height`, `duration`, `mime`, `has_stickers`, `streaming`, `minithumbnail`, `file_name`, `start_timestamp`, `cover` (true when the video has a cover, which is a `preview_media` file at position 1) |
 | `animation` | `width`, `height`, `duration`, `mime`, `minithumbnail`, `file_name` |
 | `audio` | `duration`, `mime`, `audio_title`, `performer`, `file_name` |
 | `document` | `mime`, `file_name` |
@@ -762,12 +762,15 @@ or without a topic id between) and `tg://resolve?domain=&post=` and
 `tg://privatepost?channel=&post=`. A `t.me/c/` link's chat id is
 TDLib's, `-100` followed by the channel id.
 
-The `preview_media` file is the medium of a `video`, `animation` or
-`audio` preview, or the cached medium of an embedded player, at
-position 0; a document's or a sticker's own file is not stored. An edit
-that changes the preview overwrites `extra` and the medium's row, like
-the card's other fields; one that drops the medium keeps the old row,
-as it keeps the old image.
+The `preview_media` files are the preview's own media, by position
+(section 4.3): at position 0 the medium of a `video`, `animation`,
+`audio`, `document` or `sticker` preview (the document's or the
+sticker's own file, beside the document's thumbnail as the card's
+image), or the cached medium of an embedded player; at position 1 a
+`video` preview's cover (largest size). An edit that changes the
+preview overwrites `extra` and each medium's row, like the card's other
+fields; one that drops a medium keeps its old row, as it keeps the old
+image.
 
 ### 4.9 Repairing old rows
 
