@@ -235,8 +235,8 @@ void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
 		  "   description, description_entities, author, type, "
 		  "   instant_view_version, has_large_media, show_large_media, "
 		  "   show_above_text, show_media_above_description, "
-		  "   skip_confirmation) "
-		  "SELECT m.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
+		  "   skip_confirmation, extra) "
+		  "SELECT m.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
 		  "  FROM telegram_group_messages m "
 		  " WHERE m.chat_id = ? AND m.message_id = ? "
 		  "ON DUPLICATE KEY UPDATE "
@@ -251,14 +251,15 @@ void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
 		  "  description_entities = VALUES(description_entities), "
 		  "  show_media_above_description = "
 		  "    VALUES(show_media_above_description), "
-		  "  skip_confirmation = VALUES(skip_confirmation)"
+		  "  skip_confirmation = VALUES(skip_confirmation), "
+		  "  extra = VALUES(extra)"
 		: "INSERT INTO telegram_link_previews "
 		  "  (private_message_id, url, display_url, site_name, title, "
 		  "   description, description_entities, author, type, "
 		  "   instant_view_version, has_large_media, show_large_media, "
 		  "   show_above_text, show_media_above_description, "
-		  "   skip_confirmation) "
-		  "SELECT m.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
+		  "   skip_confirmation, extra) "
+		  "SELECT m.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? "
 		  "  FROM telegram_private_messages m "
 		  " WHERE m.chat_id = ? AND m.message_id = ? "
 		  "ON DUPLICATE KEY UPDATE "
@@ -273,11 +274,15 @@ void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
 		  "  description_entities = VALUES(description_entities), "
 		  "  show_media_above_description = "
 		  "    VALUES(show_media_above_description), "
-		  "  skip_confirmation = VALUES(skip_confirmation)";
+		  "  skip_confirmation = VALUES(skip_confirmation), "
+		  "  extra = VALUES(extra)";
 
 	mysql::Param entities = std::monostate{};
 	if (lp.description_entities.has_value())
 		entities = *lp.description_entities;
+	mysql::Param extra = std::monostate{};
+	if (lp.extra.has_value())
+		extra = *lp.extra;
 
 	/*
 	 * url/display_url are TEXT (migration 000028) and stored whole. The
@@ -295,7 +300,7 @@ void DB::upsertLinkPreview(const models::LinkPreview &lp, bool is_group)
 			   (int64_t)(lp.show_large_media ? 1 : 0),
 			   (int64_t)(lp.show_above_text ? 1 : 0),
 			   (int64_t)(lp.show_media_above_description ? 1 : 0),
-			   (int64_t)(lp.skip_confirmation ? 1 : 0),
+			   (int64_t)(lp.skip_confirmation ? 1 : 0), extra,
 			   lp.chat_id, lp.message_id });
 }
 

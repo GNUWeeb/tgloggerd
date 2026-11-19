@@ -2507,6 +2507,7 @@ void TDLib::Impl::maybe_store_link_preview(int64_t chat_id,
 		m.has_large_media = lp->has_large_media_;
 		m.show_large_media = lp->show_large_media_;
 		m.show_above_text = lp->show_above_text_;
+		m.extra = link_preview_extra_json(*lp);
 		link_preview_handler_(m, is_group);
 	}
 

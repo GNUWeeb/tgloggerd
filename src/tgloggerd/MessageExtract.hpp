@@ -12,6 +12,7 @@
 #include <td/telegram/td_api.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -195,6 +196,26 @@ struct ExtraFile {
  * video note or a video sticker, the media in a rich message's blocks.
  */
 std::vector<ExtraFile> message_extra_files(const td_api::MessageContent &content);
+
+/*
+ * The curated telegram_link_previews.extra of @lp: the fields of its type
+ * that have no column (message-types.md section 4.8), as a JSON object,
+ * or nullopt when the type carries none.
+ */
+std::optional<std::string> link_preview_extra_json(const td_api::linkPreview &lp);
+
+/* The message a Telegram message link names: a chat id (t.me/c/ links)
+ * or a public username, and the message's server id. */
+struct MessageLinkTarget {
+	int64_t		chat_id = 0;
+	std::string	username;
+	int64_t		message_id = 0;
+};
+
+/* Parse @url as a t.me (telegram.me, telegram.dog) or tg:// message
+ * link into @out; false, leaving @out alone, when it is not one. */
+bool telegram_message_link_target(const std::string &url,
+				  MessageLinkTarget &out);
 
 /*
  * The media in a rich message's page blocks, role "rich", position their
