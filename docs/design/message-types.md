@@ -840,6 +840,30 @@ caption:
 A video note forwards its round video as its file, like any other
 media; paid media has no main file and forwards its line only.
 
+The other direction, Discord to Telegram (`discord_telegram_routes`,
+discordd), filters the same way, part by part (migrations 000031,
+000048 and 000050; the rules are in `src/discordd/RouteFilter.hpp`
+and the lines in `src/discordd/Render.cpp`):
+
+| Part | Flag | Sent as |
+|---|---|---|
+| content | `fwd_text` | the text, under the author line |
+| image, video, other file | `fwd_photo`, `fwd_video`, `fwd_document` | `[<file name>] <link>` |
+| audio file, GIF | `fwd_audio`, `fwd_animation` | `[<file name>] <link>` |
+| sticker | `fwd_sticker` | `[sticker: <name>] <link>` |
+| voice message | `fwd_voice` | a voice note, captioned with the author line; `[voice message, 0:12] <link>` when it is too large, cannot be downloaded or sent, or the route takes another part of the message too; an upload TDLib took but did not confirm in time gets no link line, since it may still arrive |
+| rich embed (a bot's or webhook's) | `fwd_embed` | its author, title, description, `<name>: <value>` per field, and its URL |
+| poll | `fwd_poll` | `Poll: <question>` and one `- <answer>` line each, then `Closes <time>` |
+| system message | `fwd_system` | one line, such as `Joined the server`, `Pinned a message` or `Started a thread: <name>` |
+
+Embeds Discord adds when it unfurls a link are left out: the link is
+in the text already. A system message is any type but the default,
+a reply and a bot's answer to a slash or context menu command; its
+content is the event's detail and follows `fwd_system` with it. A
+message with nothing the route takes is not sent at all. A voice
+message is never edited, and a deleted one is tombstoned through its
+caption.
+
 ### 4.11 Custom emoji (`telegram_custom_emoji`)
 
 Messages refer to a custom emoji by its id only: in text entities
