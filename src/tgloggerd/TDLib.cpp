@@ -2878,7 +2878,7 @@ void TDLib::Impl::drain_relink(void)
 		{
 			std::lock_guard<std::mutex> lk(refetch_mtx_);
 			if (relink_pending_.empty())
-				return;
+				break;
 			m = relink_pending_.front();
 			relink_pending_.pop_front();
 		}
