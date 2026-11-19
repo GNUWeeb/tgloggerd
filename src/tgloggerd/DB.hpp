@@ -229,8 +229,10 @@ public:
 	/*
 	 * The live messages stored before content classification whose kind
 	 * or detail is missing: content_type 'unknown', or a service message,
-	 * with no tdlib_type. Re-reading one through the normal path gives it
-	 * a tdlib_type, so a repaired row is never listed again.
+	 * with no tdlib_type; and the rich messages stored before their
+	 * mapping, whose content_extra has no "blocks" key. Re-reading one
+	 * through the normal path gives it a tdlib_type (and a rich one its
+	 * "blocks"), so a repaired row is never listed again.
 	 */
 	std::vector<std::pair<int64_t, int64_t>> listMessagesToRepair(void);
 

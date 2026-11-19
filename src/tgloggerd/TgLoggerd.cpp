@@ -329,13 +329,14 @@ int TgLoggerd::start(void)
 	}
 	/*
 	 * Opt-in, one-off repair of rows stored before content
-	 * classification: messages kept as 'unknown', and service messages
-	 * without their detail, are re-fetched and stored again
+	 * classification: messages kept as 'unknown', service messages
+	 * without their detail, and rich messages stored before their
+	 * mapping are re-fetched and stored again
 	 * (docs/design/message-types.md section 4.9). "dry" only counts them.
-	 * Repaired rows get a tdlib_type and are not listed again, so a pass
-	 * that a restart cuts short resumes where it was; the rows TDLib can
-	 * no longer return are tried again on every start while this is on,
-	 * which is why it is off by default.
+	 * Repaired rows get their kind and detail and are not listed again,
+	 * so a pass that a restart cuts short resumes where it was; the rows
+	 * TDLib can no longer return are tried again on every start while
+	 * this is on, which is why it is off by default.
 	 */
 	const std::string repair = env("TG_REPAIR_MESSAGES_ON_START", "0");
 	if (repair == "dry") {
