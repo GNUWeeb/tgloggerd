@@ -129,7 +129,6 @@ Accounts, roles and federations:
 - [`profile-photo-lists`](todo/profile-photo-lists.md): Fetch users' and groups' profile photos from Telegram on demand and stream evicted ones.
 - [`group-files-tab`](todo/group-files-tab.md): Add a Files tab to the group page, by kind, newest first, with senders and message links.
 - [`group-polls-tab`](todo/group-polls-tab.md): Add a Polls tab to the group page listing its polls with results, senders and message links.
-- [`group-members`](todo/group-members.md): Show a group's real member count and list its members on demand.
 - [`video-thumbnails`](todo/video-thumbnails.md): Show a still thumbnail for every video before it is played, wherever the web shows one.
 - [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
 
