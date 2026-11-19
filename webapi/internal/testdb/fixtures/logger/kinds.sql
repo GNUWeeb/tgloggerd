@@ -17,8 +17,9 @@
 --   1  location            2  live location, moved 3 times (3 edits)
 --   3  venue               4  contact (Bima, with phone and vCard)
 --   5  dice                6  stake dice
---   7  game with a photo   8  poll 5550001
---   9  checklist of 22 tasks: 1 done by Bima, 2 by Dewi
+--   7  game with a photo   8  poll 5550001, edited once (1 edit)
+--   9  checklist of 22 tasks: 1 done by Bima, 2 by Dewi; it had 2
+--      tasks before (1 edit), 1 done by Bima
 --  10  story of C/C++ Study Group
 --  11  invoice with a photo
 --  12  giveaway: Kinds Lab, C/C++ Study Group, Linux Kernel Indonesia
@@ -60,8 +61,8 @@ INSERT INTO telegram_group_messages (id, chat_id, message_id, sender_user_id, da
 	(4005, -1001000000040, 700005, 9299000001, 1794927900, 'dice', NULL, 'messageDice', '{"emoji":"\\ud83c\\udfb2","value":4}', NULL, NULL, 0),
 	(4006, -1001000000040, 700006, 9299000004, 1794927960, 'dice', NULL, 'messageStakeDice', '{"value":3,"stake_gram_amount":100,"stake":true}', NULL, NULL, 0),
 	(4007, -1001000000040, 700007, 9299000001, 1794928020, 'game', 'Play it', 'messageGame', '{"game_id":"777","short_name":"tetris","title":"Tetris","description":"Falling blocks.","has_photo":true}', NULL, NULL, 0),
-	(4008, -1001000000040, 700008, 9299000004, 1794928080, 'poll', 'Pick one', 'messagePoll', '{"poll_id":"5550001"}', NULL, NULL, 0),
-	(4009, -1001000000040, 700009, 9299000001, 1794928140, 'checklist', 'Release checklist', 'messageChecklist', '{"tasks":[{"id":1,"text":"Task 1","completed_by":{"user_id":9299000002},"completion_date":1794927700},{"id":2,"text":"Task 2","completed_by":{"user_id":9299000001},"completion_date":1794927800},{"id":3,"text":"Task 3"},{"id":4,"text":"Task 4"},{"id":5,"text":"Task 5"},{"id":6,"text":"Task 6"},{"id":7,"text":"Task 7"},{"id":8,"text":"Task 8"},{"id":9,"text":"Task 9"},{"id":10,"text":"Task 10"},{"id":11,"text":"Task 11"},{"id":12,"text":"Task 12"},{"id":13,"text":"Task 13"},{"id":14,"text":"Task 14"},{"id":15,"text":"Task 15"},{"id":16,"text":"Task 16"},{"id":17,"text":"Task 17"},{"id":18,"text":"Task 18"},{"id":19,"text":"Task 19"},{"id":20,"text":"Task 20"},{"id":21,"text":"Task 21"},{"id":22,"text":"Task 22"}],"others_can_add_tasks":true}', NULL, NULL, 0),
+	(4008, -1001000000040, 700008, 9299000004, 1794928080, 'poll', 'Pick one', 'messagePoll', '{"poll_id":"5550001"}', NULL, NULL, 1794928110),
+	(4009, -1001000000040, 700009, 9299000001, 1794928140, 'checklist', 'Release checklist', 'messageChecklist', '{"tasks":[{"id":1,"text":"Task 1","completed_by":{"user_id":9299000002},"completion_date":1794927700},{"id":2,"text":"Task 2","completed_by":{"user_id":9299000001},"completion_date":1794927800},{"id":3,"text":"Task 3"},{"id":4,"text":"Task 4"},{"id":5,"text":"Task 5"},{"id":6,"text":"Task 6"},{"id":7,"text":"Task 7"},{"id":8,"text":"Task 8"},{"id":9,"text":"Task 9"},{"id":10,"text":"Task 10"},{"id":11,"text":"Task 11"},{"id":12,"text":"Task 12"},{"id":13,"text":"Task 13"},{"id":14,"text":"Task 14"},{"id":15,"text":"Task 15"},{"id":16,"text":"Task 16"},{"id":17,"text":"Task 17"},{"id":18,"text":"Task 18"},{"id":19,"text":"Task 19"},{"id":20,"text":"Task 20"},{"id":21,"text":"Task 21"},{"id":22,"text":"Task 22"}],"others_can_add_tasks":true}', NULL, NULL, 1794928170),
 	(4010, -1001000000040, 700010, 9299000004, 1794928200, 'story', NULL, 'messageStory', '{"poster_chat_id":-1001000000004,"story_id":12}', NULL, NULL, 0),
 	(4011, -1001000000040, 700011, 9299000001, 1794928260, 'invoice', NULL, 'messageInvoice', '{"title":"T-shirt","description":{"text":"A black T-shirt."},"has_photo":true,"currency":"IDR","total_amount":15000000,"is_test":true}', NULL, NULL, 0),
 	(4012, -1001000000040, 700012, 9299000004, 1794928320, 'giveaway', NULL, 'messageGiveaway', '{"boosted_chat_id":-1001000000040,"additional_chat_ids":[-1001000000004,-1001000000002],"winners_selection_date":1795014000,"only_new_members":true,"prize_description":"Stickers","winner_count":3,"prize":{"premium_months":6}}', NULL, NULL, 0),
@@ -84,6 +85,15 @@ INSERT INTO telegram_group_message_edits (group_message_id, content_type, text, 
 	 '{"lat":-6.205,"lon":106.815,"live":true,"live_period":900}'),
 	(4002, 'location', NULL, 1794931200 - 3600 + 120 + 120,
 	 '{"lat":-6.208,"lon":106.818,"live":true,"live_period":900}');
+
+-- The poll's version before its question was edited (the poll tables
+-- keep only the latest results) and the checklist's version before
+-- tasks were added to it.
+INSERT INTO telegram_group_message_edits (group_message_id, content_type, text, edit_date,
+	content_extra) VALUES
+	(4008, 'poll', 'Pick', 0, '{"poll_id":"5550001"}'),
+	(4009, 'checklist', 'Release checklist', 0,
+	 '{"tasks":[{"id":1,"text":"Task 1","completed_by":{"user_id":9299000002},"completion_date":1794927700},{"id":2,"text":"Task 2"}]}');
 
 INSERT INTO telegram_message_files (group_message_id, role, position, file_id) VALUES
 	(4007, 'game', 0, 870001),

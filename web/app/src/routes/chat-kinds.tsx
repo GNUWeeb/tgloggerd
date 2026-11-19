@@ -44,8 +44,8 @@ function Head({ icon: I, children }: { icon: LucideIcon; children: ReactNode }) 
 	return <div className="k-head"><I size={15} /><span>{children}</span></div>;
 }
 
-const osm = (lat: number, lon: number) => `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
-const coords = (lat: number, lon: number) => `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+export const osm = (lat: number, lon: number) => `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
+export const coords = (lat: number, lon: number) => `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
 // A venue's page at its provider, for the two Telegram uses.
 function providerPage(provider: string, id: string): [string, string] | null {
 	if (!id) return null;

@@ -5797,7 +5797,7 @@ components:
       description: >-
         A version of a message before an edit, from `at` until the next
         version (or the message as it is).
-      required: [at, text, entities]
+      required: [at, text, entities, detail]
       properties:
         at:
           type: string
@@ -5813,6 +5813,22 @@ components:
         media:
           description: The version's media, when it had a file.
           $ref: '#/components/schemas/ChatMedia'
+        detail:
+          description: >-
+            The version's detail, by its content_type, from the edit
+            row's own content_extra (the edit tables have it since
+            daemon migration 000034), as MessageKinds.detail is the
+            message's: a live location's position at that time, a
+            checklist's tasks then. A live location's live.updates
+            counts the versions before this one. Null where the
+            message's would be, and for every version of a poll: the
+            poll tables keep only the latest results, so a poll's
+            versions keep only their text. A version shows none of the
+            message's other files (a game's or an invoice's photo, paid
+            media's items), which are the message's as it is now.
+          oneOf:
+            - $ref: '#/components/schemas/MessageDetail'
+            - type: 'null'
     TextEntity:
       type: object
       description: >-

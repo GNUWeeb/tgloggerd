@@ -119,8 +119,8 @@ describe('chat parity', () => {
 			content_type: 'photo', text: 'now a photo', edited_at: '2026-11-10T11:00:00Z',
 			media: { stored: true, url: '/files/now', thumb: '/files/now', render: 'image' },
 			edits: [
-				{ at: '2026-11-10T10:00:00Z', text: 'was a document', content_type: 'document', media: { stored: true, url: '/files/doc', thumb: null, name: 'notes.pdf' }, entities: [] },
-				{ at: '2026-11-10T10:30:00Z', text: 'an older photo', content_type: 'photo', media: { stored: true, url: '/files/old', thumb: '/files/old' }, entities: [] },
+				{ at: '2026-11-10T10:00:00Z', text: 'was a document', content_type: 'document', media: { stored: true, url: '/files/doc', thumb: null, name: 'notes.pdf' }, entities: [], detail: null },
+				{ at: '2026-11-10T10:30:00Z', text: 'an older photo', content_type: 'photo', media: { stored: true, url: '/files/old', thumb: '/files/old' }, entities: [], detail: null },
 			],
 		}]);
 		fireEvent.click(within(row(0)).getByRole('button', { name: /edited/ }));

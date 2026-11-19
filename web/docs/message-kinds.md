@@ -64,6 +64,21 @@ tells how many there were but not who.
 Rows logged before migration 000034 have no `content_extra`. They keep
 the kinds they had and get no detail, so they render as before.
 
+Each earlier version of an edited message (`edits[]`, the Edit
+schema) carries its own `detail`, built the same way from the edit
+row's `content_extra` (the edit tables have it since migration 000034)
+and with the people it names resolved through the same scope, in the
+same batch as the page's messages. The logger keeps a live location's
+positions as edit versions, one a minute at most, so its edit list is
+the track of earlier positions: each version's `detail` holds that
+position, and its `live.updates` counts the versions before it. A
+checklist's version holds its tasks as they were then. A poll's
+versions have no detail (null): the poll tables keep only the latest
+results, so they keep only their text. A version shows none of the
+message's other files (a game's or an invoice's photo, paid media's
+items), which are the message's as it is now. A version without
+`content_extra`, or of a kind without a detail, gets null.
+
 ## Summaries
 
 Where one line stands for a message (a reply's quote in the chat and

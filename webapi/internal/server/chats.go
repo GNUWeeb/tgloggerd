@@ -236,6 +236,8 @@ type editJSON struct {
 	Entities    []textEntityJSON `json:"entities"`
 	ContentType string           `json:"content_type,omitempty"`
 	Media       *chatMediaJSON   `json:"media,omitempty"`
+	// Detail is the version's MessageDetail (view.editDetail).
+	Detail any `json:"detail"`
 }
 
 // forwardJSON is a forwarded message's origin (ForwardOrigin), with
@@ -541,10 +543,11 @@ func (v view) reply(n names, k kinds, chatID int64, m logdb.Message) *chatReplyJ
 
 func (v view) edits(k kinds, m logdb.Message) []editJSON {
 	out := []editJSON{}
-	for _, e := range m.Edits {
+	for i, e := range m.Edits {
 		out = append(out, editJSON{At: iso(e.At), Text: e.Text,
 			Entities:    v.messageEntities(k, m, e.Text, e.Entities),
-			ContentType: chatType(e.ContentType), Media: v.media(e.ContentType, e.File, e.Extra)})
+			ContentType: chatType(e.ContentType), Media: v.media(e.ContentType, e.File, e.Extra),
+			Detail: v.editDetail(k, m, i)})
 	}
 	return out
 }

@@ -88,7 +88,7 @@ describe('chat', () => {
 			const msgs = [...p.messages];
 			msgs[0] = { ...msgs[0]!, content_type: 'service', text: 'joined the group' };
 			msgs[1] = { ...msgs[1]!, content_type: 'text', deleted_at: '2026-11-17T10:00:00Z', text: 'gone message' };
-			msgs[2] = { ...msgs[2]!, content_type: 'text', edits: [{ at: '2026-11-17T09:00:00Z', text: 'before', entities: [] }], edited_at: '2026-11-17T09:05:00Z', deleted_at: null };
+			msgs[2] = { ...msgs[2]!, content_type: 'text', edits: [{ at: '2026-11-17T09:00:00Z', text: 'before', entities: [], detail: null }], edited_at: '2026-11-17T09:05:00Z', deleted_at: null };
 			renderPage(chatUrl(), 'superadmin', { viewer: page.viewer, props: { ...p, messages: msgs } });
 			expect(screen.queryByText(/joined the group/)).toBeNull();
 			expect(screen.queryByText('gone message')).toBeNull();
@@ -98,7 +98,7 @@ describe('chat', () => {
 		it('name the kind of an earlier version by its label', () => {
 			const p = fixture<ChatProps>(chatUrl()).props;
 			const msgs = [...p.messages];
-			msgs[2] = { ...msgs[2]!, content_type: 'text', edits: [{ at: '2026-11-17T09:00:00Z', text: 'before', entities: [], content_type: 'video_note' }], edited_at: '2026-11-17T09:05:00Z', deleted_at: null };
+			msgs[2] = { ...msgs[2]!, content_type: 'text', edits: [{ at: '2026-11-17T09:00:00Z', text: 'before', entities: [], content_type: 'video_note', detail: null }], edited_at: '2026-11-17T09:05:00Z', deleted_at: null };
 			renderPage(chatUrl(), 'superadmin', { props: { ...p, messages: msgs } });
 			const row = document.querySelector(`#m${msgs[2]!.message_id}`) as HTMLElement;
 			fireEvent.click(within(row).getByRole('button', { name: /edited/ }));

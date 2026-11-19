@@ -14,6 +14,7 @@ import { LinkPreview } from './chat-preview.tsx';
 import type { PageData } from '../page.ts';
 import { RichText } from '../ui/richtext.tsx';
 import { ServiceText, partsOf } from '../ui/serviceparts.tsx';
+import { EditDetail, useEditList } from '../ui/editdetail.tsx';
 import type { RouteDef } from './index.tsx';
 import type { S } from '../api/schema.ts';
 
@@ -44,6 +45,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 	const senderLink = asChat ? <Link to={`/groups/${asChat.id}`} className="a-rowlink"><b>{asChat.title}</b></Link>
 		: m.sender ? (m.sender.id !== 0 ? <Link to={`/users/${m.sender.id}`} className="a-rowlink"><b>{m.sender.name}</b></Link> : <b className="a-muted">{m.sender.name}</b>) : <b>{v.signed_in ? 'You (logging account)' : loggerName(v)}</b>;
 	const f = m.forward_from;
+	const editList = useEditList(m.edits, 'a-link sm a-editmore');
 	const fromLink = f?.user_id !== undefined ? <Link to={`/users/${f.user_id}`} className="a-rowlink">{f.name}</Link>
 		: f?.chat_id !== undefined ? <Link to={`/groups/${f.chat_id}`} className="a-rowlink">{f.name}</Link> : <>{f?.name ?? m.forwarded}</>;
 	return (
@@ -116,14 +118,16 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 					)}
 					{m.edits.length > 0 && (
 						<Card title="Edit history">
+							{editList.more}
 							<Timeline v={v} items={[
-								...m.edits.map((e) => ({
+								...editList.shown.map((e) => ({
 									icon: Pencil, at: e.at, title: e.content_type && e.content_type !== m.content_type ? `Earlier version (${contentLabel(e.content_type)})` : 'Earlier version',
 									body: <>
 										{e.media && (e.media.thumb
 											? <a href={e.media.url ?? undefined} target="_blank" rel="noopener" className="a-editmedia" aria-label="Earlier file"><img src={e.media.thumb} alt="" width={72} height={72} loading="lazy" /></a>
 											: <div className="a-muted sm">{e.media.url ? <a href={e.media.url} className="a-link">{e.media.name || 'earlier file'}</a> : `${e.media.name || 'earlier file'} (not stored)`}</div>)}
-										{e.text ? <RichText text={e.text} entities={e.entities} chat={chat} /> : !e.media && <span className="a-muted">(no text)</span>}
+										{e.text ? <RichText text={e.text} entities={e.entities} chat={chat} /> : !e.media && !e.detail && <span className="a-muted">(no text)</span>}
+										{e.detail && <EditDetail d={e.detail} text={e.text} entities={e.entities} chat={chat} v={v} />}
 									</>,
 								})),
 								...(m.edited_at ? [{ icon: Pencil, at: m.edited_at, title: 'Current version', body: <RichText text={m.text} entities={ents} chat={chat} />, tone: 'accent' as const }] : []),
