@@ -1086,6 +1086,10 @@ export function federationDetail(id: number, persona: Persona) {
 	};
 }
 
+// A note as Go's clip() stores it: trimmed, then cut to 255 runes
+// (code points, not UTF-16 units or bytes).
+const clipNote = (note: string) => Array.from(note.trim()).slice(0, 255).join('');
+
 export function adminApi(method: string, p: string, body, persona: Persona): [number, unknown] {
 	const s = scopeOf(persona);
 	let m;
@@ -1301,14 +1305,27 @@ export function adminApi(method: string, p: string, body, persona: Persona): [nu
 		return [200, { outcome: 'joined', message: `Joined. The chat is now logged, media included${(body.federation_ids || []).length ? ', and added to the chosen federations' : ''}.`, chat: { ...chat, is_member: true } }];
 	}
 	if ((m = p.match(/^mcp\/groups(?:\/(-?\d+))?$/))) {
+		// Go routes only these methods here; ServeMux answers any other
+		// with 405, before it looks at the session.
+		if (!(m[1] ? ['DELETE', 'PATCH'] : ['POST']).includes(method)) return [405, { error: 'method_not_allowed' }];
 		if (!allowed(s, 'mcp')) return [404, { error: 'not_found' }];
-		if (!m[1] && method === 'POST') {
+		if (!m[1]) {
 			const g = groups.find((x) => x.id === body.group_id);
 			if (!g) return [400, { error: 'bad_request', message: 'Choose a group.' }];
-			g.exposed = true; mcpExposed.push({ group: g, public_now: true, note: body.note || '', added: '2026-11-17 16:00:00' });
+			g.exposed = true; mcpExposed.push({ group: g, public_now: true, note: clipNote(String(body.note ?? '')), added: '2026-11-17 16:00:00' });
 			return [201, { group_id: g.id }];
 		}
 		const i = mcpExposed.findIndex((e) => String(e.group.id) === m[1]);
+		// The note alone changes: who exposed the group and when stay. As
+		// in Go, the body is checked first, then that the viewer sees the
+		// group, then that it is exposed.
+		if (method === 'PATCH') {
+			if (typeof body.note !== 'string') return [400, { error: 'bad_request', message: 'A note is required.' }];
+			const g = getGroup(Number(m[1]));
+			if (!g || !s.group(g) || i < 0) return [404, { error: 'not_found' }];
+			mcpExposed[i].note = clipNote(body.note);
+			return [204, null];
+		}
 		if (i < 0) return [404, { error: 'not_found' }];
 		mcpExposed[i].group.exposed = false; mcpExposed.splice(i, 1); return [204, null];
 	}

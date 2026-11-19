@@ -357,6 +357,7 @@ func (s *Server) routes() []route {
 		{"POST /api/users/{id}/lookup-name", s.RequireSession(s.lookupName)},
 		{"POST /api/mcp/groups", s.RequireSession(s.exposeMcpGroup)},
 		{"DELETE /api/mcp/groups/{group_id}", s.RequireSession(s.unexposeMcpGroup)},
+		{"PATCH /api/mcp/groups/{group_id}", s.RequireSession(s.setMcpGroupNote)},
 		{"POST /api/mcp/tokens", s.RequireSession(s.createMcpToken)},
 		{"POST /api/mcp/tokens/{id}/revoke", s.RequireSession(s.revokeMcpToken)},
 		{"POST /mcp", s.postMCP},

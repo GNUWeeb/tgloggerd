@@ -25,6 +25,10 @@ GRANT INSERT, UPDATE, DELETE ON `@TG_DB_NAME@`.telegram_bots TO '@WEB_DB_RO_USER
 GRANT INSERT, UPDATE, DELETE ON `@TG_DB_NAME@`.discord_bots TO '@WEB_DB_RO_USER@'@'%';
 
 -- The MCP exposure allowlist, managed from the admin UI. Rows are added and
--- removed, never updated, so UPDATE is deliberately not granted -- this table
--- decides what leaves the archive, and a narrower grant is worth the pedantry.
+-- removed; this table decides what leaves the archive, so a narrower grant is
+-- worth the pedantry. The one UPDATE is on the note, the reason written down
+-- for exposing a group, which the admin UI rewords in place: granted on that
+-- column alone, it can neither move an exposure to another group nor change
+-- who exposed it or when.
 GRANT INSERT, DELETE ON `@TG_DB_NAME@`.telegram_public_groups TO '@WEB_DB_RO_USER@'@'%';
+GRANT UPDATE (note) ON `@TG_DB_NAME@`.telegram_public_groups TO '@WEB_DB_RO_USER@'@'%';

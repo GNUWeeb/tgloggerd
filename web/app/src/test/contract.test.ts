@@ -243,6 +243,20 @@ describe('stand-in answers against webapi/openapi.yaml', () => {
 		ok(...adminApi('PATCH', 'federations/1', { description: 'For the contract' }, 'superadmin'), '/api/federations/{id}', 'patch');
 	});
 
+	it('a change of an exposed group\'s note', () => {
+		const op = spec.paths['/api/mcp/groups/{group_id}']?.patch as { requestBody: { content: { 'application/json': { schema: Schema } } }; responses: Record<string, unknown> };
+		const body = op.requestBody.content['application/json'].schema;
+		const id = (pageData('/mcp-admin/groups', 'superadmin').props as { groups: { group: { id: number } }[] }).groups[0]!.group.id;
+		for (const note of ['For the contract', '']) {
+			expect(validate(spec, body, { note })).toEqual([]);
+			expect(adminApi('PATCH', `mcp/groups/${id}`, { note }, 'superadmin')).toEqual([204, null]);
+		}
+		expect(validate(spec, body, {})).not.toEqual([]);
+		const answers = [adminApi('PATCH', `mcp/groups/${id}`, {}, 'superadmin')[0], adminApi('PATCH', 'mcp/groups/-1', { note: '' }, 'superadmin')[0]];
+		expect(answers).toEqual([400, 404]);
+		for (const st of [204, ...answers]) expect(op.responses).toHaveProperty(String(st));
+	});
+
 	it('a name lookup', () => {
 		const [status, body] = lookupName(String(sampleContacts()[0]), 'superadmin');
 		ok(status, body, '/api/users/{id}/lookup-name', 'post');

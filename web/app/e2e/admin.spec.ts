@@ -67,3 +67,16 @@ test('a bot is added, and its status follows what discordd reports', async ({ pa
 	await expect(row).toContainText('intent missing');
 	await expect(row).toContainText('Message Content Intent');
 });
+
+test('an exposed group\'s note is edited in place', async ({ page }) => {
+	await page.goto('/mcp-admin/groups');
+	const row = page.locator('tbody tr').first();
+	const added = await row.locator('td[title]').textContent();
+	await row.getByRole('button', { name: 'Edit note' }).click();
+	const d = page.getByRole('dialog');
+	await d.getByLabel(/Note/).fill('Reviewed by the e2e run');
+	await d.getByRole('button', { name: 'Save' }).click();
+	await expect(d).toHaveCount(0);
+	await expect(row).toContainText('Reviewed by the e2e run');
+	await expect(row.locator('td[title]')).toHaveText(added!);
+});

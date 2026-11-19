@@ -1073,7 +1073,7 @@ export interface paths {
         put?: never;
         /**
          * Expose a group through the MCP endpoint
-         * @description For viewers with the mcp ability (superadmins and admins today), and only groups the viewer may see (web-accounts.md section 4): a hidden or unknown group is 404. The note is cut to 255 characters. A group already exposed is 409 already_exposed; to change its note, withdraw it and expose it again. Exposing also makes the group's chat public on the web (web/docs/mcp.md). Audited as mcp_expose.
+         * @description For viewers with the mcp ability (superadmins and admins today), and only groups the viewer may see (web-accounts.md section 4): a hidden or unknown group is 404. The note is cut to 255 characters. A group already exposed is 409 already_exposed; its note changes by setMcpGroupNote. Exposing also makes the group's chat public on the web (web/docs/mcp.md). Audited as mcp_expose.
          */
         post: operations["exposeMcpGroup"];
         delete?: never;
@@ -1099,7 +1099,11 @@ export interface paths {
         delete: operations["unexposeMcpGroup"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Change the note of an exposed group
+         * @description Under the same permission as exposeMcpGroup. The note is trimmed and cut to 255 characters; an empty one clears it. Who exposed the group and when stay as they are. A group the viewer may not see, or one not exposed, is 404; a body without note is 400. Audited as mcp_note, with the old and the new note; an unchanged note is not audited.
+         */
+        patch: operations["setMcpGroupNote"];
         trace?: never;
     };
     "/api/mcp/tokens": {
@@ -6348,6 +6352,37 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Csrf"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setMcpGroupNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group's Telegram chat id. */
+                group_id: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    note: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The note is saved. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Csrf"];
             404: components["responses"]["NotFound"];
