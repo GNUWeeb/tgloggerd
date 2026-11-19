@@ -61,7 +61,11 @@ func (d *photoDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/photos"):
 		if block != nil {
-			<-block
+			// Bounded, so a failed test cannot hang on it.
+			select {
+			case <-block:
+			case <-time.After(10 * time.Second):
+			}
 		}
 		if list == "" {
 			list = `{"outcome":"ok","message":"","total":0,"photos":[]}`
@@ -99,6 +103,7 @@ type photoListEnv struct {
 	nowMu *sync.Mutex
 	// files counts the service's statements on telegram_files.
 	files *atomic.Int64
+	asks  *photoRefresher
 }
 
 // countingDB is a pool on ro's database that counts the statements
@@ -153,23 +158,28 @@ func newPhotoListEnv(t *testing.T) *photoListEnv {
 		cookies: &auth.Cookies{Signer: signer, Timeout: 3600, Secure: true},
 		tokens:  auth.NewFileTokens(testKey)}, app: app, fake: fake, now: &now, nowMu: mu,
 		files: files}
+	clock := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}
+	e.asks = newPhotoRefresher(log, dc, clock)
 	e.h = New(Deps{
-		Log:     log,
-		RO:      counted,
-		App:     app,
-		Signer:  signer,
-		Cookies: e.cookies,
-		Limiter: auth.NewRateLimiter(5, time.Hour),
-		Daemon:  dc,
-		Tokens:  e.tokens,
-		Access:  daemon.NewAccessReporter(dc, log),
-		Media:   MediaConfig{StorageDir: store},
-		clock: func() time.Time {
-			mu.Lock()
-			defer mu.Unlock()
-			return now
-		},
+		Log:       log,
+		RO:        counted,
+		App:       app,
+		Signer:    signer,
+		Cookies:   e.cookies,
+		Limiter:   auth.NewRateLimiter(5, time.Hour),
+		Daemon:    dc,
+		Tokens:    e.tokens,
+		Access:    daemon.NewAccessReporter(dc, log),
+		Media:     MediaConfig{StorageDir: store},
+		clock:     clock,
+		photoAsks: e.asks,
 	})
+	// No ask outlives the test's daemon.
+	t.Cleanup(e.asks.wait)
 	return e
 }
 
@@ -292,5 +302,145 @@ func TestPhotoListsQueries(t *testing.T) {
 	many := cost(photosPath(fotoBaru), 53)
 	if few == 0 || many != few {
 		t.Errorf("statements on telegram_files: %d for 3 photos, %d for 53", few, many)
+	}
+}
+
+// advance moves the service's clock on by d.
+func (e *photoListEnv) advance(d time.Duration) {
+	e.nowMu.Lock()
+	defer e.nowMu.Unlock()
+	*e.now = e.now.Add(d)
+}
+
+// openPage loads a page's data as who, failing the test if the answer
+// takes longer than a few seconds: the ask must not hold it up.
+func (e *photoListEnv) openPage(path, who, route string) {
+	e.t.Helper()
+	cookie := e.as(who)
+	done := make(chan int, 1)
+	go func() {
+		code, _, _ := e.get("/api/page"+path, cookie)
+		done <- code
+	}()
+	select {
+	case code := <-done:
+		if code != 200 {
+			e.t.Fatalf("%s as %s: %d", path, who, code)
+		}
+	case <-time.After(3 * time.Second):
+		e.t.Fatalf("%s: the page waited for the daemon", path)
+	}
+	page[struct{}](e.chatEnv, path, who, 200, route)
+}
+
+// Opening a user or group page has the daemon list its photos in the
+// background: never holding the page up, one ask in flight per user
+// or group, none again within ten minutes, whatever came of it, and a
+// flood wait's wait when longer.
+func TestPhotoListsRefresh(t *testing.T) {
+	t.Parallel()
+	e := newPhotoListEnv(t)
+	userList := fmt.Sprintf("GET /v1/users/%d/photos", fotoBaru)
+	groupList := fmt.Sprintf("GET /v1/chats/%d/photos", fotoGrup)
+	userPage, groupPage := fmt.Sprintf("/users/%d", fotoBaru), fmt.Sprintf("/groups/%d", fotoGrup)
+	asked := func(prefix string, want int) {
+		t.Helper()
+		if got := e.fake.requests(prefix); len(got) != want {
+			t.Errorf("%s: asked %d times (%q), want %d", prefix, len(got), got, want)
+		}
+	}
+
+	// The daemon holds its answer: the pages answer all the same, and
+	// a second opening while the first ask runs asks nothing more.
+	block := make(chan struct{})
+	e.fake.mu.Lock()
+	e.fake.block = block
+	e.fake.mu.Unlock()
+	e.openPage(userPage, "admin", "user")
+	e.openPage(groupPage, "admin", "group")
+	e.openPage(userPage, "admin", "user")
+	e.openPage(fmt.Sprintf("/users/%d/history", fotoBaru), "admin", "user_history")
+	e.openPage(groupPage, "gw_admin", "group")
+	close(block)
+	e.asks.wait()
+	asked(userList, 1)
+	asked(groupList, 1)
+	if got := e.fake.requests(userList); len(got) == 1 &&
+		got[0] != userList+"?offset=0&limit=100" {
+		t.Errorf("asked %q", got[0])
+	}
+	e.fake.mu.Lock()
+	e.fake.block = nil
+	e.fake.mu.Unlock()
+
+	// Within ten minutes nothing is asked again; after, once more.
+	e.advance(9 * time.Minute)
+	e.openPage(userPage, "admin", "user")
+	e.openPage(groupPage, "admin", "group")
+	e.asks.wait()
+	asked(userList, 1)
+	asked(groupList, 1)
+	e.advance(2 * time.Minute)
+	e.openPage(userPage, "admin", "user")
+	e.openPage(groupPage, "admin", "group")
+	e.asks.wait()
+	asked(userList, 2)
+	asked(groupList, 2)
+
+	// A failure is not asked again sooner.
+	e.fake.mu.Lock()
+	e.fake.list = `{"outcome":"error","message":"boom","total":null,"photos":[]}`
+	e.fake.mu.Unlock()
+	e.advance(11 * time.Minute)
+	e.openPage(userPage, "admin", "user")
+	e.asks.wait()
+	e.advance(5 * time.Minute)
+	e.openPage(userPage, "admin", "user")
+	e.asks.wait()
+	asked(userList, 3)
+
+	// A flood wait longer than ten minutes is sat out.
+	e.fake.mu.Lock()
+	e.fake.list = `{"outcome":"flood_wait","message":"","retry_after":3600,"total":null,"photos":[]}`
+	e.fake.mu.Unlock()
+	e.advance(11 * time.Minute)
+	e.openPage(groupPage, "admin", "group")
+	e.asks.wait()
+	asked(groupList, 3)
+	e.advance(30 * time.Minute)
+	e.openPage(groupPage, "admin", "group")
+	e.asks.wait()
+	asked(groupList, 3)
+	e.advance(31 * time.Minute)
+	e.openPage(groupPage, "admin", "group")
+	e.asks.wait()
+	asked(groupList, 4)
+}
+
+// Only a viewer who sees the photos has them listed: a member gets the
+// limited user page and asks nothing, and a group it may not see
+// answers 404 without an ask.
+func TestPhotoListsRefreshScope(t *testing.T) {
+	t.Parallel()
+	e := newPhotoListEnv(t)
+	type limited struct{ Limited bool }
+	if _, err := e.app.Exec("INSERT INTO web_member_grant_groups (web_user_id, federation_id, "+
+		"group_id) VALUES (5, 0, ?)", gnuWeeb); err != nil {
+		t.Fatal(err)
+	}
+	// Bima posts in GNU/Weeb, so the member sees him, limited.
+	if p := page[limited](e.chatEnv, "/users/9299000002", "researcher", 200, "user"); !p.Limited {
+		t.Fatal("the member's user page is not the limited one")
+	}
+	e.decode(fmt.Sprintf("/api/page/groups/%d", fotoGrup), e.as("researcher"), 404, nil)
+	e.asks.wait()
+	if got := e.fake.requests("GET /v1/"); len(got) != 0 {
+		t.Errorf("asked %q", got)
+	}
+	// The group it is granted is listed.
+	page[struct{}](e.chatEnv, fmt.Sprintf("/groups/%d", gnuWeeb), "researcher", 200, "group")
+	e.asks.wait()
+	if got := e.fake.requests(fmt.Sprintf("GET /v1/chats/%d/photos", gnuWeeb)); len(got) != 1 {
+		t.Errorf("granted group: asked %q", got)
 	}
 }

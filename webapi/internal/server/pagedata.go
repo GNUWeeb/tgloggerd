@@ -333,6 +333,9 @@ func loadUserPage(ctx context.Context, pr *pageRequest, history bool) (any, erro
 	if err != nil {
 		return nil, err
 	}
+	// The viewer sees the user's photos: complete them from Telegram
+	// for the carousel, in the background.
+	pr.s.photoAsks.user(pr.pathID())
 	up := userProps{
 		User: uj, Groups: []userGroupJSON{}, History: []historyJSON{}, Activity: p.Activity,
 		CanPrivate: pr.scope.SeesPrivate(),
@@ -462,6 +465,9 @@ func loadGroup(ctx context.Context, pr *pageRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The viewer sees the group's photos: complete them from Telegram
+	// for the carousel, in the background.
+	pr.s.photoAsks.group(pr.pathID())
 	v := pr.view()
 	gs := v.group(p.Group.Group)
 	gs.MsgCount = nil

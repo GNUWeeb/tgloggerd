@@ -435,6 +435,16 @@ paths that are no page and for things the scope hides, 404 either way.
     current one from the group's photo file), whose photo changes
     carry photo_id too, for a group the request scope sees, as its
     history (a hidden group is 404).
+  - Opening a user page in full or a group page has the daemon list
+    that user's or group's photos from Telegram (GET
+    /v1/users/{id}/photos, GET /v1/chats/{id}/photos;
+    internal/server/photorefresh.go), which adds the photos and
+    history rows the archive lacks, so the next photo list is whole.
+    The ask runs in the background, never holding the page up: one in
+    flight per user or group, none again within ten minutes of the
+    last (or a flood wait's retry_after), whatever came of it;
+    failures are only logged, and the times live in memory. Without
+    WEB_TGLOGGERD_API nothing is asked.
   - The user page's profile is every field the logger records, as
     the Drogon page shows it: birthday, personal channel, paid message
     stars, emoji status, accent colours and background emojis (64-bit

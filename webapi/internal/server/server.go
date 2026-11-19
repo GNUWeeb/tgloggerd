@@ -105,6 +105,9 @@ type Deps struct {
 	// search replaces the list pages' search (logdb.Search), for
 	// tests of a search that runs out of time.
 	search searchFunc
+	// photoAsks replaces the photo lists' background asks
+	// (photoRefresher).
+	photoAsks *photoRefresher
 }
 
 // searchFunc is logdb.Search's signature.
@@ -159,6 +162,9 @@ type Server struct {
 	engine SearchEngine
 	// bots is Deps.Bots.
 	bots *BotResolver
+	// photoAsks has the daemon list a user's or group's photos when
+	// its page opens.
+	photoAsks *photoRefresher
 }
 
 // New returns the service's handler: the routes wrapped in request
@@ -219,6 +225,10 @@ func New(d Deps) http.Handler {
 	}
 	if d.clock != nil {
 		s.clock = d.clock
+	}
+	s.photoAsks = d.photoAsks
+	if s.photoAsks == nil {
+		s.photoAsks = newPhotoRefresher(d.Log, d.Daemon, s.clock)
 	}
 	s.search = logdb.Search
 	if d.search != nil {
