@@ -30,6 +30,9 @@ type Poll struct {
 	TotalVoters int64
 	CloseDate   int64  // unix; 0 = none
 	Explanation string // a quiz's; "" = none
+	// QuestionEntities and ExplanationEntities are their text
+	// entities as stored, nil for plain text.
+	QuestionEntities, ExplanationEntities []byte
 	// Correct are a quiz's correct options, by their 0-based position.
 	Correct []int
 	Options []PollOption
@@ -54,7 +57,8 @@ func PollsByID(ctx context.Context, db *sql.DB, ids []int64) (map[int64]*Poll, e
 	in := placeholders(len(ids))
 	rows, err := db.QueryContext(ctx, "SELECT id, question, type, is_anonymous, "+
 		"allows_multiple_answers, is_closed, total_voter_count, close_date, "+
-		"COALESCE(explanation, ''), correct_option_ids FROM telegram_polls WHERE id IN ("+in+")",
+		"COALESCE(explanation, ''), correct_option_ids, question_entities, "+
+		"explanation_entities FROM telegram_polls WHERE id IN ("+in+")",
 		int64Args(ids)...)
 	if err != nil {
 		return nil, err
@@ -65,7 +69,8 @@ func PollsByID(ctx context.Context, db *sql.DB, ids []int64) (map[int64]*Poll, e
 			correct []byte
 		)
 		if err := rows.Scan(&p.ID, &p.Question, &p.Type, &p.Anonymous, &p.Multiple, &p.Closed,
-			&p.TotalVoters, &p.CloseDate, &p.Explanation, &correct); err != nil {
+			&p.TotalVoters, &p.CloseDate, &p.Explanation, &correct, &p.QuestionEntities,
+			&p.ExplanationEntities); err != nil {
 			rows.Close()
 			return nil, err
 		}
