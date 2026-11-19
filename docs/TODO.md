@@ -110,7 +110,6 @@ Storing every kind of Telegram message faithfully:
 
 - [`msg-interaction`](todo/msg-interaction.md): Choose the interval at which interaction totals are written, from a day of the live update rate.
 - [`msg-repair-census`](todo/msg-repair-census.md): Count what the repair pass left without a kind or detail, turn it off, and adjust these items.
-- [`msg-schema-prep`](todo/msg-schema-prep.md): Add the file roles, the link preview extras column and the custom emoji table the lossy kinds need.
 - [`msg-rich-store`](todo/msg-rich-store.md): Store a rich message's plain text, a short summary and the media in its page blocks.
 - [`msg-custom-emoji-store`](todo/msg-custom-emoji-store.md): Fill the custom emoji table on demand from a daemon endpoint, with each sticker's file.
 - [`msg-type-labels`](todo/msg-type-labels.md): Give every content type and service type a human label, shared by the chat, the message page and the lists.

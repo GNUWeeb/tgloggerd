@@ -48,7 +48,7 @@ the JSON is capped. Design: message-types.md section 3.1 and 4.2.
 
 ## Depends on
 
-`msg-schema-prep` (the new file role for rich messages).
+Nothing.
 
 ## Done when
 

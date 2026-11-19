@@ -33,8 +33,7 @@ message-types.md section 3.3 and 4.2.3. Old rows keep what they have.
 
 ## Depends on
 
-`msg-schema-prep` (the role), `msg-service-detail` (the service
-detail and the photo thumb).
+`msg-service-detail` (the service detail and the photo thumb).
 
 ## Done when
 

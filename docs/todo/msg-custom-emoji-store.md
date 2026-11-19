@@ -37,7 +37,7 @@ table comes from `msg-schema-prep`.
 
 ## Depends on
 
-`msg-schema-prep` (the table).
+Nothing.
 
 ## Done when
 

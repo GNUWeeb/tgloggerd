@@ -40,8 +40,7 @@ ones.
 
 ## Depends on
 
-`msg-schema-prep` (the role), `msg-service-detail` (the service
-detail).
+`msg-service-detail` (the service detail).
 
 ## Done when
 

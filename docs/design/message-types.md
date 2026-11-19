@@ -474,7 +474,8 @@ change. A new table follows the pattern of `telegram_link_previews`:
     telegram_message_files (migration 000036)
       id, group_message_id NULL, private_message_id NULL,
       role ENUM('cover','live_video','paid','preview','poll','game',
-      'invoice','chat_photo','thumbnail'), position SMALLINT,
+      'invoice','chat_photo','thumbnail','rich','gift','background',
+      'preview_media'), position SMALLINT,
       file_id (FK telegram_files, ON DELETE SET NULL),
       UNIQUE (message, role, position)
 
@@ -494,6 +495,15 @@ A video note's round video is now the main file, like any other media.
 | `chat_photo` | the new photo of a chat photo change or a suggested profile photo (largest size) |
 | `thumbnail` | the still thumbnail TDLib offers with a video, an animation, a video note or a video (.webm) sticker, when it is an image (JPEG, PNG or WebP; MPEG-4, GIF, TGS and WebM thumbnails are not stored), file_type `thumbnail`: the picture the web shows before the video plays |
 | `poll`, `preview` | reserved: poll media (msg-polls); other thumbnails (a document's, a photo's sizes) and a video's other qualities are not stored, since they repeat the media |
+| `rich` | the photos, videos and other media inside a rich message's page blocks, `position` their order of appearance (msg-rich-store) |
+| `gift` | a gift's sticker, an upgraded gift's model sticker, the animation sticker of a gifted premium, stars, grams or giveaway prize (msg-gifts) |
+| `background` | a chat background's document: the wallpaper or the pattern (msg-chat-backgrounds) |
+| `preview_media` | a link preview's own video, animation or audio, beyond its image in `telegram_link_previews.photo_file_id` (msg-link-preview-media) |
+
+The last four roles come with migration 000045; nothing writes them
+until their items land. The ENUM append keeps every existing value's
+number, so it is instant (`ALGORITHM=INSTANT`, confirmed on a copy
+with rows), and its down file first deletes the rows that use them.
 
 Each file goes through the same path as a main file: linked when it is
 already known, recorded without its bytes where the storage cache rules
@@ -645,6 +655,13 @@ above the text) go into its `meta` as `link_preview_options`, not onto
 the card: a message with previews turned off has no card (decision
 [2026-11-18-msg-link-preview-options-in-meta](decisions/2026-11-18-msg-link-preview-options-in-meta.md)).
 
+Migration 000045 adds `extra JSON NULL`, also instant: the preview
+type's own fields that have no column (a video's duration, an embedded
+player's URL and size, the target of a message or story preview), as a
+curated object like `content_extra`, NULL when the type has none. The
+preview's own video, animation or audio is a `preview_media` file of
+the message (section 4.3). Both are written by msg-link-preview-media.
+
 ### 4.9 Repairing old rows
 
 Rows stored before classification as `unknown`, and service rows
@@ -689,6 +706,31 @@ keeps the caption's formatting offsets valid:
 
 A video note forwards its round video as its file, like any other
 media; paid media has no main file and forwards its line only.
+
+### 4.11 Custom emoji (`telegram_custom_emoji`)
+
+Messages refer to a custom emoji by its id only: in text entities
+(`textEntityTypeCustomEmoji`), reactions, forum topic icons, emoji
+statuses and a sticker's `custom_emoji_id`. To draw one, the web needs
+the sticker behind it. Migration 000046 adds a table for them:
+
+    telegram_custom_emoji (migration 000046)
+      custom_emoji_id BIGINT PRIMARY KEY,
+      emoji VARCHAR(16), set_id BIGINT NULL,
+      format ENUM('webp','tgs','webm') NULL,
+      needs_repainting TINYINT(1),
+      file_id (FK telegram_files, ON DELETE SET NULL),
+      created_at, updated_at
+
+One row per custom emoji, shared by every message that uses it. It is
+filled on demand from `getCustomEmojiStickers` (up to 200 ids a call)
+when the daemon stores an id it has no row for; the sticker's file is
+an ordinary `telegram_files` row, recorded without its bytes until
+someone views it, under the storage cache rules. `needs_repainting`
+says the sticker is drawn in the text colour, as emoji statuses are.
+How the table is filled, and whether a message effect's sticker
+(`meta.effect_id`) shares it or needs a sibling table, is decided by
+msg-custom-emoji-store; the web side is msg-custom-emoji-web.
 
 ## 5. Web impact (Go port)
 
