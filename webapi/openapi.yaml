@@ -7700,6 +7700,13 @@ components:
           $ref: '#/components/schemas/BotStatus'
         enabled:
           type: boolean
+        photo:
+          type: [string, 'null']
+          description: >-
+            A Telegram bot's profile photo, as the archive has it for
+            the user of identity.user_id: a /files/ URL when that user
+            is in the archive and the photo's bytes are stored, else
+            null. Always null for a Discord bot (no third-party URLs).
     Bot:
       description: >-
         A bot on the Bots page. Its token is write-only: no answer,

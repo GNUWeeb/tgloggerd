@@ -22,11 +22,12 @@ import (
 	"tgloggerd/webapi/internal/testdb"
 )
 
-// The photos of the forwarding pages' chats and the pinned groups on
-// the "fwd_photos" fixture: shown when stored, null when the file is
-// metadata only or there is none.
+// The photos of the forwarding pages' chats, the pinned groups and the
+// bots, on the "fwd_photos" fixture: shown when stored, null when the
+// file is metadata only or there is none, never for a Discord bot.
 
 const (
+	fwdBotPhoto    = uint64(860001) // @gw_bridge_bot, stored
 	kernelPhoto    = uint64(860003) // Linux Kernel Indonesia, stored
 	gnuWeebPhoto   = uint64(880008) // the sample's, stored
 	dewiPhoto      = uint64(880007) // the sample's, stored
@@ -78,6 +79,19 @@ func TestForwardingChatPhotos(t *testing.T) {
 	if got := chatPhoto(d2t["2"]); got != photoOf(kernelPhoto) {
 		t.Errorf("route 2 photo %v", got)
 	}
+	// The bots on the routes: the Telegram bot's own photo; none for the
+	// Discord bot although a Telegram user has its user id, and none for
+	// a bot not logged in yet.
+	if got := d2t["1"]["telegram_bot"].(map[string]any)["photo"]; got != photoOf(fwdBotPhoto) {
+		t.Errorf("route 1 telegram bot photo %v", got)
+	}
+	if b := d2t["1"]["discord_bot"].(map[string]any); b["photo"] != nil {
+		t.Errorf("route 1 discord bot photo %v", b["photo"])
+	}
+	if b := d2t["2"]["telegram_bot"].(map[string]any); b["photo"] != nil {
+		t.Errorf("route 2 telegram bot photo %v", b["photo"])
+	}
+
 	// A member with forward sees its own webhook's chat photo, and no
 	// other configuration (so no other chat's photo).
 	grantMember(t, e, memberGroups, "forward")
@@ -91,6 +105,39 @@ func TestForwardingChatPhotos(t *testing.T) {
 	_, p := e.page("member", "/platform-fwd/telegram-discord")
 	if s := js(p); strings.Contains(s, photoOf(gnuWeebPhoto)) || strings.Contains(s, photoOf(dewiPhoto)) {
 		t.Errorf("member sees a hidden chat's photo: %s", s)
+	}
+}
+
+func TestBotPhotos(t *testing.T) {
+	t.Parallel()
+	e := newAdminEnv(t, fwdPhotosFixtr)
+	want := map[string]any{"1": photoOf(fwdBotPhoto), "2": nil, "1000000001": nil, "1000000002": nil}
+
+	_, p := e.page("admin", "/platform-fwd/bots")
+	bots := p["props"].(map[string]any)["bots"].([]any)
+	if len(bots) != len(want) {
+		t.Fatalf("bots %v", bots)
+	}
+	for _, b := range bots {
+		m := b.(map[string]any)
+		id := fmt.Sprint(m["id"])
+		if v, ok := m["photo"]; !ok || v != want[id] {
+			t.Errorf("bots page: bot %s photo %v (present %t), want %v", id, v, ok, want[id])
+		}
+	}
+	_, l, _ := e.call("admin", "GET", "/api/bots", nil)
+	for _, b := range l["bots"].([]any) {
+		m := b.(map[string]any)
+		if id := fmt.Sprint(m["id"]); m["photo"] != want[id] {
+			t.Errorf("GET /api/bots: bot %s photo %v, want %v", id, m["photo"], want[id])
+		}
+	}
+	// A bot's photo goes to whoever sees the bot: a member with
+	// forward sees no bot here (it owns none), so no photo either.
+	grantMember(t, e, memberGroups, "forward")
+	_, l, _ = e.call("member", "GET", "/api/bots", nil)
+	if js(l["bots"]) != "[]" {
+		t.Errorf("member sees bots %v", l["bots"])
 	}
 }
 
@@ -255,9 +302,9 @@ func TestPhotosAreBatched(t *testing.T) {
 	pin(rustChat)
 
 	t2d, d2t := cost("admin", "/platform-fwd/telegram-discord"), cost("admin", "/platform-fwd/discord-telegram")
-	pins := cost("admin", "/platform-fwd")
-	if t2d == 0 || d2t == 0 || pins == 0 {
-		t.Fatalf("the photos are not read with the rows: %d %d %d", t2d, d2t, pins)
+	bots, pins := cost("admin", "/platform-fwd/bots"), cost("admin", "/platform-fwd")
+	if t2d == 0 || d2t == 0 || bots == 0 || pins == 0 {
+		t.Fatalf("the photos are not read with the rows: %d %d %d %d", t2d, d2t, bots, pins)
 	}
 
 	for i := range 6 {
@@ -272,6 +319,11 @@ func TestPhotosAreBatched(t *testing.T) {
 			fmt.Sprintf("https://discord.com/api/webhooks/11000000000000001%02d/batchSecret", id))
 		exec("INSERT INTO discord_telegram_routes (id, discord_channel_id, telegram_chat_id, "+
 			"telegram_bot_id, enabled) VALUES (?, ?, ?, 1, 1)", id, 710000000000000100+id, chat)
+		exec("INSERT INTO telegram_users (id, first_name, last_name, type, profile_photo_file_id, "+
+			"msg_count, created_at, updated_at) VALUES (?, 'Batch', 'Bot', 'bot', ?, 0, NOW(), NOW())",
+			7000000100+id, fwdBotPhoto)
+		exec("INSERT INTO telegram_bots (id, token, bot_user_id, username, enabled) VALUES (?, ?, ?, '', 1)",
+			id, fmt.Sprintf("%d:batchSecret%d", 7000000100+id, id), 7000000100+id)
 	}
 	for _, g := range []int64{gnuWeeb, kernelChat, -1001000000004, -1001000000005} {
 		pin(g)
@@ -283,6 +335,7 @@ func TestPhotosAreBatched(t *testing.T) {
 	}{
 		{"/platform-fwd/telegram-discord", t2d},
 		{"/platform-fwd/discord-telegram", d2t},
+		{"/platform-fwd/bots", bots},
 		{"/platform-fwd", pins},
 	} {
 		if now := cost("admin", c.path); now != c.was {

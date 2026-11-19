@@ -3067,6 +3067,8 @@ export interface components {
             identity: components["schemas"]["BotIdentity"] | null;
             status: components["schemas"]["BotStatus"];
             enabled: boolean;
+            /** @description A Telegram bot's profile photo, as the archive has it for the user of identity.user_id: a /files/ URL when that user is in the archive and the photo's bytes are stored, else null. Always null for a Discord bot (no third-party URLs). */
+            photo?: string | null;
         };
         /** @description A bot on the Bots page. Its token is write-only: no answer, page or attribute carries it once it is saved (decisions/2026-11-18-ownership-and-bots.md). */
         Bot: components["schemas"]["BotRef"] & {

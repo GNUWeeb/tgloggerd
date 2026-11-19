@@ -90,9 +90,13 @@ configurations with their counts of what was sent, and the bots.
   and both its bots are enabled.
 - Photos: a configuration's `chat` carries `photo`, the group's photo
   or, for a private chat, the user's profile photo, as a `/files/` URL
-  when its bytes are stored, else null. The viewer gets a photo
-  wherever it gets the chat, and the photos come with the rows that
-  name them, in the same query.
+  when its bytes are stored, else null. A bot (`BotRef`, so `Bot` too)
+  carries `photo`: for a Telegram bot that has logged in, the profile
+  photo of the archive's user whose id is its `identity.user_id`, when
+  the archive has that user and the photo's bytes are stored; null
+  otherwise, and always null for a Discord bot (no third-party URLs).
+  The viewer gets a photo wherever it gets the chat or the bot, and the
+  photos come with the rows that name them, in the same query.
 - Every change writes a `web_audit` row: `fwd_t2d_create`,
   `fwd_t2d_update`, `fwd_t2d_delete`, `fwd_d2t_create`,
   `fwd_d2t_update`, `fwd_d2t_delete`, `bot_create`, `bot_update`,

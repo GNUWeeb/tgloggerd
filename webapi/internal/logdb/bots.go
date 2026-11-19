@@ -117,6 +117,10 @@ type BotRow struct {
 	UserID   string
 	Username string
 	Routes   int // Discord to Telegram routes using it
+	// Photo is a Telegram bot's own profile photo: that of the
+	// telegram_users row of its user id, when the archive has one.
+	// None for a Discord bot.
+	Photo FileRef
 }
 
 func botQuery(kind, where string) string {
@@ -124,10 +128,19 @@ func botQuery(kind, where string) string {
 	if kind == KindDiscord {
 		col = "discord_bot_id"
 	}
+	// The photo comes in the same query, so a list of bots costs one
+	// query per kind however many there are.
+	photo := "0, NULL, NULL, NULL, NULL, NULL, NULL"
+	join := ""
+	if kind == KindTelegram {
+		photo = "COALESCE(bu.profile_photo_file_id, 0), " + fileColumnsOf("bf")
+		join = " LEFT JOIN telegram_users bu ON b.bot_user_id <> 0 AND bu.id = b.bot_user_id" +
+			" LEFT JOIN telegram_files bf ON bf.id = bu.profile_photo_file_id"
+	}
 	return "SELECT b.id, b.name, b.enabled, b.status, b.status_detail, " +
 		"UNIX_TIMESTAMP(b.status_at), CAST(b.bot_user_id AS CHAR), b.username, " +
-		"(SELECT COUNT(*) FROM discord_telegram_routes r WHERE r." + col + " = b.id) " +
-		"FROM " + botTable(kind) + " b" + where
+		"(SELECT COUNT(*) FROM discord_telegram_routes r WHERE r." + col + " = b.id), " +
+		photo + " FROM " + botTable(kind) + " b" + join + where
 }
 
 func scanBots(rows *sql.Rows, kind string) ([]BotRow, error) {
@@ -135,11 +148,16 @@ func scanBots(rows *sql.Rows, kind string) ([]BotRow, error) {
 	out := []BotRow{}
 	for rows.Next() {
 		b := BotRow{Kind: kind}
-		var at sql.NullFloat64
-		if err := rows.Scan(&b.ID, &b.Name, &b.Enabled, &b.Status, &b.StatusDetail, &at,
-			&b.UserID, &b.Username, &b.Routes); err != nil {
+		var (
+			at    sql.NullFloat64
+			photo uint64
+			f     nullFile
+		)
+		if err := rows.Scan(append([]any{&b.ID, &b.Name, &b.Enabled, &b.Status, &b.StatusDetail, &at,
+			&b.UserID, &b.Username, &b.Routes, &photo}, f.dest()...)...); err != nil {
 			return nil, err
 		}
+		b.Photo = f.ref(photo)
 		if at.Valid {
 			b.StatusAt = sql.NullInt64{Int64: int64(at.Float64), Valid: true}
 		}
