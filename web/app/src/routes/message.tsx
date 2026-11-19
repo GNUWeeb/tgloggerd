@@ -3,6 +3,7 @@ import Shell from '../ui/Shell.tsx';
 import { Link } from '../nav.tsx';
 import { Avatar, Btn, Card, KV, Pill } from '../ui/primitives.tsx';
 import { Thumb, TypeIcon, duration } from '../ui/media.tsx';
+import { contentLabel, serviceLabel, typeLabel } from '../ui/labels.ts';
 import { Timeline } from '../ui/timeline.tsx';
 import { bytes, dateTime, fmt } from '../format.ts';
 import { chatPath } from './messages.tsx';
@@ -59,7 +60,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 				</div>
 			</div>
 			<div className="a-msgflagsrow">
-				<Pill><TypeIcon type={m.content_type} size={11} />{m.content_type}</Pill>
+				<Pill><TypeIcon type={m.content_type} size={11} />{typeLabel(m.content_type, svcType)}</Pill>
 				{!m.sender && <Pill tone="accent">outgoing</Pill>}
 				{m.is_channel_post && <Pill tone="info"><Megaphone size={11} />channel post</Pill>}
 				{m.forwarded && <Pill tone="info"><Forward size={11} />forwarded</Pill>}
@@ -92,7 +93,7 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 							</div>
 						)}
 						{m.detail && <div className="a-msgkind"><KindDetail d={m.detail} text={m.text} entities={ents} chat={chat} v={v} /></div>}
-						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext"><RichText text={m.text} entities={ents} chat={chat} /></div> : !m.media && !m.detail && <p className="a-muted">{svcType ? svcType.replace(/_/g, ' ') : '(no text)'}</p>}
+						{m.text && !(m.detail && TEXT_INSIDE.has(m.detail.kind)) ? <div className="a-msgtext"><RichText text={m.text} entities={ents} chat={chat} /></div> : !m.media && !m.detail && <p className="a-muted">{svcType ? serviceLabel(svcType) : '(no text)'}</p>}
 						{m.link_preview && <LinkPreview lp={m.link_preview} />}
 						{svcAbout !== null && <p className="a-muted sm"><Link to={`${chatPath(m).split('?')[0]}?at=${svcAbout}`} className="a-link">The message this is about</Link></p>}
 						{(m.reactions.length > 0 || m.views !== null || m.forwards || m.replies) && (
@@ -136,14 +137,14 @@ function MessagePage({ page }: { page: PageData<MessageProps> }) {
 						[null, 'Chat ID', m.chat.id, true],
 						[null, asChat ? 'Posted as' : 'Sender', senderLink],
 						[null, 'Message ID', m.message_id, true],
-						[null, 'Type', m.content_type],
+						[null, 'Type', contentLabel(m.content_type)],
 						[null, 'Sent', dateTime(m.date, v)],
 						m.edited_at ? [null, 'Edited', dateTime(m.edited_at, v)] : null,
 						m.deleted_at ? [null, 'Deleted', dateTime(m.deleted_at, v)] : null,
 						m.media ? [null, 'File', <Link to={`/files?view=list&file=${m.media.file_id}`} className="a-rowlink">file #{fmt(m.media.file_id)}</Link>] : null,
 						m.forwarded ? [null, 'Forwarded from', fromLink] : null,
 						m.author_signature ? [null, 'Signature', m.author_signature] : null,
-						svcType ? [null, 'Service action', svcType, true] : null,
+						svcType ? [null, 'Service action', <>{serviceLabel(svcType)} <span className="mono a-muted sm">{svcType}</span></>] : null,
 						m.topic_id !== null && m.scope === 'group' ? [null, 'Forum topic', <Link to={`/groups/${m.chat.id}/chat?topic=${m.topic_id}`} className="a-rowlink">{m.topic ? <><span className="k-topicdot a-topicdot" style={{ background: topicColor(m.topic) }} />{m.topic.name}</> : `topic ${m.topic_id}`}</Link>] : null,
 						m.views !== null ? [null, 'Views', fmt(m.views)] : null,
 						m.forwards !== null ? [null, 'Forwards', fmt(m.forwards)] : null,

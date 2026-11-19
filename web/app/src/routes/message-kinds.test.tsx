@@ -26,7 +26,7 @@ describe('the message page of a kind', () => {
 		expect(screen.getByText('Which editor do you use?')).toBeTruthy();
 		expect(document.querySelectorAll('.a-msginteract .k-reaction')).toHaveLength(4);
 		expect(screen.getByText('pinned')).toBeTruthy();
-		expect(kv('Type')).toBe('poll');
+		expect(kv('Type')).toBe('Poll');
 		expect(kv('Views')).toBe('1,534');
 		expect(kv('Forwards')).toBe('12');
 		expect(kv('Replies')).toBe('4');
@@ -42,7 +42,7 @@ describe('the message page of a kind', () => {
 		const m = open(sampleId((s) => s.content_type === 'service' && s.text === undefined && !!s.service && s.service(({ fetch: false, full: true, user: () => true, group: () => true })).type === 'pin_message'));
 		const about = m.service!.refs.message_id!;
 		expect(screen.getByRole('link', { name: 'The message this is about' }).getAttribute('href')).toBe(`/groups/${KINDS_GROUP.id}/chat?at=${about}`);
-		expect(kv('Service action')).toBe('pin_message');
+		expect(kv('Service action')).toBe('Message pinned pin_message');
 	});
 
 	it('gives a member a contact without its phone', () => {
