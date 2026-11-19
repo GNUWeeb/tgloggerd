@@ -188,3 +188,42 @@ test('a chat opened at its oldest messages loads on downwards to the newest', as
 	await expect(page.getByText('Loading newer messages...')).toHaveCount(0);
 	await expect(page.getByText('Beginning of the archived history')).toBeAttached();
 });
+
+test('a chat draws text entities, by the server and in the browser', async ({ page }) => {
+	// Assembly Lounge holds the stand-in's formatted samples.
+	const html = await (await page.request.get('/groups/-1001775585202/chat')).text();
+	expect(html).toContain('<a class="rt-link" href="https://example.org/changelog" target="_blank" rel="noopener noreferrer nofollow">the changelog</a>');
+	expect(html).toContain('<strong>Bold with <em>italic</em> inside</strong>');
+	expect(html).not.toContain('href="javascript:');
+	await page.goto('/groups/-1001775585202/chat');
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	const text = page.locator('.c-text', { hasText: 'Release notes:' });
+	await text.scrollIntoViewIfNeeded();
+	await expect(text.getByRole('link', { name: 'the changelog' })).toHaveAttribute('target', '_blank');
+	await expect(text.getByText('a sneaky link')).not.toHaveAttribute('href');
+	// The spoiler opens from the keyboard.
+	const spoiler = text.getByRole('button', { name: /spoiler/i });
+	await expect(spoiler).toHaveCSS('color', 'rgba(0, 0, 0, 0)');
+	await spoiler.focus();
+	await page.keyboard.press('Enter');
+	await expect(text.locator('.rt-spoiler.shown')).toHaveText('a hidden ending');
+	// A folded quote opens.
+	const quote = page.locator('blockquote.rt-expandable');
+	const folded = (await quote.boundingBox())!.height;
+	await quote.getByRole('button', { name: 'Show more' }).click();
+	await expect.poll(async () => (await quote.boundingBox())!.height).toBeGreaterThan(folded);
+	await expect(page.locator('pre.rt-pre code.language-rust')).toContainText('println!');
+	// A hashtag searches the chat's messages.
+	await text.getByRole('link', { name: '#release' }).click();
+	await expect(page).toHaveURL(/\/group_messages\?q=%23release&f=/);
+});
+
+test('the message page draws text entities', async ({ page }) => {
+	const w = await (await page.request.get('/api/chats/group/-1001775585202/messages?limit=60')).json();
+	const m = w.messages.find((x: { text: string }) => x.text.startsWith('Release notes:'));
+	await page.goto(`/messages/group/${m.id}`);
+	const text = page.locator('.a-msgtext');
+	await expect(text.getByRole('link', { name: 'https://example.org/notes' })).toHaveAttribute('rel', 'noopener noreferrer nofollow');
+	await expect(text.locator('code.rt-code')).toHaveText('inline code');
+	await expect(text.getByRole('link', { name: '@nobody_here_x' })).toHaveAttribute('href', 'https://t.me/nobody_here_x');
+});
