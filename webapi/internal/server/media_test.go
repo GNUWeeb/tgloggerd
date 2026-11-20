@@ -289,6 +289,10 @@ func TestMediaStored(t *testing.T) {
 	expectHeader(t, g, "Cache-Control", "public, max-age=604800")
 	expectHeader(t, g, "Accept-Ranges", "bytes")
 	expectHeader(t, g, "Content-Disposition", "")
+	// A photo too runs nothing: nosniff and the sandbox.
+	expectHeader(t, g, "X-Content-Type-Options", "nosniff")
+	expectHeader(t, g, "Content-Security-Policy",
+		"sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'")
 	if g.h.Get("Last-Modified") == "" {
 		t.Error("no Last-Modified")
 	}
@@ -353,7 +357,8 @@ func TestMediaNamesAndTypes(t *testing.T) {
 		name: "Q3 \"report\"/final.pdf", onDisk: true})
 	g := e.get("/files/"+tok, "")
 	expect(t, g, 200, string(doc))
-	expectHeader(t, g, "Content-Disposition", "attachment; filename=Q3 reportfinal.pdf")
+	// A pdf is previewed (docpreview_test.go has the other types).
+	expectHeader(t, g, "Content-Disposition", "inline; filename=Q3 reportfinal.pdf")
 	expectHeader(t, g, "Content-Type", "application/pdf")
 
 	// No name: the blob's.

@@ -21,6 +21,7 @@
 import { createServer as createHttp, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createVite } from 'vite';
 import { documentHtml } from './document.ts';
+import { docBytes, docHeaders } from './docpreview.ts';
 import { gzipSync } from 'node:zlib';
 
 // PORT=0 picks a free port (the browser tests start one stand-in per
@@ -159,6 +160,24 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		send(res, 502, { error: 'fetch_failed', message: 'The file could not be fetched from Telegram.' });
 		return;
 	}
+	// A previewed document (docpreview.ts): its bytes with Go's headers,
+	// a byte range when asked (the text view reads the first 512 KiB).
+	const dm = url.pathname.match(/^\/files\/standin-(\d+)\.(?!tgs$)([a-z0-9]+)$/);
+	if (dm) {
+		const body = Buffer.from(docBytes(Number(dm[1]), dm[2]!));
+		const headers = docHeaders(Number(dm[1]), dm[2]!, url.searchParams.get('download') === '1');
+		const range = /^bytes=(\d+)-(\d*)$/.exec(String(req.headers.range ?? ''));
+		if (range && Number(range[1]) < body.length) {
+			const from = Number(range[1]);
+			const to = Math.min(range[2] ? Number(range[2]) : body.length - 1, body.length - 1);
+			res.writeHead(206, { ...headers, 'content-range': `bytes ${from}-${to}/${body.length}`, 'accept-ranges': 'bytes' });
+			res.end(body.subarray(from, to + 1));
+			return;
+		}
+		res.writeHead(200, { ...headers, 'accept-ranges': 'bytes' });
+		res.end(body);
+		return;
+	}
 	const fm = url.pathname.match(/^\/files\/standin-(\d+)(\.tgs)?$/);
 	if (fm?.[2]) {
 		// A Lottie sticker: a circle that pulses, gzipped as .tgs files are.
@@ -174,7 +193,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 		// Landscape, portrait or wide by the id, so a page that crops a
 		// picture to one shape shows it.
 		const [w, h] = [[400, 300], [300, 400], [480, 240]][id % 3]!;
-		res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store' });
+		res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store', ...(url.searchParams.get('download') === '1' ? { 'content-disposition': `attachment; filename="file_${id}"` } : {}) });
 		res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 400 300" preserveAspectRatio="none"><rect width="400" height="300" fill="hsl(${hue} 55% 60%)"/><circle cx="300" cy="80" r="40" fill="hsl(${hue} 70% 85%)"/><path d="M0 300 L140 150 L240 250 L300 200 L400 300 Z" fill="hsl(${hue} 45% 35%)"/></svg>`);
 		return;
 	}

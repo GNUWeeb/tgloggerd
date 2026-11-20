@@ -190,3 +190,54 @@ func TestInsideTDLibDir(t *testing.T) {
 		t.Error("TDLibDir of an empty TG_DATA_DIR")
 	}
 }
+
+func TestDocumentPreview(t *testing.T) {
+	for _, c := range []struct{ ext, render, ctype string }{
+		{"png", RenderImage, "image/png"},
+		{"JPG", RenderImage, "image/jpeg"},
+		{"svg", RenderImage, "image/svg+xml"},
+		{"ico", RenderImage, "image/vnd.microsoft.icon"},
+		{"mp4", RenderVideo, "video/mp4"},
+		{"mov", RenderVideo, "video/quicktime"},
+		{"opus", RenderAudio, "audio/ogg"},
+		{"flac", RenderAudio, "audio/flac"},
+		{"pdf", RenderPDF, "application/pdf"},
+		// Text whatever its own type, html and script included.
+		{"log", RenderText, "text/plain; charset=utf-8"},
+		{"html", RenderText, "text/plain; charset=utf-8"},
+		{"HTM", RenderText, "text/plain; charset=utf-8"},
+		{"js", RenderText, "text/plain; charset=utf-8"},
+		{"xml", RenderText, "text/plain; charset=utf-8"},
+		{"ts", RenderText, "text/plain; charset=utf-8"},
+		{"zip", RenderFile, "application/zip"},
+		{"xhtml", RenderFile, "application/xhtml+xml; charset=utf-8"},
+		{"", RenderFile, "application/octet-stream"},
+	} {
+		if got := DocumentRender(c.ext); got != c.render {
+			t.Errorf("DocumentRender(%q) = %q, want %q", c.ext, got, c.render)
+		}
+		if got := PreviewType(c.ext); got != c.ctype {
+			t.Errorf("PreviewType(%q) = %q, want %q", c.ext, got, c.ctype)
+		}
+	}
+	for ctype, want := range map[string]bool{
+		"image/jpeg": true, "image/svg+xml": true, "text/plain; charset=utf-8": true,
+		"application/octet-stream": true, "application/xml; charset=utf-8": true,
+		"video/mp4": false, "VIDEO/webm": false, "audio/ogg": false,
+		"application/pdf": false, " application/PDF ; x=y": false,
+	} {
+		if SandboxedType(ctype) != want {
+			t.Errorf("SandboxedType(%q) = %v", ctype, !want)
+		}
+	}
+	for in, want := range map[string]string{
+		"text/html; charset=utf-8":             "text/plain; charset=utf-8",
+		"application/xhtml+xml; charset=utf-8": "text/plain; charset=utf-8",
+		"image/svg+xml":                        "image/svg+xml",
+		"image/jpeg":                           "image/jpeg",
+	} {
+		if got := InlineType(in); got != want {
+			t.Errorf("InlineType(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

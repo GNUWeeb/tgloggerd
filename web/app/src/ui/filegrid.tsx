@@ -13,6 +13,7 @@ import type { Viewer } from '../page.ts';
 import type { FileRow } from '../types.ts';
 import { Lightbox, MediaOf, type Media, type MediaKind } from '../routes/chat-media.tsx';
 import { RoleDetail, roleOf } from './fileroles.tsx';
+import { OpenLink, TextToggle, downloadHref } from './docpreview.tsx';
 
 const noop = () => {};
 
@@ -25,7 +26,13 @@ const chatHref = (c: NonNullable<FileRow['chat']>) => (c.kind === 'group' ? `/gr
 // FileRow, or a group's file (api/groupfiles.ts), which has these too.
 // A big unstored file has no url but a fetch path ("Fetch from
 // Telegram"); once fetched, every place shows it by the URL answered.
-type ShownFile = Pick<FileRow, 'name' | 'ext' | 'size' | 'file_type' | 'stored' | 'fetchable' | 'fetch' | 'url' | 'thumb' | 'minithumb' | 'duration'>;
+// render: how Go says it draws (a document's by its extension).
+type ShownFile = Pick<FileRow, 'name' | 'ext' | 'size' | 'file_type' | 'render' | 'stored' | 'fetchable' | 'fetch' | 'url' | 'thumb' | 'minithumb' | 'duration'>;
+
+// The picture a list draws of a file: its thumb; a stored image
+// document has none, and is drawn from its own URL (lazily, as every
+// thumb is), which is stored bytes, so a list still fetches nothing.
+export const listThumb = (f: ShownFile) => f.thumb ?? (f.file_type === 'document' && f.render === 'image' && f.stored ? f.url : null);
 
 // The list's Stored cell: stored, the fetch button of a big file still
 // on Telegram, fetchable (opening it fetches it), or missing.
@@ -44,11 +51,12 @@ export const storedText = (f: ShownFile) => (f.stored ? 'yes' : f.url || f.fetch
 // files: when it was sent), and a tag under them (the file's role).
 export function FileCard({ f: given, at, v, onOpen, tag }: { f: ShownFile; at: string; v: Viewer; onOpen: () => void; tag?: ReactNode }) {
 	const f = useFetched(given);
+	const thumb = listThumb(f);
 	// The card opens the preview, which holds the fetch button (a card is
 	// one button); a big file still on Telegram says so on its picture.
 	return (
 		<button type="button" className="a-filecard" onClick={onOpen}>
-			<span className="a-filecard-media"><Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={150} radius={0} fill />
+			<span className="a-filecard-media"><Thumb type={f.file_type} thumb={thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={150} radius={0} fill />
 				{f.duration ? <span className="a-dur">{duration(f.duration)}</span> : null}
 				{needsFetch(f) && <span className="a-ontg" title="Not stored; open it to fetch it from Telegram"><CloudDownload size={12} />On Telegram</span>}
 			</span>
@@ -63,7 +71,7 @@ export function FileNameCell({ f: given, sub, onOpen }: { f: ShownFile; sub: Rea
 	const f = useFetched(given);
 	return (
 		<button type="button" className="a-usercell a-plain" onClick={onOpen}>
-			<Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={30} radius={6} />
+			<Thumb type={f.file_type} thumb={listThumb(f)} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={30} radius={6} />
 			<span><span className="a-uname a-clip">{f.name}</span><span className="a-handle">{sub}</span></span>
 		</button>
 	);
@@ -84,10 +92,16 @@ function PreviewImage({ f, src, onZoom }: { f: ShownFile; src: string; onZoom: (
 	);
 }
 
+// A document's render, which Go gives by its extension; none for
+// other files, which draw by their type.
+const docRender = (f: ShownFile) => (f.file_type === 'document' ? f.render : undefined);
+
 // How the chat plays a file; null for a picture, a .webp sticker or a
-// document, which the preview shows as a picture or offers to download.
+// document that does not play, which the preview shows as a picture,
+// as text or offers to download.
 function playKind(f: ShownFile): MediaKind | null {
 	switch (f.file_type) {
+		case 'document': return docRender(f) === 'video' ? 'video' : docRender(f) === 'audio' ? 'audio' : null;
 		case 'video': case 'video_note': return 'video';
 		case 'animation': return 'animation';
 		case 'audio': return 'audio';
@@ -125,12 +139,19 @@ export function FilePreview({ f: given, v, details, links, onClose }: { f: Shown
 	const f = useFetched(given);
 	// Fetched here by its button: the URL the fetch answered with.
 	const fetched = f !== given;
-	const big = f.file_type === 'photo' || isVideoType(f.file_type) || f.file_type === 'sticker';
+	const doc = docRender(f);
+	// The file's own bytes may be drawn: stored, or fetched here by a
+	// click. A small unstored file's URL would fetch it from Telegram,
+	// which opening the preview never does by itself.
+	const have = !!f.url && (f.stored || fetched);
+	const big = f.file_type === 'photo' || isVideoType(f.file_type) || f.file_type === 'sticker' || doc === 'image' || doc === 'video';
 	const [zoom, setZoom] = useState(false);
-	const pic = drawableThumb(f.thumb, { url: f.url, ext: f.ext, type: f.file_type });
+	// A document that is a picture (an svg too, only ever in an <img>)
+	// is drawn from its own URL.
+	const pic = drawableThumb(f.thumb, { url: f.url, ext: f.ext, type: f.file_type }) ?? (doc === 'image' && have ? f.url : null);
 	// The bigger view shows the file itself: only a picture's. A video
 	// sticker's still is not the sticker.
-	const zoomable = (f.file_type === 'photo' || f.file_type === 'sticker') && !!pic && !!f.url && !/^(webm|tgs)$/i.test(f.ext);
+	const zoomable = (f.file_type === 'photo' || f.file_type === 'sticker' || doc === 'image') && !!pic && !!f.url && !/^(webm|tgs)$/i.test(f.ext);
 	const unzoom = useCallback(() => setZoom(false), []);
 	// A file the chat can play plays here with the chat's own players,
 	// when its bytes are stored or may be fetched; "media on click" is
@@ -142,10 +163,11 @@ export function FilePreview({ f: given, v, details, links, onClose }: { f: Shown
 			footer={<>
 				{links}
 				<span className="a-grow" />
+				{doc === 'pdf' && f.url && <OpenLink url={f.url} className="a-btn" />}
 				{f.url ? (f.stored || fetched
-					? <a className="a-btn a-btn-primary" href={f.url} download><Download size={14} />Download</a>
+					? <a className="a-btn a-btn-primary" href={downloadHref(f.url)} download><Download size={14} />Download</a>
 					// Opening a small unstored file's URL fetches it from Telegram.
-					: <a className="a-btn a-btn-primary" href={f.url} download><CloudDownload size={14} />Fetch from Telegram</a>)
+					: <a className="a-btn a-btn-primary" href={downloadHref(f.url)} download><CloudDownload size={14} />Fetch from Telegram</a>)
 					// A big one is fetched by asking for it first.
 					: needsFetch(f) && <FetchButton path={f.fetch!} primary />}
 			</>}>
@@ -154,13 +176,16 @@ export function FilePreview({ f: given, v, details, links, onClose }: { f: Shown
 					{/* A video's still or blurred preview shows even when the
 					    video itself is not stored. */}
 					{play ? <div className="a-preview-play"><MediaOf m={mediaOf(f)} kind={play} single onClick={v.chat?.media === 'click'} /></div>
-						: pic ? <PreviewImage f={f} src={pic} onZoom={zoomable && f.stored ? () => setZoom(true) : null} />
+						: pic ? <PreviewImage f={f} src={pic} onZoom={zoomable && (f.stored || fetched) ? () => setZoom(true) : null} />
 						: f.stored || f.minithumb ? <Thumb type={f.file_type} thumb={null} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={big ? 280 : 96} radius={big ? 12 : 16} />
 						: null}
 					{!f.stored && <div className="a-preview-missing"><CloudOff size={28} /><span>{fetched ? 'Not stored; fetched from Telegram for viewing.' : f.url || f.fetch ? 'Not stored. Fetch from Telegram downloads it from there, if Telegram still has it.' : 'Not stored in the archive; only its details were kept.'}</span></div>}
 				</div>
 				<KV rows={details} />
 			</div>
+			{/* A text document's text: at once when its bytes are here, else
+			    on a click (which may fetch it from Telegram). */}
+			{doc === 'text' && f.url && <div className="a-preview-text"><TextToggle url={f.url} name={f.name} open={have} /></div>}
 			{zoom && <Lightbox m={f} kind="picture" onClose={unzoom} />}
 		</Modal>
 	);

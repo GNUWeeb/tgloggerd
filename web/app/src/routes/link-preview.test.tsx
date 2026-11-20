@@ -4,7 +4,7 @@
 // chat's components, an embedded player's link, and a Telegram message
 // link opening the archived message.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
 import type { ChatProps } from './chat.tsx';
 import type { GroupsProps } from './groups.tsx';
@@ -31,7 +31,8 @@ describe('the stand-in\'s link previews', () => {
 		expect(of('message').some((x) => x.target)).toBe(true);
 		expect(of('unsupported').length).toBeGreaterThan(0);
 		// One of each type named since, with what it carries.
-		expect(of('document').some((x) => x.media?.render === 'file')).toBe(true);
+		// A .txt document, which renders as text by its extension.
+		expect(of('document').some((x) => x.media?.render === 'text')).toBe(true);
 		expect(of('sticker').some((x) => x.media?.format)).toBe(true);
 		expect(of('video_note').some((x) => x.media?.round)).toBe(true);
 		expect(of('voice_note').some((x) => x.media?.render === 'audio' && x.media.wave?.length)).toBe(true);
@@ -187,9 +188,21 @@ describe('a link preview of a later type', () => {
 	it('links a document preview\'s file with the chat\'s document row', () => {
 		const { card: c } = chatWith(card({ type: 'document', title: 'notes.txt', media: { stored: true, url: '/files/lp-doc', thumb: null, render: 'file', ext: 'txt', name: 'notes.txt', size: 2048 } }));
 		const a = c.querySelector('a.c-doc')!;
-		expect(a.getAttribute('href')).toBe('/files/lp-doc');
+		expect(a.getAttribute('href')).toBe('/files/lp-doc?download=1');
 		expect(c.querySelector('a.c-lp-main')!.contains(a)).toBe(false);
 		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Document');
+	});
+
+	it('draws a document preview\'s medium by its render: a PDF to open, a picture with its download', () => {
+		const pdf = chatWith(card({ type: 'document', title: 'guide.pdf', media: { stored: true, url: '/files/lp-pdf', thumb: null, render: 'pdf', ext: 'pdf', name: 'guide.pdf', size: 4096 } })).card;
+		const open = within(pdf).getByRole('link', { name: 'Open' });
+		expect([open.getAttribute('href'), open.getAttribute('target'), open.getAttribute('rel')]).toEqual(['/files/lp-pdf', '_blank', 'noopener']);
+		expect(pdf.querySelector('a.c-doc')!.getAttribute('href')).toBe('/files/lp-pdf?download=1');
+		expect(pdf.querySelector('iframe, object, embed')).toBeNull();
+		cleanup();
+		const png = chatWith(card({ type: 'document', title: 'shot.png', media: { stored: true, url: '/files/lp-png', thumb: '/files/lp-png', render: 'image', ext: 'png', name: 'shot.png', size: 90000 } })).card;
+		expect(within(png).getByRole('link', { name: 'Photo' }).querySelector('img')!.getAttribute('src')).toBe('/files/lp-png');
+		expect(within(png).getByRole('link', { name: 'Download' }).getAttribute('href')).toBe('/files/lp-png?download=1');
 	});
 
 	it('draws a sticker preview\'s sticker, and an older one\'s picture as before', () => {

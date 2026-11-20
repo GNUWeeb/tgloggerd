@@ -44,7 +44,10 @@ function ownKind(type: string, m: Media): MediaKind | null {
 // An album's items in the chat's album grid, each as its own kind;
 // items TDLib left empty or not recorded are left out.
 function Album({ a, onClick }: { a: NonNullable<LP['album']>; onClick: boolean }) {
-	const items = a.items.filter((x): x is Media => !!x).map((m) => ({ ...m, kind: m.kind ?? kindOf('', m) ?? 'photo' }));
+	// An item's kind is a content type: a document previewed as text or
+	// a PDF is still a document.
+	const typeOf = (k: MediaKind | null) => (k === 'text' || k === 'pdf' ? 'document' : k);
+	const items = a.items.filter((x): x is Media => !!x).map((m) => ({ ...m, kind: m.kind ?? typeOf(kindOf('', m)) ?? 'photo' }));
 	if (!items.length) return null;
 	return <div className="c-lp-album"><MessageMedia msg={{ content_type: items[0]!.kind, media: items[0]!, album: items.slice(1) }} onClick={onClick} /></div>;
 }
@@ -129,8 +132,9 @@ export function LinkPreview({ lp, v, onClick = false }: { lp: LP; v: Viewer; onC
 	const m0 = lp.media;
 	const m = m0 && lp.type === 'video_note' && !m0.round ? { ...m0, round: true } : m0;
 	const kind = m ? ownKind(lp.type, m) : null;
-	// The medium itself, or else the preview's picture.
-	const own = m && kind && kind !== 'photo' ? m : null;
+	// The medium itself, or else the preview's picture; a document that
+	// is a picture is its own medium, with its download.
+	const own = m && kind && (kind !== 'photo' || lp.type === 'document') ? m : null;
 	const pic = !own && m?.thumb ? m.thumb : null;
 	const meta = [TYPES[lp.type], lp.author, lp.duration ? duration(lp.duration) : ''].filter(Boolean).join(' . ');
 	const href = lp.url ? safeHref(lp.url) : null;
@@ -155,7 +159,8 @@ export function LinkPreview({ lp, v, onClick = false }: { lp: LP; v: Viewer; onC
 	return (
 		<div className="c-lp">
 			{main}
-			{own && kind && <MediaOf m={own} kind={kind} single onClick={onClick} />}
+			{/* A document medium keeps its download beside a picture or a video. */}
+			{own && kind && <MediaOf m={own} kind={kind} single onClick={onClick} doc={lp.type === 'document'} />}
 			{lp.album && <Album a={lp.album} onClick={onClick} />}
 			{bg && (bg.type === 'chat_theme'
 				? bg.theme_name && <span className="c-lp-meta">The chat theme <q className="c-svcquote">{bg.theme_name}</q></span>

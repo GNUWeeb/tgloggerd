@@ -358,6 +358,15 @@ paths:
           description: The file token, as minted into the pages and the API.
           schema:
             type: string
+        - name: download
+          in: query
+          required: false
+          description: >-
+            1 sends the file as a download (Content-Disposition
+            attachment) whatever its type; any other value, or none,
+            leaves the choice to the file (see Content-Disposition).
+          schema:
+            type: string
         - name: Range
           in: header
           required: false
@@ -388,6 +397,10 @@ paths:
               $ref: '#/components/headers/FileCacheControl'
             Content-Disposition:
               $ref: '#/components/headers/ContentDisposition'
+            X-Content-Type-Options:
+              $ref: '#/components/headers/FileNoSniff'
+            Content-Security-Policy:
+              $ref: '#/components/headers/FileSandbox'
             Last-Modified:
               description: For a stored file.
               schema:
@@ -409,6 +422,10 @@ paths:
               $ref: '#/components/headers/FileCacheControl'
             Content-Disposition:
               $ref: '#/components/headers/ContentDisposition'
+            X-Content-Type-Options:
+              $ref: '#/components/headers/FileNoSniff'
+            Content-Security-Policy:
+              $ref: '#/components/headers/FileSandbox'
             Content-Range:
               schema:
                 type: string
@@ -4466,8 +4483,31 @@ components:
         type: string
     ContentDisposition:
       description: >-
-        attachment; filename=<name>, for a file not shown inline
-        (documents and the like).
+        attachment; filename=<name> for a document that is not
+        previewed (a render of file) and for any file asked for with
+        download=1; inline; filename=<name> for a document previewed by
+        its extension (a render of image, video, audio, pdf or text);
+        absent for the other media (photos, videos, voice notes, ...),
+        which are shown inline. web/docs/media.md, "Documents".
+      schema:
+        type: string
+    FileNoSniff:
+      description: >-
+        nosniff, on every file answer, so the browser keeps to the
+        Content-Type sent.
+      schema:
+        type: string
+    FileSandbox:
+      description: >-
+        sandbox; default-src 'none'; img-src 'self'; style-src
+        'unsafe-inline', on every answer shown inline (no
+        Content-Disposition, or inline) whose Content-Type is not
+        video/*, audio/* or application/pdf: images (svg included),
+        text, photos and stickers, so an svg or html file opened by its
+        URL runs nothing. Not on an attachment, nor on video, audio or
+        pdf (the sandbox would stop the browser's own PDF viewer). A
+        photo or other media whose file on disk would be typed as html
+        or xhtml is sent as text/plain.
       schema:
         type: string
 
@@ -6093,6 +6133,12 @@ components:
           type: string
         ext:
           type: string
+        render:
+          $ref: '#/components/schemas/MediaRender'
+          description: >-
+            How the file renders, as ChatMedia's render: by file_type
+            (a sticker by its extension), and a document by its
+            extension. Always sent; optional in this description.
         size:
           type: integer
           format: int64
@@ -6454,6 +6500,26 @@ components:
             ...), recorded for rows logged since daemon migration
             000034; it tells apart classes that share a content_type,
             and names a class newer than the daemon's code (unknown).
+    MediaRender:
+      type: string
+      enum: [image, video, animation, lottie, audio, pdf, text, file]
+      description: >-
+        How a file renders (Drogon's mediaRender, and a document's
+        extension): an image (photos, .webp stickers), a video (videos,
+        round video notes), an animation that loops muted without
+        controls (GIFs, .webm stickers), a Lottie animation (.tgs
+        stickers), audio (music and voice notes), or a file link. A
+        document (sent as a file) renders by its extension, lower
+        case: image for jpg, jpeg, png, gif, webp, avif, bmp, ico,
+        apng and svg (svg only through an img element); video for mp4,
+        m4v, webm, mov and ogv; audio for mp3, m4a, aac, ogg, oga,
+        opus, wav and flac; pdf for pdf (opened in a new tab, not
+        embedded); text for txt, log, md, csv, tsv, json, xml, yaml,
+        yml, toml, ini, conf, cfg, sh, py, c, h, cpp, hpp, go, rs, js,
+        ts, java, kt, sql, diff, patch, html and htm (shown as source
+        text, never rendered, at most its first 512 KiB); any other
+        extension is a file. /files/<token> serves a document by the
+        same rule (web/docs/media.md, "Documents").
     MediaDetail:
       type: object
       description: >-
@@ -6465,14 +6531,7 @@ components:
         others. Each key is absent when unknown.
       properties:
         render:
-          type: string
-          enum: [image, video, animation, lottie, audio, file]
-          description: >-
-            How it renders (Drogon's mediaRender): an image (photos,
-            .webp stickers), a video (videos, round video notes), an
-            animation that loops muted without controls (GIFs, .webm
-            stickers), a Lottie animation (.tgs stickers), audio
-            (music and voice notes), or a file link.
+          $ref: '#/components/schemas/MediaRender'
         ext:
           type: string
           description: The file's extension, without the dot.
@@ -9341,6 +9400,11 @@ components:
               type: string
             ext:
               type: string
+            render:
+              $ref: '#/components/schemas/MediaRender'
+              description: >-
+                As FileRow.render. Always sent; optional in this
+                description.
             size:
               type: integer
               format: int64

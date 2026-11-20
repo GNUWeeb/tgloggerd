@@ -39,10 +39,11 @@ a download, although the browser could show it.
 
 ## Scope
 
-- Go (webapi): the media render of a document by extension (image,
-  video, audio, plus new `text` and `pdf`), in ChatMedia, FileRow,
-  GroupFileRow and the message page; the serving headers above and
-  `?download=1`; web/docs/media.md and OpenAPI follow.
+The Go part is done: the render (MediaRender, with `pdf` and `text`)
+in ChatMedia, FileRow, GroupFileRow and the message page, the serving
+headers above and `?download=1` (web/docs/media.md, "Documents").
+What is left:
+
 - React (frontend): such documents drawn as their render in the chat,
   the message page, /files and a group's Files tab: images in the
   photo viewer, video and audio with the chat's players, text in a
@@ -59,7 +60,6 @@ Nothing.
   the photo viewer; an mp4 document plays; a .log document shows its
   text; a .html document shows its source; a pdf opens in a new tab.
 - An svg or html document opened by its URL runs no script (CSP
-  sandbox), checked by a Go test of the headers and an end-to-end
-  test.
-- Go tests cover the render per extension and the headers; React
-  tests cover each drawing.
+  sandbox), checked by an end-to-end test (the Go test of the headers
+  is in).
+- React tests cover each drawing.

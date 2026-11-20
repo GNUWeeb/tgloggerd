@@ -175,13 +175,13 @@ describe('chat media', () => {
 		const a = document.querySelector('audio')!;
 		expect(a.hasAttribute('controls')).toBe(true);
 		expect(a.getAttribute('preload')).toBe('none');
-		expect(screen.getByRole('link', { name: /ep12\.mp3/ }).getAttribute('href')).toBe(URL1);
+		expect(screen.getByRole('link', { name: /ep12\.mp3/ }).getAttribute('href')).toBe(`${URL1}?download=1`);
 	});
 
 	it('links an unstored, fetchable document to Telegram', () => {
 		show(<MessageMedia msg={msg('document', media({ stored: false, fetchable: true, name: 'dump.tar.gz', size: 4096 }))} onClick={false} />);
 		const link = screen.getByRole('link', { name: /dump\.tar\.gz/ });
-		expect(link.getAttribute('href')).toBe(URL1);
+		expect(link.getAttribute('href')).toBe(`${URL1}?download=1`);
 		expect(link.textContent).toContain('load from Telegram');
 	});
 

@@ -10,6 +10,7 @@
 import { groups, getGroupsOfUser } from '../../mockup/src/data/groups.js';
 import { users, getUser } from '../../mockup/src/data/users.js';
 import { chatStream, privateMessages } from '../../mockup/src/data/messages.js';
+import { DOC_SAMPLES, type DocSample } from './docpreview.ts';
 import { RICH_EDIT_TEXT, RICH_PLAIN_TEXT, RICH_TEXT, richDetail, richEditDetail, richPlainDetail } from './rich.ts';
 
 // A synthetic community (TDLib's own id, not a chat's), named when the
@@ -101,7 +102,7 @@ const INVOICE_PHOTO = { stored: true, fetchable: false, url: '/files/standin-986
 
 type Entity = { offset: number; length: number; type: string; url?: string; user_id?: number | null; language?: string; custom_emoji_id?: string; custom_emoji?: CustomEmoji | null };
 type Edit = { at: string; text: string; content_type: string; entities: Entity[]; detail: unknown };
-type Sample = { content_type: string; text?: string; entities?: (v: View) => Entity[]; edits?: (v: View) => Edit[]; edited_at?: string; detail?: (v: View) => unknown; service?: (v: View) => Service; media?: { round?: boolean }; tdlib_type?: string; kinds?: Partial<Kinds> };
+type Sample = { content_type: string; text?: string; entities?: (v: View) => Entity[]; edits?: (v: View) => Edit[]; edited_at?: string; detail?: (v: View) => unknown; service?: (v: View) => Service; media?: { round?: boolean; doc?: DocSample }; tdlib_type?: string; kinds?: Partial<Kinds> };
 // A service message's action as Go sends it. parts spell the text, a
 // name pointing at its index in refs.users (LOCAL until openapi.yaml
 // has ServiceInfo.parts; src/ui/serviceparts.tsx reads them).
@@ -356,6 +357,10 @@ const MORE_WIDGETS: Sample[] = [
 	{ content_type: 'widget', detail: () => widget(400, 300, false, null, null) },
 ];
 
+// The documents previewed by their extension (docpreview.ts), each a
+// document message with its caption.
+const DOC_MESSAGES: Sample[] = DOC_SAMPLES.map((d) => ({ content_type: 'document', text: d.caption, media: { doc: d } }));
+
 // The sample of a message, by chat and message id.
 let byKey: Map<string, Sample> | null = null;
 function table(): Map<string, Sample> {
@@ -376,10 +381,10 @@ function table(): Map<string, Sample> {
 	});
 	const older = all.slice(0, start).filter((m: { content_type: string }) => m.content_type === 'service').reverse();
 	// The custom emoji sample takes the newest text message before the
-	// samples, and the further widgets the next ones, so no other sample
-	// moves.
+	// samples, and the further widgets and the documents the next ones,
+	// so no other sample moves.
 	const texts = all.slice(0, start).reverse().filter((m: { content_type: string }) => m.content_type === 'text');
-	[EMOJI_SAMPLE, ...MORE_WIDGETS].forEach((s, i) => {
+	[EMOJI_SAMPLE, ...MORE_WIDGETS, ...DOC_MESSAGES].forEach((s, i) => {
 		const m = texts[i];
 		if (m) byKey!.set(`group${KINDS_GROUP.id}:${m.message_id}`, s);
 	});
@@ -552,4 +557,12 @@ export function kindsOf(m: { chat: { id: number; kind: string }; message_id: num
 		...(s?.kinds ?? {}),
 	};
 	return { base, sample: s, serviceText: svc?.text };
+}
+
+// The kinds group's document samples with their messages, newest first.
+export function docSampleMessages<M extends { chat: { id: number; kind: string }; message_id: number }>(): { m: M; doc: DocSample }[] {
+	return ([...chatStream(KINDS_GROUP)] as M[]).reverse().flatMap((m) => {
+		const doc = sampleOf(m)?.media?.doc;
+		return doc ? [{ m, doc }] : [];
+	});
 }

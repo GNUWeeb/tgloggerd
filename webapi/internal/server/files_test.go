@@ -287,8 +287,8 @@ func TestFilesListFetch(t *testing.T) {
 	e.fake.answer(860004, 200, "", `{"state":"stored","id":860005}`)
 	g := e.get(f["860004"]["url"].(string), ck)
 	expect(t, g, 200, "blob 860005")
-	// Offered as a download under its own name, not the blob's.
-	expectHeader(t, g, "Content-Disposition", "attachment; filename=evicted-notes.pdf")
+	// Previewed (a pdf) under its own name, not the blob's.
+	expectHeader(t, g, "Content-Disposition", "inline; filename=evicted-notes.pdf")
 	if l := e.fake.lastFetch(); !strings.HasPrefix(l, "860004 ") {
 		t.Errorf("fetch %q", l)
 	}

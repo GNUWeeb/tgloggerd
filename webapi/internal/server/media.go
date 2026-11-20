@@ -199,31 +199,77 @@ func (s *Server) fileLink(sc scope.Scope, signedIn bool, id, size uint64, stored
 	return fileLink{}
 }
 
-// fileHeaders go on every file answer.
-func fileHeaders(h http.Header, ctype, attachment string) {
-	h.Set("Accept-Ranges", "bytes")
-	h.Set("Cache-Control", fileCacheControl)
-	h.Set("Content-Type", ctype)
-	if attachment != "" {
-		// Unquoted, as the Drogon web sends it; SafeFilename has
-		// removed the quote, backslash and control characters.
-		h.Set("Content-Disposition", "attachment; filename="+attachment)
-	}
+// fileHead is how a file answer presents the file: shown in the page
+// (photos, videos, ...), previewed (a document the browser can show,
+// by its extension) or offered as a download.
+type fileHead struct {
+	// disposition is "attachment" or "inline", sent with name; ""
+	// sends none (media shown in the page).
+	disposition string
+	name        string
+	// ctype is the Content-Type; "" takes it from the name of the
+	// file served (a blob's or TDLib's, which carry the extension).
+	ctype string
 }
 
-// contentType is the type for a download name, when the file is
-// offered as one, else for the name on disk.
-func contentType(attachment, path string) string {
-	if attachment != "" {
-		return media.ContentType(attachment)
+// headOf is how a file answer presents a file of the type and
+// extension, with its download name; download asks for the
+// attachment, whatever the file (?download=1).
+//
+// A document the browser can show (media.DocumentRender) is sent
+// inline, typed by its extension (text as text/plain, whatever it
+// is). Its extension, not the download name, picks the type, as it
+// picks the render the pages draw. Any other document is a download,
+// typed by its name, as the Drogon web sends it. set adds nosniff and
+// the sandbox.
+func headOf(fileType, ext, name string, download bool) fileHead {
+	render := media.RenderFile
+	if fileType == "document" {
+		render = media.DocumentRender(ext)
 	}
-	return media.ContentType(path)
+	switch {
+	case download || (!media.ViewInline(fileType) && render == media.RenderFile):
+		return fileHead{disposition: "attachment", name: name, ctype: media.ContentType(name)}
+	case render != media.RenderFile:
+		return fileHead{disposition: "inline", name: name, ctype: media.PreviewType(ext)}
+	}
+	return fileHead{}
+}
+
+// set puts the headers every file answer carries, for the file served
+// at path.
+//
+// The bytes are whatever someone sent through Telegram, served from
+// this site's origin, so no answer may become a page that runs
+// script: every answer has nosniff, so the browser keeps to the type
+// sent, and every one shown inline has the sandbox
+// (media.InlineType, media.PreviewSandbox), but for video, audio and
+// pdf, which run no script of the file's and whose players the
+// sandbox would stop. A file shown in the page whose name on disk
+// types it as a page (html, xhtml) goes out as text/plain.
+func (fh fileHead) set(h http.Header, path string) {
+	h.Set("Accept-Ranges", "bytes")
+	h.Set("Cache-Control", fileCacheControl)
+	ctype := fh.ctype
+	if ctype == "" {
+		ctype = media.InlineType(media.ContentType(path))
+	}
+	h.Set("Content-Type", ctype)
+	if fh.disposition != "" {
+		// Unquoted, as the Drogon web sends it; SafeFilename has
+		// removed the quote, backslash and control characters.
+		h.Set("Content-Disposition", fh.disposition+"; filename="+fh.name)
+	}
+	h.Set("X-Content-Type-Options", "nosniff")
+	if fh.disposition != "attachment" && media.SandboxedType(ctype) {
+		h.Set("Content-Security-Policy", media.PreviewSandbox)
+	}
 }
 
 // serveStored sends a blob from the store. http.ServeContent does the
 // Range (206, 416) and conditional (If-Modified-Since, If-Range)
 // handling.
-func (s *Server) serveStored(w http.ResponseWriter, r *http.Request, path, attachment string) {
+func (s *Server) serveStored(w http.ResponseWriter, r *http.Request, path string, fh fileHead) {
 	f, err := os.Open(path)
 	if err != nil {
 		// Gone between the check and the open (evicted just now).
@@ -236,7 +282,7 @@ func (s *Server) serveStored(w http.ResponseWriter, r *http.Request, path, attac
 		s.mediaError(w, "stat", err)
 		return
 	}
-	fileHeaders(w.Header(), contentType(attachment, path), attachment)
+	fh.set(w.Header(), path)
 	http.ServeContent(w, r, "", fi.ModTime(), f)
 }
 
@@ -310,22 +356,25 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Documents are offered as a download under their original name,
-	// else the blob's name, else one made from the id.
-	var attachment string
-	if !media.ViewInline(meta.Type) {
-		attachment = media.SafeFilename(meta.OrigName)
-		if attachment == "" {
+	// Documents are offered as a download, or previewed, under their
+	// original name, else the blob's name, else one made from the id;
+	// so is any file asked for as a download.
+	download := r.URL.Query().Get("download") == "1"
+	var name string
+	if download || !media.ViewInline(meta.Type) {
+		name = media.SafeFilename(meta.OrigName)
+		if name == "" {
 			if p := media.StorePath(s.media.StorageDir, blob.Hex, blob.Ext); p != "" {
-				attachment = filepath.Base(p)
+				name = filepath.Base(p)
 			} else {
-				attachment = "file_" + strconv.FormatUint(id, 10)
+				name = "file_" + strconv.FormatUint(id, 10)
 				if e := media.SafeExt(meta.Ext); e != "" {
-					attachment += "." + e
+					name += "." + e
 				}
 			}
 		}
 	}
+	fh := headOf(meta.Type, meta.Ext, name, download)
 
 	// Only signed-in access is audited. The route is public, and
 	// anonymous hits (hotlinked images, crawlers) must not flood the
@@ -352,7 +401,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request) {
 		if p := media.StorePath(s.media.StorageDir, blob.Hex, blob.Ext); media.IsRegular(p) {
 			s.access.Record(bytesID)
 			if audit() {
-				s.serveStored(w, r, p, attachment)
+				s.serveStored(w, r, p, fh)
 			}
 			return
 		}
@@ -441,7 +490,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request) {
 		}
 		s.access.Record(sid)
 		if audit() {
-			s.serveStored(w, r, p, attachment)
+			s.serveStored(w, r, p, fh)
 		}
 		return
 	case "partial":
@@ -479,7 +528,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request) {
 	if off == want.Offset && want.Length != 0 && want.Length < n {
 		n = want.Length
 	}
-	s.servePartial(w, r, tdpath, attachment, off, n, total, func() bool {
+	s.servePartial(w, r, tdpath, fh, off, n, total, func() bool {
 		s.access.Record(bytesID)
 		return audit()
 	})
@@ -491,7 +540,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request) {
 // extension (videos/file_12.mp4), which picks the Content-Type, as the
 // blob name does for a stored file. served runs once the bytes are
 // known to be there, before anything is sent.
-func (s *Server) servePartial(w http.ResponseWriter, r *http.Request, path, attachment string,
+func (s *Server) servePartial(w http.ResponseWriter, r *http.Request, path string, fh fileHead,
 	off, n, total uint64, served func() bool) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -511,7 +560,7 @@ func (s *Server) servePartial(w http.ResponseWriter, r *http.Request, path, atta
 	}
 
 	h := w.Header()
-	fileHeaders(h, contentType(attachment, path), attachment)
+	fh.set(h, path)
 	h.Set("Content-Length", strconv.FormatUint(n, 10))
 	code := http.StatusOK
 	if off != 0 || n != total {

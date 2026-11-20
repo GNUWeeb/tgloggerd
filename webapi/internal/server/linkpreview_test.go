@@ -150,9 +150,10 @@ func TestLinkPreviewTypes(t *testing.T) {
 		t.Errorf("video with a cover %s", js(ps[2111]))
 	}
 
-	// A document's own file, its thumbnail the photo.
+	// A document's own file, its thumbnail the photo; a pdf
+	// previews as one.
 	md = media(ps[2112])
-	if md == nil || md["render"] != "file" || md["url"] != file(872004) ||
+	if md == nil || md["render"] != "pdf" || md["url"] != file(872004) ||
 		md["name"] != "paper.pdf" || md["mime"] != "application/pdf" || md["thumb"] != file(872001) {
 		t.Errorf("document %s", js(ps[2112]))
 	}

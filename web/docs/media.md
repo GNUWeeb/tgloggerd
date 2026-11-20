@@ -217,6 +217,73 @@ that message stored in its `content_extra`. It is read with the
 message, so a page costs no extra query, and is absent when the message
 stored none or the viewer sees no message that carried the file.
 
+## Documents (Go service)
+
+A file sent "as a file" (a document) is previewed by its extension,
+lower case, as the chat already shows photos, videos and voice notes:
+a screenshot sent as a file opens like a photo, a video file plays, a
+text file shows its text. The Go service gives such a document its
+`render` (MediaRender in webapi/openapi.yaml) in the chat API's media,
+the message page, the files list (FileRow) and a group's Files tab
+(GroupFileRow):
+
+| render | extensions |
+|---|---|
+| `image` | jpg, jpeg, png, gif, webp, avif, bmp, ico, apng, svg |
+| `video` | mp4, m4v, webm, mov, ogv |
+| `audio` | mp3, m4a, aac, ogg, oga, opus, wav, flac |
+| `pdf` | pdf |
+| `text` | txt, log, md, csv, tsv, json, xml, yaml, yml, toml, ini, conf, cfg, sh, py, c, h, cpp, hpp, go, rs, js, ts, java, kt, sql, diff, patch, html, htm |
+
+Any other extension stays `file`, a download, as before. The table is
+`media.DocumentRender` (webapi/internal/media/preview.go). The pages
+draw an svg only through an img element, html and htm as their source
+text (never rendered), at most the first 512 KiB of a text, and a pdf
+as a link that opens in a new tab; a download is offered beside every
+preview. Fetching is unchanged: a big unstored document is fetched
+only through its "Fetch from Telegram" action.
+
+`/files/<token>` serves a document by the same table, from the store
+and when streamed from TDLib's cache alike:
+
+| render | Content-Type | Content-Disposition | X-Content-Type-Options | Content-Security-Policy |
+|---|---|---|---|---|
+| `image` | the extension's (`image/svg+xml` for svg) | `inline; filename=<name>` | `nosniff` | the sandbox |
+| `text` | `text/plain; charset=utf-8`, whatever the extension | `inline; filename=<name>` | `nosniff` | the sandbox |
+| `video`, `audio` | the extension's | `inline; filename=<name>` | `nosniff` | none |
+| `pdf` | `application/pdf` | `inline; filename=<name>` | `nosniff` | none |
+| `file` | the name's, as before | `attachment; filename=<name>` | `nosniff` | none |
+
+- The sandbox is `sandbox; default-src 'none'; img-src 'self';
+  style-src 'unsafe-inline'`: an svg, or an html file a browser might
+  sniff despite its text type, opened by its URL runs no script and
+  loads nothing but its own images. A pdf goes without it, which would
+  stop the browser's own viewer.
+- The bytes are whatever was sent through Telegram, served from the
+  site's own origin, so the same holds for every file answer, from the
+  store, fetched or streamed, whatever the file: every answer carries
+  `X-Content-Type-Options: nosniff`, and every answer shown inline
+  carries the sandbox unless its Content-Type is `video/*`, `audio/*`
+  or `application/pdf`. A downloaded file (an attachment) runs
+  nothing and carries no sandbox.
+- The extension (`file_ext`, the one the render is read from) picks
+  the type of a previewed document, not the download name: a png
+  named `x.html` is an image. The name is the download name, as for a
+  download.
+- `?download=1` on any `/files/<token>` URL gives the attachment,
+  typed by the download name, with nosniff and without the sandbox;
+  photos,
+  videos and other media shown in the page get one too (their name is
+  the original one, else the blob's). Any other value of `download`
+  changes nothing.
+- Media other than documents (photos, videos, voice notes, stickers,
+  ...) are served inline as before, with no Content-Disposition and
+  typed by the extension of the file on disk, plus the two headers
+  above: a photo has the sandbox, a video or a voice note only
+  nosniff. One whose file on disk would be typed as a page (`html`,
+  `htm`, `xhtml`, `xht`) is sent as `text/plain; charset=utf-8`
+  instead, and an svg, xml or other active type is sandboxed.
+
 ## Caching
 
 Files are sent with `Cache-Control: public, max-age=604800`: a week,
@@ -271,6 +338,9 @@ headers. Where it does more, it is the standard file serving of Go's
   from Telegram" action (above); the Drogon chat pages link them
   directly, behind a "Load from Telegram" box that fetches when
   clicked.
+- A document whose extension the browser can show is previewed
+  ("Documents" above); the Drogon chat pages draw every document as a
+  download link.
 - Error answers are a bare HTML page with the same heading and text,
   not the Drogon layout.
 

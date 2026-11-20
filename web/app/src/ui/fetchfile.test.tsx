@@ -74,7 +74,7 @@ describe('chat media of a big unstored file', () => {
 		expect(screen.queryByText(/not stored/)).toBeNull();
 		fireEvent.click(button());
 		const link = await screen.findByRole('link', { name: /dump\.tar/ });
-		expect(link.getAttribute('href')).toBe('/files/tok-big');
+		expect(link.getAttribute('href')).toBe('/files/tok-big?download=1');
 		r.unmount();
 		resetFetches();
 		for (const [ct, m] of [['voice', big({ duration: 9, wave: [] })], ['sticker', big({ format: 'webp', emoji: 'x' })]] as const) {
@@ -131,7 +131,7 @@ describe('chat media of a big unstored file', () => {
 		await new Promise((r) => setTimeout(r, 50));
 		expect(callsTo(calls, 'POST', FETCH)).toHaveLength(1);
 		fireEvent.click(button());
-		expect((await screen.findByRole('link', { name: /a\.iso/ })).getAttribute('href')).toBe('/files/tok-big');
+		expect((await screen.findByRole('link', { name: /a\.iso/ })).getAttribute('href')).toBe('/files/tok-big?download=1');
 		expect(callsTo(calls, 'POST', FETCH)).toHaveLength(2);
 	});
 });
@@ -166,7 +166,7 @@ describe('the files page', () => {
 		expect(within(row).getByRole('button', { name: /Fetch from Telegram/ })).toBeTruthy();
 		fireEvent.click(within(d).getByRole('button', { name: /Fetch from Telegram/ }));
 		const dl = await within(d).findByRole('link', { name: /Download/ });
-		expect(dl.getAttribute('href')).toBe('/files/tok-big');
+		expect(dl.getAttribute('href')).toBe('/files/tok-big?download=1');
 		// The row has the same file: fetched once, now fetchable by URL.
 		expect(within(row).getByText('fetchable')).toBeTruthy();
 		expect(callsTo(calls, 'POST', FETCH)).toHaveLength(1);
@@ -197,7 +197,7 @@ describe('a group\'s Files tab', () => {
 		const d = await screen.findByRole('dialog', { name: 'big.mp4' });
 		expect(within(d).getByText('no, can be fetched from Telegram')).toBeTruthy();
 		fireEvent.click(within(d).getByRole('button', { name: /Fetch from Telegram/ }));
-		expect((await within(d).findByRole('link', { name: /Download/ })).getAttribute('href')).toBe('/files/tok-big');
+		expect((await within(d).findByRole('link', { name: /Download/ })).getAttribute('href')).toBe('/files/tok-big?download=1');
 	});
 });
 

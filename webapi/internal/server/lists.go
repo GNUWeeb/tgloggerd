@@ -1029,6 +1029,7 @@ type listFile struct {
 	FileType   string        `json:"file_type"`
 	Name       string        `json:"name"`
 	Ext        string        `json:"ext"`
+	Render     string        `json:"render"`
 	Size       uint64        `json:"size"`
 	Hits       int64         `json:"hits"`
 	Stored     bool          `json:"stored"`
@@ -1165,6 +1166,14 @@ func videoIDs(rows []logdb.Row) []uint64 {
 	return videos
 }
 
+// fileRender is how a file of the files registry renders, as the chat
+// renders a message's media of that type (renderOf): a sticker by its
+// extension, a document by its extension.
+func fileRender(fileType, ext string) string {
+	f := logdb.FileRef{Type: fileType, Ext: ext}
+	return renderOf(fileType, stickerFormat(contentExtra{}, f), f)
+}
+
 // fileRow is a row of the files registry's columns as FileRow, without
 // the message that carried it (listFileRows adds that).
 func (s *Server) fileRow(sc scope.Scope, signedIn bool, r logdb.Row,
@@ -1196,6 +1205,7 @@ func (s *Server) fileRow(sc scope.Scope, signedIn bool, r logdb.Row,
 		// (FileRow.file_type has no thumbnail).
 		f.FileType = "photo"
 	}
+	f.Render = fileRender(f.FileType, f.Ext)
 	if st, ok := stills[f.ID]; ok {
 		// Stored, so the size does not matter.
 		if id := cmp.Or(st.Cover, st.Thumbnail); id != 0 {

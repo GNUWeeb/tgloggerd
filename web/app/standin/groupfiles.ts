@@ -16,6 +16,7 @@ import { groups } from '../../mockup/src/data/groups.js';
 import { chatStream, senderOf } from '../../mockup/src/data/messages.js';
 import { KINDS_GROUP, kindsOf, sampleOf, type View } from './kinds.ts';
 import { fileLinks } from './filelinks.ts';
+import { docSuffix, fileRender } from './docpreview.ts';
 
 export const GROUP_FILES_PAGE = 50;
 export const FILE_KINDS = ['photo', 'video', 'animation', 'audio', 'voice', 'document', 'sticker', 'video_note'] as const;
@@ -51,11 +52,11 @@ function fileOf(m: Msg, md: { fileId: number; ext?: string; name?: string; size?
 	const fetchable = !stored && v.fetch;
 	const ext = kind === 'sticker' ? STICKER_FORMATS[md.fileId % 3]! : md.ext ?? EXT_OF[kind] ?? 'bin';
 	const size = md.size || 30000 + (md.fileId % 997) * 311;
-	const { url, fetch } = fileLinks(md.fileId, ext === 'tgs', size, stored, fetchable);
+	const { url, fetch } = fileLinks(md.fileId, ext === 'tgs', size, stored, fetchable, kind === 'document' ? docSuffix(ext) : '');
 	// Only a stored picture an <img> can draw has a thumb here.
 	const picture = kind === 'photo' || (kind === 'sticker' && ext === 'webp');
 	return {
-		id: md.fileId, file_type: kind === 'video_note' ? 'video_note' : kind, name: md.name || `${kind}_${md.fileId}.${ext}`, ext,
+		id: md.fileId, file_type: kind === 'video_note' ? 'video_note' : kind, name: md.name || `${kind}_${md.fileId}.${ext}`, ext, render: fileRender(kind, ext),
 		size, stored, fetchable, fetch, url, thumb: stored && picture ? url : null,
 		...(md.duration ? { duration: md.duration } : {}),
 		message_id: m.message_id, message_row_id: m.id, date: iso(m.date), sender: senderFor(m, v),
@@ -74,9 +75,11 @@ function filesOf(g: { id: number }, v: View, key: string): FileItem[] {
 	const out: FileItem[] = [];
 	for (const m of [...(chatStream(g) as Msg[])].reverse()) {
 		const s = sampleOf(m);
-		// A kinds sample is that kind alone: only the video note has a file.
+		// A kinds sample is that kind alone: only the video note and the
+		// documents have a file.
 		if (s) {
 			if (s.media?.round) out.push(fileOf(m, { fileId: 970000 + (m.message_id % 10000), size: 420000, duration: 9 }, 'video_note', v));
+			if (s.media?.doc) out.push(fileOf(m, s.media.doc, 'document', v));
 			continue;
 		}
 		if (m.media) {
