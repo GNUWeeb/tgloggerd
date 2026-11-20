@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/media"
 )
 
 // The detail of a message's media the chat view and the message page
@@ -83,7 +84,8 @@ func stickerFormat(x contentExtra, f logdb.FileRef) string {
 
 // renderOf is how the media renders, as Drogon's mediaRender decides:
 // image, video, animation (loops, muted), lottie (a .tgs sticker),
-// audio, or file.
+// audio, or file; and a document by its extension
+// (media.DocumentRender), which adds pdf and text.
 func renderOf(ctype, format string, f logdb.FileRef) string {
 	switch ctype {
 	case "sticker":
@@ -105,6 +107,9 @@ func renderOf(ctype, format string, f logdb.FileRef) string {
 	}
 	if f.Type == "photo" {
 		return "image"
+	}
+	if ctype == "document" {
+		return media.DocumentRender(f.Ext)
 	}
 	return "file"
 }

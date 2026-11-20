@@ -186,10 +186,11 @@ func TestChatMediaDetail(t *testing.T) {
 		t.Fatalf("album %+v", a)
 	}
 	items := append([]pMedia{*a.Media}, a.Album...)
+	// The document is a pdf, previewed as one (Drogon draws a file).
 	for i, want := range []struct {
 		kind, render string
 		deleted      bool
-	}{{"photo", "image", false}, {"video", "video", true}, {"document", "file", false}} {
+	}{{"photo", "image", false}, {"video", "video", true}, {"document", "pdf", false}} {
 		it := items[i]
 		if it.Kind != want.kind || it.Render != want.render || it.MessageID != mediaMsg(int64(9+i)) ||
 			(it.DeletedAt != nil) != want.deleted {

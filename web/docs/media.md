@@ -217,6 +217,32 @@ that message stored in its `content_extra`. It is read with the
 message, so a page costs no extra query, and is absent when the message
 stored none or the viewer sees no message that carried the file.
 
+## Documents (Go service)
+
+A file sent "as a file" (a document) is previewed by its extension,
+lower case, as the chat already shows photos, videos and voice notes:
+a screenshot sent as a file opens like a photo, a video file plays, a
+text file shows its text. The Go service gives such a document its
+`render` (MediaRender in webapi/openapi.yaml) in the chat API's media,
+the message page, the files list (FileRow) and a group's Files tab
+(GroupFileRow):
+
+| render | extensions |
+|---|---|
+| `image` | jpg, jpeg, png, gif, webp, avif, bmp, ico, apng, svg |
+| `video` | mp4, m4v, webm, mov, ogv |
+| `audio` | mp3, m4a, aac, ogg, oga, opus, wav, flac |
+| `pdf` | pdf |
+| `text` | txt, log, md, csv, tsv, json, xml, yaml, yml, toml, ini, conf, cfg, sh, py, c, h, cpp, hpp, go, rs, js, ts, java, kt, sql, diff, patch, html, htm |
+
+Any other extension stays `file`, a download, as before. The table is
+`media.DocumentRender` (webapi/internal/media/preview.go). The pages
+draw an svg only through an img element, html and htm as their source
+text (never rendered), at most the first 512 KiB of a text, and a pdf
+as a link that opens in a new tab; a download is offered beside every
+preview. Fetching is unchanged: a big unstored document is fetched
+only through its "Fetch from Telegram" action.
+
 ## Caching
 
 Files are sent with `Cache-Control: public, max-age=604800`: a week,
@@ -271,6 +297,9 @@ headers. Where it does more, it is the standard file serving of Go's
   from Telegram" action (above); the Drogon chat pages link them
   directly, behind a "Load from Telegram" box that fetches when
   clicked.
+- A document whose extension the browser can show is previewed
+  ("Documents" above); the Drogon chat pages draw every document as a
+  download link.
 - Error answers are a bare HTML page with the same heading and text,
   not the Drogon layout.
 
