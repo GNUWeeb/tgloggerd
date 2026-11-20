@@ -31,7 +31,8 @@ describe('the stand-in\'s link previews', () => {
 		expect(of('message').some((x) => x.target)).toBe(true);
 		expect(of('unsupported').length).toBeGreaterThan(0);
 		// One of each type named since, with what it carries.
-		expect(of('document').some((x) => x.media?.render === 'file')).toBe(true);
+		// A .txt document, which renders as text by its extension.
+		expect(of('document').some((x) => x.media?.render === 'text')).toBe(true);
 		expect(of('sticker').some((x) => x.media?.format)).toBe(true);
 		expect(of('video_note').some((x) => x.media?.round)).toBe(true);
 		expect(of('voice_note').some((x) => x.media?.render === 'audio' && x.media.wave?.length)).toBe(true);

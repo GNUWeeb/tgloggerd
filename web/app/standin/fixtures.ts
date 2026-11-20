@@ -13,7 +13,8 @@ import { TOTALS } from '../../mockup/src/data/totals.js';
 import { t2d, d2t, mcpExposed, mcpTokens, chatOptions } from '../../mockup/src/data/admin.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { REGISTRY, SLOW, compile, fieldsOf, legacyQuery, type ListError } from './search.ts';
-import { ALL, kindsOf, linkPreviewExtras, sampleOf, topicOf, topicsOf, type View } from './kinds.ts';
+import { docRender, docSuffix, fileRender } from './docpreview.ts';
+import { ALL, docSampleMessages, kindsOf, linkPreviewExtras, sampleOf, topicOf, topicsOf, type View } from './kinds.ts';
 import { engineAnswer, engineOf, profileAnswer, type EngineKind } from './engine.ts';
 import { MAX_Q, memberCount, memberFlags, membersPage } from './members.ts';
 export { membersApi, patchGroup } from './members.ts';
@@ -222,8 +223,10 @@ export function chatMedia(md, type, fetch = false, extra = {}) {
 	const format = type === 'sticker' ? STICKER_FORMATS[md.fileId % 3] : undefined;
 	// A Lottie sticker's URL says so, for the stand-in's /files to answer
 	// with an animation instead of a picture.
-	const { url, fetch: fetchPath } = fileLinks(md.fileId, format === 'tgs', md.size, stored, fetchable);
-	const render = RENDER[type] ?? (format === 'tgs' ? 'lottie' : format === 'webm' ? 'animation' : 'image');
+	const doc = type === 'document';
+	const { url, fetch: fetchPath } = fileLinks(md.fileId, format === 'tgs', md.size, stored, fetchable, doc ? docSuffix(md.ext) : '');
+	// A document renders by its extension, as Go renders it.
+	const render = doc ? docRender(md.ext) : RENDER[type] ?? (format === 'tgs' ? 'lottie' : format === 'webm' ? 'animation' : 'image');
 	const picture = render === 'image';
 	// A video, animation, video note or .webm sticker: thumb is its still,
 	// else its blurred preview.
@@ -414,12 +417,14 @@ export function chatMessage(m, view: boolean | View = false) {
 	// A sample of a kind (kinds.ts) is that kind alone: its text, its own
 	// media for a video note, nothing replied to, forwarded or edited.
 	const round = sample.media?.round;
+	const doc = sample.media?.doc;
 	const { forward_from: _f, sender_chat: _sc, is_channel_post: _cp, author_signature: _as, service_type: _st, ...rest } = out as Record<string, unknown>;
 	return {
 		...rest, content_type: ct, text: k.serviceText ?? sample.text ?? '',
 		// A service text rebuilt for the viewer has no entities.
 		entities: sample.entities?.(v) ?? [],
-		media: round ? chatMedia({ fileId: 970000 + (m.message_id % 10000), w: 1, h: 1, size: 420000, duration: 9 }, 'video', fetch, { round: true }) : null,
+		media: round ? chatMedia({ fileId: 970000 + (m.message_id % 10000), w: 1, h: 1, size: 420000, duration: 9 }, 'video', fetch, { round: true })
+			: doc ? chatMedia(doc, 'document', fetch) : null,
 		album: [], reply_to: null, forward: null, edits: sample.edits?.(v) ?? [], edited_at: sample.edited_at ?? null, link_preview: null,
 		...(sample.tdlib_type ? { tdlib_type: sample.tdlib_type } : {}),
 		...(ct === 'service' && !k.serviceText ? { service_type: k.base.service?.type ?? 'custom' } : {}),
@@ -519,9 +524,18 @@ function roleOf(f, type: string): [string, string] | null {
 	if (type !== 'photo') return null;
 	return ({ 13: ['link_preview', 'text'], 19: ['cover', 'video'], 23: ['invoice', 'invoice'], 29: ['game', 'game'], 31: ['paid', 'paid_media'] })[f.id % 40] ?? null;
 }
+// The kinds group's sample documents (docpreview.ts) as the mockup
+// lists its files.
+function docFiles() {
+	return docSampleMessages<{ chat: { id: number; kind: string; title?: string; name?: string }; message_id: number; date: string }>().map(({ m, doc }, i) => ({
+		id: doc.fileId, file_type: 'document', name: doc.name, ext: doc.ext, size: doc.size, hits: 3 + i, stored: true,
+		tg_file_id: `BQACAgUAAxkBAAIDOC${doc.fileId}`, created_at: m.date, w: doc.w, h: doc.h, duration: doc.duration,
+		msg: m, chat_title: m.chat.title || m.chat.name, sender_name: senderOf(m)?.name || '', sender_id: senderOf(m)?.id || 0,
+	}));
+}
 function allFiles() {
 	const extOf = (f) => (f.file_type === 'sticker' ? STICKER_FORMATS[f.id % 3] : f.file_type === 'video' && f.id % 5 === 0 ? 'webm' : f.ext);
-	fileData ??= files().map((f) => ({
+	fileData ??= [...files(), ...docFiles()].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).map((f) => ({
 		...f,
 		...(([r, k]) => ({ role: r, message_kind: k }))(roleOf(f, fileType(f)) ?? [null, null]),
 		ext: extOf(f),
@@ -543,12 +557,13 @@ const pictureType = (t: string) => t === 'photo' || t === 'thumbnail' || t === '
 const videoType = (f) => f.file_type === 'video' || f.file_type === 'animation' || f.file_type === 'video_note' || (f.file_type === 'sticker' && f.ext === 'webm');
 function fileRow(f, fetch: boolean) {
 	const fetchable = !f.stored && fetch;
-	const { url, fetch: fetchPath } = fileLinks(f.id, f.ext === 'tgs', f.size, f.stored, fetchable);
+	const doc = f.file_type === 'document';
+	const { url, fetch: fetchPath } = fileLinks(f.id, f.ext === 'tgs', f.size, f.stored, fetchable, doc ? docSuffix(f.ext) : '');
 	const drawable = f.ext !== 'webm' && f.ext !== 'tgs';
 	const still = videoType(f) ? videoStill(f.id) : null;
 	const base = {
 		// A thumbnail is filtered as such but answered as a photo, as in Go.
-		id: f.id, file_type: f.file_type === 'thumbnail' ? 'photo' : f.file_type, name: f.name, ext: f.ext, size: f.size, hits: f.hits, stored: f.stored, fetchable, fetch: fetchPath,
+		id: f.id, file_type: f.file_type === 'thumbnail' ? 'photo' : f.file_type, name: f.name, ext: f.ext, render: fileRender(f.file_type, f.ext), size: f.size, hits: f.hits, stored: f.stored, fetchable, fetch: fetchPath,
 		created_at: iso(f.created_at), accessed_at: iso(f.accessed_at), duration: f.duration, tg_file_id: f.tg_file_id, sha256: f.sha256,
 		url, thumb: still ? still.poster : f.stored && pictureType(f.file_type) && drawable ? url : null,
 		...(still?.minithumb ? { minithumb: still.minithumb } : {}),
@@ -757,8 +772,10 @@ export function load(url: string, persona: Persona): Loaded {
 		// The message as the chat shows it gives the parts both pages share
 		// (MessageExtra, the media's detail, the edits' types and media).
 		const c = chatMessage(x, { ...viewOf(persona, x.chat.kind === 'user' ? undefined : x.chat.id), page: true });
-		// A video note sample (kinds.ts) has a file of its own.
-		const media = c.media ? { ...c.media, file_id: x.media?.fileId ?? 970000 + (x.message_id % 10000), name: x.media?.name || '', size: x.media?.size || c.media.size || 0 } : null;
+		// A video note sample (kinds.ts) has a file of its own, and so has
+		// a document sample.
+		const doc = sampleOf(x)?.media?.doc;
+		const media = c.media ? { ...c.media, file_id: x.media?.fileId ?? doc?.fileId ?? 970000 + (x.message_id % 10000), name: x.media?.name || doc?.name || '', size: x.media?.size || c.media.size || 0 } : null;
 		const extra = Object.fromEntries(['entities', 'sender_chat', 'forward_from', 'author_signature', 'is_channel_post', 'service_type', 'tdlib_type', 'detail', 'service', 'topic_id', 'pinned', 'views', 'forwards', 'replies', 'reactions', 'effect_id', 'effect', 'album'].filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
 		return {
 			route: 'message', status: 200, props: {
