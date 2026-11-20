@@ -204,6 +204,9 @@
 .app .c-docwrap .c-docacts { margin-left: 54px; }
 .app .c-docwrap .a-textview { margin: 2px 0 4px; max-width: min(640px, 80vw); }
 .app .c-docprev { display: grid; justify-items: start; gap: 2px; }
+/* A picture sent as a file is its full file (no smaller thumb): drawn
+   at thumbnail size, the viewer shows it whole. */
+.app .c-docprev .c-media.single { max-width: min(320px, 100%); }
 .app .c-albumwrap { display: flex; flex-direction: column; gap: 4px; }
 .app .c-sticker { display: block; width: 160px; height: 160px; object-fit: contain; }
 .app .c-sticker-btn { border: 0; background: none; padding: 0; cursor: zoom-in; }

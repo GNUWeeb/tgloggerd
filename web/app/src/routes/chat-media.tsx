@@ -120,7 +120,7 @@ export function Picture({ m, single, onClick = false }: { m: Media; single?: boo
 		<>
 			<a className={cls} style={natural ? undefined : { aspectRatio: ratio }} href={m.url} target="_blank" rel="noopener" aria-label="Photo"
 				onClick={(e) => { if (plainClick(e)) { e.preventDefault(); setOpen(true); } }}>
-				<img src={m.thumb ?? m.url} alt="" loading="lazy" />
+				<img src={m.thumb ?? m.url} alt="" loading="lazy" decoding="async" />
 				<DeletedMark m={m} />
 			</a>
 			{open && <Lightbox m={m} kind="picture" onClose={() => setOpen(false)} />}

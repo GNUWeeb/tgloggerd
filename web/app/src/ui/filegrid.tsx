@@ -29,6 +29,11 @@ const chatHref = (c: NonNullable<FileRow['chat']>) => (c.kind === 'group' ? `/gr
 // render: how Go says it draws (a document's by its extension).
 type ShownFile = Pick<FileRow, 'name' | 'ext' | 'size' | 'file_type' | 'render' | 'stored' | 'fetchable' | 'fetch' | 'url' | 'thumb' | 'minithumb' | 'duration'>;
 
+// The picture a list draws of a file: its thumb; a stored image
+// document has none, and is drawn from its own URL (lazily, as every
+// thumb is), which is stored bytes, so a list still fetches nothing.
+export const listThumb = (f: ShownFile) => f.thumb ?? (f.file_type === 'document' && f.render === 'image' && f.stored ? f.url : null);
+
 // The list's Stored cell: stored, the fetch button of a big file still
 // on Telegram, fetchable (opening it fetches it), or missing.
 export function StoredCell({ f: given }: { f: ShownFile }) {
@@ -46,11 +51,12 @@ export const storedText = (f: ShownFile) => (f.stored ? 'yes' : f.url || f.fetch
 // files: when it was sent), and a tag under them (the file's role).
 export function FileCard({ f: given, at, v, onOpen, tag }: { f: ShownFile; at: string; v: Viewer; onOpen: () => void; tag?: ReactNode }) {
 	const f = useFetched(given);
+	const thumb = listThumb(f);
 	// The card opens the preview, which holds the fetch button (a card is
 	// one button); a big file still on Telegram says so on its picture.
 	return (
 		<button type="button" className="a-filecard" onClick={onOpen}>
-			<span className="a-filecard-media"><Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={150} radius={0} fill />
+			<span className="a-filecard-media"><Thumb type={f.file_type} thumb={thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={150} radius={0} fill />
 				{f.duration ? <span className="a-dur">{duration(f.duration)}</span> : null}
 				{needsFetch(f) && <span className="a-ontg" title="Not stored; open it to fetch it from Telegram"><CloudDownload size={12} />On Telegram</span>}
 			</span>
@@ -65,7 +71,7 @@ export function FileNameCell({ f: given, sub, onOpen }: { f: ShownFile; sub: Rea
 	const f = useFetched(given);
 	return (
 		<button type="button" className="a-usercell a-plain" onClick={onOpen}>
-			<Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={30} radius={6} />
+			<Thumb type={f.file_type} thumb={listThumb(f)} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={30} radius={6} />
 			<span><span className="a-uname a-clip">{f.name}</span><span className="a-handle">{sub}</span></span>
 		</button>
 	);

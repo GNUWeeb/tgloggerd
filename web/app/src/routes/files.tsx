@@ -5,7 +5,7 @@ import { Link, setQuery, useNav, useQueryParams } from '../nav.tsx';
 import { Btn, PageHead } from '../ui/primitives.tsx';
 import { DataTable, emptyText, FilterBar, useListNav, type Col } from '../ui/list.tsx';
 import { Thumb, TypeIcon } from '../ui/media.tsx';
-import { FileCard, FileNameCell, NO_MESSAGE, Preview, StoredCell } from '../ui/filegrid.tsx';
+import { FileCard, FileNameCell, NO_MESSAGE, Preview, StoredCell, listThumb } from '../ui/filegrid.tsx';
 import { ROLE_LABELS, ROLE_VALUES, RoleTag, roleLabel, roleOf } from '../ui/fileroles.tsx';
 import { ago, bytes, fmt } from '../format.ts';
 import type { PageData } from '../page.ts';
@@ -178,7 +178,7 @@ function Files({ page }: { page: PageData<FilesProps> }) {
 			) : (
 				<DataTable L={L} cols={cols} noun="files" empty={emptyText(L, member, 'files', 'No files match these filters.')}
 					href={(f) => setQuery(page.url, { file: f.id })} open={show}
-					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={f.thumb} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={40} />, title: f.name, sub: `${f.file_type}${roleOf(f) ? ` (${roleLabel(roleOf(f)!.role)})` : ''} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
+					mobile={(f) => ({ lead: <Thumb type={f.file_type} thumb={listThumb(f)} url={f.url} minithumb={f.minithumb} stored={f.stored} ext={f.ext} size={40} />, title: f.name, sub: `${f.file_type}${roleOf(f) ? ` (${roleLabel(roleOf(f)!.role)})` : ''} . ${bytes(f.size)} . ${f.chat?.title ?? NO_MESSAGE}`, side: <span className="a-muted sm">{ago(f.created_at, v)}</span> })} />
 			)}
 			{preview && <Preview f={preview} v={v} onClose={() => show(null)} />}
 		</Shell>

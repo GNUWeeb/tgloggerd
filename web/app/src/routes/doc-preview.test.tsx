@@ -45,7 +45,11 @@ describe('a document in the chat', () => {
 	it('draws a PNG as a photo that opens in the viewer, with its download', () => {
 		const { c, media } = open('screenshot.png');
 		const pic = c.getByRole('link', { name: 'Photo' });
-		expect(pic.querySelector('img')!.getAttribute('src')).toBe(media.thumb ?? media.url);
+		const img = pic.querySelector('img')!;
+		expect(img.getAttribute('src')).toBe(media.thumb ?? media.url);
+		// Its thumb is the whole file: loaded lazily, drawn small.
+		expect([img.getAttribute('loading'), img.getAttribute('decoding')]).toEqual(['lazy', 'async']);
+		expect(pic.closest('.c-docprev')).toBeTruthy();
 		expect(c.getByRole('link', { name: 'Download' }).getAttribute('href')).toBe(`${media.url}?download=1`);
 		fireEvent.click(pic);
 		expect(viewer()!.querySelector('img')!.getAttribute('src')).toBe(media.url);
@@ -222,6 +226,22 @@ const previewChecks = (open: (name: string) => Promise<{ d: HTMLElement; url: st
 		expect(within(z.d).getByRole('link', { name: 'Download' }).getAttribute('href')).toBe(`${z.url}?download=1`);
 	});
 };
+
+describe('a stored image document in a list', () => {
+	it('is drawn from its own URL in the files grid and list, and in the Files tab, having no thumb', () => {
+		const f = fixture<FilesProps>('/files?view=list&q=screenshot.png').props.rows.find((r) => r.name === 'screenshot.png')!;
+		expect(f.thumb).toBeNull();
+		const img = (sel: string) => document.querySelector<HTMLImageElement>(`${sel} img[src="${f.url}"]`);
+		renderPage('/files?q=screenshot.png');
+		expect(img('.a-filecard')?.getAttribute('loading')).toBe('lazy');
+		cleanup();
+		renderPage('/files?view=list&q=screenshot.png');
+		expect(img('.a-usercell')?.getAttribute('loading')).toBe('lazy');
+		cleanup();
+		renderPage(`/groups/${KINDS_GROUP.id}/files?kind=document`);
+		expect(img('.a-filecard')?.getAttribute('loading')).toBe('lazy');
+	});
+});
 
 describe('a document in the files preview', () => {
 	previewChecks(async (name) => {
