@@ -243,6 +243,34 @@ as a link that opens in a new tab; a download is offered beside every
 preview. Fetching is unchanged: a big unstored document is fetched
 only through its "Fetch from Telegram" action.
 
+`/files/<token>` serves a document by the same table, from the store
+and when streamed from TDLib's cache alike:
+
+| render | Content-Type | Content-Disposition | X-Content-Type-Options | Content-Security-Policy |
+|---|---|---|---|---|
+| `image` | the extension's (`image/svg+xml` for svg) | `inline; filename=<name>` | `nosniff` | the sandbox |
+| `text` | `text/plain; charset=utf-8`, whatever the extension | `inline; filename=<name>` | `nosniff` | the sandbox |
+| `video`, `audio` | the extension's | `inline; filename=<name>` | `nosniff` | none |
+| `pdf` | `application/pdf` | `inline; filename=<name>` | `nosniff` | none |
+| `file` | the name's, as before | `attachment; filename=<name>` | none | none |
+
+- The sandbox is `sandbox; default-src 'none'; img-src 'self';
+  style-src 'unsafe-inline'`: an svg, or an html file a browser might
+  sniff despite its text type, opened by its URL runs no script and
+  loads nothing but its own images. A pdf goes without it, which would
+  stop the browser's own viewer.
+- The extension (`file_ext`, the one the render is read from) picks
+  the type of a previewed document, not the download name: a png
+  named `x.html` is an image. The name is the download name, as for a
+  download.
+- `?download=1` on any `/files/<token>` URL gives the attachment,
+  typed by the download name, without the preview headers; photos,
+  videos and other media shown in the page get one too (their name is
+  the original one, else the blob's). Any other value of `download`
+  changes nothing.
+- Media other than documents (photos, videos, voice notes, stickers,
+  ...) are served as before: inline, no Content-Disposition.
+
 ## Caching
 
 Files are sent with `Cache-Control: public, max-age=604800`: a week,

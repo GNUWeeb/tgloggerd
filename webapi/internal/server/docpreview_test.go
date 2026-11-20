@@ -6,11 +6,16 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"tgloggerd/webapi/internal/logdb"
+	"tgloggerd/webapi/internal/media"
 )
 
 // A document previews by its extension (MediaRender): the chat's
@@ -143,4 +148,105 @@ func TestFilesListRender(t *testing.T) {
 			t.Errorf("%s: render %v, want %s", id, f[id]["render"], w)
 		}
 	}
+}
+
+const sandbox = "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
+
+// /files/<token> sends a previewable document inline, typed by its
+// extension, with nosniff, and an image (svg included) or a text also
+// sandboxed; html and svg run nothing when opened by their URL. Other
+// documents stay downloads, media keep their headers, and ?download=1
+// always gives the attachment.
+func TestDocumentPreviewHeaders(t *testing.T) {
+	t.Parallel()
+	e := newMediaEnv(t, mediaOpts{})
+	for i, c := range []struct {
+		typ, ext, name string
+		disp, ctype    string
+		sandboxed      bool
+		nosniff        bool
+	}{
+		{"document", "png", "shot.png", "inline; filename=shot.png", "image/png", true, true},
+		{"document", "JPEG", "a.JPEG", "inline; filename=a.JPEG", "image/jpeg", true, true},
+		{"document", "svg", "x.svg", "inline; filename=x.svg", "image/svg+xml", true, true},
+		{"document", "mp4", "clip.mp4", "inline; filename=clip.mp4", "video/mp4", false, true},
+		{"document", "opus", "v.opus", "inline; filename=v.opus", "audio/ogg", false, true},
+		{"document", "pdf", "p.pdf", "inline; filename=p.pdf", "application/pdf", false, true},
+		{"document", "log", "run.log", "inline; filename=run.log", "text/plain; charset=utf-8", true, true},
+		{"document", "html", "page.html", "inline; filename=page.html", "text/plain; charset=utf-8", true, true},
+		{"document", "js", "app.js", "inline; filename=app.js", "text/plain; charset=utf-8", true, true},
+		// The extension types it, not the name: an html name on a
+		// png is still an image.
+		{"document", "png", "evil.html", "inline; filename=evil.html", "image/png", true, true},
+		// Not previewed: a download typed by its name, as before.
+		{"document", "zip", "a.zip", "attachment; filename=a.zip", "application/zip", false, false},
+		{"document", "xhtml", "a.xhtml", "attachment; filename=a.xhtml",
+			"application/xhtml+xml; charset=utf-8", false, false},
+		{"unknown", "png", "u.png", "attachment; filename=u.png", "image/png", false, false},
+		// Media shown in the page: unchanged.
+		{"photo", "jpg", "", "", "image/jpeg", false, false},
+		{"video", "mp4", "c.mp4", "", "video/mp4", false, false},
+	} {
+		id := uint64(700 + i)
+		data := []byte(fmt.Sprintf("<svg onload=alert(%d)>", i))
+		tok := e.addFile(fileRow{id: id, data: data, ext: c.ext, typ: c.typ, name: c.name, onDisk: true})
+		g := e.get("/files/"+tok, "")
+		expect(t, g, 200, string(data))
+		what := c.typ + " ." + c.ext
+		check := func(k, want string) {
+			t.Helper()
+			if g.h.Get(k) != want {
+				t.Errorf("%s: %s = %q, want %q", what, k, g.h.Get(k), want)
+			}
+		}
+		check("Content-Disposition", c.disp)
+		check("Content-Type", c.ctype)
+		check("Content-Security-Policy", map[bool]string{true: sandbox}[c.sandboxed])
+		check("X-Content-Type-Options", map[bool]string{true: "nosniff"}[c.nosniff])
+
+		// ?download=1: always the attachment, typed by its name, and
+		// nothing of the preview.
+		g = e.get("/files/"+tok+"?download=1", "")
+		expect(t, g, 200, string(data))
+		name := c.name
+		if name == "" {
+			sum := sha256.Sum256(data)
+			name = hex.EncodeToString(sum[:]) + "." + c.ext
+		}
+		check("Content-Disposition", "attachment; filename="+name)
+		check("Content-Type", media.ContentType(name))
+		check("Content-Security-Policy", "")
+		check("X-Content-Type-Options", "")
+		// Another value leaves the choice to the file.
+		g = e.get("/files/"+tok+"?download=0", "")
+		check("Content-Disposition", c.disp)
+	}
+}
+
+// A previewed document streamed from TDLib's cache carries the same
+// headers, and ?download=1 the attachment.
+func TestDocumentPreviewPartial(t *testing.T) {
+	t.Parallel()
+	e := newMediaEnv(t, mediaOpts{cap: 10})
+	cookie, _ := e.signIn("partial")
+	part := filepath.Join(e.tdlib, "videos", "file_9.html")
+	content := []byte("<script>alert(1)</script>")
+	if err := os.WriteFile(part, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tok := e.addFile(fileRow{id: 60, typ: "document", ext: "html", name: "big.html", size: 1000})
+	e.fake.answer(60, 200, "", fmt.Sprintf(
+		`{"state":"partial","path":%q,"offset":0,"available":%d,"size":1000}`, part, len(content)))
+	g := e.get("/files/"+tok, cookie)
+	expect(t, g, 206, string(content))
+	expectHeader(t, g, "Content-Type", "text/plain; charset=utf-8")
+	expectHeader(t, g, "Content-Disposition", "inline; filename=big.html")
+	expectHeader(t, g, "Content-Security-Policy", sandbox)
+	expectHeader(t, g, "X-Content-Type-Options", "nosniff")
+
+	g = e.get("/files/"+tok+"?download=1", cookie)
+	expect(t, g, 206, string(content))
+	expectHeader(t, g, "Content-Type", "text/html; charset=utf-8")
+	expectHeader(t, g, "Content-Disposition", "attachment; filename=big.html")
+	expectHeader(t, g, "Content-Security-Policy", "")
 }
