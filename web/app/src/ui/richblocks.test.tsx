@@ -26,6 +26,15 @@ const full = () => show(richDetail() as Detail);
 const blocks = (list: unknown[], extra: Partial<Detail> = {}) => show({ kind: 'rich', blocks: list as S['RichBlock'][], is_rtl: false, is_full: true, ...extra });
 
 describe('RichBlocks', () => {
+	it('draws a document block by its render: a PDF to open, a text to show, each with its download', () => {
+		const doc = (name: string, render: 'pdf' | 'text', url: string) => ({ type: 'document', media: { stored: true, url, thumb: null, render, ext: name.split('.').pop(), name, size: 2048 }, caption: { text: rt(''), credit: rt('') } });
+		const el = blocks([doc('guide.pdf', 'pdf', '/files/rb-pdf'), doc('notes.txt', 'text', '/files/rb-txt')]);
+		const open = within(el).getByRole('link', { name: 'Open' });
+		expect([open.getAttribute('href'), open.getAttribute('target'), open.getAttribute('rel')]).toEqual(['/files/rb-pdf', '_blank', 'noopener']);
+		expect(within(el).getByRole('button', { name: 'Show text' })).toBeTruthy();
+		expect([...el.querySelectorAll('a.c-doc')].map((a) => a.getAttribute('href'))).toEqual(['/files/rb-pdf?download=1', '/files/rb-txt?download=1']);
+	});
+
 	it('draws the text blocks as headings, paragraphs, code and a rule', () => {
 		const el = full();
 		expect(el.querySelector('h2.rb-title')!.textContent).toBe('Release 2.0 of the sample tool');

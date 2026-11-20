@@ -132,8 +132,9 @@ export function LinkPreview({ lp, v, onClick = false }: { lp: LP; v: Viewer; onC
 	const m0 = lp.media;
 	const m = m0 && lp.type === 'video_note' && !m0.round ? { ...m0, round: true } : m0;
 	const kind = m ? ownKind(lp.type, m) : null;
-	// The medium itself, or else the preview's picture.
-	const own = m && kind && kind !== 'photo' ? m : null;
+	// The medium itself, or else the preview's picture; a document that
+	// is a picture is its own medium, with its download.
+	const own = m && kind && (kind !== 'photo' || lp.type === 'document') ? m : null;
 	const pic = !own && m?.thumb ? m.thumb : null;
 	const meta = [TYPES[lp.type], lp.author, lp.duration ? duration(lp.duration) : ''].filter(Boolean).join(' . ');
 	const href = lp.url ? safeHref(lp.url) : null;
@@ -158,7 +159,8 @@ export function LinkPreview({ lp, v, onClick = false }: { lp: LP; v: Viewer; onC
 	return (
 		<div className="c-lp">
 			{main}
-			{own && kind && <MediaOf m={own} kind={kind} single onClick={onClick} />}
+			{/* A document medium keeps its download beside a picture or a video. */}
+			{own && kind && <MediaOf m={own} kind={kind} single onClick={onClick} doc={lp.type === 'document'} />}
 			{lp.album && <Album a={lp.album} onClick={onClick} />}
 			{bg && (bg.type === 'chat_theme'
 				? bg.theme_name && <span className="c-lp-meta">The chat theme <q className="c-svcquote">{bg.theme_name}</q></span>

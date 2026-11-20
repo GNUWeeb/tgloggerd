@@ -8,7 +8,7 @@
 import { useState, type ReactNode } from 'react';
 import { Square, SquareCheck } from 'lucide-react';
 import { RichText, safeHref, type RichChat } from './richtext.tsx';
-import { Animation, DocFile, Picture, VideoBox, Voice } from '../routes/chat-media.tsx';
+import { Animation, DocFile, MediaOf, Picture, VideoBox, Voice, kindOf } from '../routes/chat-media.tsx';
 import { dateTime } from '../format.ts';
 import type { Viewer } from '../page.ts';
 import type { S } from '../api/schema.ts';
@@ -68,7 +68,9 @@ function MediaBlock({ b, c }: { b: Block; c: Ctx }) {
 			case 'animation': body = <Animation m={m} onClick={c.click} />; break;
 			case 'voice_note': body = <Voice m={m} />; break;
 			case 'audio': body = <DocFile m={m} audio />; break;
-			default: body = <DocFile m={m} />;
+			// A document draws by its render, as a message's would: a
+			// picture or a video with its download, text, a PDF, a file.
+			default: body = <MediaOf m={m} kind={kindOf('document', m) ?? 'document'} single onClick={c.click} doc />;
 		}
 	}
 	return (
