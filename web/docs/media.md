@@ -252,24 +252,37 @@ and when streamed from TDLib's cache alike:
 | `text` | `text/plain; charset=utf-8`, whatever the extension | `inline; filename=<name>` | `nosniff` | the sandbox |
 | `video`, `audio` | the extension's | `inline; filename=<name>` | `nosniff` | none |
 | `pdf` | `application/pdf` | `inline; filename=<name>` | `nosniff` | none |
-| `file` | the name's, as before | `attachment; filename=<name>` | none | none |
+| `file` | the name's, as before | `attachment; filename=<name>` | `nosniff` | none |
 
 - The sandbox is `sandbox; default-src 'none'; img-src 'self';
   style-src 'unsafe-inline'`: an svg, or an html file a browser might
   sniff despite its text type, opened by its URL runs no script and
   loads nothing but its own images. A pdf goes without it, which would
   stop the browser's own viewer.
+- The bytes are whatever was sent through Telegram, served from the
+  site's own origin, so the same holds for every file answer, from the
+  store, fetched or streamed, whatever the file: every answer carries
+  `X-Content-Type-Options: nosniff`, and every answer shown inline
+  carries the sandbox unless its Content-Type is `video/*`, `audio/*`
+  or `application/pdf`. A downloaded file (an attachment) runs
+  nothing and carries no sandbox.
 - The extension (`file_ext`, the one the render is read from) picks
   the type of a previewed document, not the download name: a png
   named `x.html` is an image. The name is the download name, as for a
   download.
 - `?download=1` on any `/files/<token>` URL gives the attachment,
-  typed by the download name, without the preview headers; photos,
+  typed by the download name, with nosniff and without the sandbox;
+  photos,
   videos and other media shown in the page get one too (their name is
   the original one, else the blob's). Any other value of `download`
   changes nothing.
 - Media other than documents (photos, videos, voice notes, stickers,
-  ...) are served as before: inline, no Content-Disposition.
+  ...) are served inline as before, with no Content-Disposition and
+  typed by the extension of the file on disk, plus the two headers
+  above: a photo has the sandbox, a video or a voice note only
+  nosniff. One whose file on disk would be typed as a page (`html`,
+  `htm`, `xhtml`, `xht`) is sent as `text/plain; charset=utf-8`
+  instead, and an svg, xml or other active type is sandboxed.
 
 ## Caching
 

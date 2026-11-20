@@ -153,10 +153,11 @@ func TestFilesListRender(t *testing.T) {
 const sandbox = "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
 
 // /files/<token> sends a previewable document inline, typed by its
-// extension, with nosniff, and an image (svg included) or a text also
-// sandboxed; html and svg run nothing when opened by their URL. Other
-// documents stay downloads, media keep their headers, and ?download=1
-// always gives the attachment.
+// extension. Every answer has nosniff, and every inline one but video,
+// audio and pdf the sandbox, so html and svg run nothing when opened
+// by their URL. Other documents stay downloads, media shown in the
+// page stay inline without a disposition, and ?download=1 always
+// gives the attachment.
 func TestDocumentPreviewHeaders(t *testing.T) {
 	t.Parallel()
 	e := newMediaEnv(t, mediaOpts{})
@@ -164,28 +165,36 @@ func TestDocumentPreviewHeaders(t *testing.T) {
 		typ, ext, name string
 		disp, ctype    string
 		sandboxed      bool
-		nosniff        bool
 	}{
-		{"document", "png", "shot.png", "inline; filename=shot.png", "image/png", true, true},
-		{"document", "JPEG", "a.JPEG", "inline; filename=a.JPEG", "image/jpeg", true, true},
-		{"document", "svg", "x.svg", "inline; filename=x.svg", "image/svg+xml", true, true},
-		{"document", "mp4", "clip.mp4", "inline; filename=clip.mp4", "video/mp4", false, true},
-		{"document", "opus", "v.opus", "inline; filename=v.opus", "audio/ogg", false, true},
-		{"document", "pdf", "p.pdf", "inline; filename=p.pdf", "application/pdf", false, true},
-		{"document", "log", "run.log", "inline; filename=run.log", "text/plain; charset=utf-8", true, true},
-		{"document", "html", "page.html", "inline; filename=page.html", "text/plain; charset=utf-8", true, true},
-		{"document", "js", "app.js", "inline; filename=app.js", "text/plain; charset=utf-8", true, true},
+		{"document", "png", "shot.png", "inline; filename=shot.png", "image/png", true},
+		{"document", "JPEG", "a.JPEG", "inline; filename=a.JPEG", "image/jpeg", true},
+		{"document", "svg", "x.svg", "inline; filename=x.svg", "image/svg+xml", true},
+		{"document", "mp4", "clip.mp4", "inline; filename=clip.mp4", "video/mp4", false},
+		{"document", "opus", "v.opus", "inline; filename=v.opus", "audio/ogg", false},
+		{"document", "pdf", "p.pdf", "inline; filename=p.pdf", "application/pdf", false},
+		{"document", "log", "run.log", "inline; filename=run.log", "text/plain; charset=utf-8", true},
+		{"document", "html", "page.html", "inline; filename=page.html", "text/plain; charset=utf-8", true},
+		{"document", "js", "app.js", "inline; filename=app.js", "text/plain; charset=utf-8", true},
 		// The extension types it, not the name: an html name on a
 		// png is still an image.
-		{"document", "png", "evil.html", "inline; filename=evil.html", "image/png", true, true},
+		{"document", "png", "evil.html", "inline; filename=evil.html", "image/png", true},
 		// Not previewed: a download typed by its name, as before.
-		{"document", "zip", "a.zip", "attachment; filename=a.zip", "application/zip", false, false},
+		{"document", "zip", "a.zip", "attachment; filename=a.zip", "application/zip", false},
 		{"document", "xhtml", "a.xhtml", "attachment; filename=a.xhtml",
-			"application/xhtml+xml; charset=utf-8", false, false},
-		{"unknown", "png", "u.png", "attachment; filename=u.png", "image/png", false, false},
-		// Media shown in the page: unchanged.
-		{"photo", "jpg", "", "", "image/jpeg", false, false},
-		{"video", "mp4", "c.mp4", "", "video/mp4", false, false},
+			"application/xhtml+xml; charset=utf-8", false},
+		{"unknown", "png", "u.png", "attachment; filename=u.png", "image/png", false},
+		// Media shown in the page: inline, no disposition, sandboxed
+		// but for video and audio.
+		{"photo", "jpg", "", "", "image/jpeg", true},
+		{"video", "mp4", "c.mp4", "", "video/mp4", false},
+		{"voice", "ogg", "", "", "audio/ogg", false},
+		// A media row whose blob has an active extension: an svg is
+		// sandboxed, an html (xhtml) page goes out as text.
+		{"photo", "svg", "", "", "image/svg+xml", true},
+		{"sticker", "svg", "", "", "image/svg+xml", true},
+		{"photo", "html", "", "", "text/plain; charset=utf-8", true},
+		{"sticker", "xhtml", "", "", "text/plain; charset=utf-8", true},
+		{"photo", "xml", "", "", "application/xml; charset=utf-8", true},
 	} {
 		id := uint64(700 + i)
 		data := []byte(fmt.Sprintf("<svg onload=alert(%d)>", i))
@@ -202,10 +211,10 @@ func TestDocumentPreviewHeaders(t *testing.T) {
 		check("Content-Disposition", c.disp)
 		check("Content-Type", c.ctype)
 		check("Content-Security-Policy", map[bool]string{true: sandbox}[c.sandboxed])
-		check("X-Content-Type-Options", map[bool]string{true: "nosniff"}[c.nosniff])
+		check("X-Content-Type-Options", "nosniff")
 
-		// ?download=1: always the attachment, typed by its name, and
-		// nothing of the preview.
+		// ?download=1: always the attachment, typed by its name, with
+		// nosniff and no sandbox (a download runs nothing).
 		g = e.get("/files/"+tok+"?download=1", "")
 		expect(t, g, 200, string(data))
 		name := c.name
@@ -216,7 +225,7 @@ func TestDocumentPreviewHeaders(t *testing.T) {
 		check("Content-Disposition", "attachment; filename="+name)
 		check("Content-Type", media.ContentType(name))
 		check("Content-Security-Policy", "")
-		check("X-Content-Type-Options", "")
+		check("X-Content-Type-Options", "nosniff")
 		// Another value leaves the choice to the file.
 		g = e.get("/files/"+tok+"?download=0", "")
 		check("Content-Disposition", c.disp)
@@ -249,4 +258,49 @@ func TestDocumentPreviewPartial(t *testing.T) {
 	expectHeader(t, g, "Content-Type", "text/html; charset=utf-8")
 	expectHeader(t, g, "Content-Disposition", "attachment; filename=big.html")
 	expectHeader(t, g, "Content-Security-Policy", "")
+	expectHeader(t, g, "X-Content-Type-Options", "nosniff")
+}
+
+// Media rows fetched and stored, or streamed from TDLib's cache, carry
+// nosniff and the sandbox as stored ones do: a stored answer's blob of
+// a photo row typed svg, a partial html file of a sticker row, a
+// partial video without the sandbox.
+func TestMediaSandboxFetched(t *testing.T) {
+	t.Parallel()
+	e := newMediaEnv(t, mediaOpts{cap: 10})
+	cookie, _ := e.signIn("sandbox")
+	data := []byte("<svg onload=alert(1)/>")
+	e.addFile(fileRow{id: 70, data: data, ext: "svg", typ: "photo", onDisk: true})
+	tok := e.addFile(fileRow{id: 71, typ: "photo", ext: "svg", size: 5})
+	e.fake.answer(71, 200, "", `{"state":"stored","id":70}`)
+	g := e.get("/files/"+tok, cookie)
+	expect(t, g, 200, string(data))
+	expectHeader(t, g, "Content-Type", "image/svg+xml")
+	expectHeader(t, g, "Content-Security-Policy", sandbox)
+	expectHeader(t, g, "X-Content-Type-Options", "nosniff")
+
+	for _, c := range []struct {
+		id        uint64
+		typ, file string
+		ctype     string
+		csp       string
+	}{
+		{72, "sticker", "file_72.html", "text/plain; charset=utf-8", sandbox},
+		{73, "video", "file_73.mp4", "video/mp4", ""},
+	} {
+		part := filepath.Join(e.tdlib, "videos", c.file)
+		content := []byte("<script>alert(1)</script>")
+		if err := os.WriteFile(part, content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tok := e.addFile(fileRow{id: c.id, typ: c.typ, ext: filepath.Ext(c.file)[1:], size: 1000})
+		e.fake.answer(c.id, 200, "", fmt.Sprintf(
+			`{"state":"partial","path":%q,"offset":0,"available":%d,"size":1000}`, part, len(content)))
+		g := e.get("/files/"+tok, cookie)
+		expect(t, g, 206, string(content))
+		expectHeader(t, g, "Content-Type", c.ctype)
+		expectHeader(t, g, "Content-Disposition", "")
+		expectHeader(t, g, "Content-Security-Policy", c.csp)
+		expectHeader(t, g, "X-Content-Type-Options", "nosniff")
+	}
 }

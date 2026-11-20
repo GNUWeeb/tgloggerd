@@ -4493,17 +4493,21 @@ components:
         type: string
     FileNoSniff:
       description: >-
-        nosniff, on a document sent inline (a previewed document), so
-        the browser keeps to the Content-Type sent.
+        nosniff, on every file answer, so the browser keeps to the
+        Content-Type sent.
       schema:
         type: string
     FileSandbox:
       description: >-
         sandbox; default-src 'none'; img-src 'self'; style-src
-        'unsafe-inline', on a document sent inline as an image (svg
-        included) or as text, so an svg or html file opened by its URL
-        runs nothing. Not on video, audio or pdf (the sandbox would
-        stop the browser's own PDF viewer).
+        'unsafe-inline', on every answer shown inline (no
+        Content-Disposition, or inline) whose Content-Type is not
+        video/*, audio/* or application/pdf: images (svg included),
+        text, photos and stickers, so an svg or html file opened by its
+        URL runs nothing. Not on an attachment, nor on video, audio or
+        pdf (the sandbox would stop the browser's own PDF viewer). A
+        photo or other media whose file on disk would be typed as html
+        or xhtml is sent as text/plain.
       schema:
         type: string
 

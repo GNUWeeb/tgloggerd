@@ -220,10 +220,24 @@ func TestDocumentPreview(t *testing.T) {
 			t.Errorf("PreviewType(%q) = %q, want %q", c.ext, got, c.ctype)
 		}
 	}
-	for r, want := range map[string]bool{RenderImage: true, RenderText: true,
-		RenderVideo: false, RenderAudio: false, RenderPDF: false, RenderFile: false} {
-		if Sandboxed(r) != want {
-			t.Errorf("Sandboxed(%q) = %v", r, !want)
+	for ctype, want := range map[string]bool{
+		"image/jpeg": true, "image/svg+xml": true, "text/plain; charset=utf-8": true,
+		"application/octet-stream": true, "application/xml; charset=utf-8": true,
+		"video/mp4": false, "VIDEO/webm": false, "audio/ogg": false,
+		"application/pdf": false, " application/PDF ; x=y": false,
+	} {
+		if SandboxedType(ctype) != want {
+			t.Errorf("SandboxedType(%q) = %v", ctype, !want)
+		}
+	}
+	for in, want := range map[string]string{
+		"text/html; charset=utf-8":             "text/plain; charset=utf-8",
+		"application/xhtml+xml; charset=utf-8": "text/plain; charset=utf-8",
+		"image/svg+xml":                        "image/svg+xml",
+		"image/jpeg":                           "image/jpeg",
+	} {
+		if got := InlineType(in); got != want {
+			t.Errorf("InlineType(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

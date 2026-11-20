@@ -210,9 +210,6 @@ type fileHead struct {
 	// ctype is the Content-Type; "" takes it from the name of the
 	// file served (a blob's or TDLib's, which carry the extension).
 	ctype string
-	// preview marks a previewed document: nosniff, and the sandbox
-	// for an image or text.
-	preview, sandbox bool
 }
 
 // headOf is how a file answer presents a file of the type and
@@ -221,11 +218,10 @@ type fileHead struct {
 //
 // A document the browser can show (media.DocumentRender) is sent
 // inline, typed by its extension (text as text/plain, whatever it
-// is), with nosniff; an image (svg included) or a text also with
-// media.PreviewSandbox, so an svg or html file opened by its URL runs
-// nothing. Its extension, not the download name, picks the type, as it
+// is). Its extension, not the download name, picks the type, as it
 // picks the render the pages draw. Any other document is a download,
-// typed by its name, as the Drogon web sends it.
+// typed by its name, as the Drogon web sends it. set adds nosniff and
+// the sandbox.
 func headOf(fileType, ext, name string, download bool) fileHead {
 	render := media.RenderFile
 	if fileType == "document" {
@@ -235,31 +231,37 @@ func headOf(fileType, ext, name string, download bool) fileHead {
 	case download || (!media.ViewInline(fileType) && render == media.RenderFile):
 		return fileHead{disposition: "attachment", name: name, ctype: media.ContentType(name)}
 	case render != media.RenderFile:
-		return fileHead{disposition: "inline", name: name, ctype: media.PreviewType(ext),
-			preview: true, sandbox: media.Sandboxed(render)}
+		return fileHead{disposition: "inline", name: name, ctype: media.PreviewType(ext)}
 	}
 	return fileHead{}
 }
 
 // set puts the headers every file answer carries, for the file served
 // at path.
+//
+// The bytes are whatever someone sent through Telegram, served from
+// this site's origin, so no answer may become a page that runs
+// script: every answer has nosniff, so the browser keeps to the type
+// sent, and every one shown inline has the sandbox
+// (media.InlineType, media.PreviewSandbox), but for video, audio and
+// pdf, which run no script of the file's and whose players the
+// sandbox would stop. A file shown in the page whose name on disk
+// types it as a page (html, xhtml) goes out as text/plain.
 func (fh fileHead) set(h http.Header, path string) {
 	h.Set("Accept-Ranges", "bytes")
 	h.Set("Cache-Control", fileCacheControl)
-	if fh.ctype != "" {
-		h.Set("Content-Type", fh.ctype)
-	} else {
-		h.Set("Content-Type", media.ContentType(path))
+	ctype := fh.ctype
+	if ctype == "" {
+		ctype = media.InlineType(media.ContentType(path))
 	}
+	h.Set("Content-Type", ctype)
 	if fh.disposition != "" {
 		// Unquoted, as the Drogon web sends it; SafeFilename has
 		// removed the quote, backslash and control characters.
 		h.Set("Content-Disposition", fh.disposition+"; filename="+fh.name)
 	}
-	if fh.preview {
-		h.Set("X-Content-Type-Options", "nosniff")
-	}
-	if fh.sandbox {
+	h.Set("X-Content-Type-Options", "nosniff")
+	if fh.disposition != "attachment" && media.SandboxedType(ctype) {
 		h.Set("Content-Security-Policy", media.PreviewSandbox)
 	}
 }

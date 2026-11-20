@@ -80,16 +80,33 @@ func PreviewType(ext string) string {
 	return octetStream
 }
 
-// PreviewSandbox is the Content-Security-Policy of a document sent
-// inline as an image or as text: an svg, or an html file served as
-// text but opened by a browser that would sniff it, runs nothing and
-// loads nothing but its own images. It is not sent for pdf, where it
-// would stop the browser's own viewer, nor for video and audio, which
-// run no script.
+// PreviewSandbox is the Content-Security-Policy of a file answer shown
+// inline: an svg, or an html file a browser would sniff, runs nothing
+// and loads nothing but its own images.
 const PreviewSandbox = "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
 
-// Sandboxed is whether a previewed document of the render is sent with
-// PreviewSandbox.
-func Sandboxed(render string) bool {
-	return render == RenderImage || render == RenderText
+// SandboxedType is whether a file answer shown inline with the
+// Content-Type carries PreviewSandbox: all but video, audio and pdf,
+// which run no script of the file's, and where the sandbox would stop
+// the browser's own PDF viewer.
+func SandboxedType(ctype string) bool {
+	mt, _, _ := strings.Cut(ctype, ";")
+	mt = strings.ToLower(strings.TrimSpace(mt))
+	return !strings.HasPrefix(mt, "video/") && !strings.HasPrefix(mt, "audio/") &&
+		mt != "application/pdf"
+}
+
+// pageTypes are the Content-Types a browser renders as a page of its
+// own.
+var pageTypes = map[string]bool{"text/html": true, "application/xhtml+xml": true}
+
+// InlineType is the Content-Type a file shown in the page (a photo, a
+// sticker, ...) is sent with, from the type its name on disk gives:
+// text/plain instead of a page's type, which a browser would render.
+func InlineType(ctype string) string {
+	mt, _, _ := strings.Cut(ctype, ";")
+	if pageTypes[strings.ToLower(strings.TrimSpace(mt))] {
+		return textType
+	}
+	return ctype
 }

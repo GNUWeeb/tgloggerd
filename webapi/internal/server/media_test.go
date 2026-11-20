@@ -289,6 +289,10 @@ func TestMediaStored(t *testing.T) {
 	expectHeader(t, g, "Cache-Control", "public, max-age=604800")
 	expectHeader(t, g, "Accept-Ranges", "bytes")
 	expectHeader(t, g, "Content-Disposition", "")
+	// A photo too runs nothing: nosniff and the sandbox.
+	expectHeader(t, g, "X-Content-Type-Options", "nosniff")
+	expectHeader(t, g, "Content-Security-Policy",
+		"sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'")
 	if g.h.Get("Last-Modified") == "" {
 		t.Error("no Last-Modified")
 	}

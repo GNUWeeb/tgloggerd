@@ -4457,9 +4457,9 @@ export interface components {
         FileCacheControl: string;
         /** @description attachment; filename=<name> for a document that is not previewed (a render of file) and for any file asked for with download=1; inline; filename=<name> for a document previewed by its extension (a render of image, video, audio, pdf or text); absent for the other media (photos, videos, voice notes, ...), which are shown inline. web/docs/media.md, "Documents". */
         ContentDisposition: string;
-        /** @description nosniff, on a document sent inline (a previewed document), so the browser keeps to the Content-Type sent. */
+        /** @description nosniff, on every file answer, so the browser keeps to the Content-Type sent. */
         FileNoSniff: string;
-        /** @description sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline', on a document sent inline as an image (svg included) or as text, so an svg or html file opened by its URL runs nothing. Not on video, audio or pdf (the sandbox would stop the browser's own PDF viewer). */
+        /** @description sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline', on every answer shown inline (no Content-Disposition, or inline) whose Content-Type is not video/*, audio/* or application/pdf: images (svg included), text, photos and stickers, so an svg or html file opened by its URL runs nothing. Not on an attachment, nor on video, audio or pdf (the sandbox would stop the browser's own PDF viewer). A photo or other media whose file on disk would be typed as html or xhtml is sent as text/plain. */
         FileSandbox: string;
     };
     pathItems: never;
