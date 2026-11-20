@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2026 Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
@@ -14,7 +14,10 @@ namespace models {
 
 /*
  * Coarse content type of a message. Shared by private and group
- * messages, which store it in the identical content_type ENUM column.
+ * messages, which store it in the identical content_type ENUM column;
+ * the order follows the ENUM (migration 000034 appended the kinds after
+ * Unknown). docs/design/message-types.md section 3 says which TDLib
+ * classes map to which kind.
  */
 enum class MessageContentType {
 	Text,
@@ -25,7 +28,25 @@ enum class MessageContentType {
 	Voice,
 	Sticker,
 	Animation,
-	Unknown,
+	Service,	/* a system message (member joined, title changed, ...) */
+	Unknown,	/* a TDLib class newer than this code */
+	VideoNote,
+	Location,	/* static or live */
+	Venue,
+	Contact,
+	Dice,
+	Game,
+	Poll,
+	Checklist,
+	Story,		/* a shared story */
+	PaidMedia,
+	Invoice,
+	Giveaway,
+	Call,		/* a private call or a group call */
+	Rich,		/* messageRichMessage */
+	Widget,
+	Expired,	/* self-destructed media, first seen already expired */
+	Unsupported,	/* messageUnsupported: TDLib cannot read it either */
 };
 
 /*
@@ -65,17 +86,72 @@ struct ForwardInfo {
 
 /*
  * The mutable content of a message: everything an edit can change. It is
- * snapshotted verbatim into the *_message_edits tables before each edit,
- * so private and group messages share this layout exactly.
+ * snapshotted into the *_message_edits tables before each edit, so private
+ * and group messages share this layout exactly.
+ *
+ * Exception: service_type is not part of the edit snapshot (service
+ * messages are not edited); the edits tables have no such column.
  */
 struct MessageContent {
 	MessageContentType	content_type = MessageContentType::Unknown;
 
-	/* Message text; nullopt for non-text messages. */
+	/* Message text or media caption; nullopt when there is none. */
 	std::optional<std::string>	text;
 
-	/* files.id for media attachments; nullopt if none. */
+	/*
+	 * Rich-text formatting of `text`, serialized as a JSON array of TDLib
+	 * text entities (see extract_message_content). nullopt when the text
+	 * carries no formatting. Snapshotted alongside `text` on edits.
+	 */
+	std::optional<std::string>	entities;
+
+	/*
+	 * For a Service message, the precise action id (e.g.
+	 * "chat_add_members"); nullopt otherwise. Not snapshotted on edits.
+	 */
+	std::optional<std::string>	service_type;
+
+	/* telegram_files.id for media attachments; nullopt if none. */
 	std::optional<uint64_t>		file_id;
+
+	/* The exact TDLib content class, e.g. "messageVideoNote". */
+	std::optional<std::string>	tdlib_type;
+
+	/*
+	 * Per-class detail as a JSON object (docs/design/message-types.md
+	 * section 4.2): curated keys, and TDLib's own JSON under "tdlib" for
+	 * what has no curated mapping yet. Snapshotted on edits; only the
+	 * curated keys count when deciding whether an edit changed anything,
+	 * since the TDLib JSON also carries state that changes with nobody
+	 * editing (refreshed file references, for one).
+	 */
+	std::optional<std::string>	content_extra;
+
+	/*
+	 * The copy is self-destructed media (messageExpired*): Telegram has
+	 * removed what it showed, so it says nothing about the content. A
+	 * stored message keeps the content it had. Not snapshotted on edits.
+	 */
+	bool				is_expired = false;
+};
+
+/*
+ * A message's latest interaction totals (docs/design/message-types.md
+ * section 4.7): views, forwards, replies and reaction totals. A member
+ * left out was not reported and keeps what is stored.
+ */
+struct Interaction {
+	std::optional<int64_t>		view_count;
+	std::optional<int64_t>		forward_count;
+	std::optional<int64_t>		reply_count;
+	/* JSON array of {emoji|custom_emoji_id|paid, count}. */
+	std::optional<std::string>	reactions;
+
+	bool empty(void) const
+	{
+		return !view_count && !forward_count && !reply_count &&
+		       !reactions;
+	}
 };
 
 /* Textual encodings used by the *_messages tables' ENUM columns. */

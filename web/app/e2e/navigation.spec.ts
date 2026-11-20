@@ -1,0 +1,181 @@
+// Server rendering, hydration and navigation without reloads.
+import { test, expect } from './fixtures.ts';
+
+test('the server sends the rendered page, which the browser then takes over', async ({ page, request }) => {
+	const html = await (await request.get('/groups', { headers: { cookie: 'tgd_as=superadmin' } })).text();
+	expect(html).toContain('<h1');
+	expect(html).toContain('id="__tgd"');
+	expect(html).toContain('data-ssr="1"');
+	await page.goto('/groups');
+	await expect(page.getByRole('heading', { name: 'Groups', level: 1 })).toBeVisible();
+});
+
+test('links navigate without reloading, and back returns', async ({ page }) => {
+	await page.goto('/');
+	await page.evaluate(() => { (window as unknown as { __mark: number }).__mark = 1; });
+	await page.click('nav[aria-label="Main"] a:has-text("Users")');
+	await expect(page.getByRole('heading', { name: 'Users', level: 1 })).toBeVisible();
+	await expect(page).toHaveURL(/\/users$/);
+	expect(await page.evaluate(() => (window as unknown as { __mark?: number }).__mark)).toBe(1);
+	await page.goBack();
+	await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
+	expect(await page.evaluate(() => (window as unknown as { __mark?: number }).__mark)).toBe(1);
+});
+
+test('without the render service the browser renders the page itself', async ({ page }) => {
+	await page.goto('/users?ssr=0');
+	await expect(page.locator('#root')).toHaveAttribute('data-ssr', '0');
+	await expect(page.getByRole('heading', { name: 'Users', level: 1 })).toBeVisible();
+});
+
+test('a list search lives in the URL and survives a reload', async ({ page }) => {
+	await page.goto('/group_messages');
+	await page.fill('input[aria-label="Search"]', 'rust');
+	await page.press('input[aria-label="Search"]', 'Enter');
+	await expect(page).toHaveURL(/q=rust/);
+	await page.reload();
+	await expect(page.locator('input[aria-label="Search"]')).toHaveValue('rust');
+});
+
+test('Ctrl-K jumps to a chat by name', async ({ page }) => {
+	await page.goto('/');
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	await page.keyboard.press('Control+k');
+	const box = page.getByRole('dialog', { name: 'Search everything' });
+	await expect(box.getByRole('combobox')).toBeFocused();
+	await box.getByRole('combobox').fill('Linux Kernel');
+	await expect(box.getByRole('option', { name: /Linux Kernel Indonesia/ })).toBeVisible();
+	await page.keyboard.press('Enter');
+	await expect(page).toHaveURL(/\/groups\/-\d+$/);
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Linux Kernel Indonesia');
+	await expect(box).toHaveCount(0);
+});
+
+test('the theme chosen in the top bar is kept across a reload', async ({ page }) => {
+	await page.goto('/');
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	const saved = page.waitForResponse((r) => r.url().endsWith('/api/account/preferences') && r.request().method() === 'PATCH');
+	await page.getByRole('button', { name: 'Theme: system' }).click();
+	expect((await saved).status()).toBe(200);
+	await page.reload();
+	// Rendered by the server already: no flash back to the old theme.
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+	await expect(page.getByRole('button', { name: 'Theme: light' })).toBeVisible();
+});
+
+test('the dashboard\'s chart draws its bars and gives a period\'s start and count on hover', async ({ page, request }) => {
+	// Drawn by the server render already, from the page data's series.
+	const html = await (await request.get('/', { headers: { cookie: 'tgd_as=superadmin' } })).text();
+	expect(html).toContain('class="a-sc-bar');
+	expect(html).not.toContain('Loading the chart');
+	await page.goto('/');
+	await expect(page.locator('.a-livestate')).toBeVisible();
+	const chart = page.getByRole('img', { name: /^Messages per hour, .* to now: [\d,]+ messages$/ });
+	await expect(chart).toBeVisible();
+	expect(await chart.locator('.a-sc-bar').count()).toBeGreaterThan(10);
+	// Near the right edge, above the bars: the plot is the hover target.
+	const box = (await chart.boundingBox())!;
+	await page.mouse.move(box.x + box.width - 12, box.y + 20);
+	const tip = page.locator('.a-sc-tip');
+	await expect(tip).toBeVisible();
+	await expect(tip).toContainText('messages');
+	await expect(tip).toContainText(/17 Nov,? 23:00/);
+	await expect(chart.locator('.a-sc-cross')).toHaveCount(1);
+	// Inside the card, not cut off at its right edge.
+	const card = (await page.locator('.a-bigchart').boundingBox())!;
+	const t = (await tip.boundingBox())!;
+	expect(t.x + t.width).toBeLessThanOrEqual(card.x + card.width + 1);
+	await page.mouse.move(box.x - 40, box.y - 40);
+	await expect(tip).toBeHidden();
+});
+
+test('the dashboard fits the window: nothing hidden makes the page taller', async ({ page }) => {
+	await page.setViewportSize({ width: 1920, height: 1080 });
+	await page.goto('/');
+	await expect(page.getByRole('img', { name: /^Messages per/ })).toBeVisible();
+	// The shell fills the window and scrolls inside; the page itself
+	// never does.
+	expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(0);
+});
+
+test('pages end with the same margin as their sides, not a wide band', async ({ page }) => {
+	// A window shorter than the dashboard, so the page scrolls to its end.
+	await page.setViewportSize({ width: 1920, height: 700 });
+	await page.goto('/');
+	await expect(page.getByRole('img', { name: /^Messages per/ })).toBeVisible();
+	const gap = await page.evaluate(() => {
+		const last = [...document.querySelectorAll('.a-content > *')].pop()!.getBoundingClientRect();
+		return document.documentElement.scrollHeight - (last.bottom + scrollY);
+	});
+	expect(gap).toBeLessThanOrEqual(32);
+});
+
+test('descriptions are shown with their line breaks', async ({ page }) => {
+	const g = await (await page.request.get('/api/page/groups', { headers: { cookie: 'tgd_as=superadmin' } })).json();
+	await page.goto(`/groups/${g.props.rows[0].id}`);
+	const desc = page.locator('.a-kv .a-multiline').first();
+	await expect(desc).toBeVisible();
+	expect(await desc.evaluate((e) => getComputedStyle(e).whiteSpace)).toBe('pre-wrap');
+});
+
+test('a chat\'s top bar opens the group\'s page, and signed out an exposed group\'s public page', async ({ page, as, request }) => {
+	const rows = (await (await request.get('/api/page/groups', { headers: { cookie: 'tgd_as=superadmin' } })).json()).props.rows as { id: number; title: string; exposed?: boolean }[];
+	const g = rows.find((x) => x.exposed)!;
+	await page.goto(`/groups/${g.id}/chat`);
+	await page.locator('.c-head a.c-head-link').click();
+	await expect(page).toHaveURL(new RegExp(`/groups/${g.id}$`));
+	await expect(page.getByRole('link', { name: 'History' })).toBeVisible();
+	await as('public');
+	await page.goto(`/groups/${g.id}/chat`);
+	await page.locator('.c-head a.c-head-link').click();
+	await expect(page).toHaveURL(new RegExp(`/groups/${g.id}$`));
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText(g.title);
+	await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'History' })).toHaveCount(0);
+	await page.getByRole('link', { name: 'Open chat' }).click();
+	await expect(page).toHaveURL(new RegExp(`/groups/${g.id}/chat$`));
+	// Served fresh, not through the app: the server renders it signed out.
+	await page.goto(`/groups/${g.id}`);
+	await expect(page.getByText(/This group's chat is public/)).toBeVisible();
+});
+
+test('a slow page shows a loading pill at the top, and a fast one does not', async ({ page }) => {
+	await page.goto('/');
+	const pill = page.getByText('Loading...', { exact: true });
+	// Fast: the stand-in answers at once.
+	await page.locator('.a-sidebar a[href="/groups"], nav a[href="/groups"]').first().click();
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Groups');
+	await expect(pill).toHaveCount(0);
+	// Slow: hold the page data for a second.
+	await page.route('**/api/page/users*', async (r) => { await new Promise((x) => setTimeout(x, 1000)); await r.continue(); });
+	await page.locator('.a-sidebar a[href="/users"], nav a[href="/users"]').first().click();
+	await expect(pill).toBeVisible();
+	const box = (await pill.boundingBox())!;
+	const width = page.viewportSize()!.width;
+	expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(4);
+	expect(box.y).toBeLessThan(40);
+	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Users');
+	await expect(pill).toHaveCount(0);
+});
+
+test('preferences change what the next pages show: rows per page, service messages', async ({ page }) => {
+	const groups = (await (await page.request.get('/api/page/groups')).json()).props.rows as { id: number }[];
+	const chat = `/groups/${groups[0]!.id}/chat`;
+	await page.goto(chat);
+	await expect(page.locator('.c-bubble').first()).toBeVisible();
+	expect(await page.locator('.c-service').count()).toBeGreaterThan(0);
+	await page.goto('/users');
+	await expect(page.locator('.a-table tbody tr')).toHaveCount(25);
+	await page.goto('/settings/preferences');
+	const pref = (label: string) => page.locator('.a-pref').filter({ has: page.locator('b', { hasText: new RegExp(`^${label}$`) }) });
+	await pref('Rows per page').locator('select').selectOption('50');
+	await pref('Show service messages').locator('input.a-switch').click();
+	const saved = page.waitForResponse((r) => r.url().endsWith('/api/account/preferences') && r.request().method() === 'PUT');
+	await page.getByRole('button', { name: 'Save preferences' }).click();
+	expect((await saved).status()).toBe(200);
+	await page.goto('/users');
+	await expect(page.locator('.a-table tbody tr')).toHaveCount(50);
+	await page.goto(chat);
+	await expect(page.locator('.c-bubble').first()).toBeVisible();
+	await expect(page.locator('.c-service')).toHaveCount(0);
+});

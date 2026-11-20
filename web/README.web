@@ -1,0 +1,224 @@
+# tgloggerd web
+
+A server-rendered web interface for browsing the tgloggerd database:
+users, groups, messages, files, admins, and the change history the daemon
+records. It is a separate application from the logger daemon and is
+read-only over the logger's data.
+
+# Architecture
+
+The web app is a standalone binary built from this directory. It does NOT
+reuse the daemon's src/mysql/ layer: that layer is blocking JDBC and would
+stall an event loop. Instead the web app is built on Drogon and talks to
+MySQL through Drogon's asynchronous DbClient (coroutines), so a request
+handler never blocks a loop thread.
+
+Two databases, two users, two clients enforce a read/write split:
+
+  - "ro"  -> user web_ro with GRANT SELECT ON tgloggerd.*, used for all
+            browsing. It cannot modify the logger's data.
+  - "app" -> user web_app with read/write on a separate tgloggerd_web
+            schema that owns the web-only tables (web_users, web_audit).
+
+Keeping the accounts in their own schema makes the read-only boundary a
+database-level invariant, not just application convention.
+
+Output escaping is a data-layer invariant. The template engine (inja) does
+NOT auto-escape, so every attacker-controlled string (message text, names,
+titles, bios, file names, ...) is passed through Render::esc() when the
+data-access layer builds the template context. Templates only ever
+interpolate already-escaped values.
+
+# Layout
+
+    CMakeLists.txt        Standalone project; C++20; builds Drogon.
+    migrations/           golang-migrate SQL for the web-only schema.
+    src/
+      main.cpp            Config, sessions, DbClients, listener, --seed-admin.
+      Config.hpp          Environment parsing.
+      auth/               Password hashing, sessions, CSRF, filters, throttle.
+      dao/                Async data access (Browse over "ro"; Accounts,
+                          Audit over "app").
+      views/              Render + esc(); templates/ holds the inja views.
+      controllers/        Auth, Dashboard, Users, Groups, Messages, Media.
+    static/               style.css and other static assets.
+    third_party/          Vendored header-only inja and nlohmann/json.
+
+# Build and run
+
+The web app is built and run by Docker together with the daemon; see the
+top-level README ("Quick start"). It is the "web" service in
+docker-compose.yml and shares the toolchain image with the daemon. On
+`docker compose up` the container compiles this directory (via `run.sh
+web`, into web/build/), applies the web migrations, and starts the
+server. The port is not published to the host; reach it on the
+container's private tgnet address, http://10.0.88.4:8080, from behind a
+reverse proxy (see below).
+
+MariaDB Connector/C — which Drogon's async MySQL client is built on — is
+vendored as the submodule submodules/mariadb-connector-c and built in-tree
+(cmake/FindMySQL.cmake points Drogon at it). This avoids the system
+libmariadb-dev, which conflicts with the libmysqlclient-dev the daemon
+needs, so both build in one image. `run.sh` initializes this submodule
+(and Drogon) on first start.
+
+# Database and accounts
+
+The web schema (tgloggerd_web) and its two restricted users (web_ro,
+web_app) are created automatically on MySQL's first start, from the env/
+credentials, by docker/mysql/init/10-web-users.sh. There is no manual SQL
+step. The web migrations, which create the web-only tables, are applied by
+the container on every start (web_app owns tgloggerd_web, so it can run
+them; at run time it performs only DML).
+
+Change the WEB_DB_RO_PASSWORD / WEB_DB_APP_PASSWORD values (env/web-db-ro.env,
+env/web-db-app.env) before the first `docker compose up -d mysql`; they are
+baked in when the data directory is initialized and are not re-applied on
+later starts.
+
+web_ro also gets write access to the few logger tables the admin pages manage
+(telegram_discord_webhooks, discord_telegram_routes, telegram_bots, and
+INSERT/DELETE only on telegram_public_groups). Those grants cannot be given at
+initialization: the tables do not exist until the daemon's migrations create
+them, and MySQL refuses a table-level GRANT on a missing table. So the daemon
+container applies docker/mysql/web-grants.sql after its migrations on every
+start, as MySQL root with MYSQL_ROOT_PASSWORD from env/mysql-root.env over TCP
+(the image's default root@'%'). GRANT only adds privileges, so later starts
+change nothing; migrate records the step in the web_grants_version table of
+the web database. If it fails (a root password in env/mysql-root.env that no
+longer matches, root limited to localhost by MYSQL_ROOT_HOST), the daemon
+still starts and logs a warning, and those pages fail with "command denied"
+until the grants are applied. A new logger table the web writes to gets its
+GRANT in web-grants.sql, in the same change as the migration that creates it.
+
+# First administrator
+
+Create (or reset) the first superadmin — it prompts for the password
+twice:
+
+    docker compose exec web web/build/tgloggerd_web --seed-admin admin
+
+Re-running --seed-admin for an existing user resets its password,
+re-enables the account and makes it a superadmin. Further accounts are
+created by a superadmin (or, for members, an admin) through the Go
+service's accounts API (web/docs/accounts.md).
+
+# Environment variables
+
+All configuration is in env/ (env/README; the settings in
+env/settings.env.example, the passwords and WEB_APP_KEY in their own
+files). The web variables:
+
+    WEB_LISTEN_ADDR        Bind address (0.0.0.0 in the container).
+    WEB_LISTEN_PORT        Bind port (default 8080).
+    WEB_THREADS            Event-loop threads (default 4).
+    WEB_DB_HOST/PORT       MySQL server; fall back to TG_DB_HOST/PORT.
+    WEB_DB_RO_NAME         Logger database (default tgloggerd).
+    WEB_DB_RO_USER         Read-only user (default web_ro).
+    WEB_DB_RO_PASSWORD     Read-only user password.
+    WEB_DB_RO_CONNS        Read-only pool size (default 4).
+    WEB_DB_APP_NAME        Web database (default tgloggerd_web).
+    WEB_DB_APP_USER        Read-write user (default web_app).
+    WEB_DB_APP_PASSWORD    Read-write user password.
+    WEB_DB_APP_CONNS       Read-write pool size (default 2).
+    WEB_SESSION_TIMEOUT    Session idle timeout in seconds (default 43200;
+                           0 never expires).
+    WEB_SECURE_COOKIE      1 sets Secure on the session cookie (default 1);
+                           set 0 only for plain-HTTP local testing.
+    WEB_LOGIN_MAX_ATTEMPTS Failed logins per (ip, username) before throttling
+                           (default 5).
+    WEB_LOGIN_WINDOW       Throttle window in seconds (default 900).
+    WEB_TEMPLATE_DIR       inja templates (default web/views/templates).
+    WEB_STATIC_DIR         Static assets served at / (default web/static).
+    WEB_STORAGE_DIR        File store; MUST equal the daemon's TG_STORAGE_DIR.
+    WEB_TGLOGGERD_API      The daemon's internal API, http://host:port
+                           (http://10.0.88.5:8091 in compose; default empty =
+                           off). The web reports the files it serves there
+                           and fetches files the store does not hold through
+                           it; see docs/internal-api.md and
+                           web/docs/media.md. The bearer key is derived from
+                           WEB_APP_KEY, so the daemon must share it. A bad
+                           value turns it off, never stops the web.
+    TG_DATA_DIR            The daemon's data directory, from the shared
+                           env/settings.env: big files fetched from Telegram
+                           are served from <TG_DATA_DIR>/tdlib, and only
+                           from there.
+    TG_MAX_STORE_FILE_SIZE The daemon's per-file store cap, from the shared
+                           env/settings.env: a request without a session may
+                           only fetch files under it.
+    TG_FETCH_TIMEOUT_SECS  The daemon's fetch time limit, from the shared
+                           env/settings.env; the web waits 10 seconds longer.
+
+The container serves /files/<token> from the daemon's file store (the shared
+data/storage/files tree), so WEB_STORAGE_DIR must equal TG_STORAGE_DIR, and
+files not in it from TDLib's cache in the same /workspace mount, so the web
+must run from the same directory as the daemon (both cd to the repository
+root). See web/docs/media.md. The example serves plain HTTP with WEB_SECURE_COOKIE=0; in production put a
+TLS-terminating reverse proxy in front (see below) and set
+WEB_SECURE_COOKIE=1.
+
+# Deploying behind nginx (TLS)
+
+The app serves plain HTTP and is not published to the host, so the proxy
+reaches it on the container's private tgnet address (10.0.88.4:8080).
+The Go web service that is replacing it (webapi/README) serves /api/ on
+its own address (10.0.88.7:8081), and the proxy sends that prefix there.
+Terminate TLS in the proxy and keep WEB_SECURE_COOKIE=1 so the session
+cookie is only sent over HTTPS. A minimal nginx server block:
+
+    server {
+        listen 443 ssl http2;
+        server_name tgloggerd.example.org;
+
+        ssl_certificate     /etc/letsencrypt/live/example/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/example/privkey.pem;
+        add_header Strict-Transport-Security "max-age=63072000" always;
+
+        # The Go web service (webapi/README) serves the JSON API.
+        location /api/ {
+            proxy_pass         http://10.0.88.7:8081;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }
+
+        location / {
+            proxy_pass         http://10.0.88.4:8080;
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }
+    }
+
+    server {
+        listen 80;
+        server_name tgloggerd.example.org;
+        return 301 https://$host$request_uri;
+    }
+
+# Security notes
+
+  - Authentication is app-level: argon2id password hashes (libsodium
+    crypto_pwhash_str) and server-side sessions with a Secure, HttpOnly,
+    SameSite=Lax cookie.
+  - Every state-changing POST carries a per-session CSRF token, checked in
+    constant time.
+  - Login failures are throttled per (ip, username); login, logout and
+    media access are written to web_audit.
+  - All SQL uses bound parameters; pagination and cursor values are clamped
+    bound integers.
+  - Media is served from a path derived entirely from the database (the
+    verified SHA-256 hex plus a sanitized extension), never from request
+    input. A file fetched from Telegram is served from the path the
+    daemon answers with, only after checking it resolves to a regular
+    file inside <TG_DATA_DIR>/tdlib.
+
+# Known limitations
+
+  - No global message text search: the message text column is unindexed
+    MEDIUMTEXT, so only bounded, chat-scoped listing is offered.
+  - A big file that is not in the store streams one chunk per request
+    (TG_FETCH_CHUNK, 16 MiB), each waiting for Telegram; seeking far
+    ahead in a long video waits for that range to download first.

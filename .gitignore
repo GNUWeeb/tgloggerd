@@ -1,5 +1,8 @@
 /build/
-/run.sh
+/web/build/
+/.env
+/.env.before-split
+/env/*.env
 /task.md
 /Td/
 *.so
@@ -7,4 +10,5 @@
 *.swp
 *.tmp
 *.log
-/docker-compose.yml
+/.claude/
+/webapi/build/

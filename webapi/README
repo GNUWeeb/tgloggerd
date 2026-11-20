@@ -1,0 +1,1475 @@
+# tgloggerd webapi
+
+The Go web service of tgloggerd. The web backend moves from the Drogon
+application in web/ to this service, one feature at a time
+(docs/design/web-go.md). While both run, nginx sends /api/ here and
+everything else to Drogon. Both read the same databases with the same
+users and grants.
+
+So far it serves a health endpoint and the sign-in endpoints described
+under Authentication:
+
+    GET /api/health   200 {"status":"ok","checks":{"ro":"ok","app":"ok"}}
+                      503 when a pool does not answer; that pool's check
+                      reads "unavailable" and the reason is logged.
+
+The health endpoint needs no login and exists for probes and for
+checking the routing.
+
+It also serves the files, /files/<token>, described under Files, and
+the pages of the React application, described under Pages.
+
+And the live updates, GET /api/events, described under Live updates.
+
+And the chat windows and the entity summaries, GET
+/api/chats/{scope}/{id}/messages and GET /api/entities, described under
+Chats.
+
+And the advanced search, GET /api/search/{entity}, and the chat
+search of the pickers, GET /api/chats/search, described under Search.
+
+And the administration: forwarding, Join chat, "Look up real name"
+and the MCP administration, with their pages and those of the
+accounts and federations, described under Administration.
+
+And the MCP endpoint, /mcp, described under MCP.
+
+And account email: verified addresses, set-password and verification
+links, forgotten passwords and security notices, described under
+Account email.
+
+# The API contract
+
+openapi.yaml (OpenAPI 3.1) is the contract of the service's API: every
+route served is described there, with its status codes, headers and
+bodies, and the React application generates its client from it
+(web/app, npm run gen:api). The sections below explain the behaviour;
+should they and the description ever differ, that is a bug in one of
+them, fixed in both at once.
+
+Operations designed but not served yet are in the description too,
+marked `x-tgd-status: planned`: the transfer of forwarding
+configurations. A port serves the operation and drops the marker in
+the same change. A per-account
+bearer-token scheme for clients without cookies is reserved there
+(apiToken) and planned as well.
+
+internal/server/openapi_test.go compares the description with the
+route table (Server.routes in internal/server/server.go). It fails when
+a served route is not described, when a described operation is not
+served and not marked planned, or when a served one is still marked
+planned. Every route goes into that table; a route registered anywhere
+else escapes the check. The test reads the YAML with a small reader of
+its own (the standard library has none), which accepts only the layout
+the file's header comment describes.
+
+# Authentication
+
+Sessions, CSRF tokens, file tokens, password hashes and the daemon's
+bearer key are made exactly as the Drogon web makes them
+(web/src/auth, web/src/daemon/Api.cpp), from the same WEB_APP_KEY, so a
+session started on either service is valid on the other, a password
+change on either ends every session on both, and a /files/<token> link
+minted by one opens in the other. Tests check this against values the
+Drogon code produced (internal/auth/testdata).
+
+The session is the signed cookie tgw_session. Each request with one is
+checked against web_users.session_epoch, as Drogon's AuthFilter does,
+and against is_active, which Drogon does not check (disabling an
+account bumps the epoch as well, so it ends there too). The role and
+the forced password change are read from that row, not from the
+cookie, so a change applies to the next request.
+
+Each session also has a row in web_sessions, keyed by the SHA-256 of
+its cookie value (decisions/2026-11-18-sessions-list.md), read in the
+same query as the account. A sign-in here records it with the device
+(User-Agent) and address; a session signed in by the Drogon web, or
+before the records existed, is recorded the first time it reaches
+this service. A request records the last use and address once a
+minute at most. A session whose row is ended (signed out) is refused
+by both services, so POST /api/logout ends a copied cookie too. As
+sessions are told apart by their cookie, a sign-in here picks an
+expiry no other session of the account has (one second earlier per
+clash), and with sessions that never expire the expiry is the end of
+the year 9999 instead of 0.
+State-changing requests carry a CSRF token in the X-CSRF-Token header:
+for a signed-in request the token GET /api/session or POST /api/login
+answers, which is the same token the Drogon pages put in their forms;
+for POST /api/login a pre-login token from GET /api/login, which also
+sets it as the cookie tgw_csrf (path /api/login) to be sent back.
+
+Errors are {"error": "<code>"}, with "message" (the Drogon login page's
+text) and a fresh pre-login "csrf" token on refused logins.
+
+    GET /api/login    200 {"signed_in":false,"csrf":"<login token>"}
+                      and the tgw_csrf cookie; {"signed_in":true}, with
+                      no token, when the request carries a signed
+                      session cookie.
+
+    POST /api/login   X-CSRF-Token: <login token>
+                      {"username":"...","password":"..."}
+                      200 {"user":{"id":1,"username":"admin",
+                      "role":"admin"},"csrf":"<session token>",
+                      "landing":"/"} and the tgw_session cookie;
+                      landing is the account's landing page, where a
+                      sign-in without a next page goes.
+                      403 csrf: the token or its cookie is missing or
+                      wrong. 400 bad_request: the body is not JSON.
+                      429 rate_limited: WEB_LOGIN_MAX_ATTEMPTS failures
+                      for this address and username, or
+                      WEB_LOGIN_MAX_ATTEMPTS_PER_ACCOUNT for the account
+                      from all addresses, within WEB_LOGIN_WINDOW.
+                      401 invalid_credentials: no such
+                      account, a disabled one, or a wrong password.
+                      Checked in that order; web_audit gets login_ok,
+                      login_fail or login_ratelimited, as from Drogon.
+
+    POST /api/logout  X-CSRF-Token: <session token>
+                      204 and the session cookie cleared; the session's
+                      record ended; a logout row in web_audit. 403
+                      csrf. Other sessions of the account stay signed
+                      in.
+
+    GET /api/session  200 {"user":{...},"csrf":"<session token>",
+                      "landing":"..."}.
+                      401 unauthenticated: no valid session (a revoked
+                      cookie is cleared). 503 unavailable: the session
+                      could not be checked against the database; the
+                      cookie is kept.
+
+    POST /api/account/password
+                      X-CSRF-Token: <session token>
+                      {"current_password":"...","new_password":"..."}
+                      200 {"csrf":"<new session token>"} and a new
+                      session cookie; every other session of the
+                      account ends. 400 wrong_password, weak_password
+                      (under 8 bytes, or unchanged), bad_request. 429
+                      rate_limited after repeated wrong current
+                      passwords.
+
+The user object also carries must_change_password: the account signed
+in with a password set for it (typed by its creator, or a temporary
+one). Until it has chosen its own, every operation behind a session
+answers 403 password_change_required, except GET /api/session, POST
+/api/logout and POST /api/account/password (the gate of the request
+scope; see The request scope). There is no gate on a missing email
+address (see Account email).
+
+The accounts administration (GET and POST /api/accounts, GET and PATCH
+/api/accounts/{id}, and its disable, enable, password-reset,
+resend-invite and sign-out-everywhere actions) is described in
+openapi.yaml and web/docs/accounts.md: who manages whom comes from the
+request scope, a new account gets the first password its creator typed
+or a temporary one shown once (or, asked for, an invitation by email),
+a reset sends a link to a verified address when mail is set up and
+gives a temporary password otherwise, and the last active superadmin
+cannot be disabled or demoted. The federations editor (POST
+/api/federations, PATCH and DELETE /api/federations/{id}) is the
+superadmins', except that an admin renames and describes the
+federations it administers (Scope.DescribesFederation), and is
+described there too, as is a federation's details page
+(/settings/federations/{id}, route federation, and GET
+/api/federations/{id} with its groups page by page at GET
+/api/federations/{id}/groups; internal/server/federationdetail.go):
+a superadmin's every federation, an admin's those it administers,
+with the groups the request scope shows.
+
+The login throttle is in the process's memory, as in Drogon, so each
+service counts failures on its own. The address logged and throttled
+on is the connection's peer, as in Drogon.
+
+# Files
+
+    GET /files/<token>   a file's bytes, from the store or fetched from
+                         Telegram through the daemon
+
+The same URL, status codes and headers as the Drogon web's
+MediaController, which it replaces; web/docs/media.md describes the
+behaviour for both. The route is public, as there: the token is the
+encrypted file id (internal/auth/filetoken.go), and a token that does
+not open answers 404 like an unknown id. In short:
+
+  - A stored file (after alias_of, one hop) is sent from WEB_STORAGE_DIR
+    by http.ServeContent: Range (206, 416, and several ranges as
+    multipart/byteranges), If-Modified-Since, If-Range, Last-Modified.
+  - Anything else is fetched through the daemon (POST
+    /v1/files/{id}/fetch): a "stored" answer is then served like a
+    stored file, a "partial" one from TDLib's cache under
+    <TG_DATA_DIR>/tdlib/ with the file's full size in Content-Range.
+  - Without a session only files under TG_MAX_STORE_FILE_SIZE are
+    fetched (403 "Sign in to load this file" otherwise); without
+    WEB_TGLOGGERD_API nothing is (404 "File not stored").
+  - Files are sent with Cache-Control: public, max-age=604800, and their
+    ids are reported to the daemon's POST /v1/files/access once a
+    minute (internal/daemon/access.go); a signed-in request writes a
+    "media" row to web_audit.
+  - Errors are small HTML pages, since a browser following a link or
+    loading an image gets them, not the JSON API.
+
+Who may see which file is decided by the request scope,
+Server.requestScope (internal/server/media.go), passed to the one
+query that looks the token's file up (logdb.GetFile). That query does
+not filter yet: the token is the authorization, signed in or not
+(see The request scope).
+
+A session counts only when it is valid, epoch included, as for the
+API; one that cannot be checked (a database error) counts as none, and
+the request is served as an anonymous one. The Drogon web checks only
+the cookie's signature and expiry here, so a session ended by a
+password change can still stream big files there, not here.
+
+## Routing /files/ through nginx
+
+While Drogon serves /files/, nothing changes. To move it, add a
+location for the prefix next to the /api/ one (web/README.web), with
+the same upstream:
+
+    location /files/ {
+        proxy_pass         http://10.0.88.7:8081;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection        "";
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # A fetch waits up to TG_FETCH_TIMEOUT_SECS plus 10 seconds for
+        # the daemon; the default 60 s covers the default 30.
+        proxy_read_timeout 120s;
+        # Stream big files through instead of spooling them to disk.
+        proxy_buffering    off;
+    }
+
+The files list page is /files, without the slash: nginx answers a
+request for a proxied prefix location's path without its trailing
+slash with a redirect to it, so /files would be sent to /files/ and
+answer 404. Route /files itself to the service too, with the page
+location's settings:
+
+    location = /files {
+        proxy_pass         http://10.0.88.7:8081;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection        "";
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+nginx passes Range and the conditional headers on by default. The
+service logs, audits and throttles logins by the request's client:
+the first X-Forwarded-For hop, read from the right, that is not in
+WEBAPI_TRUSTED_PROXIES (nginx, and the CDN in front of it). Left
+empty, that is the connection's peer, nginx, as in the Drogon web. The
+Drogon route stays in place, so moving back is
+removing the location. Both services read the same store, the same
+TDLib directory and the same env/settings.env (WEB_STORAGE_DIR, TG_DATA_DIR,
+TG_MAX_STORE_FILE_SIZE, TG_FETCH_TIMEOUT_SECS), and the webapi
+container mounts the repository at /workspace and runs from there, as
+the daemon does, so the paths the daemon answers with open in it.
+
+# Live updates
+
+    GET /api/events?topics=<list>&last=<seq>
+                      text/event-stream, for as long as it stays open
+
+Pages update as things happen (docs/design/web-live.md,
+docs/design/web-live-client.md). The daemon publishes what changes on
+its GET /v1/events (docs/internal-api.md); the service holds ONE
+subscription to it and fans it out to every browser, so the daemon's
+own subscriber limit is never reached. internal/live has the hub and
+the source; the daemon's stream is the only source today, and a broker
+(several web instances, several publishers) would be another
+live.Source, leaving the fan-out as it is.
+
+  - A session is required (401 without one). Topics: chat:<chat_id>
+    (message.new, message.edited, message.deleted, file.stored of one
+    chat), messages (the same for every visible chat), user:<id>
+    (user.updated), group:<chat_id> (group.updated), stats
+    (stats.changed), bots (bot.updated, to admins and superadmins).
+    Repeats count once; more than 2000 topics, an
+    unknown topic or a malformed last is 400 bad_request.
+  - Framing: "retry: 3000" first, then one frame per event: "id:" the
+    seq, "event:" the kind, "data:" the event's JSON (with seq). The
+    first event is hello (the events after its seq follow) or resync
+    (refetch what is shown). ": keepalive" every 15 seconds.
+  - Resuming: Last-Event-ID (the browser's own reconnect), else last=.
+    The hub keeps WEBAPI_LIVE_HISTORY recent events; a seq inside them
+    is resumed with the missed events replayed, anything else (too old,
+    from before a daemon restart, not a seq) starts with a resync. The
+    hub itself resumes from its last seq whenever its connection to the
+    daemon drops; a daemon that cannot resume (restarted) answers
+    resync, which every open stream passes on.
+  - Each event passes the stream's topics, then the request scope:
+    eventInScope (internal/server/events.go) is the one place the
+    scope from Server.requestScope decides it, for every event and
+    every stream, so activity in a hidden chat never reaches a viewer.
+    A stats.changed keeps only the visible chat and user ids and is
+    dropped when none is left. Kinds the service does not know are
+    dropped, since nobody can say who may see them. A member gets
+    the events of its granted groups, and of the people of its user
+    topics that appear in them (checked when the stream opens, as the
+    hub's filter cannot query).
+  - Every WEBAPI_LIVE_RECHECK seconds an open stream checks its session
+    again. Revoked, expired or the account gone: a "session" event with
+    reason "revoked", then the stream closes. A different request
+    scope: reason "scope_changed". The session event has no id, so the
+    browser's Last-Event-ID stays the last real seq.
+  - A stream gets a buffer of WEBAPI_LIVE_BUFFER events. A browser that
+    reads slower than events arrive loses what is queued and gets a
+    resync instead, so one slow reader costs bounded memory and slows
+    nobody else.
+  - Refusals, never an empty stream: 503 live_off when live updates
+    are off (WEBAPI_LIVE=0 or no WEB_TGLOGGERD_API) or the daemon's
+    stream is not connected; 503 unavailable with
+    WEBAPI_LIVE_MAX_SUBSCRIBERS streams open. Both carry Retry-After.
+    When the daemon's stream drops, open streams stay for 5 seconds in
+    case it comes straight back, then close; their clients reconnect,
+    are refused and poll until it is back.
+  - On SIGTERM the hub stops first and every stream closes, so open
+    streams do not hold the shutdown up.
+
+## Routing /api/events through nginx
+
+nginx buffers proxied answers by default, which would hold every event
+back until a buffer fills. The service sends X-Accel-Buffering: no on
+the stream, but give the path its own location next to /api/ as well,
+so the settings do not depend on that header:
+
+    location = /api/events {
+        proxy_pass         http://10.0.88.7:8081;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection        "";
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # Pass each frame on as it comes.
+        proxy_buffering    off;
+        proxy_cache        off;
+        # The stream stays open; a keepalive comes every 15 seconds,
+        # so this only ends streams that are really dead.
+        proxy_read_timeout 1h;
+    }
+
+A list page subscribes to every user and group on screen, and its
+request line can run to 16 KB and more. nginx's default
+large_client_header_buffers (4 8k) refuses that with 414, so raise it
+in the server (or http) block, where the directive belongs:
+
+    large_client_header_buffers 4 32k;
+
+The Go server's own header limit is the standard library's default,
+1 MB, which leaves room. Serve the site over HTTP/2 (listen 443 ssl;
+http2 on;): browsers allow six HTTP/1.1 connections per host and each
+tab holds one for its stream, so with a few tabs open page requests
+would queue.
+
+# Pages
+
+The React application's pages (web/app) have real URLs; the service
+answers each with a complete HTML document, rendered by the render
+service, and the same page data as JSON for navigation in the browser.
+docs/design/web-ssr.md specifies both and the render protocol.
+
+    GET /<page path>          the page's document (HTML)
+    GET /api/page/<path>      the same page data as JSON (getPage)
+    GET /app/assets/<file>    the client bundle's files
+
+The page table (defaultPages in internal/server/pages.go) maps each
+page path to its route id, shared with the React route registry, and
+to a loader, which reads the page's props through the request scope
+(Server.requestScope). A page whose data the service does not load
+yet has no loader: its document is not served here, and /api/page
+answers {"reload": true} for it, so the browser loads it in full from
+the Drogon web. So far login, dashboard, user, user_history,
+user_chat, group, group_admins, group_history, group_chat and message
+have loaders (internal/server/pagedata.go, reading through
+internal/logdb), and so do the list pages; not_found is the answer for
+paths that are no page and for things the scope hides, 404 either way.
+
+  - The list pages, users, groups, files, group_messages and
+    private_messages (internal/server/lists.go), read their list state
+    from the query string as the React list writes it (q, f with the
+    filters as JSON, sort, dir, page, per) and run it through the
+    advanced search (see Search), so the request scope limits their
+    rows and totals the same way. The users, groups and message lists
+    take, besides their own filter keys, every field of the entity's
+    search registry with the search's operators (fields in the list
+    state lists them for the viewer), the connector n (AND, OR) per
+    filter, and the registry's sorts, as the Drogon lists did. A
+    filter or search text they refuse, or a search that runs out of
+    time, shows the whole list with the reason in error (bad_search,
+    search_timeout), keeping sort and page size; total_exact is false
+    for an estimate. The files list drops a filter it does not take.
+    per defaults to the viewer's rows_per_page, up to 1000.
+    archive_total is only for a viewer who sees that whole list. The
+    message lists order a search text by relevance unless a sort is
+    asked for (sort "relevance").
+  - A Drogon list URL (search, offset, limit, sort, order) is read as
+    the same list in this form (f, page, per, sort, dir), and the
+    page data's url is the translated URL.
+  - The user and group pages carry the newest 100 entries of their
+    change timeline (internal/logdb/history.go: every history table
+    of the person or group merged, every username event included) and
+    history_next, the cursor of the rest. GET /api/users/{id}/history
+    and GET /api/groups/{id}/history?before=<cursor>&limit=<1-500>
+    answer the following pages, and the history pages take ?before=
+    themselves. The cursor is the last entry's time, kind and row id,
+    the timeline's sort key, so a page costs the same however deep it
+    is. A member sees no user's history (404).
+  - GET /api/users/{id}/photos is the user's photo list for the user
+    page's photo carousel (logdb.UserPhotos): the current profile
+    photo first, then the photos the history records
+    (telegram_user_hist_profile_photo, removals left out) newest
+    first, each file once, at most 500, each with its URL and file
+    id, and current_id, the first item's when the user has a photo.
+    The history records only the changes the logger saw, so the
+    current photo may be missing from it: it is then item 0, dated
+    when its file was recorded. An item's id is the newest history
+    row with its file: a user's photo change in the timeline carries
+    it as photo_id, so the page opens the carousel at that photo. A
+    photo whose bytes the store no longer holds keeps its URL
+    (fileURL), and /files/ fetches it through the daemon. The same
+    access as the user's history. GET /api/groups/{id}/photos answers
+    the same for a group's photos (telegram_group_hist_photo, the
+    current one from the group's photo file), whose photo changes
+    carry photo_id too, for a group the request scope sees, as its
+    history (a hidden group is 404).
+  - Opening a user page in full or a group page has the daemon list
+    that user's or group's photos from Telegram (GET
+    /v1/users/{id}/photos, GET /v1/chats/{id}/photos;
+    internal/server/photorefresh.go), which adds the photos and
+    history rows the archive lacks, so the next photo list is whole.
+    The ask runs in the background, never holding the page up: one in
+    flight per user or group, none again within ten minutes of the
+    last (or a flood wait's retry_after), whatever came of it;
+    failures are only logged, and the times live in memory. Without
+    WEB_TGLOGGERD_API nothing is asked.
+  - The user page's profile is every field the logger records, as
+    the Drogon page shows it: birthday, personal channel, paid message
+    stars, emoji status, accent colours and background emojis (64-bit
+    custom emoji ids as strings), restriction and the sensitive and
+    restricts-new-chats flags, contact, mutual contact and the own
+    name's state, every username with its kind and collectible flag
+    (groups too), and the photo's file id. can_lookup_name and
+    lookup_pending drive "Look up real name". A member gets the
+    narrow variant only (name and photo, web-accounts.md section 5).
+  - The dashboard's status (the logger status card) is only for a
+    viewer who sees every group and private chat (superadmins and
+    unrestricted admins). It asks the daemon for GET /v1/status and
+    GET /v1/storage side by side with the dashboard's queries, with a
+    one-second timeout each; a daemon that is off or does not answer
+    shows the session as disconnected and the store's size as the sum
+    over telegram_files (through the count cache). The store's total
+    is the daemon's cap, or, with no cap, the size of the file system
+    holding WEB_STORAGE_DIR (internal/server/status.go).
+
+  - /api/page/<path> takes the page path without its leading slash,
+    its slashes plain or encoded as %2F, and the page's query string
+    as its own. An empty path is the dashboard.
+  - A signed-out visitor gets only the public pages: login, the three
+    email link pages and the public chats of exposed groups. Any
+    other path, a page or not, answers
+    401 on /api/page and redirects a document request to
+    /login?next=<path and query>; so does the chat of a group that is
+    not exposed, whether it exists or not.
+  - The password gate comes before the loader, for every page but the
+    three link pages: a forced password change answers the
+    password_change route at the URL asked for.
+  - The page data's viewer carries the display settings in effect,
+    the account's own or the site's (web/docs/settings.md); the
+    document's <html> takes its lang and theme.
+  - The document is one template (internal/render/document.go) for
+    rendered and fallback pages; the page data is JSON with
+    encoding/json's HTML escaping, and a signed-in document carries
+    the CSRF token of the session cookie it was asked with.
+  - The render service is reached over RENDER_SOCKET. A render waits
+    at most RENDER_TIMEOUT; a refused connection or a timeout skips
+    the service for RENDER_BACKOFF. Any failure serves the same
+    document with empty markup (data-ssr="0"), which the browser
+    renders from the embedded data.
+  - The client bundle is WEBAPI_APP_DIST, read at start: the entry,
+    styles and preloads come from its .vite/manifest.json, and its
+    assets/ directory is served under /app/assets/ as immutable.
+    The build id is the one the build recorded in the bundle's
+    build.json (web/app README), which the render service was built
+    with too; WEBAPI_APP_BUILD, when set, overrides it. The render
+    service refuses another id (409), and the page falls back.
+  - Signed-in answers are private, no-store; a public page asked for
+    without a session cookie may be cached for a minute.
+
+nginx sends a page path here once its loader is in place, as it does
+/api/ and /files/.
+
+In the compose deployment the render service is the "render" service,
+and the render-build service builds both it and the client bundle;
+web/app/README "Deployment" has the steps, including when this
+service must be restarted.
+
+internal/render/rendertest is a stand-in render service on a Unix
+socket, used by the tests.
+
+# Chats
+
+GET /api/chats/{group|private}/{id}/messages answers a window of a
+chat, oldest first, with has_older and has_newer: the newest messages,
+or those before, after or around a message id (limit 60, at most 100).
+It is the Drogon /v1/chats API (web/src/dao/Browse.cpp, chatHistory)
+with the chat pages' message shape: the same cursors, replies resolved
+within the chat, albums folded into one message (a window cut through
+an album reads the rest of it, so it folds the same way in every
+window), edits and link previews read in one query per window, media
+with stored and fetchable as web/docs/media.md describes. The chat
+page's loader reads its first window through the same code. after=0
+is the oldest messages, and after_ts=<unix time> starts at the first
+message sent then or later, as Drogon's after_ts did.
+
+Each message carries what the Drogon chat view shows
+(internal/server/chatmedia.go): how its media renders (image, video,
+animation, lottie, audio, file), its size, duration, a sticker's
+format and emoji, a voice note's waveform, an audio file's title and
+performer, TDLib's blurred minithumbnail and a video's cover photo;
+for album items their own message id, kind and deletion; each edit's
+content type and media; the forward origin with its ids, the author's
+signature, a chat posting as the sender, the service type, whether a
+reply's target is logged or deleted. The detail comes from
+content_extra (daemon migration 000034) and the cover from
+telegram_message_files (000036); older rows fall back to what Drogon
+reads, the content type and the file's extension. Both migrations must
+have run before this service reads the logger's database, and so must
+000037 (polls) and 000039 (forum topics).
+
+The kinds 000034 added to content_type (video_note, location, poll,
+call, ...) are answered as they are stored, each with its detail
+(internal/server/kinds.go): a location's position, a poll's results,
+a checklist's tasks, a call's outcome and participants, and so on;
+service messages carry their action and the users and chats it names,
+and their text is rebuilt for the viewer (internal/server/service.go).
+Every user and chat named goes through the request scope in one batch
+per page (logdb.Refs): one the viewer may not see is left out, never
+named; a contact's phone goes only to viewers that see users in full;
+long lists stop at 20 with a total. Each message also carries its forum
+topic, pinned state and latest views, forwards, replies and reactions,
+and a forum's chat page lists its topics, with ?topic= on the page and
+the chat window. Texts carry their Telegram formatting (entities, on
+messages, edits, polls and checklist tasks; internal/server/
+textentities.go), with the users mentioned resolved through the scope
+in one batch per page. web/docs/message-kinds.md describes it.
+
+The chat page's query also takes Drogon's links: ?after=, ?after_ts=
+and ?limit=, and ?date= as a day or a day and time in the viewer's
+timezone. Its header counts the members the archive has seen
+(senders and admins), and gives Telegram's own count (member_count,
+member_count_at) as the daemon last stored it in telegram_groups;
+every group summary, the group pages and the groups list carry it too
+(null before the daemon has one). A chat page or group page (its tabs and
+an exposed group's public page too) whose count is missing or older
+than 10 minutes asks the daemon to refresh it (POST
+/v1/chats/{id}/refresh) in the background: never in the page's path,
+at most one call in flight per group, and a group asked about is left
+alone for a minute after. The daemon stores the new count, which the
+next page load shows; a failed refresh keeps the stored count.
+
+A superadmin can hide a channel's member list (PATCH /api/groups/{id}
+{"hide_member_list": true}; web migration 000013,
+web_hidden_member_lists): the list is then for superadmins only, and
+everyone else who sees the channel gets its count and reason hidden.
+Channels only, since a group's members see each other in Telegram;
+audited as member_list_hide and member_list_show. GroupProps carries
+hide_member_list and can_hide_member_list (a superadmin, on a
+channel).
+
+GET /api/groups/{id}/members?offset=&limit=&q= lists a page of the
+group's members through the daemon (GET /v1/chats/{id}/members), or
+with q those matching a search by name, username or user id (each
+member's matched_by says how), for viewers who see the group and users
+in full; everyone else gets 404 and the count only. Members are named
+from telegram_users in one query per page; each page is kept for 2
+minutes per group, q, offset and limit.
+The page /groups/{id}/members (group_members) carries the group's page
+and the same answer. web/docs/group-members.md describes it all. /messages/{group|private}?chat_id=
+redirects to the message list filtered by that chat.
+
+Signed-out visitors may read the chats of exposed groups
+(telegram_public_groups), as the public chat page does, and get 401
+for every other chat; a signed-in viewer sees a group its scope sees,
+or an exposed one, and private chats when the scope sees them, and
+gets 404 for the rest. A reply quotes another chat's message only to
+a viewer that sees that chat.
+
+GET /api/entities?users=<ids>&groups=<ids> (at most 200 each) answers
+the summaries of those the scope sees and leaves the others out. A
+viewer that does not see all users (a member) sees a user only where
+the user appears in one of its visible groups, as a sender or an
+admin, and then by name and photo only: no counts, contact name, bio,
+history or other groups (logdb.VisibleUsers). Users and groups the
+pages show come with the same rule.
+
+## Recheck
+
+The logger learns of messages from TDLib's updates and a one-time
+history walk, so what happened while it was away can be missing: after
+a restart Telegram may answer a busy chat's catch-up with "too much
+changed" instead of the missed messages, and edits and deletions made
+meanwhile are lost the same way. So serving a chat window (GET
+/api/chats/.../messages), a chat page or a message page asks the
+daemon to read that stretch of the chat from Telegram again (POST
+/v1/chats/{id}/recheck {"around": <message id>}, internal/server/
+recheck.go). The daemon answers at once, stores what it lacked or
+missed changing, marks what Telegram no longer has as deleted, and
+sends the usual message events, which the live updates relay to the
+open pages. The answer never waits for the ask, and its outcome (a
+refusal, a daemon away) is only logged at debug.
+
+A stretch is a chat and a message id: 0 for the newest messages, which
+a window without an anchor shows (its forum topic aside); otherwise the
+anchor's message id (before, after or around, the chat page's ?at= or
+the message its date found, the message page's own message, and for
+the oldest messages, after=0, the window's first), so the same page
+always names the same stretch, as the daemon's own limits key it. Each
+stretch is asked at most once per WEBAPI_RECHECK_NEWEST_SECS (newest)
+or WEBAPI_RECHECK_OLDER_SECS (any other), whoever asks. Signed-out
+visitors, who may be anyone in any number (an exposed group's public
+archive and its crawlers), all draw from one token bucket of
+WEBAPI_RECHECK_PUBLIC_BURST tokens refilled at
+WEBAPI_RECHECK_PUBLIC_PER_MIN; an older stretch takes a token only
+while more than WEBAPI_RECHECK_PUBLIC_RESERVE are left, so under a
+burst the newest messages stay fresh first. At most
+WEBAPI_RECHECK_MAX_IN_FLIGHT asks wait for the daemon at once; one more
+is dropped without counting against its stretch. The times live in
+memory (at most 20000 stretches): a restart may ask once more. A
+deletion found this way carries deleted_on_recheck: true wherever the
+deletion is sent (openapi.yaml), read from the daemon's
+meta.deleted_on_recheck.
+
+# Search
+
+    GET /api/search/{entity}   the advanced search of the Drogon web's
+                               GET /v1/search/{entity}
+    GET /api/search/capabilities  the optional search engine's options
+                               (see Search engine)
+
+The port of the Drogon web's advanced search, with the same
+parameters, field registries and answers (web/docs/search-api.md, which
+lists what differs). internal/logdb/search.go is the engine and
+internal/logdb/search_entities.go the five entities (users, groups,
+files, private_messages, group_messages), each with its displayed
+columns and its condition of the request scope. It is under /api/
+rather than at the Drogon path: nginx already sends /api/ here, and the
+Drogon pages keep calling their own /v1/search, which answers a
+signed-out request with a redirect and knows no request scope, until
+they move.
+
+  - The scope is in the SQL: the entity's condition (GroupFilter over
+    the group column, or EXISTS over the messages of visible groups
+    for users and files) is ANDed with the request's conditions, so
+    rows, totals and EXPLAIN count only visible rows. Private messages
+    are 404 without SeesPrivate. A member sees users by id, name,
+    username, type and photo only; the other fields and columns are
+    not listed and not accepted.
+  - The total is exact when counting fits the 3-second statement
+    limit; otherwise, and for group_messages without conditions, it is
+    an estimate (total_exact false). The table's row estimate is used
+    only when the scope adds no condition, so it never counts rows
+    the viewer may not see. A count that runs out of time is answered
+    by the estimate at once from then on, while the count cache counts
+    it once in the background with a 60-second limit; its answer is
+    then the exact total for ten minutes (logdb/countcache.go).
+  - debug=1 is for superadmins and admins.
+
+    GET /api/chats/search      the groups and private chats a picker
+                               offers (internal/logdb/chatsearch.go)
+
+The groups the scope shows (GroupFilter) and, for a viewer who sees
+private chats, the people the logging account has private messages
+with, matched on title, name or username, busiest first, paged by an
+opaque cursor. federation=<id> keeps the groups of that federation
+(web/docs/accounts.md, Federations), read from the web's own schema
+and passed to the logger's query as a list: 0 is Default, every group
+in no other federation; an id that is no federation holds none.
+
+# Search engine
+
+An optional second backend for the advanced search's full-text fields:
+OpenSearch, the "opensearch" service of docker-compose.yml. MySQL stays
+the source of truth and the default; without the engine nothing
+changes (docs/design/decisions/2026-11-18-search-engine.md).
+
+## Running the engine
+
+The service has the compose profile "search", so `docker compose up -d`
+leaves it out. To run it, once:
+
+    mkdir -p data/opensearch
+    docker compose --profile search run --rm --no-deps --user 0 \
+        --entrypoint chown opensearch 1000:1000 /usr/share/opensearch/data
+
+(the image runs as uid 1000 whatever TG_UID is, and its files are
+readable by that user only, so the index directory is given to it),
+then add COMPOSE_PROFILES=search to .env, or pass --profile search to
+every compose command that should include it, and start it:
+
+    docker compose --profile search up -d opensearch
+
+  - Network: tgnet only (10.0.88.8:9200). No port is published and
+    nginx does not route to it; with the security plugin off it has no
+    logins, so nothing outside the compose network must reach it.
+  - Memory: a 2 GB Java heap (OPENSEARCH_JAVA_OPTS) in a 4 GB
+    container; the rest is for Lucene's off-heap buffers and the page
+    cache. A bigger archive wants more page cache rather than more
+    heap.
+  - Disk: the index holds the messages' text and a few numbers per
+    message, roughly the size of the text itself, under
+    data/opensearch. Plan it beside the file store's cap.
+  - vm.max_map_count: the engine normally wants 262144, more than many
+    hosts allow by default. The service sets node.store.allow_mmap to
+    false, so it reads its files without memory maps and needs no
+    sysctl; on a host where vm.max_map_count is raised, that line can
+    go for somewhat faster reads. Single-node discovery skips the
+    production bootstrap checks that would refuse to start otherwise.
+  - The healthcheck asks for a yellow or green cluster: a single node
+    holds no replicas, so the service creates its indices without any,
+    and an index that asked for one would leave the cluster yellow.
+
+The tests start their own engine (docker-compose.test.yml, profile
+"search", a 512 MB heap): scripts/test-web.sh --search-engine.
+
+## Indexing
+
+With WEBAPI_SEARCH_ENGINE_URL set, the service keeps the index in step
+with the message tables (internal/searchengine/indexer.go), one
+document per group or private message with text (captions are the
+text of a media message), keyed by scope and row id, so every write is
+idempotent:
+
+  - Events: the daemon's message.new, .edited and .deleted, from the
+    live hub (one more subscriber of the service's one subscription),
+    or, while live updates are off, from a hub of the indexers' own
+    over the daemon's stream, so the three indices hold one of the
+    daemon's subscriber slots. The
+    events of half a second are read again from MySQL by the tables'
+    unique (chat_id, message_id) keys in one query and written in one
+    bulk request. A row left without text loses its document.
+  - The backfill: the rows above the state's next_id, in primary key
+    order, WEBAPI_SEARCH_ENGINE_BATCH at a time with
+    WEBAPI_SEARCH_ENGINE_PAUSE between, through a pool of one
+    connection, so the pages' pool is never taken. Its place is saved
+    in the engine after every batch, so a restart resumes it. It never
+    filters on created_at, which has no index.
+  - The reconcile, every WEBAPI_SEARCH_ENGINE_RECONCILE seconds, every
+    minute while no stream delivers, and at once after a resync or
+    dropped events: the backfill's pass over new rows, then the rows
+    deleted (deleted_at's index) and edited (the (chat_id, edit_date)
+    indexes, 200 chats per query) since the last reconcile began, less
+    five minutes. It repairs what the stream missed. An edit recorded
+    with an edit date older than that window, which only a stream
+    outage during a history backfill produces, is repaired by
+    rebuilding the index: delete it and its -state index (curl -X
+    DELETE http://opensearch:9200/<name>,<name>-state from a container
+    on tgnet) and the service backfills it again.
+
+The index's layout has a version (mappingVersion in
+internal/searchengine/index.go, kept in the mapping's _meta), and the
+index is rebuilt rather than migrated. The indexer refuses an index of
+another version: it logs why and tries again every minute, so the old
+index soon falls behind and searches go to MySQL ("behind"). After an
+upgrade that changes the version (version 2 splits words at
+punctuation, so "kernel" finds "git.kernel.org"), delete the index and
+its -state index from a container on tgnet:
+
+    curl -X DELETE 'http://opensearch:9200/<name>,<name>-state'
+
+The indexer then creates the new index on its next try and backfills
+it from the beginning; searches go to MySQL ("behind") until the
+backfill has finished.
+
+Only one instance indexes an index; set WEBAPI_SEARCH_ENGINE_INDEXER=0
+on any other. Renames of users and groups need nothing: a document
+holds ids, never names.
+
+## Bios and descriptions
+
+Users' bios and groups' descriptions have an index each beside the
+messages' (WEBAPI_SEARCH_ENGINE_USERS_INDEX, default tgloggerd-users,
+and _GROUPS_INDEX, tgloggerd-groups, each with its -state index;
+internal/searchengine/profiles.go): one document per user with a bio
+(telegram_user_extra_info) or group with a description, its id and the
+text, under the messages' analyzers. Their layout has its own version
+(profileVersion), so either is rebuilt, by deleting it and its -state
+index, without touching the messages index, and the messages index
+without touching them.
+
+Their tables are small and change in place (a new bio rewrites an old
+row; a user whose extra info falls back to its defaults loses the
+row), so they are kept in step by passes instead of a catch-up of new
+ids:
+
+  - A pass reads WEBAPI_SEARCH_ENGINE_BATCH rows with a text in
+    primary key order, reads the index's documents of the same id
+    range, and writes only what differs: a missing or changed
+    document, and the deletion of one whose row has no text or is
+    gone. WEBAPI_SEARCH_ENGINE_PAUSE separates two batches; its place
+    is saved after each, so a restart resumes it.
+  - The first pass over an empty index is its backfill; searches of
+    that entity go to MySQL ("behind") until it ends. It takes about
+    one batch per thousand rows with a text and the pause after each:
+    with the defaults, some 17 seconds for 56 thousand bios on the
+    test setup, mostly the pauses. It never waits on the messages
+    index, whose indexer runs beside it, nor makes it wait.
+  - Then a pass every WEBAPI_SEARCH_ENGINE_RECONCILE seconds (every
+    minute while no event stream delivers, and soon after a resync or
+    dropped events) repairs what the stream missed. One that finds the
+    index in step writes nothing.
+  - Events: user.updated without fields or with "bio" (the full info),
+    and group.updated without fields (a group's row; "photo" and
+    "admins" leave the description alone), read the row again and
+    write or delete its document within the flush's half second.
+
+## Searching
+
+    GET /api/search/capabilities   whether the engine answers, and
+                                   its options (searchengine.go)
+
+logdb.Search hands the full-text conditions of group_messages and
+private_messages (text), users (bio) and groups (description) to the
+engine (internal/logdb/search_engine.go, the
+queries in internal/searchengine/query.go); web/docs/search-api.md,
+"Search engine", is the contract. The list pages' search text goes
+the same way.
+
+  - The engine answers row ids; MySQL reads the rows, applying every
+    other condition and the scope again, so the answers keep their
+    shape. A search of only text conditions and carried columns,
+    ANDed, sorted by relevance or date, is paged and counted by the
+    engine; any other gets an id list per text condition (at most
+    10000 rows, else MySQL alone) and is counted and paged by MySQL.
+  - The request scope is a filter of every engine query
+    (searchengine.scopeFilter: a member's granted groups as terms, an
+    admin's hidden groups as must_not, private messages only for
+    SeesPrivate), so hits, totals, facets and highlights never count
+    what the viewer may not see.
+  - Fallback: an engine that fails, takes longer than
+    WEBAPI_SEARCH_ENGINE_TIMEOUT, or is behind (the backfill
+    unfinished, or not known in step for WEBAPI_SEARCH_ENGINE_MAX_LAG)
+    leaves the search to MySQL, and the answer's backend says so.
+    After a failure the engine is skipped for 30 seconds.
+  - Warm-up: an engine's first searches after the service starts are
+    much slower than later ones, slow enough to fail and start that
+    backoff. So the service first sends the engine a few searches of
+    the pages' shapes in the background, each allowed 30 seconds
+    (searchengine.Engine.StartWarmUp), and searches go to MySQL
+    ("unavailable") until they are done, usually within seconds; a
+    warm-up that fails is logged, and the usual failure handling
+    applies.
+
+# The request scope
+
+Server.requestScope (internal/server/media.go) builds, once per
+request, what it may see and do (internal/scope; docs/design/
+web-accounts.md section 9), from the verified session: the account's
+id, role and forced password change, as read from web_users on that
+request. Every query over the logger's schema takes it and filters by
+it, and every permission check asks it; there is no other mechanism.
+Something outside it answers 404, a forbidden action on something
+inside it 403.
+
+It is built from the role and, for an admin, the federations it
+administers and its restrictions, for a member its granted groups and
+abilities (web/docs/accounts.md has the table): superadmins see every
+group, private chat and user, admins all but what a superadmin hides
+from them; members see their granted groups (GroupFilter "IN (...)"),
+the people who appear in them (UserFilter; logdb.VisibleUserIDs for a
+few by id) by name, photo and username only, and no private chat, and
+may forward or fetch files only when given those abilities; admins
+may do all but join chats and look up real names, and manage the
+members of their federations (Scope.SeesAccount,
+AdministersFederation). The scope runs no query itself; there is no
+gate on a missing email address
+(decisions/2026-11-18-email-optional.md). Without a session the scope
+sees nothing; a file token is its own authorization.
+
+# Administration
+
+The Drogon web's admin pages as JSON operations (openapi.yaml, tags
+forwarding, join-chat, contacts and mcp) and page data; web/docs/
+platform-forwarding.md, join-chat.md, contact-names.md and mcp.md
+describe each, with what differs from the Drogon pages.
+
+    /api/forwarding/telegram-discord[/{id}|/test]   webhooks
+    /api/forwarding/discord-telegram[/{id}]         routes
+    /api/bots[/{id}|/{id}/transfer]                 their bots
+    POST /api/join-chat/preview, /api/join-chat/join
+    POST /api/users/{id}/lookup-name
+    /api/mcp/groups[/{group_id}], /api/mcp/tokens[/{id}|/{id}/revoke|/{id}/transfer]
+
+  - Each needs an ability of the request scope (Scope.Can): forward,
+    join_chat, lookup_name, mcp (mcp_tokens for the tokens, each also
+    checked by Scope.ManagesMCPToken). Without it the operation and its page
+    do not exist (404); so does a configuration or group the scope
+    hides, through the same queries as the lists (logdb.ChatFilter,
+    GroupFilter). Every write takes the session's CSRF token.
+  - Every change writes a web_audit row with who made it; chat_join
+    and contact_lookup are worded as the Drogon pages word them, so
+    both services' rows read alike.
+  - Secrets are write-only: webhook URLs are answered with their token
+    cut off, bots by name and identity, MCP tokens once at creation; no
+    answer, log line or audit row carries one. A route names its bots
+    by id; a bot token is typed only on the bots page, checked in shape.
+  - Bots (internal/server/bots.go): a member with forward sees and
+    uses its own bots only, admins and superadmins every bot, with its
+    owner (Scope.SeesAllBots); the others are 404, also as a route's
+    bot. Transfers are for admins and superadmins. A webhook URL must be Discord's on
+    save and on test (parseWebhook), so the service never posts
+    elsewhere; the test's client follows no redirect.
+  - The daemon is reached through internal/daemon (POST
+    /v1/chats/resolve, /v1/chats/join, /v1/users/{id}/lookup-name);
+    without WEB_TGLOGGERD_API those answer 502 daemon.
+  - A Telegram bot's own user is resolved in the background
+    (internal/server/botresolve.go, BotResolver): for a bot whose
+    identity is known and whose telegram_users row is missing, the
+    daemon is asked to resolve the username (POST /v1/users/resolve),
+    which stores the user. A pass runs every few minutes, and every
+    few seconds for a while after a bot is created or given a new
+    token, until discordd reports its identity. A bot that failed
+    waits hours, or the flood wait Telegram asked for, before it is
+    asked about again; the attempts live in memory. Never in a
+    request's path; without WEB_TGLOGGERD_API nothing runs.
+  - A group joined from Join chat goes into the federations chosen for
+    it (web/docs/join-chat.md); one whose join waits for approval is
+    held in web_join_filings and filed by a background sweep
+    (internal/server/joinchat.go, JoinFiler): once a minute, one
+    query over the held filings, and when any has a known chat one
+    read of those groups' message counters; it stops with the
+    service.
+  - The forwarding tables and telegram_public_groups are the logger's;
+    the service writes them through the read-only pool, whose account
+    is granted DML on exactly those (web/docs/platform-forwarding.md
+    and mcp.md, Grants), as the Drogon web does.
+  - The federations a configuration or a joined group may go into
+    are the existing ones the viewer administers (fileFederations);
+    the accounts and federations pages take their federation data from
+    the federation helpers (federationprops.go). Filing a joined group
+    comes with join-chat-federations.
+  - Every create operation records the account creating the resource
+    as its owner (internal/server/ownership.go, over the helpers of
+    internal/webdb/ownership.go: Owners, OwnerOf, OwnedBy, SetOwner,
+    TransferOwner, DropResource, AssignUnowned), and every delete
+    drops it; each change is audited (owner_set, owner_transfer,
+    resource_drop). The forwarding lists answer the owner through
+    Server.ownership; a resource without one counts as the
+    superadmins' and is answered as shared. The configurations'
+    federation is not stored yet (Default) and the transfers are
+    planned (forwarding-per-user).
+
+# MCP
+
+    POST /mcp     one JSON-RPC 2.0 message of the Model Context Protocol
+    GET  /mcp     405, Allow: POST (no server-to-client stream)
+    DELETE /mcp   405, Allow: POST (no sessions)
+
+The port of the Drogon web's MCP endpoint (McpController, the gwmcp
+library and web/src/mcp): the same path, transport, methods, tools,
+arguments and answers, byte for byte, and the same bearer tokens.
+web/docs/mcp.md describes the behaviour for both; internal/mcp is the
+engine (JSON-RPC framing, initialize, ping, tools/list, tools/call, the
+fourteen telegram_* tools, the filter tree, the word lists) and
+internal/server/mcp.go the transport. No third-party module: JSON-RPC
+over HTTP is a few lines of the standard library.
+
+  - Tokens: "Authorization: Bearer tgmcp_<64 hex>", else ?key=, looked
+    up in web_mcp_tokens by SHA-256 (web migration 000003). Missing,
+    malformed, unknown, revoked or a disabled account's: 401 with a
+    JSON-RPC error and no WWW-Authenticate header (web/docs/mcp.md says
+    why). A use stamps last_used_at. The route takes no session and no
+    CSRF token, and the token's account and its role do not limit the
+    tools: what they read is decided by the exposure list alone, as in
+    the Drogon web.
+  - Exposure: the tools read only the groups on the curated list
+    telegram_public_groups, never one that merely has a public username.
+    The message tools go through one gate, msgGate (internal/mcp/
+    gate.go), which binds the listed ids as constants; the group tools
+    carry the list as a condition of their statement; the user tools are
+    not limited to it, as in the Drogon web. Nothing in internal/mcp
+    names the private messages table (a test checks).
+  - The two query-plan traps of web/docs/mcp.md are avoided the same
+    way: message scans choose their ids from the message table alone and
+    join the display columns onto at most limit rows (runMessageQuery),
+    and recent messages are one indexed walk per exposed group, merged
+    (listRecent).
+  - Answers are written by internal/mcp's own encoder, which spells
+    them as the Drogon web's JSON library does (sorted keys, no HTML
+    escaping, "25.0" for a whole double), so both services give the
+    same bytes. internal/server/testdata/mcp/drogon.json holds the
+    Drogon web's answers to the requests of cases.json on the "mcp"
+    fixture, captured from it; TestMCPDrogonAnswers wants the same from
+    this service. The one known difference is the text of a JSON parse
+    error, which quotes each JSON parser's own message.
+  - The word lists of telegram_popular_words are the Drogon web's
+    (stopwords.go, generated from web/src/mcp/Stopwords.hpp, keeps that
+    file's MIT attribution; noisewords.go is NoiseWords.hpp); a test
+    compares them with the C++ headers.
+  - At most MCP_THREADS tool calls run at once; the rest wait for a
+    turn, so slow queries hold at most that many connections of the
+    read-only pool. Every statement carries the 5-second
+    MAX_EXECUTION_TIME of the Drogon code.
+  - MCP_LOG_REQUESTS=1 logs the shape of each request (whether a
+    credential came, never its value; Origin, MCP-Protocol-Version,
+    User-Agent) as an "mcp-trace" line. The request log line never has
+    the query string, so a ?key= does not reach the log.
+
+## Routing /mcp through nginx
+
+While Drogon serves /mcp, nothing changes. To move it, add an exact
+location next to the /api/ one, with the same upstream:
+
+    location = /mcp {
+        proxy_pass         http://10.0.88.7:8081;
+        proxy_http_version 1.1;
+        proxy_set_header   Connection        "";
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # A tool call may wait for a turn and then run statements of up
+        # to 5 seconds each.
+        proxy_read_timeout 120s;
+        # Optional: keeps a ?key= token out of the access log.
+        access_log         off;
+    }
+
+The query string, ?key= included, is passed on as it is. "location =
+/mcp" matches the path exactly, so /mcp/ and /mcp-admin stay where they
+are. The default log format records the request line, query string
+included; a format without $request, $request_uri and $args can keep
+access_log on.
+The Drogon route stays in place, so moving back is removing the
+location. Both services read the same tokens and the same exposure
+list, so a client notices no change, and WEB_PUBLIC_URL (or
+TG_DISCORD_PUBLIC_URL), MCP_THREADS, MCP_ALLOWED_ORIGINS and
+MCP_LOG_REQUESTS come from the same env/settings.env.
+
+Before the switch, scripts/mcp_compare.py sends the same requests to
+both services, one right after the other, and reports every answer
+that is not the same bytes: the transport and token refusals, and every
+tool on ids it finds through the endpoints (the exposed groups, their
+senders, recent and edited messages). It needs a live token in
+MCP_TOKEN and both services' /mcp URLs:
+
+    MCP_TOKEN=tgmcp_... scripts/mcp_compare.py \
+        --a http://<drogon>/mcp --b http://<webapi>/mcp
+
+# Account email
+
+    POST /api/account/email          change the address (verification link)
+    POST /api/account/email/verify   use a verification link
+    POST /api/password/set           use a set-password link
+    POST /api/password/forgot        ask for a reset link
+    POST /api/accounts/{id}/resend-invite
+
+web/docs/email.md describes the flows and openapi.yaml the operations
+(Gates and Email links in its description). In short:
+
+  - Links are <site>/password/set#token=<token> and
+    <site>/account/email/verify#token=<token>, single-use, expiring,
+    stored as the SHA-256 of the token (web_email_links). The token is
+    in the fragment and the pages post it only when the person acts,
+    so the pages' GETs consume nothing.
+  - Email is optional, for each account and for the service
+    (decisions/2026-11-18-email-optional.md): no account is asked for
+    an address. Links and notices go out only when the account has an
+    address and mail is set up; otherwise nothing is sent and nothing
+    waits for mail.
+  - A new account gets a typed or a generated temporary password and
+    must change it at its first sign-in; with "invite": true, a
+    set-password link instead. A reset sends a link to a verified
+    address when mail is on, else gives a temporary password. Setting
+    a password from a link verifies the address it went to. The
+    forgotten-password form answers 202 whatever it is asked, sends
+    only to a verified address, and is throttled per client and per
+    account.
+  - The security notices (password, address, new device, disabled,
+    role) go to the verified address only. Texts come from
+    internal/i18n (mail.*), in the account's language and time zone.
+  - internal/mail sends through the SMTP relay of WEBAPI_SMTP_*: queued
+    in memory, never blocking a request, retried for about a day on a
+    temporary failure, logged without the bodies. Tests use
+    internal/mail/mailtest, an SMTP server on a loopback port.
+
+# Layout
+
+    openapi.yaml           The API description (see The API contract).
+    go.mod                 Module tgloggerd/webapi and its requirements.
+    go.sum                 Checksums of the required modules.
+    cmd/webapi/            main: configuration, the two pools, the HTTP
+                           server, shutdown on SIGTERM.
+    internal/config/       Settings from the environment.
+    internal/server/       Routes and handlers.
+    internal/auth/         Sessions, CSRF, file tokens, passwords, the
+                           login throttle, as the Drogon web does them.
+    internal/daemon/       Client of the daemon's internal API.
+    internal/live/         Live updates: the daemon's event stream, the
+                           hub that fans it out (livetest: a fake
+                           daemon stream for tests).
+    internal/webdb/        The web's own schema: accounts and audit.
+    internal/logdb/        Reads of the logger's schema, each taking the
+                           request scope, and the writes the web is
+                           granted there (forwarding, MCP exposure).
+    internal/scope/        The request scope (what a request may see).
+    internal/settings/     An account's preferences: the known keys,
+                           their validation, the site defaults.
+    internal/i18n/         The user-facing texts by language, one
+                           catalogue per language (catalog/<lang>.json).
+    internal/mcp/          The MCP engine: JSON-RPC, the tools, the
+                           filter tree, the tokens, the exposure gate.
+    internal/media/        The rules files are served by: store path,
+                           names and types, ranges, the fetch policy,
+                           the TDLib path check.
+    internal/render/       The render service's client, the client
+                           assets and the page document.
+    internal/testdb/       A database per test, and the dummy-data
+                           fixtures (see Tests).
+    internal/mail/         Outbound mail: the SMTP sender and its
+                           queue (mailtest: an SMTP server for tests).
+    vendor/                The third-party modules, committed.
+    build/                 Build output (git-ignored).
+
+Routes use the standard library's ServeMux with method and path
+patterns ("GET /api/health"). Add a third-party router only with a
+reason it cannot give.
+
+# The module path names no host
+
+The module path is `tgloggerd/webapi`, and the service's own imports are
+`tgloggerd/webapi/...`. It must never start with a repository host
+and account, the way third-party paths do: the code is the same wherever a copy of the
+repository is hosted, and moving it changes nothing. Third-party modules
+keep their upstream paths; those are the only host names under webapi/,
+in go.mod, go.sum and vendor/. To check:
+
+    grep -rnE '[a-z0-9-]+\.(com|org|net|io|dev)/' webapi \
+        --exclude-dir=vendor --exclude=go.sum
+
+must print only the third-party require lines of go.mod and the
+imports of those modules.
+
+# Build and run
+
+In the compose deployment the "webapi" service (container
+tgloggerd-webapi) runs `run.sh webapi`, which builds this directory into
+webapi/build/webapi with the toolchain pinned in the Dockerfile and
+execs it. The build uses only vendor/ (GOFLAGS=-mod=vendor, GOPROXY=off),
+so it never reaches the network. The container is not published to the
+host; nginx reaches it on its tgnet address (see web/README.web).
+
+By hand, from this directory, with the same Go version:
+
+    GOFLAGS=-mod=vendor GOPROXY=off go build -o build/webapi ./cmd/webapi
+    go vet ./...
+    go test ./...
+
+The tests that need MySQL (the sign-in and media tests in
+internal/server, and every new one) take a database each from
+internal/testdb, on the server WEBAPI_TEST_MYSQL_DSN names, and are
+skipped without it; see Tests. The media tests run the daemon as a fake
+on a loopback port the system picks.
+The live update tests (internal/live, events_test.go in
+internal/server) need no database: they run livetest's fake daemon
+stream on a loopback port the system picks, and run in parallel.
+
+The service applies no migrations: the web service owns the web schema
+and the daemon the logger's.
+
+# One-off commands
+
+With arguments the binary runs a command and exits instead of serving,
+with the same configuration from the environment (it needs the two
+pools' settings, and WEB_APP_KEY like the service). Exit status 0 done,
+1 failed or refused, 2 a usage or configuration error.
+
+    webapi assign-owner <username>
+
+gives every resource without an owner (MCP exposed groups, MCP tokens,
+Telegram bots, Telegram to Discord webhooks, Discord to Telegram
+routes, Discord bots) to that account, which
+must be an active superadmin (web/docs/accounts.md, Ownership); MCP
+tokens go to the account that minted each instead. It is
+idempotent: resources that have an owner are left alone, so a second
+run assigns nothing, and a later run assigns only what was made
+without an owner since (by the Drogon pages, say). Each resource
+assigned gets an owner_set row in web_audit, by no account, with the
+owner as its target. It prints what it assigned by type:
+
+    Owner: superadmin (id 1)
+    mcp_group     2 assigned: -1001000000010 -1001000000003; 1 owned already
+    mcp_token     1 assigned to their creators: 2; 1 owned already
+    ...
+    discord_bot   1 assigned: 1000000000; 0 owned already
+    Assigned 9 resources.
+
+In the compose deployment, run it in the webapi container once web
+migration 000008 is applied and the account exists:
+
+    docker compose exec webapi webapi/build/webapi assign-owner superadmin
+
+    webapi import-discord-bot <username>
+
+moves the Discord bot of DISCORD_BOT_TOKEN into the database, once, at
+the deployment that makes discordd read its bots from discord_bots
+(web/docs/platform-forwarding.md, Bots): it stores the bot, owned by
+that account (an active superadmin), points every Discord to Telegram
+route that names no Discord bot at it, and prints what it did, never
+the token. A second run changes nothing. It is the web service's
+command because the owner lives in the web's schema, which discordd
+does not reach. Run it in the webapi container, whose environment
+holds the variable until it is removed from the env files:
+
+    docker compose exec webapi webapi/build/webapi import-discord-bot superadmin
+
+# Tests
+
+Every feature ships with its tests, and the tests run in parallel. One
+command runs all of the web's checks, with only Docker on the host:
+
+    scripts/test-web.sh                 # webapi and web/app
+    scripts/test-web.sh --go-only -run TestMedia -count=1
+
+For webapi it starts the test MySQL of docker-compose.test.yml (its own
+compose project, tmpfs, no published port), runs gofmt, go vet and
+go test -race ./... in the pinned Go image on that project's internal
+network, and stops the MySQL again if it started it. A MySQL that was
+already running is used and left running, so for several runs at once
+start it first:
+
+    docker compose -f docker-compose.test.yml up -d --wait
+    scripts/test-web.sh --go-only & scripts/test-web.sh --go-only; wait
+    docker compose -f docker-compose.test.yml down
+
+With --search-engine it also starts the test OpenSearch (profile
+"search") and gives the tests its URL in WEBAPI_TEST_SEARCH_ENGINE_URL;
+without it the search engine's tests skip and the rest run as before.
+
+## A database per test
+
+A test that needs MySQL takes a database of its own from
+internal/testdb, with the logger's (testdb.Logger) or the web's
+(testdb.Web) migrations applied and, if it asks, dummy data loaded:
+
+    func TestSomething(t *testing.T) {
+        t.Parallel()
+        ro := testdb.New(t, testdb.Logger, "sample") // fixtures/logger/sample.sql
+        app := testdb.New(t, testdb.Web, "accounts") // fixtures/web/accounts.sql
+        h := New(Deps{RO: ro.DB, App: app.DB, ...})
+        ...
+    }
+
+The database is dropped when the test ends. db.Load(t, "name") loads
+more fixtures later; db.Name and db.DSN name the database. Rows a test
+adds are its own, so a test never empties a table and may call
+t.Parallel(). Without WEBAPI_TEST_MYSQL_DSN (a DSN without a database
+name, of an account that may create and drop databases, such as
+root:test@tcp(mysql:3306)/) New skips the test.
+
+The migrations are applied once per change of the files, into a
+template database (test_tpl_<schema>_<hash>) built under a MySQL
+named lock, so test binaries running at once, from `go test ./...` or
+from separate runs, share it; each test's database is made from the
+template's table definitions. A new migration needs nothing more.
+
+A schema change whose migration is still being written elsewhere (a
+daemon migration the web already reads) goes in
+internal/testdb/pending/<schema>/*.sql, applied after the migrations.
+Each such file makes its change only when it is missing (a prepared
+ALTER behind an information_schema check), so it does nothing once
+the migration is in, and is removed then.
+
+The fixtures are invented data, nothing from production, following the
+named samples of the app's stand-in (web/mockup/src/data). The header
+of each file lists the ids it uses, so a test can add rows beside them
+without clashing. A fixture that changes must keep the package's own
+tests (internal/testdb) passing; they check, among other things, that
+the message counters agree with the messages. Add a fixture as a new
+file when a test needs data the existing ones do not hold, rather than
+changing rows other tests rely on.
+
+To run the tests from the host instead, publish the port:
+
+    docker compose -f docker-compose.test.yml \
+        -f docker-compose.test-port.yml up -d --wait
+    WEBAPI_TEST_MYSQL_DSN='root:test@tcp(127.0.0.1:33306)/' go test -race ./...
+
+# Configuration
+
+The database settings are the Drogon web's, with the same defaults, so
+the same env files serve both (env/README):
+
+    WEB_DB_HOST, WEB_DB_PORT     the MySQL server; fall back to
+                                 TG_DB_HOST, TG_DB_PORT
+    WEB_DB_RO_NAME, _USER, _PASSWORD, _CONNS
+                                 the read-only pool over the logger's
+                                 schema
+    WEB_DB_APP_NAME, _USER, _PASSWORD, _CONNS
+                                 the read-write pool over the web's own
+                                 schema
+
+It reads the Drogon web's authentication and daemon settings as well,
+with the same meaning, since the two must agree:
+
+    WEB_APP_KEY                  required; the service does not start
+                                 without a usable one. Base64 of 16 to
+                                 64 bytes.
+    WEB_SESSION_TIMEOUT          session lifetime in seconds, default
+                                 43200; 0 or less never expires
+    WEB_SECURE_COOKIE            "0" drops the cookies' Secure flag
+    WEB_LOGIN_MAX_ATTEMPTS, WEB_LOGIN_WINDOW
+                                 the login throttle, default 5 failures
+                                 per address and username per 900
+                                 seconds
+    WEB_LOGIN_MAX_ATTEMPTS_PER_ACCOUNT
+                                 failures per account from all
+                                 addresses in the same window, default
+                                 20; 0 turns this cap off. Anyone who
+                                 knows a name can use it up and lock
+                                 the account's logins for the window
+    WEB_TGLOGGERD_API            the daemon's internal API as
+                                 http://host:port; empty or malformed
+                                 leaves the client off
+    TG_FETCH_TIMEOUT_SECS        the daemon's fetch limit; a fetch waits
+                                 10 seconds longer
+    WEB_STORAGE_DIR              the file store, default
+                                 data/storage/files; must be the
+                                 daemon's TG_STORAGE_DIR
+    TG_DATA_DIR                  the daemon's data directory; partial
+                                 files are served only from its tdlib/
+                                 (none when unset)
+    TG_MAX_STORE_FILE_SIZE       the daemon's per-file store cap,
+                                 default 1073741824; 0 = none. A request
+                                 without a session fetches only files
+                                 under it.
+
+and the Drogon web's MCP settings, with the same meaning:
+
+    WEB_PUBLIC_URL               the site's public base URL, for absolute
+                                 /files/<token> links in MCP answers;
+                                 falls back to TG_DISCORD_PUBLIC_URL.
+                                 Neither: the links are left out
+    MCP_THREADS                  MCP tool calls run at once, default 2,
+                                 1 to 16
+    MCP_ALLOWED_ORIGINS          browser origins allowed to call /mcp,
+                                 comma-separated, or *; empty allows
+                                 any (a token is required anyway)
+    MCP_LOG_REQUESTS             "1" logs the shape of /mcp requests
+
+and its own:
+
+    WEBAPI_LISTEN_ADDR   default 127.0.0.1
+    WEBAPI_LISTEN_PORT   default 8081
+    WEBAPI_LOG_LEVEL     debug, info (default), warn or error
+    WEBAPI_LIVE          "0" turns live updates (GET /api/events) off;
+                         they also need WEB_TGLOGGERD_API
+    WEBAPI_LIVE_MAX_SUBSCRIBERS   open event streams at most, default 256
+    WEBAPI_LIVE_BUFFER   events queued per stream before it gets a
+                         resync instead, default 256
+    WEBAPI_LIVE_HISTORY  recent events kept for streams that reconnect,
+                         default 4096
+    WEBAPI_LIVE_RECHECK  seconds between two session checks of an open
+                         stream, default 30
+    WEBAPI_RECHECK       "0" asks the daemon for no chat rechecks
+                         (Chats, "Recheck"); they also need
+                         WEB_TGLOGGERD_API
+    WEBAPI_RECHECK_NEWEST_SECS, WEBAPI_RECHECK_OLDER_SECS
+                         the least seconds between two asks for a
+                         chat's newest messages, default 60, and for
+                         the stretch around one message, default 3600
+    WEBAPI_RECHECK_PUBLIC_PER_MIN, _PUBLIC_BURST, _PUBLIC_RESERVE
+                         the signed-out visitors' shared bucket: tokens
+                         a minute, default 20 (0: they ask for none);
+                         tokens at most, default 20; tokens older
+                         stretches leave to the newest, default 10,
+                         under the burst
+    WEBAPI_RECHECK_TIMEOUT  milliseconds one ask may take, default 5000
+    WEBAPI_RECHECK_MAX_IN_FLIGHT  asks waiting for the daemon at once,
+                         default 8
+    WEBAPI_COUNT_CACHE_SECS  seconds whole-table and list counts are
+                         kept (logdb.CountCache: per exact query, so the
+                         same for every viewer that runs it), default
+                         60; 0 counts on every request
+    WEBAPI_APP_DIST      the client bundle, default web/app/dist/client
+    WEBAPI_APP_BUILD     its build id; default the one in its
+                         build.json, or dev when it has none
+    RENDER_SOCKET        the render service's socket, default
+                         /run/tgloggerd-render/render.sock
+    RENDER_TIMEOUT       milliseconds a render may take, default 500
+    RENDER_BACKOFF       milliseconds the render service is skipped
+                         after it failed to answer, default 2000
+    WEBAPI_DEFAULT_TIMEZONE, WEBAPI_DEFAULT_DATE_FORMAT,
+    WEBAPI_DEFAULT_LANG, WEBAPI_DEFAULT_THEME
+                         the site's display settings for accounts that
+                         set none, default Asia/Jakarta, 24h, en and
+                         system (web/docs/settings.md); a value the
+                         preference does not take stops the service
+    WEBAPI_SMTP_HOST     the SMTP relay of account mail; unset turns
+                         mail off: no links or notices are sent, and
+                         first passwords and resets are temporary
+                         passwords
+    WEBAPI_SMTP_PORT     default 587, or 465 with tls
+    WEBAPI_SMTP_SECURITY starttls (default), tls, or none (a relay on
+                         the same host only)
+    WEBAPI_SMTP_USER, WEBAPI_SMTP_PASSWORD
+                         AUTH PLAIN; unset sends without
+    WEBAPI_SMTP_FROM     the sender; required with a relay
+    WEB_PUBLIC_URL       the site the links point to, falling back to
+                         TG_DISCORD_PUBLIC_URL; an http(s) URL is
+                         required with a relay
+    WEBAPI_INVITE_LINK_TTL, WEBAPI_RESET_LINK_TTL, WEBAPI_VERIFY_LINK_TTL
+                         seconds a link works: invitations and admin
+                         resets (default 259200), forgotten-password
+                         resets (3600), address verifications (86400)
+    WEBAPI_SEARCH_ENGINE_URL  the search engine (see Search engine),
+                         e.g. http://opensearch:9200; unset leaves
+                         search on MySQL and the rest of these unread
+    WEBAPI_SEARCH_ENGINE_INDEX  the messages index, default
+                         tgloggerd-messages (and <name>-state)
+    WEBAPI_SEARCH_ENGINE_USERS_INDEX, WEBAPI_SEARCH_ENGINE_GROUPS_INDEX
+                         the bios' and the descriptions' indices,
+                         default tgloggerd-users and tgloggerd-groups;
+                         the three names must differ
+    WEBAPI_SEARCH_ENGINE_INDEXER  "0": another instance indexes
+    WEBAPI_SEARCH_ENGINE_BATCH  rows per query of the backfill and the
+                         reconcile, default 1000
+    WEBAPI_SEARCH_ENGINE_PAUSE  milliseconds between two of them,
+                         default 200
+    WEBAPI_SEARCH_ENGINE_RECONCILE  seconds between two reconciles
+                         (for bios and descriptions, passes),
+                         default 600 (60 while no event stream
+                         delivers)
+    WEBAPI_SEARCH_ENGINE_TIMEOUT  milliseconds one engine query may
+                         take before the search uses MySQL, default
+                         1500
+    WEBAPI_SEARCH_ENGINE_MAX_LAG  seconds the index may go without
+                         being known in step before searches use
+                         MySQL, default 300
+
+An empty value counts as unset. A malformed number stops the service at
+start. Logs are structured (log/slog, key=value) on stderr, one line per
+request.
+
+On SIGTERM (docker stop) or SIGINT the service stops accepting
+connections, lets requests in flight finish for up to 8 seconds, closes
+the pools and exits 0.
+
+# Updating the vendored modules
+
+Third-party modules are few and each needs a reason. Adding or updating
+one is the only step that uses the network, and the result is committed:
+
+    go get <module>@<version>    # or edit go.mod
+    go mod tidy
+    go mod vendor
+    go build ./... && go vet ./...
+
+Commit go.mod, go.sum and vendor/ together, and add any new module and
+its license to the third-party list in LICENSE. Run it with the same Go
+version as the image, with GOFLAGS unset (-mod=vendor would stop go get).
+The go directive in go.mod is the oldest Go the code and its modules
+need, not the image's version; raising the image's toolchain does not
+change it.

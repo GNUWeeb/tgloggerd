@@ -1,0 +1,22 @@
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+	margin: 0;
+	font-family: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	font-size: 14px;
+	line-height: 1.45;
+	background: #f6f6f8;
+	color: #1b1c1f;
+	-webkit-font-smoothing: antialiased;
+}
+:root { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="dark"] body { background: #0f1013; color: #e6e7ea; }
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) { color-scheme: dark; }
+	:root:not([data-theme="light"]) body { background: #0f1013; color: #e6e7ea; }
+}
+a { color: inherit; text-decoration: none; }
+button, input, select { font: inherit; color: inherit; }
+.num, .mono { font-variant-numeric: tabular-nums; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

@@ -1,0 +1,68 @@
+The services' settings and secrets
+==================================
+
+docker-compose.yml gives each service its environment from the files
+here, and only the files it needs, so `docker inspect` and `docker exec
+<service> env` show a service's own secrets and no others, and so does
+every process it starts.
+
+    settings.env       every setting that is not a secret; every service
+    mysql-root.env     MYSQL_ROOT_PASSWORD              mysql, tgloggerd
+    mysql-init.env     MYSQL_DATABASE, MYSQL_USER,      mysql
+                       MYSQL_PASSWORD
+    logger-db.env      TG_DB_PASSWORD                   tgloggerd, discordd
+    web-db-ro.env      WEB_DB_RO_PASSWORD               web, webapi, mysql
+    web-db-app.env     WEB_DB_APP_PASSWORD              web, webapi, mysql
+    app-key.env        WEB_APP_KEY                      tgloggerd, web, webapi
+    telegram-api.env   TG_API_ID, TG_API_HASH           tgloggerd, discordd
+    smtp.env           WEBAPI_SMTP_USER,                webapi
+                       WEBAPI_SMTP_PASSWORD
+
+tgloggerd needs the MySQL root password for the web table grants it
+applies after its migrations (run.sh, apply_web_grants; web/README.web,
+"Database and accounts"), and mysql needs the web passwords for its
+first-initialization hook (docker/mysql/init/10-web-users.sh). The
+render service gets none of these files, and neither does the optional
+opensearch service, which needs no secret while its security plugin is
+off (webapi/README, "Search engine").
+
+Each secret is in one file only, so changing a password means changing
+one file. A setting holds no secret, so a new one goes to settings.env;
+a new secret gets a file of its own (or joins the file of its
+credential), a line in the table above, its place in SECRETS and
+SERVICES in scripts/split-env.py and in the env_file lists of
+docker-compose.yml. `scripts/split-env.py --check` compares the two.
+The *.env files are git-ignored; the *.env.example files are their
+templates, with every variable documented.
+
+The repository itself is mounted into the daemon and web containers at
+/workspace, so these files can be read from inside any of them: the
+split keeps secrets out of the containers' environments, not out of
+their file systems.
+
+Setting up
+----------
+
+    cp .env.example .env
+    for f in env/*.env.example; do cp "$f" "${f%.example}"; done
+    chmod 600 env/*.env
+
+then edit them: TG_API_ID and TG_API_HASH in telegram-api.env, every
+password, and WEB_APP_KEY (`openssl rand -base64 32`).
+
+Moving from one .env
+--------------------
+
+A deployment that still has every variable in .env splits it once:
+
+    scripts/split-env.py
+
+It writes env/*.env (mode 600) with every variable of .env in its file,
+keeps the old file as .env.before-split, and leaves .env with
+docker-compose.yml's own settings (TG_UID, TG_GID). It refuses to run
+when any env/*.env exists, and it prints no value. Then recreate every
+service so it starts with its new environment:
+
+    docker compose up -d --force-recreate
+
+Delete .env.before-split once the services run.

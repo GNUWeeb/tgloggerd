@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2026 Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
@@ -25,7 +25,7 @@ enum class UserType {
 
 /*
  * A snapshot of a Telegram user (td_api::user), as stored in the users
- * and user_usernames tables. Only publicly meaningful, account
+ * and telegram_user_usernames tables. Only publicly meaningful, account
  * independent attributes are kept. Uses only plain types so it can be
  * shared between the TDLib and database layers.
  */
@@ -36,7 +36,7 @@ struct User {
 	std::string	phone_number;
 	UserType	type = UserType::Unknown;
 
-	/* files.id of the current profile photo; resolved after download. */
+	/* telegram_files.id of the current profile photo; resolved after download. */
 	std::optional<uint64_t>	profile_photo_file_id;
 
 	int32_t		accent_color_id = 0;
@@ -54,17 +54,20 @@ struct User {
 	bool		is_premium = false;
 	bool		is_support = false;
 
+	/*
+	 * The logging account has the user as a contact. Then first_name and
+	 * last_name are the name the account saved them under, not their
+	 * own (models/ContactName.hpp).
+	 */
+	bool		is_contact = false;
+	bool		is_mutual_contact = false;
+
 	std::string	restriction_reason;
 	bool		has_sensitive_content = false;
 
 	bool		restricts_new_chats = false;
 	int64_t		paid_message_star_count = 0;
 
-	/* Relationship to the logged-in account. */
-	bool		is_contact = false;
-	bool		is_mutual_contact = false;
-	bool		is_close_friend = false;
-	bool		have_access = false;
 	std::string	language_code;
 
 	/* td_api::usernames */
@@ -76,7 +79,7 @@ struct User {
 /*
  * Extra user attributes from td_api::userFullInfo, which is fetched
  * separately from the user object. Applied onto the existing users row;
- * bio changes are tracked in user_hist_bio.
+ * bio changes are tracked in telegram_user_hist_bio.
  */
 struct UserFullInfo {
 	int64_t		user_id = 0;

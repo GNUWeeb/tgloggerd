@@ -1,0 +1,434 @@
+/* Chat views: Telegram-like, inside the console shell. */
+.app {
+	--c-bg: #d7e4c4;
+	--c-pattern: rgb(255 255 255 / .22);
+	--c-in: #ffffff; --c-in-fg: #000000;
+	--c-out: #eeffde; --c-out-fg: #000000; --c-out-meta: #4fae4e;
+	--c-meta: #a0acb6; --c-link: #3390ec; --c-accent: #3390ec;
+	--c-svc: rgb(0 0 0 / .22); --c-svc-fg: #fff;
+	--c-head: #ffffff;
+	--c-quote: rgb(51 144 236 / .1);
+}
+:root[data-theme="dark"] .app {
+	--c-bg: #0e1621;
+	--c-pattern: rgb(255 255 255 / .025);
+	--c-in: #182533; --c-in-fg: #f5f5f5;
+	--c-out: #2b5278; --c-out-fg: #f5f5f5; --c-out-meta: #7da8d3;
+	--c-meta: #6d7f8f; --c-link: #6ab3f3; --c-accent: #6ab3f3;
+	--c-svc: rgb(0 0 0 / .35); --c-svc-fg: #e9eef3;
+	--c-head: #17212b;
+	--c-quote: rgb(106 179 243 / .12);
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) .app {
+		--c-bg: #0e1621;
+		--c-pattern: rgb(255 255 255 / .025);
+		--c-in: #182533; --c-in-fg: #f5f5f5;
+		--c-out: #2b5278; --c-out-fg: #f5f5f5; --c-out-meta: #7da8d3;
+		--c-meta: #6d7f8f; --c-link: #6ab3f3; --c-accent: #6ab3f3;
+		--c-svc: rgb(0 0 0 / .35); --c-svc-fg: #e9eef3;
+		--c-head: #17212b;
+		--c-quote: rgb(106 179 243 / .12);
+	}
+}
+
+.app .a-flush .a-content { padding: 0; max-width: none; height: calc(100vh - 52px); }
+.app .c-chat { display: flex; flex-direction: column; height: 100%; position: relative; font-family: Roboto, "Inter Variable", system-ui, sans-serif; font-size: 15px; }
+.app .c-sub { color: var(--fg-3); font-size: 13px; }
+.app .c-head { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 10px 0 12px; background: var(--c-head); border-bottom: 1px solid var(--border); flex: none; }
+.app .c-head-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; border-radius: 8px; margin: 0 -6px; padding: 4px 6px; }
+.app .c-head-link:hover { background: var(--hover); }
+.app .c-head-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.app .c-head-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.app .c-head-title h1 { font-size: 16px; font-weight: 600; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0; }
+.app .c-head-title .c-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app .c-iconbtn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: none; color: var(--fg-3); display: inline-grid; place-items: center; cursor: pointer; flex: none; position: relative; }
+.app .c-iconbtn:hover { background: var(--hover); color: var(--fg); }
+.app .c-datebtn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.app .c-datebtn input::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+.app .c-live { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--fg-2); font: 500 13px Roboto, system-ui, sans-serif; cursor: pointer; }
+.app .c-live.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-soft); }
+.app .c-searchbar { display: flex; align-items: center; gap: 10px; padding: 6px 10px 6px 16px; background: var(--c-head); border-bottom: 1px solid var(--border); color: var(--fg-3); }
+.app .c-searchbar input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font-size: 15px; }
+
+.app .c-scroll {
+	flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+	background-color: var(--c-bg);
+	background-image:
+		radial-gradient(circle at 20% 30%, var(--c-pattern) 0 2px, transparent 3px),
+		radial-gradient(circle at 70% 80%, var(--c-pattern) 0 3px, transparent 4px),
+		radial-gradient(circle at 85% 15%, var(--c-pattern) 0 1.5px, transparent 2.5px);
+	background-size: 90px 90px, 130px 130px, 70px 70px;
+}
+/* The message column: on a wide screen half the side margins a 760px
+   column would leave, so the chat uses more of the width. */
+.app .c-feed { max-width: calc(50% + 380px); margin: 0 auto; padding: 8px 12px 16px; display: flex; flex-direction: column; }
+.app .c-start, .app .c-loading { align-self: center; margin: 10px 0; padding: 4px 12px; border-radius: 14px; background: var(--c-svc); color: var(--c-svc-fg); font-size: 13px; }
+.app .c-day { position: sticky; top: 8px; z-index: 2; align-self: center; margin: 10px 0 6px; }
+.app .c-day span { display: inline-block; padding: 4px 12px; border-radius: 14px; background: var(--c-svc); color: var(--c-svc-fg); font-size: 13.5px; font-weight: 500; backdrop-filter: blur(8px); }
+.app .c-service { align-self: center; margin: 6px 0; max-width: 85%; text-align: center; }
+.app .c-service > span { display: inline-block; padding: 4px 12px; border-radius: 14px; background: var(--c-svc); color: var(--c-svc-fg); font-size: 13.5px; }
+.app .c-service a { font-weight: 600; }
+
+.app .c-row { display: flex; align-items: flex-end; gap: 6px; margin-top: 2px; }
+.app .c-row.last { margin-bottom: 6px; }
+.app .c-row.out { justify-content: flex-end; }
+.app .c-avslot { width: 34px; flex: none; }
+.app .c-bubble {
+	position: relative; max-width: min(480px, 78%); padding: 6px 9px 6px 10px; border-radius: 14px;
+	background: var(--c-in); color: var(--c-in-fg); box-shadow: 0 1px 1px rgb(0 0 0 / .12);
+	overflow-wrap: anywhere;
+}
+.app .c-row.in .c-bubble.tail { border-bottom-left-radius: 4px; }
+.app .c-row.out .c-bubble { background: var(--c-out); color: var(--c-out-fg); }
+.app .c-row.out .c-bubble.tail { border-bottom-right-radius: 4px; }
+.app .c-row.flash .c-bubble { animation: c-flash 2.2s ease-out; }
+@keyframes c-flash { 0%, 30% { box-shadow: 0 0 0 3px var(--c-accent); } 100% { box-shadow: 0 1px 1px rgb(0 0 0 / .12); } }
+.app .c-bubble.deleted { opacity: .62; }
+.app .c-bubble.deleted .c-text { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--danger) 55%, transparent); }
+.app .c-bubble.sticker { background: none !important; box-shadow: none; padding: 0; }
+.app .c-bubble.mediaonly { padding: 3px; }
+.app .c-sender { display: block; font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.app .c-sender:hover { text-decoration: underline; }
+.app .c-sender-hidden { color: var(--c-meta); font-style: italic; }
+.app .c-sender-hidden:hover { text-decoration: none; }
+.app .c-fwd { display: flex; align-items: center; gap: 5px; color: var(--c-link); font-size: 13.5px; margin-bottom: 4px; }
+.app .c-reply { display: flex; flex-direction: column; border-left: 3px solid var(--rc, var(--c-accent)); background: color-mix(in srgb, var(--rc, var(--c-accent)) 12%, transparent); border-radius: 5px; padding: 3px 8px; margin: 2px 0 5px; font-size: 13.5px; line-height: 1.3; max-width: 100%; }
+.app .c-reply b { color: var(--rc, var(--c-accent)); font-weight: 600; }
+.app .c-reply span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
+.app .c-text { white-space: pre-wrap; line-height: 1.4; }
+/* Text entities (src/ui/richtext.tsx), in the chat and on the message page. */
+.app .rt-link, .app .rt-mention, .app .rt-tag { color: var(--c-link); }
+.app a.rt-link:hover, .app a.rt-mention:hover, .app a.rt-tag:hover { text-decoration: underline; }
+.app .rt-cmd { color: var(--c-link); font-family: var(--mono); font-size: .92em; }
+.app .rt-code { font-family: var(--mono); font-size: .9em; background: var(--c-quote); border-radius: 4px; padding: 0 3px; }
+.app .rt-pre { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; background: var(--c-quote); border-left: 3px solid var(--c-accent); border-radius: 5px; padding: 5px 8px; margin: 3px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.app .rt-pre code { font: inherit; }
+.app .rt-quote { border-left: 3px solid var(--c-accent); background: var(--c-quote); border-radius: 5px; padding: 3px 8px; margin: 3px 0; }
+.app .rt-expandable:not(.open) .rt-quotebody { max-height: 4.2em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }
+.app .rt-more { display: block; border: 0; background: none; padding: 0; margin-top: 2px; color: var(--c-link); font: inherit; font-size: 12.5px; cursor: pointer; }
+.app .rt-spoiler:not(.shown) { background: var(--fg-3); border-radius: 3px; cursor: pointer; }
+.app .rt-spoiler:not(.shown), .app .rt-spoiler:not(.shown) * { color: transparent !important; }
+.app .rt-spoiler:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+.app .rt-mark { background: color-mix(in srgb, var(--c-accent) 28%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+/* A rich message's page blocks (src/ui/richblocks.tsx). The blocks set
+   their own spacing; text inside keeps the chat's line breaks. */
+.app .rb-page { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 4px; min-width: min(260px, 100%); white-space: pre-wrap; line-height: 1.4; }
+.app .rb-page h2, .app .rb-page h3, .app .rb-page h4, .app .rb-page h5 { margin: 4px 0 0; line-height: 1.25; }
+.app .rb-page h2 { font-size: 1.3em; }
+.app .rb-page h3 { font-size: 1.12em; }
+.app .rb-page h4, .app .rb-page h5 { font-size: 1em; }
+.app .rb-subtitle { color: var(--fg-2); font-weight: 500; }
+.app .rb-kicker { text-transform: uppercase; letter-spacing: .04em; font-size: 12px; color: var(--c-accent); font-weight: 600; }
+.app .rb-p { margin: 0; }
+.app .rb-hr { border: 0; border-top: 1px solid var(--border-2); width: 100%; margin: 4px 0; }
+.app .rb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.app .rb-list > li { display: flex; gap: 6px; align-items: baseline; }
+.app .rb-list > li > svg { align-self: center; flex: none; color: var(--c-accent); }
+.app .rb-list > li.done .rb-item { color: var(--fg-3); text-decoration: line-through; }
+.app .rb-label { flex: none; min-width: 1.2em; color: var(--fg-2); }
+.app .rb-item { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.app .rb-quote { display: flex; flex-direction: column; gap: 3px; }
+.app .rb-pull { margin: 2px 0; padding: 4px 10px; text-align: center; font-style: italic; font-size: 1.05em; }
+.app .rb-credit { display: block; font-style: normal; font-size: 12.5px; color: var(--fg-3); }
+.app .rb-figure { margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.app .rb-caption { font-size: 13px; color: var(--fg-2); }
+.app .rb-sub { font-size: 12.5px; overflow-wrap: anywhere; }
+.app .rb-spoiler { width: 260px; aspect-ratio: 16 / 9; cursor: pointer; font: inherit; font-size: 13px; }
+.app .rb-collage, .app .rb-slideshow { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; width: 320px; max-width: 100%; }
+.app .rb-collage .c-media, .app .rb-slideshow .c-media { width: 100%; border-radius: 4px; }
+.app .rb-tablewrap { overflow-x: auto; max-width: 100%; }
+.app .rb-table { border-collapse: collapse; font-size: 13px; white-space: normal; }
+.app .rb-table caption { caption-side: top; text-align: left; font-weight: 600; padding-bottom: 3px; }
+.app .rb-table th, .app .rb-table td { padding: 3px 8px; }
+.app .rb-table th { font-weight: 600; }
+.app .rb-table.bordered th, .app .rb-table.bordered td { border: 1px solid var(--border-2); }
+.app .rb-table.striped tr:nth-child(even) { background: var(--hover); }
+.app .rb-details > summary { cursor: pointer; font-weight: 600; }
+.app .rb-details[open] > summary { margin-bottom: 3px; }
+.app .rb-related ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.app .rb-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.app .rb-buttons.center { justify-content: center; }
+.app .rb-buttons.right { justify-content: flex-end; }
+.app .rb-button.off { border: 1px solid var(--border-2); border-radius: 6px; padding: 3px 10px; color: var(--fg-3); cursor: default; }
+.app .rb-math code { white-space: pre-wrap; }
+.app .rb-all { align-self: flex-start; }
+.app .c-media { display: grid; place-items: center; width: 100%; border: 0; border-radius: 10px; cursor: zoom-in; padding: 0; }
+.app .c-media.single { width: 320px; max-width: 100%; }
+.app .c-bubble:not(.mediaonly) .c-media { margin: 2px 0 6px; }
+.app .c-missing { background: var(--hover); color: var(--fg-3); gap: 6px; cursor: default; align-content: center; font-size: 13px; border: 1px dashed var(--border-2); width: 260px; max-width: 100%; }
+.app .c-missing.c-blurred { background-size: cover; background-position: center; color: #fff; border-style: solid; border-color: transparent; box-shadow: inset 0 0 0 999px rgb(0 0 0 / .38); text-shadow: 0 1px 2px rgb(0 0 0 / .5); }
+.app .c-album { display: grid; gap: 3px; width: 320px; max-width: 100%; margin-bottom: 4px; }
+.app .c-album.n2 { grid-template-columns: 1fr 1fr; }
+.app .c-album.n3 { grid-template-columns: 1fr 1fr 1fr; }
+.app .c-album.n4 { grid-template-columns: 1fr 1fr; }
+/* An album's cells are all the same square; each photo or still is
+   scaled to fit whole inside its cell, never cropped. */
+.app .c-album .c-media { border-radius: 4px; aspect-ratio: 1 / 1 !important; background: var(--hover); }
+.app .c-album .c-media > img:not(.c-mini), .app .c-album .c-media > video { object-fit: contain; }
+.app .c-videowrap { position: relative; overflow: hidden; }
+/* A video's blurred preview fills its box under the poster or frame. */
+.app .c-media > img.c-mini { position: absolute; inset: 0; filter: blur(10px); transform: scale(1.15); }
+.app .c-videowrap > video { position: relative; }
+.app .c-playbig { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 48px; height: 48px; border-radius: 50%; background: rgb(0 0 0 / .45); color: #fff; display: grid; place-items: center; pointer-events: none; }
+.app .c-dur { position: absolute; left: 8px; top: 8px; background: rgb(0 0 0 / .45); color: #fff; font-size: 12px; padding: 1px 7px; border-radius: 8px; }
+.app .c-doc { display: flex; gap: 10px; align-items: center; padding: 2px 0 4px; min-width: 220px; }
+.app .c-docicon { width: 44px; height: 44px; border-radius: 50%; background: var(--c-accent); color: #fff; display: grid; place-items: center; flex: none; }
+.app .c-row.out .c-docicon { background: var(--c-out-meta); }
+.app .c-docmeta { display: flex; flex-direction: column; min-width: 0; }
+.app .c-docmeta b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app .c-voice { display: flex; gap: 10px; align-items: center; min-width: 220px; }
+.app .c-play { width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--c-accent); color: #fff; display: grid; place-items: center; cursor: pointer; flex: none; }
+.app .c-row.out .c-play { background: var(--c-out-meta); }
+.app .c-wave { display: flex; align-items: flex-end; gap: 2px; height: 24px; }
+.app .c-wave span { width: 3px; border-radius: 2px; background: currentColor; opacity: .45; }
+.app .c-media { position: relative; overflow: hidden; color: inherit; }
+.app .c-media > img, .app .c-media > video { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
+.app .c-media.deleted > img, .app .c-media.deleted > video { opacity: .55; }
+/* A lone photo of unknown size: its own shape, whole, never cropped;
+   a very tall one is kept to a readable height. */
+.app .c-media.natural > img { height: auto; max-height: 520px; object-fit: contain; }
+.app .c-fetch { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); background: rgb(0 0 0 / .55); color: #fff; font-size: 12px; padding: 2px 9px; border-radius: 9px; white-space: nowrap; pointer-events: none; }
+.app .c-itemdel { position: absolute; right: 6px; top: 6px; display: inline-flex; align-items: center; gap: 3px; background: rgb(0 0 0 / .55); color: #ffb4b4; font-size: 11px; padding: 1px 6px; border-radius: 8px; }
+/* A narrow album cell cuts the longer recheck words; the title has them. */
+.app .c-itemdel { max-width: calc(100% - 12px); }
+.app .c-itemdel > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app .c-docwrap { position: relative; }
+.app .c-docwrap .c-itemdel { position: static; display: inline-flex; margin: 0 0 4px 54px; background: none; color: var(--danger); padding: 0; }
+.app .c-docwrap.deleted .c-doc { opacity: .62; }
+.app .c-docicon.off { background: var(--hover); color: var(--fg-3); }
+.app .c-audio { display: block; width: 260px; max-width: 100%; height: 36px; margin: 2px 0 4px; }
+/* A previewed document's actions (Show text, Open, Download) and its
+   text, under its row or its picture. */
+.app .c-docacts { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 4px; }
+.app .c-docwrap .c-docacts { margin-left: 54px; }
+.app .c-docwrap .a-textview { margin: 2px 0 4px; max-width: min(640px, 80vw); }
+.app .c-docprev { display: grid; justify-items: start; gap: 2px; }
+/* A picture sent as a file is its full file (no smaller thumb): drawn
+   at thumbnail size, the viewer shows it whole. */
+.app .c-docprev .c-media.single { max-width: min(320px, 100%); }
+.app .c-albumwrap { display: flex; flex-direction: column; gap: 4px; }
+.app .c-sticker { display: block; width: 160px; height: 160px; object-fit: contain; }
+.app .c-sticker-btn { border: 0; background: none; padding: 0; cursor: zoom-in; }
+.app .c-sticker-btn img { width: 100%; height: 100%; object-fit: contain; }
+.app .c-lottie { position: relative; }
+.app .c-lottie-box { position: absolute; inset: 0; }
+.app .c-lottie-box svg { width: 100% !important; height: 100% !important; }
+.app .c-lottie-emoji { position: absolute; inset: 0; display: grid; place-items: center; }
+.app .c-lottie.wait .c-lottie-emoji { opacity: .55; }
+.app .c-sticker-emoji { width: auto; height: auto; font-size: 96px; line-height: 1.1; color: var(--fg-3); }
+/* Custom emoji (src/ui/customemoji.tsx), at the size of the text. */
+.app .ce { display: inline-block; width: 1.25em; height: 1.25em; vertical-align: -.28em; object-fit: contain; }
+.app .ce-tgs { position: relative; }
+.app .ce-box { position: absolute; inset: 0; }
+.app .ce-box svg { display: block; width: 100% !important; height: 100% !important; }
+.app .ce-alt { position: absolute; inset: 0; display: grid; place-items: center; font-size: .9em; line-height: 1; }
+/* Repainted in the text colour: see CustomEmoji for why each way. */
+.app .ce-mask { background: currentColor; mask: center / contain no-repeat; -webkit-mask: center / contain no-repeat; }
+.app .ce-repaint.ce-tgs svg [fill]:not([fill="none"]) { fill: currentColor; }
+.app .ce-repaint.ce-tgs svg [stroke]:not([stroke="none"]) { stroke: currentColor; }
+.app .ce-repaint.ce-webm { filter: brightness(0); }
+:root[data-theme="dark"] .app .ce-repaint.ce-webm { filter: brightness(0) invert(1); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .app .ce-repaint.ce-webm { filter: brightness(0) invert(1); } }
+.app .c-wave span.on { opacity: 1; }
+.app .c-play:disabled { cursor: default; opacity: .6; }
+.app .c-lightbox { position: fixed; inset: 0; z-index: 1000; background: rgb(0 0 0 / .88); display: grid; place-items: center; padding: 56px 16px 16px; }
+.app .c-lb-bar { position: absolute; top: 0; left: 0; right: 0; height: 52px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 12px; color: #fff; font-size: 14px; }
+.app .c-lb-bar > span { margin-right: auto; }
+.app .c-lb-btn { width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgb(255 255 255 / .12); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.app .c-lb-btn:hover { background: rgb(255 255 255 / .22); }
+.app .c-lb-media { max-width: 100%; max-height: calc(100vh - 72px); object-fit: contain; border-radius: 4px; }
+.app .c-lp { display: flex; flex-direction: column; border-left: 3px solid var(--c-accent); padding: 2px 8px; margin: 6px 0 2px; font-size: 13.5px; line-height: 1.35; }
+.app .c-lp-main { display: flex; flex-direction: column; min-width: 0; }
+.app .c-lp-site { color: var(--c-link); }
+.app .c-lp-main > span { opacity: .85; }
+.app .c-lp-meta { font-size: 12px; }
+.app a.c-lp-main { color: inherit; text-decoration: none; }
+.app a.c-lp-main:hover .c-lp-url { text-decoration: underline; }
+/* The page's picture at its own shape, whole, as a lone photo. */
+.app .c-lp-img { display: block; width: 100%; max-width: 320px; max-height: 520px; margin-top: 6px; border-radius: 6px; object-fit: contain; }
+.app .c-lp-embed { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 12px; color: var(--c-link); text-decoration: none; }
+.app .c-lp-embed:hover { text-decoration: underline; }
+.app .c-lp-url { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 12px; color: var(--c-link); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+/* What the later preview types carry, below the link. */
+.app .c-lp-emoji { display: inline-block; margin-right: 4px; vertical-align: middle; }
+.app .c-lp-album, .app .c-lp-bg, .app .c-lp-stickers, .app .c-lp-story, .app .c-lp-themewrap { margin-top: 6px; }
+.app .c-lp-stickers { display: flex; flex-wrap: wrap; gap: 4px; }
+.app .c-lp-stickers .c-sticker { width: 64px; height: 64px; }
+.app .c-lp-stickers .c-sticker-emoji { font-size: 36px; display: grid; place-items: center; }
+.app .c-lp-gift { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.app .c-lp-gift .c-gift { margin: 6px 0 2px; }
+.app .c-lp-story { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.app .c-lp-themewrap { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+/* A theme's swatch: two bubbles and an accent dot on its background. */
+.app .c-lp-theme { position: relative; display: inline-block; flex: none; width: 72px; height: 54px; border: 1px solid rgb(0 0 0 / .12); border-radius: 6px; overflow: hidden; background: #e7ebf0; }
+.app .c-lp-theme.dark { background: #1f2630; }
+.app .c-lp-theme-in, .app .c-lp-theme-out { position: absolute; height: 12px; border-radius: 6px; }
+.app .c-lp-theme-in { left: 6px; top: 8px; width: 34px; background: #fff; }
+.app .c-lp-theme.dark .c-lp-theme-in { background: #2c3644; }
+.app .c-lp-theme-out { right: 6px; top: 26px; width: 40px; background: #d9f5c5; }
+.app .c-lp-theme-accent { position: absolute; left: 6px; bottom: 6px; width: 10px; height: 10px; border-radius: 50%; }
+.app .c-sign { font-size: 12.5px; font-style: italic; opacity: .7; margin-top: 2px; }
+.app .c-fwdlink { color: inherit; }
+.app .c-fwdlink:hover { text-decoration: underline; }
+.app .c-replydel { font-style: italic; }
+.app .c-reply-other { text-decoration: none; }
+.app .c-unknown { font-style: italic; }
+.app .c-svctime { margin-left: 6px; opacity: .75; font-size: 11.5px; color: inherit; }
+.app .c-service .c-deltag { margin-left: 6px; }
+.app .c-service.deleted > span { opacity: .65; }
+.app .c-svcphoto { display: inline-grid; place-items: center; vertical-align: middle; margin: -2px 0; border-radius: 50%; overflow: hidden; padding: 0; border: 0; }
+.app .c-svcphoto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.app button.c-svcphoto { cursor: pointer; }
+/* An animated photo: a play mark over the still, as on a video. */
+.app .c-svcanim { position: relative; background: var(--c-svc); color: var(--c-svc-fg); }
+.app .c-svcanim .c-svcplay { position: absolute; color: #fff; filter: drop-shadow(0 1px 2px rgb(0 0 0 / .6)); }
+.app .c-svcquote { font-style: italic; }
+/* A chat background's swatch: the fill as the box's background, the
+   wallpaper or pattern image over it (src/ui/background.tsx). */
+.app .c-bgswatch { position: relative; display: inline-block; vertical-align: middle; margin: -2px 0; padding: 0; border: 1px solid rgb(0 0 0 / .12); border-radius: 6px; overflow: hidden; color: var(--c-svc-fg); }
+.app .c-bgswatch img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.app .c-bgswatch.c-bgblur img { filter: blur(3px); transform: scale(1.1); }
+.app .c-bgswatch.c-bgnone { background: var(--c-svc); }
+.app button.c-bgswatch, .app a.c-bgswatch { cursor: pointer; }
+.app button.c-bgswatch { display: inline-grid; place-items: center; }
+/* An inverted pattern: white shapes on black, multiplied onto the fill. */
+.app .c-bgpat { position: absolute; inset: 0; background: #000; mix-blend-mode: multiply; }
+.app .c-bgpat img { filter: invert(1); }
+/* A pattern that cannot be drawn: a dotted hint over its fill. */
+.app .c-bgswatch.c-bghint::after { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle, rgb(255 255 255 / .55) 1.2px, transparent 1.6px); background-size: 8px 8px; }
+/* A gift on its service line (src/ui/servicegift.tsx): the sticker,
+   on an upgraded gift's backdrop, then its price, people and text. */
+.app .c-gift { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 280px; margin: 6px auto 2px; text-align: center; }
+.app .c-giftart { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 160px; padding: 10px 14px 8px; border-radius: 14px; }
+.app .c-giftart .c-sticker { width: 120px; height: 120px; }
+.app .c-giftart .c-sticker-emoji { font-size: 72px; }
+.app .c-giftsymbol { position: absolute; top: 8px; right: 8px; opacity: .8; }
+.app .c-giftsymbol .c-sticker { width: 28px; height: 28px; }
+.app .c-giftsymbol .c-sticker-emoji { font-size: 20px; }
+.app .c-giftnosticker { display: grid; place-items: center; width: 120px; height: 120px; color: var(--c-accent); }
+.app .c-gifttitle { font-weight: 700; }
+.app .c-giftbackdrop .c-gifttitle { color: #fff; }
+.app .c-giftline { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; font-size: 13px; }
+.app .c-giftstars { font-weight: 600; }
+.app .c-gifttext { display: block; }
+.app .c-giftattrs { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.app .c-giftpill { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, currentColor 18%, transparent); font-size: 11.5px; font-weight: 600; }
+.app .c-giftpill.rare { color: #4f9cf0; }
+.app .c-giftpill.epic { color: #a970e8; }
+.app .c-giftpill.legendary { color: #e8a03a; }
+.app .c-service .c-gift .k-ref { color: inherit; margin-right: 4px; }
+.app .c-svctopic { display: inline-flex; align-items: center; gap: 4px; }
+.app .c-editmedia { display: inline-block; margin: 4px 0; }
+.app .c-editmedia img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; display: block; }
+.app .c-editfile { margin: 2px 0; }
+.app .c-meta { float: right; display: inline-flex; align-items: center; gap: 6px; margin: 6px 0 -4px 10px; font-size: 12px; color: var(--c-meta); position: relative; top: 2px; }
+.app .c-row.out .c-meta { color: var(--c-out-meta); }
+.app .c-bubble.mediaonly .c-meta, .app .c-bubble.sticker .c-meta { position: absolute; right: 8px; bottom: 8px; margin: 0; padding: 1px 7px; border-radius: 9px; background: rgb(0 0 0 / .4); color: #fff; float: none; top: auto; }
+.app .c-time:hover { text-decoration: underline; }
+.app .c-edited { border: 0; background: none; padding: 0; color: inherit; font: inherit; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+.app .c-edited:hover { text-decoration: underline; }
+.app .c-deltag { display: inline-flex; align-items: center; gap: 3px; color: var(--danger); }
+/* The float of the meta line (edited, time) would swallow a margin:
+   the wrapper clears it and keeps the gap as padding (the meta line
+   sits 2px low with a -4px margin, so 14px leaves 8px). */
+.app .c-editswrap { clear: both; padding-top: 14px; }
+.app .c-edits { padding: 6px 8px; border-radius: 8px; background: var(--c-quote); font-size: 13.5px; display: grid; gap: 6px; }
+.app .c-bubble::after { content: ""; display: block; clear: both; }
+.app .c-tobottom { position: absolute; right: 20px; bottom: 56px; width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--c-head); color: var(--fg-2); box-shadow: 0 2px 8px rgb(0 0 0 / .2); display: grid; place-items: center; cursor: pointer; }
+.app .c-readonly { flex: none; display: flex; justify-content: center; align-items: center; gap: 6px; padding: 10px 12px; background: var(--c-head); border-top: 1px solid var(--border); color: var(--fg-3); font-size: 13px; text-align: center; }
+
+/* Public (signed-out) view of an exposed group. */
+.app.c-publicpage { min-height: 100vh; display: flex; flex-direction: column; }
+.app.c-publicpage .c-chat { height: calc(100vh - 52px); }
+.app .c-pubtop { display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 16px; background: var(--bg); border-bottom: 1px solid var(--border); flex: none; }
+
+@media (max-width: 860px) {
+	.app .a-flush .a-content { height: calc(100dvh - 52px); }
+	.app .c-feed { padding: 6px 6px 12px; }
+	.app .c-bubble { max-width: 86%; }
+	.app .c-media.single, .app .c-album { width: 240px; }
+	.app .c-hide-sm { display: none; }
+	.app .c-live { padding: 0 8px; }
+	.app .c-head { gap: 6px; padding: 0 4px; }
+	.app .c-head-link { gap: 8px; margin: 0; padding: 4px; }
+	.app .c-searchbar .c-sub { display: none; }
+	.app .c-tobottom { bottom: 64px; right: 12px; }
+}
+.app .c-unseen { position: absolute; top: -6px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--accent, #5b5bd6); color: #fff; font: 600 11px/20px Roboto, system-ui, sans-serif; text-align: center; }
+.app .c-reveal { border: 0; cursor: pointer; font: inherit; color: var(--fg-2); }
+
+/* Message kinds (chat-kinds.tsx): a card per detail, inside the bubble. */
+.app .k-card { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 4px; min-width: min(240px, 100%); }
+.app .k-head { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.app .k-head svg { color: var(--c-accent); flex: none; }
+.app .k-coords { color: var(--c-link); font-size: 13px; }
+.app .k-contact { flex-direction: row; align-items: center; gap: 10px; }
+.app .k-ref { display: inline-flex; align-items: center; gap: 4px; color: var(--c-link); margin-right: 8px; }
+.app .k-refs { display: inline-flex; flex-wrap: wrap; align-items: center; row-gap: 2px; }
+.app .k-line { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.app .k-line > svg { color: var(--c-meta); flex: none; }
+.app .k-dice { display: flex; align-items: center; gap: 10px; }
+.app .k-dice-face { font-size: 40px; line-height: 1; color: var(--c-accent); }
+.app .k-dice-value { font-size: 22px; font-weight: 700; }
+.app .k-question { font-weight: 600; }
+.app .k-options { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.app .k-opt { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+.app .k-opt > span:first-child { display: inline-flex; align-items: center; gap: 4px; }
+.app .k-right { color: var(--ok); }
+.app .k-bar { display: block; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--c-accent) 18%, transparent); overflow: hidden; }
+.app .k-bar > span { display: block; height: 100%; background: var(--c-accent); }
+.app .k-options li.correct .k-bar > span { background: var(--ok); }
+.app .k-explain { font-size: 13px; border-left: 3px solid var(--ok); padding-left: 8px; }
+.app .k-checklist ul { list-style: none; margin: 2px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.app .k-checklist li { display: flex; align-items: flex-start; gap: 6px; }
+.app .k-checklist li > svg { flex: none; margin-top: 2px; color: var(--c-meta); }
+.app .k-checklist li.done > svg { color: var(--ok); }
+.app .k-checklist li.done .k-task { text-decoration: line-through; color: var(--fg-2); }
+.app .k-amount { font-weight: 700; font-size: 15px; }
+/* A giveaway's prize sticker, above its card. */
+.app .k-giftsticker { align-self: center; }
+.app .k-giftsticker .c-sticker { width: 120px; height: 120px; }
+.app .k-giftsticker .c-sticker-emoji { font-size: 72px; }
+.app .k-call { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 4px; }
+.app .k-callicon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--c-accent); color: #fff; flex: none; }
+.app .k-call.missed .k-callicon, .app .k-call.declined .k-callicon, .app .k-call.disconnected .k-callicon { background: var(--danger); }
+.app .k-call.active .k-callicon { background: var(--ok); }
+.app .k-call .k-line { flex-basis: 100%; }
+/* A paid media item that does not open: locked, unsupported, not stored. */
+.app .k-paidtile { min-height: 90px; text-align: center; padding: 6px; }
+.app .k-placeholder { display: flex; align-items: center; gap: 6px; }
+/* A widget (chat-widget.tsx): its box at its size, never its page. */
+.app .k-widgetbox { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px; box-sizing: border-box; text-align: center; border: 1px dashed color-mix(in srgb, var(--c-accent) 45%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--c-accent) 6%, transparent); overflow: hidden; }
+.app .k-widgetbox > svg { color: var(--c-accent); }
+.app .k-widgetsrc > summary { cursor: pointer; font-weight: 600; }
+.app .k-widgetsrc pre { max-height: 360px; overflow: auto; }
+.app .k-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
+.app .k-reaction { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 12px; font-size: 13px; background: color-mix(in srgb, var(--c-accent) 14%, transparent); }
+.app .k-reaction svg { color: #e9a700; }
+.app .k-reaction .ce svg { color: inherit; }
+.app .k-count { display: inline-flex; align-items: center; gap: 2px; }
+.app .c-videowrap.round { width: 220px; max-width: 70vw; border-radius: 50%; overflow: hidden; background: #24303c; }
+.app .c-videowrap.round .c-dur { left: 50%; right: auto; bottom: 12px; top: auto; transform: translateX(-50%); }
+.app .c-videowrap.round img, .app .c-videowrap.round video { object-fit: cover; width: 100%; height: 100%; }
+.app .c-bubble.mediaonly:has(.c-videowrap.round) { background: none; box-shadow: none; padding: 0; }
+.app .c-bubble.mediaonly:has(.c-videowrap.round) .c-sender { display: none; }
+.app .k-topics { display: flex; gap: 6px; padding: 6px 12px; overflow-x: auto; background: var(--c-head); border-bottom: 1px solid var(--border); flex: none; scrollbar-width: thin; }
+.app .k-topics a { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; height: 28px; padding: 0 12px; border-radius: 14px; color: var(--fg-2); font-weight: 550; font-size: 13px; text-decoration: none; }
+.app .k-topics a:hover { background: var(--hover); }
+.app .k-topics a.on { background: color-mix(in srgb, var(--c-accent) 16%, transparent); color: var(--fg); }
+.app .k-topicdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.app .k-topicicon { display: inline-flex; flex: none; line-height: 1; }
+.app .k-effect { display: inline-flex; align-items: center; line-height: 1; }
+.app .k-effect .ce { width: 14px; height: 14px; vertical-align: middle; }
+.app .k-topictag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-2); text-decoration: none; margin-bottom: 2px; }
+.app .k-topictag:hover { text-decoration: underline; }
+/* An earlier version's detail in an edit list (src/ui/editdetail.tsx). */
+.app .e-detail { margin: 2px 0; }
+.app .e-loc { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.app .e-loc > svg { flex: none; color: var(--c-meta); }
+.app .e-detail.k-checklist li > svg { margin-top: 3px; }
+.app .c-editmore { border: 0; background: none; padding: 0; font: inherit; color: var(--c-link); cursor: pointer; justify-self: start; }
+.app .c-editmore:hover { text-decoration: underline; }
+/* A community named on a service line: its small photo, then its name. */
+.app .c-svccommunity { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; font-weight: 600; }

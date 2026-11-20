@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2026 Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
@@ -34,49 +34,152 @@ mysql::Param b(bool v)
 void DB::upsertUser(const models::User &u)
 {
 	/*
-	 * Note: profile_photo_file_id and the created_at/updated_at columns
-	 * are intentionally omitted; the photo reference is managed after
-	 * the photo has been downloaded.
+	 * Note: profile_photo_file_id, the birthday_* columns and the
+	 * created_at/updated_at columns are intentionally omitted here; the
+	 * photo reference is managed after download, and the birthday arrives
+	 * with userFullInfo. The sparse attributes (phone, appearance, ...)
+	 * live in telegram_user_extra_info, written by upsertUserExtraFromUser below.
+	 *
+	 * first_name/last_name are the user's own name; for a contact, the
+	 * name TDLib reports is the account's and goes to contact_*_name
+	 * (models::planUserName decides).
 	 */
 	static const char *sql =
-		"INSERT INTO users ("
-		" id, first_name, last_name, phone_number, type,"
-		" accent_color_id, background_custom_emoji_id,"
-		" profile_accent_color_id, profile_background_custom_emoji_id,"
-		" emoji_status_custom_emoji_id, emoji_status_expiration_date,"
-		" is_verified, is_scam, is_fake, is_premium, is_support,"
-		" restriction_reason, has_sensitive_content, restricts_new_chats,"
-		" paid_message_star_count, is_contact, is_mutual_contact,"
-		" is_close_friend, have_access, language_code"
-		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
-		" ?, ?, ?, ?, ?"
-		") AS new ON DUPLICATE KEY UPDATE"
+		"INSERT INTO telegram_users ("
+		" id, first_name, last_name, is_contact, is_mutual_contact,"
+		" contact_first_name, contact_last_name, own_name_known,"
+		" type, accent_color_id,"
+		" is_verified, is_scam, is_fake, is_premium, is_support"
+		") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+		" AS new ON DUPLICATE KEY UPDATE"
 		" first_name = new.first_name,"
 		" last_name = new.last_name,"
-		" phone_number = new.phone_number,"
+		" is_contact = new.is_contact,"
+		" is_mutual_contact = new.is_mutual_contact,"
+		" contact_first_name = new.contact_first_name,"
+		" contact_last_name = new.contact_last_name,"
+		" own_name_known = new.own_name_known,"
 		" type = new.type,"
 		" accent_color_id = new.accent_color_id,"
-		" background_custom_emoji_id = new.background_custom_emoji_id,"
-		" profile_accent_color_id = new.profile_accent_color_id,"
-		" profile_background_custom_emoji_id = new.profile_background_custom_emoji_id,"
-		" emoji_status_custom_emoji_id = new.emoji_status_custom_emoji_id,"
-		" emoji_status_expiration_date = new.emoji_status_expiration_date,"
 		" is_verified = new.is_verified,"
 		" is_scam = new.is_scam,"
 		" is_fake = new.is_fake,"
 		" is_premium = new.is_premium,"
-		" is_support = new.is_support,"
-		" restriction_reason = new.restriction_reason,"
-		" has_sensitive_content = new.has_sensitive_content,"
-		" restricts_new_chats = new.restricts_new_chats,"
-		" paid_message_star_count = new.paid_message_star_count,"
-		" is_contact = new.is_contact,"
-		" is_mutual_contact = new.is_mutual_contact,"
-		" is_close_friend = new.is_close_friend,"
-		" have_access = new.have_access,"
-		" language_code = new.language_code";
+		" is_support = new.is_support";
 
+	db_.transaction([&](mysql::Transaction &tx) {
+		/*
+		 * Fetch the current name and contact state (users) and phone
+		 * number (telegram_user_extra_info) in one query so we can
+		 * detect changes (existing user) or record first-seen values
+		 * (new user).
+		 */
+		auto old = tx.query(
+			"SELECT u.first_name, u.last_name, e.phone_number,"
+			" u.is_contact, u.own_name_known"
+			" FROM telegram_users u"
+			" LEFT JOIN telegram_user_extra_info e ON e.user_id = u.id"
+			" WHERE u.id = ?",
+			{ (int64_t)u.id });
+
+		models::ReportedUserName now;
+		now.name = { u.first_name, u.last_name };
+		now.is_contact = u.is_contact;
+
+		models::StoredUserName stored;
+		if (!old.empty()) {
+			auto &r = old[0];
+			stored.name = { r[0].value_or(""), r[1].value_or("") };
+			if (r[3].has_value())
+				stored.is_contact = *r[3] != "0";
+			stored.own_name_known = r[4].value_or("1") != "0";
+		}
+		const models::StoredUserName *sp = old.empty() ? nullptr
+							       : &stored;
+
+		std::optional<models::Name> hist_own;
+		if (models::needsOwnNameBackfill(sp, now))
+			hist_own = ownNameFromHistory(tx, u.id, now.name);
+
+		auto plan = models::planUserName(sp, now, hist_own);
+
+		mysql::Param cf = std::monostate{};
+		mysql::Param cl = std::monostate{};
+		if (plan.contact_name) {
+			cf = plan.contact_name->first;
+			cl = plan.contact_name->second;
+		}
+
+		tx.execute(sql, {
+			(int64_t)u.id,
+			plan.name.first,
+			plan.name.second,
+			b(u.is_contact),
+			b(u.is_mutual_contact),
+			cf,
+			cl,
+			b(plan.own_name_known),
+			std::string(user_type_to_string(u.type)),
+			(int64_t)u.accent_color_id,
+			b(u.is_verified),
+			b(u.is_scam),
+			b(u.is_fake),
+			b(u.is_premium),
+			b(u.is_support),
+		});
+
+		/* After the UPSERT, so the FK exists for a new user. */
+		for (const auto &h : plan.hist) {
+			tx.insert("INSERT INTO telegram_user_hist_name"
+				  " (user_id, first_name, last_name)"
+				  " VALUES (?, ?, ?)",
+				  { (int64_t)u.id, h.first, h.second });
+		}
+
+		if (old.empty()) {
+			/* First time seeing this user - record the initial phone. */
+			tx.insert("INSERT INTO telegram_user_hist_phone_num"
+				  " (user_id, phone_number)"
+				  " VALUES (?, ?)",
+				  { (int64_t)u.id, u.phone_number });
+		} else {
+			std::string op = old[0][2].value_or("");
+			if (op != u.phone_number) {
+				tx.insert("INSERT INTO telegram_user_hist_phone_num"
+					  " (user_id, phone_number)"
+					  " VALUES (?, ?)",
+					  { (int64_t)u.id, op });
+			}
+		}
+
+		upsertUserExtraFromUser(tx, u);
+		syncUsernames(tx, u);
+	});
+}
+
+std::optional<models::Name> DB::ownNameFromHistory(mysql::Transaction &tx,
+						    int64_t user_id,
+						    const models::Name &contact)
+{
+	/*
+	 * The newest history row with a name other than the contact name.
+	 * Compared here, byte for byte: the column collation is case and
+	 * accent insensitive, and "moe" is another name than "Moe".
+	 */
+	auto rows = tx.query(
+		"SELECT first_name, last_name FROM telegram_user_hist_name"
+		" WHERE user_id = ? ORDER BY id DESC LIMIT 100",
+		{ user_id });
+	for (auto &r : rows) {
+		models::Name n{ r[0].value_or(""), r[1].value_or("") };
+		if (n != contact)
+			return n;
+	}
+	return std::nullopt;
+}
+
+void DB::upsertUserExtraFromUser(mysql::Transaction &tx, const models::User &u)
+{
 	mysql::Param emoji_id = std::monostate{};
 	if (u.emoji_status_custom_emoji_id.has_value())
 		emoji_id = (int64_t)*u.emoji_status_custom_emoji_id;
@@ -85,89 +188,97 @@ void DB::upsertUser(const models::User &u)
 	if (u.emoji_status_expiration_date.has_value())
 		emoji_exp = (int64_t)*u.emoji_status_expiration_date;
 
-	db_.transaction([&](mysql::Transaction &tx) {
-		/*
-		 * Fetch the current name and phone number in one query
-		 * so we can detect changes (existing user) or record
-		 * first-seen values (new user).
-		 */
-		auto old = tx.query(
-			"SELECT first_name, last_name, phone_number"
-			" FROM users WHERE id = ?",
-			{ (int64_t)u.id });
-
-		tx.execute(sql, {
+	/* Only the columns sourced from the user object; bio/personal_chat_id
+	 * are owned by the full-info path and left untouched. */
+	tx.execute(
+		"INSERT INTO telegram_user_extra_info ("
+		" user_id, phone_number, background_custom_emoji_id,"
+		" profile_accent_color_id, profile_background_custom_emoji_id,"
+		" emoji_status_custom_emoji_id, emoji_status_expiration_date,"
+		" restriction_reason, language_code, has_sensitive_content,"
+		" restricts_new_chats, paid_message_star_count"
+		") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+		" AS new ON DUPLICATE KEY UPDATE"
+		" phone_number = new.phone_number,"
+		" background_custom_emoji_id = new.background_custom_emoji_id,"
+		" profile_accent_color_id = new.profile_accent_color_id,"
+		" profile_background_custom_emoji_id = new.profile_background_custom_emoji_id,"
+		" emoji_status_custom_emoji_id = new.emoji_status_custom_emoji_id,"
+		" emoji_status_expiration_date = new.emoji_status_expiration_date,"
+		" restriction_reason = new.restriction_reason,"
+		" language_code = new.language_code,"
+		" has_sensitive_content = new.has_sensitive_content,"
+		" restricts_new_chats = new.restricts_new_chats,"
+		" paid_message_star_count = new.paid_message_star_count",
+		{
 			(int64_t)u.id,
-			u.first_name,
-			u.last_name,
 			u.phone_number,
-			std::string(user_type_to_string(u.type)),
-			(int64_t)u.accent_color_id,
 			(int64_t)u.background_custom_emoji_id,
 			(int64_t)u.profile_accent_color_id,
 			(int64_t)u.profile_background_custom_emoji_id,
 			emoji_id,
 			emoji_exp,
-			b(u.is_verified),
-			b(u.is_scam),
-			b(u.is_fake),
-			b(u.is_premium),
-			b(u.is_support),
 			u.restriction_reason,
+			u.language_code,
 			b(u.has_sensitive_content),
 			b(u.restricts_new_chats),
 			(int64_t)u.paid_message_star_count,
-			b(u.is_contact),
-			b(u.is_mutual_contact),
-			b(u.is_close_friend),
-			b(u.have_access),
-			u.language_code,
 		});
 
-		if (old.empty()) {
-			/*
-			 * First time seeing this user - record initial
-			 * values. Runs after the UPSERT so the FK exists.
-			 */
-			tx.insert("INSERT INTO user_hist_name"
-				  " (user_id, first_name, last_name)"
-				  " VALUES (?, ?, ?)",
-				  { (int64_t)u.id, u.first_name,
-				    u.last_name });
-			tx.insert("INSERT INTO user_hist_phone_num"
-				  " (user_id, phone_number)"
-				  " VALUES (?, ?)",
-				  { (int64_t)u.id, u.phone_number });
-		} else {
-			auto &r = old[0];
-			std::string of = r[0].value_or("");
-			std::string ol = r[1].value_or("");
-			if (of != u.first_name || ol != u.last_name) {
-				tx.insert("INSERT INTO user_hist_name"
-					  " (user_id, first_name,"
-					  " last_name)"
-					  " VALUES (?, ?, ?)",
-					  { (int64_t)u.id, of, ol });
-			}
+	pruneUserExtraIfEmpty(tx, u.id);
+}
 
-			std::string op = r[2].value_or("");
-			if (op != u.phone_number) {
-				tx.insert("INSERT INTO user_hist_phone_num"
-					  " (user_id, phone_number)"
-					  " VALUES (?, ?)",
-					  { (int64_t)u.id, op });
-			}
-		}
+void DB::upsertUserExtraFromFullInfo(mysql::Transaction &tx,
+				     const models::UserFullInfo &fi)
+{
+	/*
+	 * Link the personal chat only when its channel is already stored, so
+	 * the FK to groups holds. If it is not stored yet the value is NULL for
+	 * now; the channel fetch was kicked off on the TDLib side and a later
+	 * full-info refresh links it.
+	 */
+	mysql::Param personal = std::monostate{};
+	if (fi.personal_chat_id != 0) {
+		auto g = tx.query("SELECT id FROM `telegram_groups` WHERE id = ?",
+				  { (int64_t)fi.personal_chat_id });
+		if (!g.empty())
+			personal = (int64_t)fi.personal_chat_id;
+	}
 
-		syncUsernames(tx, u);
-	});
+	tx.execute(
+		"INSERT INTO telegram_user_extra_info (user_id, bio, personal_chat_id)"
+		" VALUES (?, ?, ?) AS new ON DUPLICATE KEY UPDATE"
+		" bio = new.bio, personal_chat_id = new.personal_chat_id",
+		{ (int64_t)fi.user_id, fi.bio, personal });
+
+	pruneUserExtraIfEmpty(tx, fi.user_id);
+}
+
+void DB::pruneUserExtraIfEmpty(mysql::Transaction &tx, int64_t user_id)
+{
+	/* A row is kept only while at least one column differs from its default
+	 * (the "empty" sentinel documented per column); otherwise it is dropped
+	 * so unset users cost no storage. */
+	tx.execute(
+		"DELETE FROM telegram_user_extra_info WHERE user_id = ?"
+		" AND bio = '' AND phone_number = ''"
+		" AND background_custom_emoji_id = 0"
+		" AND profile_accent_color_id = -1"
+		" AND profile_background_custom_emoji_id = 0"
+		" AND emoji_status_custom_emoji_id IS NULL"
+		" AND emoji_status_expiration_date IS NULL"
+		" AND restriction_reason = '' AND language_code = ''"
+		" AND has_sensitive_content = 0 AND restricts_new_chats = 0"
+		" AND paid_message_star_count = 0"
+		" AND personal_chat_id IS NULL",
+		{ user_id });
 }
 
 void DB::setUserProfilePhoto(int64_t user_id, uint64_t file_id)
 {
 	db_.transaction([&](mysql::Transaction &tx) {
 		trackProfilePhotoChange(tx, user_id, file_id);
-		tx.execute("UPDATE users SET profile_photo_file_id = ?"
+		tx.execute("UPDATE telegram_users SET profile_photo_file_id = ?"
 			   " WHERE id = ?",
 			   { (int64_t)file_id, (int64_t)user_id });
 	});
@@ -176,8 +287,9 @@ void DB::setUserProfilePhoto(int64_t user_id, uint64_t file_id)
 void DB::syncUsernames(mysql::Transaction &tx, const models::User &u)
 {
 	struct Entry {
-		std::string	kind;
+		std::string	kind;         /* "active" or "disabled". */
 		int		position = 0;
+		bool		collectible = false;
 	};
 
 	/*
@@ -185,7 +297,7 @@ void DB::syncUsernames(mysql::Transaction &tx, const models::User &u)
 	 * be diffed against them to record the individual changes.
 	 */
 	auto old_rows = tx.query(
-		"SELECT username, kind, position FROM user_usernames"
+		"SELECT username, kind, position, is_collectible FROM telegram_user_usernames"
 		" WHERE user_id = ?",
 		{ (int64_t)u.id });
 
@@ -196,57 +308,79 @@ void DB::syncUsernames(mysql::Transaction &tx, const models::User &u)
 		old_map.emplace(*r[0], Entry{
 			r[1].value_or(""),
 			r[2].has_value() ? std::stoi(*r[2]) : 0,
+			r[3].has_value() && *r[3] != "0",
 		});
 	}
 
-	/* Build the new set from the model, preserving list order. */
+	/*
+	 * Build the new set, ONE entry per username. A username is active XOR
+	 * disabled (its kind); collectible is orthogonal (a username can be
+	 * active AND purchased at fragment.com), so it is a flag, not a kind.
+	 * Recording it as a separate "collectible" row is what made the diff
+	 * flap: the same name appeared as both active and collectible, and the
+	 * unique-key upsert could keep only one, so every resync saw a kind
+	 * change. A collectible username that is neither active nor disabled
+	 * (owned but unassigned) is recorded as disabled.
+	 */
 	std::vector<std::pair<std::string, Entry>> new_list;
-	std::unordered_map<std::string, Entry> new_map;
-	auto collect = [&](const std::vector<std::string> &names,
-			   const char *kind) {
-		for (size_t i = 0; i < names.size(); i++) {
-			Entry e{ kind, (int)i };
-			new_list.emplace_back(names[i], e);
-			new_map[names[i]] = e;
-		}
+	std::unordered_map<std::string, size_t> idx;
+	auto add = [&](const std::string &name, const char *kind, int pos) {
+		idx[name] = new_list.size();
+		new_list.push_back({ name, Entry{ kind, pos, false } });
 	};
-	collect(u.active_usernames, "active");
-	collect(u.disabled_usernames, "disabled");
-	collect(u.collectible_usernames, "collectible");
+	for (size_t i = 0; i < u.active_usernames.size(); i++)
+		add(u.active_usernames[i], "active", (int)i);
+	for (size_t i = 0; i < u.disabled_usernames.size(); i++)
+		add(u.disabled_usernames[i], "disabled", (int)i);
+	for (size_t i = 0; i < u.collectible_usernames.size(); i++) {
+		const std::string &name = u.collectible_usernames[i];
+		auto it = idx.find(name);
+		if (it != idx.end())
+			new_list[it->second].second.collectible = true;
+		else {
+			add(name, "disabled", (int)i);
+			new_list.back().second.collectible = true;
+		}
+	}
 
 	static const char *ev =
-		"INSERT INTO user_hist_usernames_events"
-		" (user_id, username, action, kind, position)"
-		" VALUES (?, ?, ?, ?, ?)";
+		"INSERT INTO telegram_user_hist_usernames_events"
+		" (user_id, username, action, kind, position, is_collectible)"
+		" VALUES (?, ?, ?, ?, ?, ?)";
 
-	/* Additions, kind changes and reorders. */
+	/* Additions, status changes, collectible changes and reorders. */
 	for (auto &n : new_list) {
 		const std::string &uname = n.first;
 		const Entry &ne = n.second;
+		int64_t coll = ne.collectible ? 1 : 0;
 		auto it = old_map.find(uname);
 		if (it == old_map.end()) {
 			tx.execute(ev, { (int64_t)u.id, uname,
 					 std::string("added"), ne.kind,
-					 (int64_t)ne.position });
+					 (int64_t)ne.position, coll });
 		} else if (it->second.kind != ne.kind) {
 			tx.execute(ev, { (int64_t)u.id, uname,
 					 std::string("kind_changed"), ne.kind,
-					 (int64_t)ne.position });
+					 (int64_t)ne.position, coll });
+		} else if (it->second.collectible != ne.collectible) {
+			tx.execute(ev, { (int64_t)u.id, uname,
+					 std::string("collectible_changed"), ne.kind,
+					 (int64_t)ne.position, coll });
 		} else if (it->second.position != ne.position) {
 			tx.execute(ev, { (int64_t)u.id, uname,
 					 std::string("reordered"), ne.kind,
-					 (int64_t)ne.position });
+					 (int64_t)ne.position, coll });
 		}
 	}
 
 	/* Removals: usernames the user no longer owns are released. */
 	for (auto &o : old_map) {
-		if (new_map.find(o.first) != new_map.end())
+		if (idx.find(o.first) != idx.end())
 			continue;
 		tx.execute(ev, { (int64_t)u.id, o.first,
 				 std::string("removed"), std::monostate{},
-				 std::monostate{} });
-		tx.execute("UPDATE user_usernames SET user_id = NULL"
+				 std::monostate{}, std::monostate{} });
+		tx.execute("UPDATE telegram_user_usernames SET user_id = NULL"
 			   " WHERE user_id = ? AND username = ?",
 			   { (int64_t)u.id, o.first });
 	}
@@ -254,16 +388,18 @@ void DB::syncUsernames(mysql::Transaction &tx, const models::User &u)
 	/*
 	 * Upsert the current usernames. The UNIQUE key on username lets a
 	 * single statement claim a new username, transfer ownership of an
-	 * existing one, and update its kind and position.
+	 * existing one, and update its kind, position and collectible flag.
 	 */
 	static const char *ins =
-		"INSERT INTO user_usernames (user_id, username, kind, position)"
-		" VALUES (?, ?, ?, ?) AS new ON DUPLICATE KEY UPDATE"
+		"INSERT INTO telegram_user_usernames"
+		" (user_id, username, kind, position, is_collectible)"
+		" VALUES (?, ?, ?, ?, ?) AS new ON DUPLICATE KEY UPDATE"
 		" user_id = new.user_id, kind = new.kind,"
-		" position = new.position";
+		" position = new.position, is_collectible = new.is_collectible";
 	for (auto &n : new_list) {
 		tx.execute(ins, { (int64_t)u.id, n.first, n.second.kind,
-				  (int64_t)n.second.position });
+				  (int64_t)n.second.position,
+				  (int64_t)(n.second.collectible ? 1 : 0) });
 	}
 }
 
@@ -271,27 +407,27 @@ void DB::trackProfilePhotoChange(mysql::Transaction &tx,
 				 int64_t user_id, uint64_t file_id)
 {
 	auto rows = tx.query(
-		"SELECT profile_photo_file_id FROM users WHERE id = ?",
+		"SELECT profile_photo_file_id FROM telegram_users WHERE id = ?",
 		{ user_id });
 	if (rows.empty())
 		return;
 
+	/*
+	 * Every photo that is or was the profile photo has a history row,
+	 * dated when it was first seen as such. The history used to record
+	 * the photo being replaced instead, so the current photo had no row
+	 * until it was replaced in turn; a photo set while that was so is
+	 * recorded now, when it is replaced, rather than lost.
+	 */
 	auto &val = rows[0][0];
-	if (!val.has_value()) {
-		/* First profile photo — record it. */
-		tx.insert("INSERT INTO user_hist_profile_photo"
-			  " (user_id, file_id) VALUES (?, ?)",
-			  { user_id, (int64_t)file_id });
-		return;
+	if (val.has_value()) {
+		uint64_t old_id = std::stoull(*val);
+		if (old_id != file_id)
+			ensurePhotoHistory(tx, false, user_id, old_id, 0);
 	}
-
-	uint64_t old_id = std::stoull(*val);
-	if (old_id == file_id)
-		return;
-
-	tx.insert("INSERT INTO user_hist_profile_photo"
-		  " (user_id, file_id) VALUES (?, ?)",
-		  { user_id, (int64_t)old_id });
+	/* Also when unchanged: a current photo recorded under the old rule
+	 * gets its row the next time it is seen. */
+	ensurePhotoHistory(tx, false, user_id, file_id, 0);
 }
 
 void DB::upsertUserFullInfo(const models::UserFullInfo &fi)
@@ -302,18 +438,19 @@ void DB::upsertUserFullInfo(const models::UserFullInfo &fi)
 		 * before full info is fetched. If it is somehow not present
 		 * yet, skip rather than create a partial row.
 		 */
-		auto old = tx.query("SELECT bio FROM users WHERE id = ?",
-				    { (int64_t)fi.user_id });
-		if (old.empty())
+		auto exists = tx.query("SELECT 1 FROM telegram_users WHERE id = ?",
+				       { (int64_t)fi.user_id });
+		if (exists.empty())
 			return;
 
-		/* Record the previous bio when it changes. */
-		std::string old_bio = old[0][0].value_or("");
-		if (old_bio != fi.bio) {
-			tx.insert("INSERT INTO user_hist_bio (user_id, bio)"
-				  " VALUES (?, ?)",
-				  { (int64_t)fi.user_id, old_bio });
-		}
+		/*
+		 * Snapshot the bio as observed. This is the first point at which
+		 * the bio is known (the users row was created without it, from
+		 * the plain user object), so recording it here captures the
+		 * initial bio and every later change, and never an empty row.
+		 */
+		recordTextHistory(tx, "telegram_user_hist_bio", "user_id", "bio",
+				  fi.user_id, fi.bio);
 
 		mysql::Param bday = std::monostate{};
 		if (fi.birthday_day.has_value())
@@ -325,17 +462,73 @@ void DB::upsertUserFullInfo(const models::UserFullInfo &fi)
 		if (fi.birthday_year.has_value())
 			byear = (int64_t)*fi.birthday_year;
 
+		/* Birthday stays on the users row; bio and personal_chat_id go
+		 * to telegram_user_extra_info. */
 		tx.execute(
-			"UPDATE users SET bio = ?, personal_chat_id = ?,"
-			" birthday_day = ?, birthday_month = ?,"
+			"UPDATE telegram_users SET birthday_day = ?, birthday_month = ?,"
 			" birthday_year = ? WHERE id = ?",
-			{
-				fi.bio,
-				(int64_t)fi.personal_chat_id,
-				bday, bmon, byear,
-				(int64_t)fi.user_id,
-			});
+			{ bday, bmon, byear, (int64_t)fi.user_id });
+
+		upsertUserExtraFromFullInfo(tx, fi);
 	});
+}
+
+bool DB::ensurePhotoHistory(mysql::Transaction &tx, bool is_group,
+			    int64_t owner_id, uint64_t file_id, int64_t date)
+{
+	const char *tbl = is_group ? "telegram_group_hist_photo"
+				   : "telegram_user_hist_profile_photo";
+	const char *col = is_group ? "group_id" : "user_id";
+	if (!tx.query(std::string("SELECT 1 FROM ") + tbl + " WHERE " + col +
+		      " = ? AND file_id = ? LIMIT 1",
+		      { owner_id, (int64_t)file_id }).empty()) {
+		/*
+		 * Already recorded. A photo cannot have become current
+		 * before its own date, so a row dated later than the date
+		 * Telegram gives was dated by when the daemon saw it (or,
+		 * under the old rule, by when it was replaced): take the
+		 * photo's own date. A row dated at or before it is left as
+		 * it is.
+		 */
+		if (date > 0)
+			tx.execute(std::string("UPDATE ") + tbl +
+				   " SET created_at = FROM_UNIXTIME(?) WHERE " +
+				   col + " = ? AND file_id = ?"
+				   " AND created_at > FROM_UNIXTIME(?)",
+				   { date, owner_id, (int64_t)file_id, date });
+		return false;
+	}
+	if (date > 0)
+		tx.insert(std::string("INSERT INTO ") + tbl + " (" + col +
+			  ", file_id, created_at) VALUES (?, ?, FROM_UNIXTIME(?))",
+			  { owner_id, (int64_t)file_id, date });
+	else
+		tx.insert(std::string("INSERT INTO ") + tbl + " (" + col +
+			  ", file_id) VALUES (?, ?)",
+			  { owner_id, (int64_t)file_id });
+	return true;
+}
+
+bool DB::ensurePhotoHistory(int64_t owner_id, bool is_group,
+			    uint64_t file_id, int64_t date)
+{
+	bool added = false;
+	db_.transaction([&](mysql::Transaction &tx) {
+		added = ensurePhotoHistory(tx, is_group, owner_id, file_id, date);
+	});
+	return added;
+}
+
+bool DB::userExists(int64_t user_id)
+{
+	return !db_.query("SELECT 1 FROM telegram_users WHERE id = ?",
+			  { user_id }).empty();
+}
+
+bool DB::groupExists(int64_t group_id)
+{
+	return !db_.query("SELECT 1 FROM telegram_groups WHERE id = ?",
+			  { group_id }).empty();
 }
 
 } /* namespace tgloggerd */

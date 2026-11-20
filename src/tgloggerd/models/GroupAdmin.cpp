@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2026 Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
@@ -56,7 +56,7 @@ void push_rights(std::vector<mysql::Param> &p, const models::GroupAdmin &a)
 void DB::syncGroupAdmins(const models::GroupAdminList &list)
 {
 	static const char *upsert_sql =
-		"INSERT INTO group_admins ("
+		"INSERT INTO telegram_group_admins ("
 		" group_id, user_id, status, custom_title, inviter_user_id,"
 		" joined_date, can_manage_chat, can_change_info, can_post_messages,"
 		" can_edit_messages, can_delete_messages, can_invite_users,"
@@ -80,7 +80,7 @@ void DB::syncGroupAdmins(const models::GroupAdminList &list)
 		" can_manage_tags = new.can_manage_tags, is_anonymous = new.is_anonymous";
 
 	static const char *hist_sql =
-		"INSERT INTO group_admin_hist ("
+		"INSERT INTO telegram_group_admin_hist ("
 		" group_id, user_id, action, status, custom_title,"
 		" can_manage_chat, can_change_info, can_post_messages, can_edit_messages,"
 		" can_delete_messages, can_invite_users, can_restrict_members, can_pin_messages,"
@@ -104,7 +104,7 @@ void DB::syncGroupAdmins(const models::GroupAdminList &list)
 			" can_promote_members, can_manage_video_chats, can_post_stories,"
 			" can_edit_stories, can_delete_stories, can_manage_direct_messages,"
 			" can_manage_tags, is_anonymous"
-			" FROM group_admins WHERE group_id = ?",
+			" FROM telegram_group_admins WHERE group_id = ?",
 			{ gid });
 
 		std::unordered_map<int64_t, const mysql::Row *> old_map;
@@ -138,17 +138,30 @@ void DB::syncGroupAdmins(const models::GroupAdminList &list)
 				}
 			}
 
-			std::vector<mysql::Param> up = {
-				gid, a.user_id, std::string(admin_status(a)),
-				a.custom_title, a.inviter_user_id, a.joined_date };
+			/* reserve() with the exact final size before any
+			 * push_back so the vector never reallocates; besides the
+			 * micro-optimization, it stops GCC's -Wmaybe-uninitialized
+			 * false positive on moving the std::string variant
+			 * elements during a growth that now cannot happen. */
+			std::vector<mysql::Param> up;
+			up.reserve(6 + 17);
+			up.push_back(gid);
+			up.push_back(a.user_id);
+			up.push_back(std::string(admin_status(a)));
+			up.push_back(a.custom_title);
+			up.push_back(a.inviter_user_id);
+			up.push_back(a.joined_date);
 			push_rights(up, a);
 			tx.execute(upsert_sql, up);
 
 			if (is_new || changed) {
-				std::vector<mysql::Param> h = {
-					gid, a.user_id,
-					std::string(is_new ? "added" : "updated"),
-					std::string(admin_status(a)), a.custom_title };
+				std::vector<mysql::Param> h;
+				h.reserve(5 + 17);
+				h.push_back(gid);
+				h.push_back(a.user_id);
+				h.push_back(std::string(is_new ? "added" : "updated"));
+				h.push_back(std::string(admin_status(a)));
+				h.push_back(a.custom_title);
 				push_rights(h, a);
 				tx.execute(hist_sql, h);
 			}
@@ -162,14 +175,18 @@ void DB::syncGroupAdmins(const models::GroupAdminList &list)
 			if (new_map.count(uid))
 				continue;
 
-			std::vector<mysql::Param> h = {
-				gid, uid, std::string("removed"),
-				r[1].value_or("administrator"), r[2].value_or("") };
+			std::vector<mysql::Param> h;
+			h.reserve(5 + 17);
+			h.push_back(gid);
+			h.push_back(uid);
+			h.push_back(std::string("removed"));
+			h.push_back(r[1].value_or("administrator"));
+			h.push_back(r[2].value_or(""));
 			for (int i = 0; i < 17; i++)
 				h.push_back((int64_t)(r[3 + i].value_or("0") == "1"));
 			tx.execute(hist_sql, h);
 
-			tx.execute("DELETE FROM group_admins"
+			tx.execute("DELETE FROM telegram_group_admins"
 				   " WHERE group_id = ? AND user_id = ?",
 				   { gid, uid });
 		}

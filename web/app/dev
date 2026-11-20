@@ -1,0 +1,100 @@
+#!/bin/bash
+# Run the web app's Node tooling in Docker, so nothing but Docker is
+# needed on the host.
+#
+#   ./dev npm <args>      npm in the Node image (./dev npm ci, ./dev npm test,
+#                         ./dev npm run typecheck, ./dev npm run build)
+#   ./dev node <args>     node in the Node image
+#   ./dev up              start the development stand-in (fixture data from
+#                         ../mockup, hot reload) on 127.0.0.1:$APP_PORT
+#                         (default 51738); ?as=admin, ?as=member or
+#                         ?as=public views as another sample account,
+#                         ?as=noemail as one with no email address yet
+#                         TGD_STANDIN_TICK=<ms> ./dev up also emits a live
+#                         message into an open chat that often
+#   ./dev down | logs     stop it, or follow its output
+#   ./dev e2e [args]      the browser suite (e2e/), a stand-in per worker;
+#                         E2E_WORKERS=<n> sets the worker count
+#   ./dev shoot <outdir> <path>...   screenshots via ../mockup/scripts
+#   ./dev click <out.png> <path> <names> [width] [scheme]
+#
+# Containers run as the calling user, so files written into the tree
+# stay theirs. The npm cache lives in $APP_NPM_CACHE (default
+# ~/.cache/tgd-app-npm).
+set -euo pipefail
+
+NODE_IMAGE=node:26.8.1-bookworm-slim
+PW_IMAGE=mcr.microsoft.com/playwright:v1.65.1-noble
+NAME=tgd-app-dev
+NET=tgd-app
+PORT=${APP_PORT:-51738}
+CACHE=${APP_NPM_CACHE:-$HOME/.cache/tgd-app-npm}
+DIR=$(cd "$(dirname "$0")" && pwd)
+WEB=$(cd "$DIR/.." && pwd)
+# All of web/ is mounted, since the stand-in fixtures (and the tests that
+# use them) read the mockup's data; the API description, read by
+# npm run gen:api as ../../webapi/openapi.yaml, is mounted read-only.
+API=$(cd "$DIR/../../webapi" && pwd)
+
+mkdir -p "$CACHE"
+tty=()
+[ -t 0 ] && [ -t 1 ] && tty=(-it)
+
+node_run() {
+	docker run --rm --init "${tty[@]}" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -e npm_config_cache=/cache -e TGD_BUILD \
+		-v "$WEB:/web" -v "$API:/webapi:ro" -v "$CACHE:/cache" -w /web/app "$@"
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case $cmd in
+npm)
+	node_run "$NODE_IMAGE" npm "$@"
+	;;
+node)
+	node_run "$NODE_IMAGE" node "$@"
+	;;
+up)
+	# The stand-in reads the mockup's fixture data, so all of web/ is mounted.
+	docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
+	docker rm -f "$NAME" >/dev/null 2>&1 || true
+	docker run -d --init --name "$NAME" --network "$NET" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -e TGD_STANDIN_TICK="${TGD_STANDIN_TICK:-}" -p "127.0.0.1:$PORT:5173" -p "127.0.0.1:$((PORT + 10000)):24678" \
+		-v "$WEB:/web" -w /web/app "$NODE_IMAGE" node standin/server.ts >/dev/null
+	echo "App stand-in at http://127.0.0.1:$PORT/ (./dev logs, ./dev down)"
+	;;
+down)
+	docker rm -f "$NAME" >/dev/null 2>&1 || true
+	;;
+logs)
+	docker logs -f "$NAME"
+	;;
+shoot)
+	out=${1:?usage: ./dev shoot <outdir> <path>...}; shift
+	mkdir -p "$out"
+	docker run --rm --init --network "$NET" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -e MOCKUP_URL="http://$NAME:5173" -e TGD_AS="${TGD_AS:-}" \
+		-v "$WEB:/web:ro" -v "$(cd "$out" && pwd):/out" -w /web/mockup \
+		"$PW_IMAGE" node scripts/shoot.mjs /out "$@"
+	;;
+e2e)
+	# The browser suite (e2e/): each Playwright worker starts its own
+	# stand-in inside this container; arguments go to playwright test.
+	docker run --rm --init -u "$(id -u):$(id -g)" -e HOME=/tmp \
+		-e E2E_WORKERS="${E2E_WORKERS:-}" -v "$WEB:/web" -w /web/app \
+		"$PW_IMAGE" npx playwright test "$@"
+	;;
+click)
+	out=${1:?usage: ./dev click <out.png> <path> <names> [width] [scheme]}; shift
+	mkdir -p "$(dirname "$out")"
+	docker run --rm --init --network "$NET" -u "$(id -u):$(id -g)" \
+		-e HOME=/tmp -e MOCKUP_URL="http://$NAME:5173" \
+		-v "$WEB:/web:ro" -v "$(cd "$(dirname "$out")" && pwd):/out" -w /web/mockup \
+		"$PW_IMAGE" node scripts/click.mjs "/out/$(basename "$out")" "$@"
+	;;
+*)
+	sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+	exit 2
+	;;
+esac

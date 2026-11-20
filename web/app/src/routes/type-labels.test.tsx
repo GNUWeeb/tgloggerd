@@ -1,0 +1,80 @@
+// @vitest-environment happy-dom
+// Message kinds by their human labels, not the archive's stored names:
+// the message page's pill and rows, the message lists' Type column and
+// phone rows, and the content type filter.
+import { beforeEach, describe, expect, it } from 'vitest';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { callsTo, fakeApi, fixture, renderPage, setup } from '../test/page.tsx';
+import { serviceLabel } from '../ui/labels.ts';
+import type { MessageProps } from './message.tsx';
+import type { MessagesProps } from './messages.tsx';
+
+beforeEach(setup);
+
+const kv = (key: string) => screen.getAllByText(key).map((dt) => dt.nextElementSibling?.textContent).find(Boolean);
+
+describe('the message page', () => {
+	const url = () => `/messages/group/${fixture<MessagesProps>('/group_messages').props.rows[0]!.id}`;
+	const render = (patch: Partial<MessageProps['message']>) => {
+		const p = fixture<MessageProps>(url()).props;
+		return renderPage(url(), 'superadmin', { props: { message: { ...p.message, ...patch } } });
+	};
+	const pill = () => document.querySelector('.a-msgflagsrow')!.firstElementChild!.textContent;
+
+	it('names a video message in its pill and Type row', () => {
+		render({ content_type: 'video_note', text: 'hi', media: null });
+		expect(pill()).toBe('Video message');
+		expect(kv('Type')).toBe('Video message');
+		expect(screen.queryByText('video_note')).toBeNull();
+	});
+
+	it('names a service message by its action, keeping the raw name as a hint', () => {
+		render({ content_type: 'service', text: '', media: null, service_type: 'chat_add_members', service: undefined });
+		expect(pill()).toBe('Members added');
+		expect(kv('Type')).toBe('Service message');
+		expect(kv('Service action')).toBe('Members added chat_add_members');
+		expect(document.querySelector('.a-kv .mono.a-muted')!.textContent).toBe('chat_add_members');
+	});
+
+	it('shows an action it has no label for by its raw name', () => {
+		render({ content_type: 'service', text: '', media: null, service_type: 'some_future_action', service: undefined });
+		expect(pill()).toBe('some_future_action');
+	});
+});
+
+describe('the message lists', () => {
+	const services = '/group_messages?f=' + encodeURIComponent(JSON.stringify([{ field: 'content_type', op: '=', value: 'service' }]));
+	type Row = MessagesProps['rows'][number] & { service_type?: string };
+
+	it('show each service row\'s action in the Type column and on phones', () => {
+		const rows = fixture<MessagesProps>(services).props.rows as Row[];
+		expect(rows.length).toBeGreaterThan(0);
+		renderPage(services);
+		const cells = [...document.querySelectorAll('.a-table .a-typecell')].map((c) => c.textContent);
+		expect(cells).toEqual(rows.map((r) => serviceLabel(r.service_type!)));
+		expect(cells).toContain('Members added');
+		expect(cells).not.toContain('service');
+		const phone = document.querySelector('.a-list li .a-handle')!.textContent!;
+		expect(phone.startsWith(`${serviceLabel(rows[0]!.service_type!)}: `)).toBe(true);
+	});
+
+	it('offer the content types by their labels and filter by the stored name', async () => {
+		const calls = fakeApi('superadmin');
+		renderPage('/group_messages');
+		fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+		fireEvent.change(screen.getByRole('combobox', { name: 'Field' }), { target: { value: 'content_type' } });
+		const value = screen.getAllByRole('combobox').find((x) => x.closest('label')?.textContent?.startsWith('Value')) as HTMLSelectElement;
+		const opts = [...value.options].map((o) => [o.value, o.textContent]);
+		expect(opts).toContainEqual(['video_note', 'Video message']);
+		expect(opts).toContainEqual(['paid_media', 'Paid media']);
+		fireEvent.change(value, { target: { value: 'video_note' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+		await waitFor(() => expect(callsTo(calls, 'GET', /^\/api\/page\//)).toHaveLength(1));
+		expect(JSON.parse(callsTo(calls, 'GET', /^\/api\/page\//)[0]!.query.get('f')!)).toEqual([{ field: 'content_type', op: '=', value: 'video_note' }]);
+	});
+
+	it('show a content type filter by its label', () => {
+		renderPage('/group_messages?f=' + encodeURIComponent(JSON.stringify([{ field: 'content_type', op: '=', value: 'video_note' }])));
+		expect(document.querySelector('.a-chip')!.textContent).toContain('Video message');
+	});
+});

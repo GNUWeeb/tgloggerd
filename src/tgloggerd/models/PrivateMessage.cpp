@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2026 Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
@@ -21,17 +21,18 @@ mysql::Param b(bool v)
 /*
  * Upsert a private message.
  *
- * On first insert: creates the row in private_messages and, if forward
- * info is present, inserts into private_message_fwd_info.
+ * On first insert: creates the row in telegram_private_messages and, if forward
+ * info is present, inserts into telegram_private_message_fwd_info.
  *
  * On update (same chat_id + message_id):
  *   - If edit_date increased and content differs, copy the old content
- *     into private_message_edits before updating private_messages.
- *   - If is_deleted changed to true, only set is_deleted = 1.
+ *     into telegram_private_message_edits before updating telegram_private_messages.
+ *   - If the message became deleted, only stamp deleted_at.
  *   - If forward_info is present and not already recorded, insert it.
  */
-void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
+MsgCountRefetch DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 {
+	MsgCountRefetch refetch;
 	/*
 	 * file_id is intentionally omitted: media files are downloaded
 	 * asynchronously and linked later via setPrivateMessageFile, so the
@@ -39,32 +40,98 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 	 * otherwise reset the link to NULL).
 	 */
 	static const char *upsert_sql =
-		"INSERT INTO private_messages ("
+		"INSERT INTO telegram_private_messages ("
 		" chat_id, message_id, sender_id, is_outgoing, date,"
-		" edit_date, content_type, text, is_deleted,"
-		" is_forwarded"
+		" edit_date, content_type, text, entities, service_type,"
+		" tdlib_type, content_extra,"
+		" is_forwarded, media_album_id, meta, is_pinned,"
+		" view_count, forward_count, reply_count, reactions"
 		") VALUES ("
-		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+		" ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
 		") AS new ON DUPLICATE KEY UPDATE"
 		" sender_id = new.sender_id,"
 		" is_outgoing = new.is_outgoing,"
 		" date = new.date,"
-		" edit_date = new.edit_date,"
-		" content_type = new.content_type,"
-		" text = new.text,"
-		" is_deleted = new.is_deleted,"
-		" is_forwarded = new.is_forwarded";
+		" is_forwarded = new.is_forwarded,"
+		" media_album_id = new.media_album_id,"
+		/* What the copy says now: a fact check can be removed, a
+		 * message unpinned. Not content, so no edit_date guard. */
+		/* ...but a message deleted on a recheck keeps the flag that
+		 * tells it from a deletion Telegram reported, for as long as it
+		 * stays deleted (the restore below clears both). */
+		" meta = IF(telegram_private_messages.deleted_at IS NOT NULL AND"
+		"  JSON_EXTRACT(telegram_private_messages.meta, '$.deleted_on_recheck') ="
+		"  CAST('true' AS JSON),"
+		"  JSON_SET(IF(JSON_TYPE(new.meta) = 'OBJECT', new.meta, JSON_OBJECT()),"
+		"   '$.deleted_on_recheck', CAST('true' AS JSON)),"
+		"  new.meta),"
+		" is_pinned = new.is_pinned,"
+		/* A copy that reports no totals keeps the stored ones. */
+		" view_count = COALESCE(new.view_count, telegram_private_messages.view_count),"
+		" forward_count = COALESCE(new.forward_count, telegram_private_messages.forward_count),"
+		" reply_count = COALESCE(new.reply_count, telegram_private_messages.reply_count),"
+		" reactions = COALESCE(new.reactions, telegram_private_messages.reactions),"
+		/*
+		 * The content columns are only taken from a copy that is at
+		 * least as recent as the stored one. Two getMessage replies for
+		 * the same message can arrive in either order -- an edit and a
+		 * backfill copy race, and a reply that resolves after a later
+		 * edit carries the older content -- and without this the loser
+		 * of that race silently overwrote the current text with a stale
+		 * version. `>=` rather than `>` so an unedited re-ingest, which
+		 * carries the same edit_date, still refreshes the row.
+		 *
+		 * The identity columns above stay unconditional on purpose: a
+		 * backfill copy may legitimately know more about the sender or
+		 * the album than the live update did.
+		 *
+		 * edit_date is assigned last. MySQL evaluates these left to
+		 * right and a later assignment reads the already-updated value,
+		 * so assigning it first would leave every guard below comparing
+		 * against the incoming date rather than the stored one.
+		 */
+		" content_type = IF(new.edit_date >= telegram_private_messages.edit_date, new.content_type, telegram_private_messages.content_type),"
+		" text = IF(new.edit_date >= telegram_private_messages.edit_date, new.text, telegram_private_messages.text),"
+		" entities = IF(new.edit_date >= telegram_private_messages.edit_date, new.entities, telegram_private_messages.entities),"
+		" service_type = IF(new.edit_date >= telegram_private_messages.edit_date, new.service_type, telegram_private_messages.service_type),"
+		" tdlib_type = IF(new.edit_date >= telegram_private_messages.edit_date, new.tdlib_type, telegram_private_messages.tdlib_type),"
+		" content_extra = IF(new.edit_date >= telegram_private_messages.edit_date, new.content_extra, telegram_private_messages.content_extra),"
+		" edit_date = IF(new.edit_date >= telegram_private_messages.edit_date, new.edit_date, telegram_private_messages.edit_date)";
+		/* deleted_at is intentionally not upserted; a re-ingested
+		 * message must not clear an existing deletion time. It is set
+		 * only on the deletion path below. */
 
 	db_.transaction([&](mysql::Transaction &tx) {
+		mysql::Param entities_param = std::monostate{};
+		if (msg.content.entities.has_value())
+			entities_param = *msg.content.entities;
+
+		mysql::Param tdlib_type_param = std::monostate{};
+		if (msg.content.tdlib_type.has_value())
+			tdlib_type_param = *msg.content.tdlib_type;
+
+		mysql::Param extra_param = std::monostate{};
+		if (msg.content.content_extra.has_value())
+			extra_param = *msg.content.content_extra;
+
 		/*
-		 * Fetch the current row (if any) to detect edits.
+		 * Fetch the current row (if any) to detect edits. The trailing
+		 * expression compares stored and incoming entities as JSON
+		 * VALUES; see snapshotMessageEditIfChanged() for why that cannot
+		 * be done in C++.
 		 */
 		auto old_rows = tx.query(
 			"SELECT id, edit_date, content_type, text, file_id,"
-			"       is_deleted"
-			" FROM private_messages"
+			"       deleted_at, entities,"
+			"       (entities <=> CAST(? AS JSON)),"
+			"       tdlib_type, content_extra, " +
+			std::string(kCuratedExtraSame) +
+			", JSON_EXTRACT(meta, '$.deleted_on_recheck') ="
+			"  CAST('true' AS JSON)"
+			" FROM telegram_private_messages"
 			" WHERE chat_id = ? AND message_id = ?",
-			{ (int64_t)msg.chat_id, (int64_t)msg.message_id });
+			{ entities_param, extra_param, (int64_t)msg.chat_id,
+			  (int64_t)msg.message_id });
 
 		mysql::Param sender_param = std::monostate{};
 		if (msg.sender_id.has_value())
@@ -73,6 +140,32 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		mysql::Param text_param = std::monostate{};
 		if (msg.content.text.has_value())
 			text_param = *msg.content.text;
+
+		mysql::Param service_param = std::monostate{};
+		if (msg.content.service_type.has_value())
+			service_param = *msg.content.service_type;
+
+		mysql::Param album_param = std::monostate{};
+		if (msg.media_album_id.has_value())
+			album_param = (int64_t)*msg.media_album_id;
+
+		mysql::Param meta_param = std::monostate{};
+		if (msg.meta.has_value())
+			meta_param = *msg.meta;
+
+		mysql::Param views_param = std::monostate{}, forwards_param = std::monostate{},
+			     replies_param = std::monostate{}, reactions_param = std::monostate{};
+		if (msg.interaction.has_value()) {
+			const auto &ia = *msg.interaction;
+			if (ia.view_count)
+				views_param = *ia.view_count;
+			if (ia.forward_count)
+				forwards_param = *ia.forward_count;
+			if (ia.reply_count)
+				replies_param = *ia.reply_count;
+			if (ia.reactions)
+				reactions_param = *ia.reactions;
+		}
 
 		std::string new_ct = models::to_string(msg.content.content_type);
 
@@ -97,25 +190,46 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 				(int64_t)msg.edit_date,
 				new_ct,
 				text_param,
-				b(msg.is_deleted),
+				entities_param,
+				service_param,
+				tdlib_type_param,
+				extra_param,
 				b(msg.forward_info.has_value()),
+				album_param,
+				meta_param,
+				b(msg.is_pinned),
+				views_param,
+				forwards_param,
+				replies_param,
+				reactions_param,
 			});
 
 			/*
 			 * Retrieve the auto-generated id for the forward info.
 			 */
 			auto new_rows = tx.query(
-				"SELECT id FROM private_messages"
+				"SELECT id FROM telegram_private_messages"
 				" WHERE chat_id = ? AND message_id = ?",
 				{ (int64_t)msg.chat_id,
 				  (int64_t)msg.message_id });
 			if (!new_rows.empty() && new_rows[0][0].has_value() &&
 			    msg.forward_info.has_value()) {
 				uint64_t pm_id = std::stoull(*new_rows[0][0]);
-				insertForwardInfo(tx, "private_message_fwd_info",
+				insertForwardInfo(tx, "telegram_private_message_fwd_info",
 						  "private_message_id", pm_id,
 						  *msg.forward_info);
 			}
+
+			/*
+			 * Genuinely new message: bump the sender user's counter.
+			 * sender_id is NULL for our own outgoing messages, which
+			 * therefore count for no user -- matching the COUNT(1)
+			 * prefill (telegram_private_messages WHERE sender_id = user).
+			 */
+			if (msg.sender_id.has_value() &&
+			    bumpMsgCount(tx, "telegram_users", *msg.sender_id))
+				refetch.user = *msg.sender_id;
+			refetch.change = MsgChange::New;
 			return;
 		}
 
@@ -126,24 +240,66 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 		uint64_t pm_id = std::stoull(*old[0]);
 		int64_t old_edit_date = old[1].has_value() ?
 			std::stoll(*old[1]) : 0;
-		bool old_deleted = old[5].has_value() && *old[5] == "1";
+		bool old_deleted = old[5].has_value();
 
 		/*
-		 * If the message is now deleted and wasn't before, only update
-		 * is_deleted. edit_date is left untouched so it keeps
-		 * reflecting the last real content edit.
+		 * If the message is now deleted and wasn't before, stamp
+		 * deleted_at with the observation time. edit_date is left
+		 * untouched so it keeps reflecting the last real content edit;
+		 * the IS NULL guard preserves the first deletion time.
 		 */
-		if (msg.is_deleted && !old_deleted) {
+		if (msg.is_deleted) {
+			/*
+			 * Return whether or not the stamp is applied. A
+			 * deletion model carries no content -- the handler
+			 * builds it with only chat_id, message_id and the flag
+			 * set -- so letting a repeat deletion fall through to
+			 * the upsert below overwrites the preserved text with
+			 * NULL, the content_type with 'unknown' and both dates
+			 * with 0, destroying the very message the tombstone
+			 * exists to keep.
+			 */
+			if (old_deleted)
+				return;
 			tx.execute(
-				"UPDATE private_messages SET is_deleted = 1"
-				" WHERE id = ?",
+				"UPDATE telegram_private_messages SET deleted_at = NOW()"
+				" WHERE id = ? AND deleted_at IS NULL",
 				{ (int64_t)pm_id });
+			refetch.change = MsgChange::Deleted;
 			return;
 		}
 
 		/*
+		 * The message is here again, so a deletion an earlier recheck
+		 * concluded for it was wrong: undo it. Only a deletion with the
+		 * recheck flag; one Telegram reported stays. Before the expiry
+		 * check below: an expired message still exists.
+		 */
+		if (old_deleted && old[11].value_or("0") == "1") {
+			tx.execute(
+				"UPDATE telegram_private_messages SET deleted_at = NULL,"
+				" meta = NULLIF(JSON_REMOVE(meta, '$.deleted_on_recheck'),"
+				" JSON_OBJECT())"
+				" WHERE id = ? AND deleted_at IS NOT NULL",
+				{ (int64_t)pm_id });
+			refetch.restored = true;
+			refetch.change = MsgChange::Edited;
+		}
+
+		/*
+		 * Self-destructed media arrives as messageExpired* once it has
+		 * been opened or its timer ran out, and every later copy of the
+		 * message (reply resolution, backfill, relink) says so. That
+		 * copy carries no content, only the fact that Telegram removed
+		 * it, so it must neither replace the stored content nor count as
+		 * an edit. Like a deletion, expiry keeps what was shown.
+		 */
+		if (msg.content.is_expired)
+			return;
+
+		/*
 		 * If the edit_date increased and content changed, copy the old
-		 * content into private_message_edits first.
+		 * content into telegram_private_message_edits first.
 		 */
 		models::MessageContent old_content;
 		old_content.content_type =
@@ -151,16 +307,31 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 				old[2].value_or("unknown"));
 		if (old[3].has_value())
 			old_content.text = *old[3];
+		if (old[6].has_value())
+			old_content.entities = *old[6];
 		if (old[4].has_value())
 			old_content.file_id = std::stoull(*old[4]);
-
-		snapshotMessageEditIfChanged(tx, "private_message_edits",
-					     "private_message_id", pm_id,
-					     old_content, old_edit_date,
-					     msg.content, msg.edit_date);
+		if (old[8].has_value())
+			old_content.tdlib_type = *old[8];
+		if (old[9].has_value())
+			old_content.content_extra = *old[9];
 
 		/*
-		 * Update the private_messages row.
+		 * A copy with a later edit_date: the guarded upsert below
+		 * takes its content, and the message reads as edited.
+		 */
+		if (msg.edit_date > old_edit_date)
+			refetch.change = MsgChange::Edited;
+
+		snapshotMessageEditIfChanged(tx, "telegram_private_message_edits",
+					     "private_message_id", pm_id,
+					     old_content, old_edit_date,
+					     msg.content, msg.edit_date,
+					     old[7].value_or("0") == "1",
+					     old[10].value_or("0") == "1");
+
+		/*
+		 * Update the telegram_private_messages row.
 		 */
 		tx.execute(upsert_sql, {
 			(int64_t)msg.chat_id,
@@ -171,24 +342,36 @@ void DB::upsertPrivateMessage(const models::PrivateMessage &msg)
 			(int64_t)msg.edit_date,
 			new_ct,
 			text_param,
-			b(msg.is_deleted),
+			entities_param,
+			service_param,
+			tdlib_type_param,
+			extra_param,
 			b(msg.forward_info.has_value()),
+			album_param,
+			meta_param,
+			b(msg.is_pinned),
+			views_param,
+			forwards_param,
+			replies_param,
+			reactions_param,
 		});
 
 		/*
 		 * Insert forward info if present and not already recorded.
 		 */
 		if (msg.forward_info.has_value())
-			insertForwardInfo(tx, "private_message_fwd_info",
+			insertForwardInfo(tx, "telegram_private_message_fwd_info",
 					  "private_message_id", pm_id,
 					  *msg.forward_info);
 	});
+
+	return refetch;
 }
 
 void DB::setPrivateMessageFile(int64_t chat_id, int64_t message_id,
 			       uint64_t file_id)
 {
-	db_.execute("UPDATE private_messages SET file_id = ?"
+	db_.execute("UPDATE telegram_private_messages SET file_id = ?"
 		    " WHERE chat_id = ? AND message_id = ?",
 		    { (int64_t)file_id, (int64_t)chat_id, (int64_t)message_id });
 }
@@ -203,8 +386,8 @@ void DB::setPrivateMessageReply(int64_t chat_id, int64_t message_id,
 	 * NULL for a cross-table reply or an as-yet-unsaved target).
 	 */
 	db_.execute(
-		"UPDATE private_messages AS m"
-		" LEFT JOIN private_messages AS r"
+		"UPDATE telegram_private_messages AS m"
+		" LEFT JOIN telegram_private_messages AS r"
 		"   ON r.chat_id = ? AND r.message_id = ?"
 		" SET m.reply_to_chat_id = ?, m.reply_to_msg_id = ?,"
 		"     m.reply_to_id = r.id"

@@ -1,0 +1,124 @@
+<section class="search-page" id="search-page"
+	data-api="/v1/search/{{ entity }}" data-detail-base="{{ detail_base }}"
+	data-total="{{ total }}" data-total-exact="{% if total_exact %}1{% else %}0{% endif %}" data-limit="{{ limit }}" data-offset="{{ offset }}"
+	data-max-offset="{{ max_offset }}"
+	data-sort="{{ sort }}" data-order="{{ order }}"
+	data-id-index="{{ id_index }}" data-photo-index="{{ photo_index }}">
+	<h1>{{ title }}</h1>
+
+	<script type="application/json" id="search-schema">{{ schema_json }}</script>
+
+## if search_error != ""
+	<p class="search-error">⚠ {{ search_error }}</p>
+## endif
+
+	<div class="search-builder" id="search-builder">
+		<noscript><p class="muted">Advanced search needs JavaScript. Showing the newest results.</p></noscript>
+	</div>
+
+	<div class="search-meta">
+		<span id="meta-text"><span class="muted">{% if not total_exact %}about {% endif %}<strong>{{ total }}</strong> result{% if total != 1 %}s{% endif %}</span> <span class="muted">· page {{ page_current }} / {{ page_count }}</span></span>
+		<label class="limit-ctl">Per page
+			<input type="number" id="limit-input" min="1" max="1000" step="1" value="{{ limit }}">
+		</label>
+	</div>
+
+	<div id="debug-area">
+## if has_debug
+		<details class="debug-panel" open>
+			<summary>Debug</summary>
+			<table class="kv debug-kv">
+				<tr><th>Fetch query</th><td><code>{{ debug.sql }}</code></td></tr>
+				<tr><th>Count query</th><td><code>{{ debug.count_sql }}</code></td></tr>
+				<tr><th>Total rows</th><td>{{ total }}{% if not total_exact %} (estimate){% endif %}</td></tr>
+				<tr><th>Bind data</th><td>{% for b in debug.bind %}<span class="bind">{{ b }}</span> {% endfor %}</td></tr>
+			</table>
+			<div class="table-wrap">
+				<table class="grid">
+					<thead><tr>{% for c in debug.explain.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+					<tbody>
+## for r in debug.explain.rows
+						<tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
+## endfor
+					</tbody>
+				</table>
+			</div>
+		</details>
+## endif
+	</div>
+
+	<div class="pager grid-pager" id="pager-top">
+## if has_prev
+		<a class="pager-btn" href="?offset={{ prev_offset }}&amp;limit={{ limit }}&amp;sort={{ q_sort }}&amp;order={{ q_order }}&amp;search={{ q_search }}">&laquo; Prev</a>
+## endif
+		<span class="pager-info muted">Page {{ page_current }} / {{ page_count }}</span>
+## if has_next
+		<a class="pager-btn" href="?offset={{ next_offset }}&amp;limit={{ limit }}&amp;sort={{ q_sort }}&amp;order={{ q_order }}&amp;search={{ q_search }}">Next &raquo;</a>
+## endif
+	</div>
+
+	<div class="table-scroll-top" id="results-scroll-top" aria-hidden="true"><div></div></div>
+	<div class="table-wrap" id="results-wrap">
+		<table class="grid" id="results-table">
+			<thead>
+				<tr>
+## for c in cols
+## if c.sort != ""
+					<th data-sort-key="{{ c.sort }}">{{ c.label }}</th>
+## else
+					<th>{{ c.label }}</th>
+## endif
+## endfor
+				</tr>
+			</thead>
+			<tbody id="results-body">
+## for r in rows
+				<tr>
+## for c in cols
+## if c.type == "photo"
+					<td class="col-photo"><a href="{{ detail_base }}/{{ at(r, id_index) }}">{% if at(r, loop.index) != "" %}<img class="avatar-sm" src="{{ at(r, loop.index) }}" alt="">{% else %}<span class="avatar-sm placeholder"></span>{% endif %}</a></td>
+## else if c.type == "filethumb"
+					<td class="col-photo"><a href="{{ at(r, loop.index) }}">{% if at(r, type_index) == "photo" and at(r, stored_index) %}<img class="avatar-sm" src="{{ at(r, loop.index) }}" alt="" loading="lazy">{% else %}<span class="file-icon">{% if at(r, type_index) == "video" %}🎬{% else if at(r, type_index) == "animation" %}🎞️{% else if at(r, type_index) == "sticker" %}🌟{% else if at(r, type_index) == "document" %}📄{% else if at(r, type_index) == "audio" %}🎵{% else if at(r, type_index) == "voice" %}🎤{% else %}📎{% endif %}</span>{% endif %}</a></td>
+## else if c.type == "id"
+					<td>{% if detail_base != "" %}<a href="{{ detail_base }}/{{ at(r, loop.index) }}">{{ at(r, loop.index) }}</a>{% else %}<a href="{{ at(r, photo_index) }}">{{ at(r, loop.index) }}</a>{% endif %}</td>
+## else if c.type == "name"
+					<td class="cell-name"><a href="{{ detail_base }}/{{ at(r, id_index) }}">{{ at(r, loop.index) }}</a></td>
+## else if c.type == "username"
+					<td>{% if at(r, loop.index) != "" %}@{{ at(r, loop.index) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+## else if c.type == "party"
+## set p = at(r, loop.index)
+					<td class="cell-party">{% if p.kind == "user" %}<a class="party" href="/users/{{ p.id }}">{% if p.photo != "" %}<img class="avatar-sm" src="{{ p.photo }}" alt="">{% else %}<span class="avatar-sm placeholder"></span>{% endif %} {{ p.name }}</a>{% if p.username != "" %} <span class="muted">@{{ p.username }}</span>{% endif %}{% else if p.kind == "group" %}<a class="party" href="/groups/{{ p.id }}">{% if p.photo != "" %}<img class="avatar-sm" src="{{ p.photo }}" alt="">{% else %}<span class="avatar-sm placeholder"></span>{% endif %} {{ p.name }}</a>{% else %}<span class="party muted"><span class="avatar-sm placeholder"></span> {{ p.name }}</span>{% endif %}</td>
+## else if c.type == "bool"
+					<td class="cell-bool">{% if at(r, loop.index) %}<span class="bool-yes">Yes</span>{% else %}<span class="muted">No</span>{% endif %}</td>
+## else if c.type == "longtext"
+					<td class="cell-long">{% if at(r, loop.index) != "" %}{{ at(r, loop.index) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+## else if c.type == "fileid"
+					<td class="cell-long cell-fileid">{% if at(r, loop.index) != "" %}{{ at(r, loop.index) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+## else if c.type == "hash"
+					<td class="cell-hash">{% if at(r, loop.index) != "" %}{{ at(r, loop.index) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+## else
+					<td class="nowrap">{% if at(r, loop.index) != "" %}{{ at(r, loop.index) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+## endif
+## endfor
+				</tr>
+## endfor
+## if length(rows) == 0
+				<tr><td colspan="{{ ncols }}" class="muted">No results match this search.</td></tr>
+## endif
+			</tbody>
+		</table>
+	</div>
+
+	<div class="pager grid-pager" id="pager-bottom">
+## if has_prev
+		<a class="pager-btn" href="?offset={{ prev_offset }}&amp;limit={{ limit }}&amp;sort={{ q_sort }}&amp;order={{ q_order }}&amp;search={{ q_search }}">&laquo; Prev</a>
+## endif
+		<span class="pager-info muted">Page {{ page_current }} / {{ page_count }}</span>
+## if has_next
+		<a class="pager-btn" href="?offset={{ next_offset }}&amp;limit={{ limit }}&amp;sort={{ q_sort }}&amp;order={{ q_order }}&amp;search={{ q_search }}">Next &raquo;</a>
+## endif
+	</div>
+
+	<script src="/search-render.js" defer></script>
+	<script src="/search.js" defer></script>
+</section>

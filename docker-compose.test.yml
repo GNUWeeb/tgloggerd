@@ -1,0 +1,75 @@
+# A MySQL for the web's tests only (scripts/test-web.sh, webapi/README).
+#
+# It is its own compose project, "tgloggerd-test", with its own network
+# and no volumes: the data lives in tmpfs and is gone when the container
+# stops. It shares nothing with docker-compose.yml (no container names,
+# no tgnet, no data/ directory), so starting or removing it never
+# touches the deployment.
+#
+#   docker compose -f docker-compose.test.yml up -d --wait
+#   docker compose -f docker-compose.test.yml down
+#
+# No port is published. Tests reach the server as mysql:3306 from a
+# container on the project's network (tgloggerd-test_default), which is
+# internal: nothing on it reaches the outside. To reach it from the
+# host as well, add the port override, which publishes it on loopback
+# only (TGD_TEST_MYSQL_PORT, default 33306):
+#
+#   docker compose -f docker-compose.test.yml \
+#       -f docker-compose.test-port.yml up -d --wait
+#
+# COMPOSE_PROJECT_NAME (or -p) gives a second, separate copy.
+
+name: tgloggerd-test
+
+services:
+  mysql:
+    image: mysql:9.7.0
+    environment:
+      # A throwaway server: the password only keeps the image's entrypoint
+      # happy. Never reuse it anywhere else.
+      MYSQL_ROOT_PASSWORD: test
+    # Durability buys nothing here, so commits and DDL skip the disk
+    # flushes; many parallel test databases need more connections than
+    # the default.
+    command:
+      - --max-connections=1000
+      - --innodb-flush-log-at-trx-commit=0
+      - --sync-binlog=0
+      - --skip-log-bin
+      - --innodb-doublewrite=OFF
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ptest", "--silent"]
+      interval: 2s
+      timeout: 5s
+      retries: 90
+      start_period: 5s
+
+  # The optional search engine (webapi/README "Search engine"), for the
+  # tests of internal/searchengine; started only with the "search"
+  # profile (scripts/test-web.sh --search-engine). Each test uses an
+  # index of its own, so one engine serves a whole parallel run. The
+  # same image and settings as docker-compose.yml, with a smaller heap;
+  # the index lives in the container and is gone with it.
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0@sha256:fafe3fc3587088674669235575aa166228c48bdb940294a8cdbbc1da75236a40
+    profiles: [search]
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      node.store.allow_mmap: "false"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    mem_limit: 1536m
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 2s
+      timeout: 10s
+      retries: 90
+      start_period: 10s
+
+networks:
+  default:
+    internal: true

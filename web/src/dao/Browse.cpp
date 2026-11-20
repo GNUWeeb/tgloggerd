@@ -1,0 +1,1697 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Copyright (C) 2026 Ammar Faizi <ammarfaizi2@gnuweeb.org>
+ * Copyright (C) 2026 Alviro Iskandar Setiawan <alviro.iskandar@gnuweeb.org>
+ */
+#include "dao/Browse.hpp"
+
+#include "views/Render.hpp"
+
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+namespace tgweb::dao::browse {
+
+namespace {
+
+using tgweb::views::Render;
+
+/* Escaped string from a column, or "" if the column is NULL. */
+std::string escCol(const drogon::orm::Row &r, const char *col)
+{
+	if (r[col].isNull())
+		return std::string();
+	return Render::esc(r[col].as<std::string>());
+}
+
+/* Like escCol, but preserves line breaks as <br> (for bios, descriptions). */
+std::string escColMulti(const drogon::orm::Row &r, const char *col)
+{
+	if (r[col].isNull())
+		return std::string();
+	return Render::escMultiline(r[col].as<std::string>());
+}
+
+/* A display name from a pair of first/last name columns, escaped, never empty. */
+std::string displayNameOf(const drogon::orm::Row &r, const char *firstCol,
+			  const char *lastCol)
+{
+	std::string first = r[firstCol].isNull()
+				    ? "" : r[firstCol].as<std::string>();
+	std::string last = r[lastCol].isNull()
+				   ? "" : r[lastCol].as<std::string>();
+	std::string name = first;
+	if (!last.empty()) {
+		if (!name.empty())
+			name += " ";
+		name += last;
+	}
+	if (name.empty())
+		name = "(no name)";
+	return Render::esc(name);
+}
+
+/* A display name from first/last name, escaped, never empty. */
+std::string displayName(const drogon::orm::Row &r)
+{
+	return displayNameOf(r, "first_name", "last_name");
+}
+
+/*
+ * Give a link target an absolute scheme. Telegram auto-detects bare URLs like
+ * "example.com" (and text-link targets can omit the scheme too); without one,
+ * the browser treats the href as a path relative to the current page. Prepend
+ * "http://" when the value has no scheme and is not protocol-relative. Not
+ * escaped here -- the caller escapes for the attribute.
+ */
+std::string ensureUrlScheme(const std::string &url)
+{
+	if (url.empty())
+		return url;
+	/* Protocol-relative ("//host/...") is already absolute. */
+	if (url.size() >= 2 && url[0] == '/' && url[1] == '/')
+		return url;
+	/* A scheme is a letter then [A-Za-z0-9+.-]* then ':'. */
+	auto isSchemeChar = [](char c) {
+		return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		       (c >= '0' && c <= '9') || c == '+' || c == '.' || c == '-';
+	};
+	char c0 = url[0];
+	if ((c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z')) {
+		size_t i = 1;
+		while (i < url.size() && isSchemeChar(url[i]))
+			i++;
+		if (i < url.size() && url[i] == ':')
+			return url; /* already has a scheme */
+	}
+	return "http://" + url;
+}
+
+/*
+ * Render message text together with its TDLib formatting entities into safe
+ * HTML. `text` is UTF-8; `entitiesJson` is the JSON array the daemon stores,
+ * whose offset/length are UTF-16 code-unit spans (TDLib's convention). With
+ * no valid entities it degrades to plain escaped, <br>-joined text (same as
+ * escMultiline).
+ *
+ * Tags nest with a stack: outer/earlier entities open first and the most
+ * recently opened closes first. That is exact for the properly-nested or
+ * disjoint entity sets Telegram clients emit; a rare genuine overlap may
+ * nest imperfectly but every character is still escaped, so it stays safe.
+ */
+std::string renderFormatted(const std::string &text,
+			    const std::string &entitiesJson)
+{
+	if (text.empty() || entitiesJson.empty())
+		return Render::escMultiline(text);
+
+	nlohmann::json ents;
+	try {
+		ents = nlohmann::json::parse(entitiesJson);
+	} catch (...) {
+		return Render::escMultiline(text);
+	}
+	if (!ents.is_array() || ents.empty())
+		return Render::escMultiline(text);
+
+	/*
+	 * Map each UTF-16 unit boundary to a byte offset in `text`. A code
+	 * point outside the BMP is two UTF-16 units, so it contributes a second
+	 * (never a boundary target on its own) entry pointing at its start.
+	 */
+	std::vector<size_t> byteAt;
+	byteAt.reserve(text.size() + 1);
+	for (size_t i = 0; i < text.size();) {
+		unsigned char c = (unsigned char)text[i];
+		int len;
+		if ((c & 0x80) == 0)		len = 1;
+		else if ((c & 0xE0) == 0xC0)	len = 2;
+		else if ((c & 0xF0) == 0xE0)	len = 3;
+		else if ((c & 0xF8) == 0xF0)	len = 4;
+		else				len = 1; /* invalid lead; skip one */
+		byteAt.push_back(i);
+		if (len == 4)
+			byteAt.push_back(i);	/* surrogate pair: second unit */
+		i += (size_t)len;
+	}
+	byteAt.push_back(text.size());		/* sentinel: end of text */
+	size_t totalUnits = byteAt.size() - 1;
+
+	struct Ev { size_t start, end; std::string open, close; };
+	std::vector<Ev> evs;
+	for (const auto &e : ents) {
+		if (!e.is_object() || !e.contains("offset") || !e.contains("length"))
+			continue;
+		long off = e["offset"].is_number() ? e["offset"].get<long>() : -1;
+		long ln  = e["length"].is_number() ? e["length"].get<long>() : -1;
+		if (off < 0 || ln <= 0 || (size_t)(off + ln) > totalUnits)
+			continue;
+
+		size_t bs = byteAt[(size_t)off];
+		size_t be = byteAt[(size_t)(off + ln)];
+		std::string type = e.value("type", std::string());
+		Ev ev{ bs, be, "", "" };
+
+		if (type == "bold")		{ ev.open = "<b>"; ev.close = "</b>"; }
+		else if (type == "italic")	{ ev.open = "<i>"; ev.close = "</i>"; }
+		else if (type == "underline")	{ ev.open = "<u>"; ev.close = "</u>"; }
+		else if (type == "strikethrough") { ev.open = "<s>"; ev.close = "</s>"; }
+		else if (type == "spoiler")	{ ev.open = "<span class=\"spoiler\">"; ev.close = "</span>"; }
+		else if (type == "code")	{ ev.open = "<code>"; ev.close = "</code>"; }
+		else if (type == "pre" || type == "pre_code")
+						{ ev.open = "<pre>"; ev.close = "</pre>"; }
+		else if (type == "block_quote" || type == "expandable_block_quote")
+						{ ev.open = "<blockquote>"; ev.close = "</blockquote>"; }
+		else if (type == "text_url") {
+			ev.open = "<a href=\"" +
+				  Render::esc(ensureUrlScheme(e.value("url", std::string()))) +
+				  "\" target=\"_blank\" rel=\"noopener nofollow\">";
+			ev.close = "</a>";
+		} else if (type == "url") {
+			ev.open = "<a href=\"" +
+				  Render::esc(ensureUrlScheme(text.substr(bs, be - bs))) +
+				  "\" target=\"_blank\" rel=\"noopener nofollow\">";
+			ev.close = "</a>";
+		} else if (type == "mention_name") {
+			long uid = e.value("user_id", (long)0);
+			ev.open = "<a href=\"/users/" + std::to_string(uid) + "\">";
+			ev.close = "</a>";
+		} else {
+			/* mention / hashtag / email / phone / custom_emoji / ...:
+			 * meaningful but with no distinct visual wrapper here. */
+			continue;
+		}
+		evs.push_back(std::move(ev));
+	}
+	if (evs.empty())
+		return Render::escMultiline(text);
+
+	/* Entities opening at a byte offset, outermost (largest end) first, so
+	 * pushing them left-to-right leaves the innermost on top of the stack. */
+	std::unordered_map<size_t, std::vector<size_t>> opensAt;
+	for (size_t k = 0; k < evs.size(); k++)
+		opensAt[evs[k].start].push_back(k);
+	for (auto &kv : opensAt)
+		std::sort(kv.second.begin(), kv.second.end(),
+			  [&](size_t a, size_t b) { return evs[a].end > evs[b].end; });
+
+	std::string out;
+	out.reserve(text.size() + evs.size() * 8);
+	std::vector<size_t> stack;
+	for (size_t i = 0; i <= text.size(); i++) {
+		/* Close entities ending here (innermost, i.e. stack top, first). */
+		while (!stack.empty() && evs[stack.back()].end == i) {
+			out += evs[stack.back()].close;
+			stack.pop_back();
+		}
+		auto it = opensAt.find(i);
+		if (it != opensAt.end()) {
+			for (size_t k : it->second) {
+				out += evs[k].open;
+				stack.push_back(k);
+			}
+		}
+		if (i == text.size())
+			break;
+
+		switch ((unsigned char)text[i]) {
+		case '&':  out += "&amp;";  break;
+		case '<':  out += "&lt;";   break;
+		case '>':  out += "&gt;";   break;
+		case '"':  out += "&quot;"; break;
+		case '\'': out += "&#39;";  break;
+		case '\n': out += "<br>";   break;
+		case '\r':                  break;
+		default:   out += text[i];  break;
+		}
+	}
+	return out;
+}
+
+/* renderFormatted from a (text, entities) column pair; "" if text is NULL. */
+std::string renderFormattedCols(const drogon::orm::Row &r, const char *textCol,
+				const char *entCol)
+{
+	if (r[textCol].isNull())
+		return std::string();
+	std::string ent = r[entCol].isNull() ? std::string()
+					     : r[entCol].as<std::string>();
+	return renderFormatted(r[textCol].as<std::string>(), ent);
+}
+
+} /* namespace */
+
+drogon::Task<nlohmann::json> counts(drogon::orm::DbClientPtr db)
+{
+	auto r = co_await db->execSqlCoro(
+		"SELECT "
+		"(SELECT COUNT(*) FROM telegram_users)            AS users, "
+		"(SELECT COUNT(*) FROM `telegram_groups`)         AS `groups`, "
+		"(SELECT COUNT(*) FROM telegram_private_messages) AS private_messages, "
+		"(SELECT COUNT(*) FROM telegram_group_messages)   AS group_messages, "
+		"(SELECT COUNT(*) FROM telegram_files)            AS files");
+
+	const auto &row = r[0];
+	nlohmann::json j;
+	j["users"]            = row["users"].as<int64_t>();
+	j["groups"]           = row["groups"].as<int64_t>();
+	j["private_messages"] = row["private_messages"].as<int64_t>();
+	j["group_messages"]   = row["group_messages"].as<int64_t>();
+	j["files"]            = row["files"].as<int64_t>();
+	co_return j;
+}
+
+drogon::Task<std::optional<nlohmann::json>> getUser(drogon::orm::DbClientPtr db,
+						    int64_t id)
+{
+	auto ur = co_await db->execSqlCoro(
+		"SELECT u.id, u.first_name, u.last_name, u.type, "
+		"u.profile_photo_file_id, u.is_verified, u.is_scam, u.is_fake, "
+		"u.is_premium, u.is_support, u.accent_color_id, "
+		"u.birthday_day, u.birthday_month, u.birthday_year, "
+		"u.msg_count, u.created_at, u.updated_at, "
+		"u.is_contact, u.is_mutual_contact, u.contact_first_name, "
+		"u.contact_last_name, u.own_name_known, u.own_name_checked_at, "
+		/* Sparse fields live in telegram_user_extra_info; a missing row reads as
+		 * all-default, so COALESCE to the same sentinels. */
+		"COALESCE(e.phone_number, '') AS phone_number, "
+		"COALESCE(e.bio, '') AS bio, "
+		"COALESCE(e.language_code, '') AS language_code, "
+		"COALESCE(e.restriction_reason, '') AS restriction_reason, "
+		"COALESCE(e.has_sensitive_content, 0) AS has_sensitive_content, "
+		"COALESCE(e.restricts_new_chats, 0) AS restricts_new_chats, "
+		"COALESCE(e.paid_message_star_count, 0) AS paid_message_star_count, "
+		"COALESCE(e.profile_accent_color_id, -1) AS profile_accent_color_id, "
+		"COALESCE(e.background_custom_emoji_id, 0) AS background_custom_emoji_id, "
+		"COALESCE(e.profile_background_custom_emoji_id, 0) "
+		"   AS profile_background_custom_emoji_id, "
+		"e.emoji_status_custom_emoji_id, "
+		"IF(e.emoji_status_expiration_date > 0, "
+		"   FROM_UNIXTIME(e.emoji_status_expiration_date), NULL) "
+		"   AS emoji_status_expires, "
+		"e.personal_chat_id "
+		"FROM telegram_users u LEFT JOIN telegram_user_extra_info e ON e.user_id = u.id "
+		"WHERE u.id = ?",
+		id);
+
+	if (ur.empty())
+		co_return std::nullopt;
+
+	const auto &r = ur[0];
+	nlohmann::json user;
+	user["id"]                = r["id"].as<int64_t>();
+	user["name"]              = displayName(r);
+	user["first_name"]        = escCol(r, "first_name");
+	user["last_name"]         = escCol(r, "last_name");
+	user["phone_number"]      = escCol(r, "phone_number");
+	user["type"]              = r["type"].as<std::string>();
+	user["bio"]               = escColMulti(r, "bio");
+	user["language_code"]     = escCol(r, "language_code");
+	user["restriction_reason"] = escCol(r, "restriction_reason");
+	user["is_verified"]       = r["is_verified"].as<int>() != 0;
+	user["is_scam"]           = r["is_scam"].as<int>() != 0;
+	user["is_fake"]           = r["is_fake"].as<int>() != 0;
+	user["is_premium"]        = r["is_premium"].as<int>() != 0;
+	user["is_support"]        = r["is_support"].as<int>() != 0;
+	user["has_sensitive_content"] = r["has_sensitive_content"].as<int>() != 0;
+	user["restricts_new_chats"]   = r["restricts_new_chats"].as<int>() != 0;
+	user["paid_message_star_count"] = r["paid_message_star_count"].as<int64_t>();
+	if (!r["personal_chat_id"].isNull())
+		user["personal_chat_id"] = r["personal_chat_id"].as<int64_t>();
+	user["accent_color_id"]   = r["accent_color_id"].as<int>();
+	user["profile_accent_color_id"] = r["profile_accent_color_id"].as<int>();
+	user["background_custom_emoji_id"] =
+		r["background_custom_emoji_id"].as<int64_t>();
+	user["profile_background_custom_emoji_id"] =
+		r["profile_background_custom_emoji_id"].as<int64_t>();
+	if (!r["emoji_status_custom_emoji_id"].isNull())
+		user["emoji_status_custom_emoji_id"] =
+			r["emoji_status_custom_emoji_id"].as<int64_t>();
+	user["emoji_status_expires"] = escCol(r, "emoji_status_expires");
+	/* Birthday: day + month name (+ year), built from digits and static month
+	 * names, so it needs no escaping. Omitted entirely when unset. */
+	if (!r["birthday_day"].isNull() && !r["birthday_month"].isNull()) {
+		static const char *kMonths[] = {
+			"January", "February", "March", "April", "May", "June",
+			"July", "August", "September", "October", "November",
+			"December"};
+		int d = r["birthday_day"].as<int>();
+		int m = r["birthday_month"].as<int>();
+		std::string bday = std::to_string(d) + " " +
+			(m >= 1 && m <= 12 ? kMonths[m - 1] : "?");
+		if (!r["birthday_year"].isNull())
+			bday += " " + std::to_string(r["birthday_year"].as<int>());
+		user["birthday"] = bday;
+	}
+	user["msg_count"]         = r["msg_count"].as<int64_t>();
+	user["created_at"]        = r["created_at"].as<std::string>();
+	user["updated_at"]        = r["updated_at"].as<std::string>();
+	/*
+	 * first_name/last_name are the user's own name; for a contact of the
+	 * logging account the name it saved them under is a label of its
+	 * own. own_name_known is false when no own name was ever seen and the
+	 * contact name stands in for it. is_contact is NULL until the daemon
+	 * has seen the user since the contact split, and reads as false.
+	 */
+	user["is_contact"] = !r["is_contact"].isNull() &&
+			     r["is_contact"].as<int>() != 0;
+	user["is_mutual_contact"] = r["is_mutual_contact"].as<int>() != 0;
+	user["own_name_known"] = r["own_name_known"].as<int>() != 0;
+	user["contact_name"] = r["contact_first_name"].isNull()
+		? std::string()
+		: displayNameOf(r, "contact_first_name", "contact_last_name");
+	user["own_name_checked_at"] = r["own_name_checked_at"].isNull()
+		? std::string() : r["own_name_checked_at"].as<std::string>();
+	if (!r["profile_photo_file_id"].isNull())
+		user["profile_photo_file_id"] =
+			r["profile_photo_file_id"].as<int64_t>();
+
+	/*
+	 * A "Look up real name" cycle that removed the contact and has not
+	 * added it back yet: the daemon keeps retrying, the page says so.
+	 */
+	auto lk = co_await db->execSqlCoro(
+		"SELECT created_at, attempts, last_error "
+		"FROM telegram_contact_lookups WHERE user_id = ?", id);
+	user["lookup_pending"] = !lk.empty();
+	if (!lk.empty()) {
+		user["lookup_pending_since"] = lk[0]["created_at"].as<std::string>();
+		user["lookup_pending_error"] = escCol(lk[0], "last_error");
+	}
+
+	nlohmann::json j;
+	j["user"] = std::move(user);
+
+	/* Current usernames. */
+	auto un = co_await db->execSqlCoro(
+		"SELECT username, kind, position, is_collectible FROM telegram_user_usernames "
+		"WHERE user_id = ? ORDER BY kind, position",
+		id);
+	nlohmann::json usernames = nlohmann::json::array();
+	for (const auto &row : un) {
+		nlohmann::json e;
+		e["username"]    = escCol(row, "username");
+		e["kind"]        = row["kind"].as<std::string>();
+		e["position"]    = row["position"].as<int>();
+		e["collectible"] = row["is_collectible"].as<int>() != 0;
+		usernames.push_back(std::move(e));
+	}
+	j["usernames"] = std::move(usernames);
+
+	/* Name history. */
+	auto nh = co_await db->execSqlCoro(
+		"SELECT first_name, last_name, created_at FROM telegram_user_hist_name "
+		"WHERE user_id = ? ORDER BY id DESC LIMIT 100",
+		id);
+	nlohmann::json nameHist = nlohmann::json::array();
+	for (const auto &row : nh) {
+		nlohmann::json e;
+		e["name"]       = displayName(row);
+		e["created_at"] = row["created_at"].as<std::string>();
+		nameHist.push_back(std::move(e));
+	}
+	j["name_hist"] = std::move(nameHist);
+
+	/* Username events. */
+	auto ue = co_await db->execSqlCoro(
+		"SELECT username, action, kind, position, is_collectible, created_at "
+		"FROM telegram_user_hist_usernames_events "
+		"WHERE user_id = ? ORDER BY id DESC LIMIT 100",
+		id);
+	nlohmann::json unEvents = nlohmann::json::array();
+	for (const auto &row : ue) {
+		nlohmann::json e;
+		e["username"]    = escCol(row, "username");
+		e["action"]      = row["action"].as<std::string>();
+		e["kind"]        = row["kind"].isNull()
+					   ? "" : row["kind"].as<std::string>();
+		e["collectible"] = !row["is_collectible"].isNull() &&
+				   row["is_collectible"].as<int>() != 0;
+		e["created_at"]  = row["created_at"].as<std::string>();
+		unEvents.push_back(std::move(e));
+	}
+	j["username_events"] = std::move(unEvents);
+
+	/* Bio history. */
+	auto bh = co_await db->execSqlCoro(
+		"SELECT bio, created_at FROM telegram_user_hist_bio "
+		"WHERE user_id = ? ORDER BY id DESC LIMIT 100",
+		id);
+	nlohmann::json bioHist = nlohmann::json::array();
+	for (const auto &row : bh) {
+		nlohmann::json e;
+		e["bio"]        = escColMulti(row, "bio");
+		e["created_at"] = row["created_at"].as<std::string>();
+		bioHist.push_back(std::move(e));
+	}
+	j["bio_hist"] = std::move(bioHist);
+
+	/* Phone number history. */
+	auto ph = co_await db->execSqlCoro(
+		"SELECT phone_number, created_at FROM telegram_user_hist_phone_num "
+		"WHERE user_id = ? ORDER BY id DESC LIMIT 100",
+		id);
+	nlohmann::json phoneHist = nlohmann::json::array();
+	for (const auto &row : ph) {
+		nlohmann::json e;
+		e["phone_number"] = escCol(row, "phone_number");
+		e["created_at"]   = row["created_at"].as<std::string>();
+		phoneHist.push_back(std::move(e));
+	}
+	j["phone_hist"] = std::move(phoneHist);
+
+	/* Profile photo history (file ids resolve to /files/<token>). */
+	auto phot = co_await db->execSqlCoro(
+		"SELECT file_id, created_at FROM telegram_user_hist_profile_photo "
+		"WHERE user_id = ? ORDER BY id DESC LIMIT 100",
+		id);
+	nlohmann::json photoHist = nlohmann::json::array();
+	for (const auto &row : phot) {
+		nlohmann::json e;
+		if (!row["file_id"].isNull())
+			e["file_id"] = row["file_id"].as<int64_t>();
+		e["created_at"] = row["created_at"].as<std::string>();
+		photoHist.push_back(std::move(e));
+	}
+	j["photo_hist"] = std::move(photoHist);
+
+	co_return j;
+}
+
+drogon::Task<std::optional<nlohmann::json>>
+userHistory(drogon::orm::DbClientPtr db, int64_t id, int limit, int offset)
+{
+	{
+		auto ex = co_await db->execSqlCoro(
+			"SELECT 1 FROM telegram_users WHERE id = ?", id);
+		if (ex.empty())
+			co_return std::nullopt;
+	}
+
+	/*
+	 * Merge the five per-user history tables into one newest-first timeline.
+	 * Each source normalises to (kind, id, created_at, detail, action,
+	 * file_id); the outer query formats the timestamp and pages the union.
+	 * The table/column names are compile-time literals; only the user id and
+	 * limit/offset are bound.
+	 */
+	std::string q =
+		"SELECT kind, detail, action, file_id, "
+		"DATE_FORMAT(created_at, '%d %b %Y %H:%i') AS created_at "
+		"FROM ("
+		"  SELECT 'name' AS kind, id, created_at, "
+		"         TRIM(CONCAT_WS(' ', first_name, last_name)) AS detail, "
+		"         NULL AS action, NULL AS file_id "
+		"  FROM telegram_user_hist_name WHERE user_id = ? "
+		"  UNION ALL SELECT 'bio', id, created_at, bio, NULL, NULL "
+		"  FROM telegram_user_hist_bio WHERE user_id = ? "
+		"  UNION ALL SELECT 'phone', id, created_at, phone_number, NULL, NULL "
+		"  FROM telegram_user_hist_phone_num WHERE user_id = ? "
+		"  UNION ALL SELECT 'username', id, created_at, username, action, NULL "
+		"  FROM telegram_user_hist_usernames_events WHERE user_id = ? "
+		"  UNION ALL SELECT 'photo', id, created_at, NULL, NULL, file_id "
+		"  FROM telegram_user_hist_profile_photo WHERE user_id = ? "
+		") t ORDER BY created_at DESC, kind, id DESC LIMIT ? OFFSET ?";
+	auto rows = co_await db->execSqlCoro(q, id, id, id, id, id,
+					     limit + 1, offset);
+
+	nlohmann::json entries = nlohmann::json::array();
+	int n = 0;
+	for (const auto &r : rows) {
+		if (n++ >= limit)
+			break;
+		nlohmann::json e;
+		e["kind"]       = r["kind"].as<std::string>();
+		e["detail"]     = escCol(r, "detail");
+		e["created_at"] = escCol(r, "created_at");
+		if (!r["action"].isNull())
+			e["action"] = r["action"].as<std::string>();
+		if (!r["file_id"].isNull())
+			e["file_id"] = r["file_id"].as<int64_t>();
+		entries.push_back(std::move(e));
+	}
+
+	nlohmann::json j;
+	j["entries"]  = std::move(entries);
+	j["limit"]    = limit;
+	j["offset"]   = offset;
+	j["has_more"] = (int)rows.size() > limit;
+	co_return j;
+}
+
+namespace {
+
+/* Admin permission columns and their display labels. */
+struct Perm { const char *col; const char *label; };
+const Perm kPerms[] = {
+	{"can_manage_chat",           "manage chat"},
+	{"can_change_info",           "change info"},
+	{"can_post_messages",         "post messages"},
+	{"can_edit_messages",         "edit messages"},
+	{"can_delete_messages",       "delete messages"},
+	{"can_invite_users",          "invite users"},
+	{"can_restrict_members",      "restrict members"},
+	{"can_pin_messages",          "pin messages"},
+	{"can_manage_topics",         "manage topics"},
+	{"can_promote_members",       "promote members"},
+	{"can_manage_video_chats",    "manage video chats"},
+	{"can_post_stories",          "post stories"},
+	{"can_edit_stories",          "edit stories"},
+	{"can_delete_stories",        "delete stories"},
+	{"can_manage_direct_messages","manage direct messages"},
+	{"can_manage_tags",           "manage tags"},
+};
+
+/* Names of the permissions granted (value 1) in a telegram_group_admins row. */
+nlohmann::json grantedPerms(const drogon::orm::Row &r)
+{
+	nlohmann::json perms = nlohmann::json::array();
+	for (const auto &p : kPerms) {
+		if (!r[p.col].isNull() && r[p.col].as<int>() != 0)
+			perms.push_back(p.label);
+	}
+	return perms;
+}
+
+} /* namespace */
+
+drogon::Task<std::optional<nlohmann::json>> getGroup(drogon::orm::DbClientPtr db,
+						     int64_t id)
+{
+	auto gr = co_await db->execSqlCoro(
+		"SELECT id, type, title, description, photo_file_id, "
+		"msg_count, created_at, updated_at FROM `telegram_groups` WHERE id = ?",
+		id);
+
+	if (gr.empty())
+		co_return std::nullopt;
+
+	const auto &r = gr[0];
+	std::string title = r["title"].isNull() ? "" : r["title"].as<std::string>();
+	nlohmann::json group;
+	group["id"]          = r["id"].as<int64_t>();
+	group["type"]        = r["type"].as<std::string>();
+	group["title"]       = Render::esc(title.empty() ? "(no title)" : title);
+	group["description"] = escColMulti(r, "description");
+	group["msg_count"]   = r["msg_count"].as<int64_t>();
+	group["created_at"]  = r["created_at"].as<std::string>();
+	group["updated_at"]  = r["updated_at"].as<std::string>();
+	if (!r["photo_file_id"].isNull())
+		group["photo_file_id"] = r["photo_file_id"].as<int64_t>();
+
+	nlohmann::json j;
+	j["group"] = std::move(group);
+
+	/* Current usernames. */
+	auto un = co_await db->execSqlCoro(
+		"SELECT username, kind, position, is_collectible FROM telegram_group_usernames "
+		"WHERE group_id = ? ORDER BY kind, position",
+		id);
+	nlohmann::json usernames = nlohmann::json::array();
+	for (const auto &row : un) {
+		nlohmann::json e;
+		e["username"]    = escCol(row, "username");
+		e["kind"]        = row["kind"].as<std::string>();
+		e["collectible"] = row["is_collectible"].as<int>() != 0;
+		usernames.push_back(std::move(e));
+	}
+	j["usernames"] = std::move(usernames);
+
+	/* Current admins, joined to the user for a display name. */
+	auto ad = co_await db->execSqlCoro(
+		"SELECT ga.*, u.first_name, u.last_name, "
+		"(SELECT un.username FROM telegram_user_usernames un "
+		" WHERE un.user_id = ga.user_id AND un.kind = 'active' "
+		" ORDER BY un.position LIMIT 1) AS username "
+		"FROM telegram_group_admins ga LEFT JOIN telegram_users u ON u.id = ga.user_id "
+		"WHERE ga.group_id = ? ORDER BY ga.status, ga.user_id",
+		id);
+	nlohmann::json admins = nlohmann::json::array();
+	for (const auto &row : ad) {
+		nlohmann::json a;
+		a["user_id"]      = row["user_id"].as<int64_t>();
+		a["name"]         = displayName(row);
+		a["username"]     = escCol(row, "username");
+		a["status"]       = row["status"].as<std::string>();
+		a["custom_title"] = escCol(row, "custom_title");
+		a["is_anonymous"] = row["is_anonymous"].as<int>() != 0;
+		a["perms"]        = grantedPerms(row);
+		admins.push_back(std::move(a));
+	}
+	j["admins"] = std::move(admins);
+
+	/* Title history. */
+	auto th = co_await db->execSqlCoro(
+		"SELECT title, created_at FROM telegram_group_hist_title "
+		"WHERE group_id = ? ORDER BY id DESC LIMIT 100",
+		id);
+	nlohmann::json titleHist = nlohmann::json::array();
+	for (const auto &row : th) {
+		nlohmann::json e;
+		e["title"]      = escCol(row, "title");
+		e["created_at"] = row["created_at"].as<std::string>();
+		titleHist.push_back(std::move(e));
+	}
+	j["title_hist"] = std::move(titleHist);
+
+	/* Description history. */
+	auto dh = co_await db->execSqlCoro(
+		"SELECT description, created_at FROM telegram_group_hist_description "
+		"WHERE group_id = ? ORDER BY id DESC LIMIT 100",
+		id);
+	nlohmann::json descHist = nlohmann::json::array();
+	for (const auto &row : dh) {
+		nlohmann::json e;
+		e["description"] = escColMulti(row, "description");
+		e["created_at"]  = row["created_at"].as<std::string>();
+		descHist.push_back(std::move(e));
+	}
+	j["desc_hist"] = std::move(descHist);
+
+	/* Username events. */
+	auto ue = co_await db->execSqlCoro(
+		"SELECT username, action, kind, is_collectible, created_at "
+		"FROM telegram_group_hist_usernames_events "
+		"WHERE group_id = ? ORDER BY id DESC LIMIT 100",
+		id);
+	nlohmann::json unEvents = nlohmann::json::array();
+	for (const auto &row : ue) {
+		nlohmann::json e;
+		e["username"]    = escCol(row, "username");
+		e["action"]      = row["action"].as<std::string>();
+		e["kind"]        = row["kind"].isNull()
+					   ? "" : row["kind"].as<std::string>();
+		e["collectible"] = !row["is_collectible"].isNull() &&
+				   row["is_collectible"].as<int>() != 0;
+		e["created_at"]  = row["created_at"].as<std::string>();
+		unEvents.push_back(std::move(e));
+	}
+	j["username_events"] = std::move(unEvents);
+
+	/* Photo history. */
+	auto ph = co_await db->execSqlCoro(
+		"SELECT file_id, created_at FROM telegram_group_hist_photo "
+		"WHERE group_id = ? ORDER BY id DESC LIMIT 100",
+		id);
+	nlohmann::json photoHist = nlohmann::json::array();
+	for (const auto &row : ph) {
+		nlohmann::json e;
+		if (!row["file_id"].isNull())
+			e["file_id"] = row["file_id"].as<int64_t>();
+		e["created_at"] = row["created_at"].as<std::string>();
+		photoHist.push_back(std::move(e));
+	}
+	j["photo_hist"] = std::move(photoHist);
+
+	/* Admin change history, joined to the user for a display name. */
+	auto ah = co_await db->execSqlCoro(
+		"SELECT ah.user_id, ah.action, ah.status, ah.custom_title, "
+		"ah.created_at, u.first_name, u.last_name "
+		"FROM telegram_group_admin_hist ah LEFT JOIN telegram_users u ON u.id = ah.user_id "
+		"WHERE ah.group_id = ? ORDER BY ah.id DESC LIMIT 100",
+		id);
+	nlohmann::json adminHist = nlohmann::json::array();
+	for (const auto &row : ah) {
+		nlohmann::json e;
+		e["user_id"]      = row["user_id"].as<int64_t>();
+		e["name"]         = displayName(row);
+		e["action"]       = row["action"].as<std::string>();
+		e["status"]       = row["status"].as<std::string>();
+		e["custom_title"] = escCol(row, "custom_title");
+		e["created_at"]   = row["created_at"].as<std::string>();
+		adminHist.push_back(std::move(e));
+	}
+	j["admin_hist"] = std::move(adminHist);
+
+	co_return j;
+}
+
+drogon::Task<std::optional<nlohmann::json>>
+getGroupAdmins(drogon::orm::DbClientPtr db, int64_t id)
+{
+	auto gr = co_await db->execSqlCoro(
+		"SELECT id, type, title FROM `telegram_groups` WHERE id = ?", id);
+	if (gr.empty())
+		co_return std::nullopt;
+
+	const auto &g = gr[0];
+	std::string title = g["title"].isNull() ? "" : g["title"].as<std::string>();
+	nlohmann::json group;
+	group["id"]    = g["id"].as<int64_t>();
+	group["type"]  = g["type"].as<std::string>();
+	group["title"] = Render::esc(title.empty() ? "(no title)" : title);
+
+	/* Same projection as getGroup's admin block; see grantedPerms/kPerms. */
+	auto ad = co_await db->execSqlCoro(
+		"SELECT ga.*, u.first_name, u.last_name, "
+		"(SELECT un.username FROM telegram_user_usernames un "
+		" WHERE un.user_id = ga.user_id AND un.kind = 'active' "
+		" ORDER BY un.position LIMIT 1) AS username "
+		"FROM telegram_group_admins ga LEFT JOIN telegram_users u ON u.id = ga.user_id "
+		"WHERE ga.group_id = ? ORDER BY ga.status, ga.user_id",
+		id);
+	nlohmann::json admins = nlohmann::json::array();
+	for (const auto &row : ad) {
+		nlohmann::json a;
+		a["user_id"]      = row["user_id"].as<int64_t>();
+		a["name"]         = displayName(row);
+		a["username"]     = escCol(row, "username");
+		a["status"]       = row["status"].as<std::string>();
+		a["custom_title"] = escCol(row, "custom_title");
+		a["is_anonymous"] = row["is_anonymous"].as<int>() != 0;
+		a["perms"]        = grantedPerms(row);
+		admins.push_back(std::move(a));
+	}
+
+	nlohmann::json j;
+	j["group"]  = std::move(group);
+	j["admins"] = std::move(admins);
+	co_return j;
+}
+
+namespace {
+
+/* Escaped display name from two name columns, or the fallback if both empty. */
+std::string nameOf(const drogon::orm::Row &r, const char *fc, const char *lc,
+		   const std::string &fallback)
+{
+	std::string f = r[fc].isNull() ? "" : r[fc].as<std::string>();
+	std::string l = r[lc].isNull() ? "" : r[lc].as<std::string>();
+	std::string n = f;
+	if (!l.empty()) {
+		if (!n.empty())
+			n += " ";
+		n += l;
+	}
+	return Render::esc(n.empty() ? fallback : n);
+}
+
+/* Escaped column value, or the (escaped) fallback if NULL/empty. */
+std::string escOr(const drogon::orm::Row &r, const char *col,
+		  const std::string &fallback)
+{
+	if (r[col].isNull() || r[col].as<std::string>().empty())
+		return Render::esc(fallback);
+	return Render::esc(r[col].as<std::string>());
+}
+
+/* SELECT lists (without WHERE) resolving chat/sender names via joins. The
+ * "text" projection differs between the list snippet and the detail view. */
+std::string privSelect(const char *textProj)
+{
+	return std::string(
+		"SELECT m.id, m.message_id, m.chat_id, m.sender_id, m.is_outgoing, "
+		"IF(m.date>0, FROM_UNIXTIME(m.date), NULL) AS date_str, "
+		"m.edit_date, m.content_type, ") + textProj + ", "
+		"m.file_id, m.deleted_at, m.is_forwarded, "
+		"m.reply_to_id, m.reply_to_chat_id, m.reply_to_msg_id, "
+		"cu.first_name AS chat_first, cu.last_name AS chat_last, "
+		"su.first_name AS sender_first, su.last_name AS sender_last "
+		"FROM telegram_private_messages m "
+		"LEFT JOIN telegram_users cu ON cu.id = m.chat_id "
+		"LEFT JOIN telegram_users su ON su.id = m.sender_id ";
+}
+
+std::string groupSelect(const char *textProj)
+{
+	return std::string(
+		"SELECT m.id, m.message_id, m.chat_id, m.sender_user_id, "
+		"m.sender_chat_id, m.is_channel_post, m.author_signature, "
+		/* telegram_group_messages has no is_outgoing (irrelevant for public group
+		 * logging); a constant keeps the shared row shape. */
+		"0 AS is_outgoing, IF(m.date>0, FROM_UNIXTIME(m.date), NULL) AS date_str, "
+		"m.edit_date, m.content_type, ") + textProj + ", "
+		"m.file_id, m.deleted_at, m.is_forwarded, "
+		"m.reply_to_id, m.reply_to_chat_id, m.reply_to_msg_id, "
+		"g.title AS chat_title, "
+		"su.first_name AS sender_first, su.last_name AS sender_last, "
+		"sg.title AS sender_chat_title "
+		"FROM telegram_group_messages m "
+		"LEFT JOIN `telegram_groups` g ON g.id = m.chat_id "
+		"LEFT JOIN telegram_users su ON su.id = m.sender_user_id "
+		"LEFT JOIN `telegram_groups` sg ON sg.id = m.sender_chat_id ";
+}
+
+/* Fields shared by list and detail rendering. */
+void fillCommon(nlohmann::json &m, const drogon::orm::Row &r)
+{
+	m["id"]           = r["id"].as<int64_t>();
+	m["message_id"]   = r["message_id"].as<int64_t>();
+	m["chat_id"]      = r["chat_id"].as<int64_t>();
+	m["date"]         = escCol(r, "date_str");
+	m["content_type"] = r["content_type"].as<std::string>();
+	m["is_deleted"]   = !r["deleted_at"].isNull();
+	if (!r["deleted_at"].isNull())
+		m["deleted_at"] = escCol(r, "deleted_at");
+	m["is_forwarded"] = r["is_forwarded"].as<int>() != 0;
+	m["is_edited"]    = !r["edit_date"].isNull() &&
+			    r["edit_date"].as<int64_t>() > 0;
+	if (!r["file_id"].isNull())
+		m["file_id"] = r["file_id"].as<int64_t>();
+	if (!r["reply_to_id"].isNull())
+		m["reply_to_id"] = r["reply_to_id"].as<int64_t>();
+}
+
+/* Chat and sender display names, per scope. */
+void fillParties(nlohmann::json &m, const drogon::orm::Row &r,
+		 const std::string &scope)
+{
+	std::string chatId = std::to_string(r["chat_id"].as<int64_t>());
+	if (scope == "group") {
+		m["chat_name"] = escOr(r, "chat_title", "#" + chatId);
+		if (!r["sender_user_id"].isNull()) {
+			m["sender_name"] = nameOf(r, "sender_first", "sender_last",
+				"#" + std::to_string(r["sender_user_id"].as<int64_t>()));
+		} else if (!r["sender_chat_id"].isNull()) {
+			m["sender_name"] = escOr(r, "sender_chat_title",
+				"#" + std::to_string(r["sender_chat_id"].as<int64_t>()));
+		} else if (!r["author_signature"].isNull() &&
+			   !r["author_signature"].as<std::string>().empty()) {
+			m["sender_name"] = Render::esc(
+				r["author_signature"].as<std::string>());
+		} else {
+			m["sender_name"] = "(self)";
+		}
+	} else {
+		m["chat_name"] = nameOf(r, "chat_first", "chat_last", "#" + chatId);
+		if (r["sender_id"].isNull())
+			m["sender_name"] = "(self)";
+		else
+			m["sender_name"] = nameOf(r, "sender_first", "sender_last",
+				"#" + std::to_string(r["sender_id"].as<int64_t>()));
+	}
+}
+
+} /* namespace */
+
+drogon::Task<nlohmann::json> listMessages(drogon::orm::DbClientPtr db,
+					  std::string scope,
+					  std::optional<int64_t> chatId,
+					  int64_t cursor, int limit)
+{
+	/* LEFT(text,200) snippet + a length probe to flag truncation. */
+	const char *snippet =
+		"LEFT(m.text, 200) AS snippet, CHAR_LENGTH(m.text) AS text_len";
+	std::string sel = scope == "group" ? groupSelect(snippet)
+					   : privSelect(snippet);
+
+	/* cursor == 0 sentinel means "first page"; ids and message_ids are all
+	 * positive so 0 never collides with a real key. The SQL goes into a
+	 * named local to keep it alive across the suspension. */
+	std::optional<drogon::orm::Result> rowsHolder;
+	if (chatId) {
+		std::string q = sel +
+			"WHERE m.chat_id = ? AND (? = 0 OR m.message_id < ?) "
+			"ORDER BY m.message_id DESC LIMIT ?";
+		rowsHolder = co_await db->execSqlCoro(q, *chatId, cursor, cursor,
+						      limit + 1);
+	} else {
+		std::string q = sel +
+			"WHERE (? = 0 OR m.id < ?) ORDER BY m.id DESC LIMIT ?";
+		rowsHolder = co_await db->execSqlCoro(q, cursor, cursor, limit + 1);
+	}
+	const drogon::orm::Result &rows = *rowsHolder;
+
+	nlohmann::json messages = nlohmann::json::array();
+	int64_t lastKey = 0;
+	bool haveLast = false;
+	int n = 0;
+	for (const auto &r : rows) {
+		if (n++ >= limit)
+			break;
+		lastKey = chatId ? r["message_id"].as<int64_t>()
+				 : r["id"].as<int64_t>();
+		haveLast = true;
+
+		nlohmann::json m;
+		fillCommon(m, r);
+		fillParties(m, r, scope);
+		m["snippet"] = escCol(r, "snippet");
+		long len = r["text_len"].isNull() ? 0 : r["text_len"].as<long>();
+		m["text_truncated"] = len > 200;
+		messages.push_back(std::move(m));
+	}
+
+	nlohmann::json j;
+	j["scope"] = scope;
+	j["messages"] = std::move(messages);
+	if (chatId)
+		j["chat_id"] = *chatId;
+	if ((int)rows.size() > limit && haveLast)
+		j["next_cursor"] = lastKey;
+	else
+		j["next_cursor"] = nullptr;
+	co_return j;
+}
+
+drogon::Task<std::optional<nlohmann::json>> getMessage(drogon::orm::DbClientPtr db,
+						       std::string scope,
+						       int64_t id)
+{
+	bool group = scope == "group";
+	std::string sel = group ? groupSelect("m.text AS full_text")
+				: privSelect("m.text AS full_text");
+
+	/*
+	 * Build everything derived from the first result up front and do not
+	 * hold a reference into it across the co_awaits below (subsequent queries
+	 * reuse the connection and can invalidate earlier result state).
+	 */
+	nlohmann::json msg;
+	bool hasReply = false;
+	int64_t replyToId = 0;
+	{
+		std::string q = sel + "WHERE m.id = ?";
+		auto mr = co_await db->execSqlCoro(q, id);
+		if (mr.empty())
+			co_return std::nullopt;
+
+		const auto &r = mr[0];
+		fillCommon(msg, r);
+		fillParties(msg, r, scope);
+		msg["text"] = escCol(r, "full_text");
+		msg["is_outgoing"] = r["is_outgoing"].as<int>() != 0;
+		if (group) {
+			msg["is_channel_post"] = r["is_channel_post"].as<int>() != 0;
+			msg["author_signature"] = escCol(r, "author_signature");
+		}
+		if (!r["reply_to_id"].isNull()) {
+			hasReply = true;
+			replyToId = r["reply_to_id"].as<int64_t>();
+		}
+	}
+
+	nlohmann::json j;
+	j["scope"] = scope;
+	j["message"] = std::move(msg);
+
+	/* Edit history. */
+	std::string editTable = group ? "telegram_group_message_edits"
+				      : "telegram_private_message_edits";
+	std::string editFk = group ? "group_message_id" : "private_message_id";
+	std::string editQuery =
+		"SELECT content_type, LEFT(text, 500) AS snippet, file_id, "
+		"IF(edit_date>0, FROM_UNIXTIME(edit_date), NULL) AS edit_date_str "
+		"FROM " + editTable + " WHERE " + editFk + " = ? "
+		"ORDER BY id DESC LIMIT 100";
+	auto er = co_await db->execSqlCoro(editQuery, id);
+	nlohmann::json edits = nlohmann::json::array();
+	for (const auto &row : er) {
+		nlohmann::json e;
+		e["content_type"] = row["content_type"].as<std::string>();
+		e["snippet"]      = escCol(row, "snippet");
+		e["edit_date"]    = escCol(row, "edit_date_str");
+		if (!row["file_id"].isNull())
+			e["file_id"] = row["file_id"].as<int64_t>();
+		edits.push_back(std::move(e));
+	}
+	j["edits"] = std::move(edits);
+
+	/* Forward info (at most one row). */
+	std::string fwdTable = group ? "telegram_group_message_fwd_info"
+				     : "telegram_private_message_fwd_info";
+	std::string fwdFk = group ? "group_message_id" : "private_message_id";
+	std::string fwdQuery =
+		"SELECT origin_type, origin_sender_user_id, origin_sender_name, "
+		"origin_chat_id, origin_message_id, "
+		"IF(origin_date>0, FROM_UNIXTIME(origin_date), NULL) AS origin_date_str "
+		"FROM " + fwdTable + " WHERE " + fwdFk + " = ? LIMIT 1";
+	auto fr = co_await db->execSqlCoro(fwdQuery, id);
+	if (!fr.empty()) {
+		const auto &f = fr[0];
+		nlohmann::json fi;
+		fi["origin_type"] = f["origin_type"].as<std::string>();
+		fi["origin_sender_name"] = escCol(f, "origin_sender_name");
+		fi["origin_date"] = escCol(f, "origin_date_str");
+		if (!f["origin_sender_user_id"].isNull())
+			fi["origin_sender_user_id"] =
+				f["origin_sender_user_id"].as<int64_t>();
+		if (!f["origin_chat_id"].isNull())
+			fi["origin_chat_id"] = f["origin_chat_id"].as<int64_t>();
+		if (!f["origin_message_id"].isNull())
+			fi["origin_message_id"] =
+				f["origin_message_id"].as<int64_t>();
+		j["fwd_info"] = std::move(fi);
+	}
+
+	/* The message this one replies to, resolved via reply_to_id. */
+	if (hasReply) {
+		const char *proj = "LEFT(m.text,200) AS snippet, "
+				   "CHAR_LENGTH(m.text) AS text_len";
+		std::string q = (group ? groupSelect(proj) : privSelect(proj)) +
+			"WHERE m.id = ?";
+		auto pr = co_await db->execSqlCoro(q, replyToId);
+		if (!pr.empty()) {
+			nlohmann::json p;
+			fillCommon(p, pr[0]);
+			fillParties(p, pr[0], scope);
+			p["snippet"] = escCol(pr[0], "snippet");
+			j["reply_to"] = std::move(p);
+		}
+	}
+
+	co_return j;
+}
+
+drogon::Task<std::optional<FileMeta>> getFile(drogon::orm::DbClientPtr db,
+					      int64_t id)
+{
+	std::string q =
+		"SELECT LOWER(HEX(sha256)) AS hex, file_ext, file_type, "
+		"orig_file_name, file_size, on_disk, alias_of, accessed_at "
+		"FROM telegram_files WHERE id = ?";
+	auto r = co_await db->execSqlCoro(q, id);
+	if (r.empty())
+		co_return std::nullopt;
+
+	const auto &row = r[0];
+	FileMeta f;
+	f.hex      = row["hex"].isNull() ? "" : row["hex"].as<std::string>();
+	f.ext      = row["file_ext"].isNull() ? "" : row["file_ext"].as<std::string>();
+	f.fileType = row["file_type"].as<std::string>();
+	f.origName = row["orig_file_name"].isNull()
+			     ? "" : row["orig_file_name"].as<std::string>();
+	f.size     = row["file_size"].as<uint64_t>();
+	f.onDisk   = row["on_disk"].as<int>() != 0;
+	f.aliasOf  = row["alias_of"].isNull() ? 0 : row["alias_of"].as<uint64_t>();
+	f.accessedAt = row["accessed_at"].as<std::string>();
+	co_return f;
+}
+
+namespace {
+
+/* How a message's media is rendered in the chat view, from its content type. */
+const char *mediaRender(const std::string &ctype, const std::string &ext)
+{
+	if (ctype == "sticker") {
+		/* Stickers come in three formats: a static .webp image, a video
+		 * .webm (renders like an animation: loops, muted, no controls),
+		 * or a .tgs Lottie animation that cannot be played inline, so it
+		 * falls back to a download link. */
+		if (ext == "webm")
+			return "animation";
+		if (ext == "tgs")
+			return "lottie";
+		return "image";
+	}
+	if (ctype == "photo")
+		return "image";
+	if (ctype == "video")
+		return "video";
+	if (ctype == "animation")
+		return "animation";
+	if (ctype == "audio" || ctype == "voice")
+		return "audio";
+	return "file"; /* document, unknown */
+}
+
+/*
+ * Build the rich per-message JSON for the chat view from one result row. The
+ * private and group queries alias their columns to a common shape (see
+ * chatHistory), so this handles both scopes. The message's surrogate id is
+ * returned via rowId so the caller can attach edit history.
+ */
+nlohmann::json buildChatMessage(const drogon::orm::Row &r, int64_t &rowId,
+				bool group, int64_t chatId,
+				bool quoteOtherChats)
+{
+	rowId = r["id"].as<int64_t>();
+	bool outgoing = r["is_outgoing"].as<int>() != 0;
+
+	nlohmann::json m;
+	m["msg_id"]          = r["message_id"].as<int64_t>(); /* server id / anchor */
+	m["date"]            = escCol(r, "date_str");
+	m["day"]             = escCol(r, "day_str"); /* "07 July 2026", for the scroll date badge */
+	m["content_type"]    = r["content_type"].as<std::string>();
+	m["is_deleted"]      = !r["deleted_at"].isNull();
+	if (!r["deleted_at"].isNull())
+		m["deleted_at"] = escCol(r, "deleted_at");
+	m["is_outgoing"]     = outgoing;
+	/* Attribute incoming group messages to their sender; a 1:1 chat or one's
+	 * own messages need no per-bubble name. */
+	m["show_sender"]     = group && !outgoing;
+	m["is_edited"]       = !r["edit_date"].isNull() && r["edit_date"].as<int64_t>() > 0;
+	m["is_channel_post"] = !r["is_channel_post"].isNull() &&
+			       r["is_channel_post"].as<int>() != 0;
+	m["text"]            = renderFormattedCols(r, "text", "entities");
+	m["edits"]           = nlohmann::json::array();
+
+	/* A system/service message (member joined, title changed, ...) renders
+	 * as a centered notice rather than a chat bubble. Its `text` already
+	 * holds the human-readable description. */
+	m["is_service"]      = r["content_type"].as<std::string>() == "service";
+	if (!r["service_type"].isNull())
+		m["service_type"] = r["service_type"].as<std::string>();
+
+	/* Album membership: messages sent together share this id. The grouping
+	 * into one bubble happens after the per-message build (see chatHistory). */
+	if (!r["media_album_id"].isNull())
+		m["album_id"] = r["media_album_id"].as<int64_t>();
+
+	/* Sender: a chat/channel, a user, the logged-in account, or unknown. */
+	nlohmann::json s;
+	if (!r["sender_chat_id"].isNull()) {
+		int64_t id = r["sender_chat_id"].as<int64_t>();
+		s["kind"] = "group";
+		s["id"]   = id;
+		s["name"] = escOr(r, "sg_title", "#" + std::to_string(id));
+		if (!r["sg_photo"].isNull())
+			s["photo_file_id"] = r["sg_photo"].as<int64_t>();
+	} else if (!r["sender_user_id"].isNull()) {
+		int64_t id = r["sender_user_id"].as<int64_t>();
+		s["kind"] = "user";
+		s["id"]   = id;
+		s["name"] = nameOf(r, "su_first", "su_last", "#" + std::to_string(id));
+		s["username"] = escCol(r, "su_username");
+		if (!r["su_photo"].isNull())
+			s["photo_file_id"] = r["su_photo"].as<int64_t>();
+	} else if (m["is_outgoing"].get<bool>()) {
+		s["kind"] = "self";
+		s["name"] = "You";
+	} else {
+		s["kind"] = "unknown";
+		s["name"] = escOr(r, "author_signature", "(unknown)");
+	}
+	m["sender"] = std::move(s);
+
+	if (!r["author_signature"].isNull() &&
+	    !r["author_signature"].as<std::string>().empty())
+		m["author_signature"] = escCol(r, "author_signature");
+
+	/* Media attachment. */
+	if (!r["file_id"].isNull()) {
+		nlohmann::json med;
+		med["file_id"] = r["file_id"].as<int64_t>();
+		std::string ext = r["f_ext"].isNull() ? std::string()
+						      : r["f_ext"].as<std::string>();
+		med["render"]  = mediaRender(m["content_type"].get<std::string>(), ext);
+		med["name"]    = escCol(r, "f_name");
+		if (!r["f_size"].isNull())
+			med["size"] = r["f_size"].as<uint64_t>();
+		/* false = the bytes are not in the store (evicted, never
+		 * fetched, over the per-file cap); the controllers add
+		 * `fetchable` (media::markFetchable). */
+		med["stored"]  = r["f_on_disk"].isNull() ||
+				 r["f_on_disk"].as<int>() != 0;
+		m["media"] = std::move(med);
+	}
+
+	/* Reply preview. reply_to_id resolves a same-table target (rich preview);
+	 * otherwise reply_to_msg_id marks a reply we cannot preview here. */
+	const bool foreignTarget = !r["r_msg_id"].isNull() &&
+				   r["r_chat_id"].as<int64_t>() != chatId;
+	if (!r["r_msg_id"].isNull() && (quoteOtherChats || !foreignTarget)) {
+		nlohmann::json rep;
+		rep["msg_id"]       = r["r_msg_id"].as<int64_t>();
+		/*
+		 * reply_to_id resolves a target in ANY chat of the same table
+		 * (the daemon records replies universally), so a resolved
+		 * target is not necessarily in this chat. in_chat is what the
+		 * pager uses to build an in-chat link to it; claiming it for
+		 * a foreign target pointed that link at whatever message of
+		 * THIS chat happened to share the id.
+		 */
+		rep["in_chat"]      = r["r_chat_id"].as<int64_t>() == chatId;
+		rep["sender_name"]  = !r["r_sg_title"].isNull()
+			? escCol(r, "r_sg_title")
+			: nameOf(r, "r_su_first", "r_su_last", "");
+		rep["snippet"]      = escCol(r, "r_snippet");
+		rep["deleted"]      = !r["r_deleted_at"].isNull();
+		rep["content_type"] = r["r_ctype"].isNull() ? "" : r["r_ctype"].as<std::string>();
+		m["reply"] = std::move(rep);
+	} else if (!r["reply_to_msg_id"].isNull()) {
+		/* Also the withheld foreign quote: a reply, with nothing said
+		 * about what it replies to. */
+		nlohmann::json rep;
+		rep["msg_id"]  = r["reply_to_msg_id"].as<int64_t>();
+		rep["in_chat"] = false;
+		m["reply"] = std::move(rep);
+	}
+
+	/* Forward origin. */
+	if (!r["origin_type"].isNull()) {
+		nlohmann::json fw;
+		fw["type"]        = r["origin_type"].as<std::string>();
+		fw["sender_name"] = escCol(r, "origin_sender_name");
+		if (!r["origin_sender_user_id"].isNull())
+			fw["user_id"] = r["origin_sender_user_id"].as<int64_t>();
+		if (!r["origin_chat_id"].isNull())
+			fw["chat_id"] = r["origin_chat_id"].as<int64_t>();
+		m["forward"] = std::move(fw);
+	}
+
+	return m;
+}
+
+} /* namespace */
+
+drogon::Task<std::optional<nlohmann::json>>
+chatHeader(drogon::orm::DbClientPtr db, std::string scope, int64_t chatId)
+{
+	nlohmann::json h;
+	if (scope == "group") {
+		auto r = co_await db->execSqlCoro(
+			"SELECT id, type, title, photo_file_id FROM `telegram_groups` WHERE id = ?",
+			chatId);
+		if (r.empty())
+			co_return std::nullopt;
+		const auto &g = r[0];
+		std::string title = g["title"].isNull() ? "" : g["title"].as<std::string>();
+		h["kind"]  = "group";
+		h["id"]    = g["id"].as<int64_t>();
+		h["type"]  = g["type"].as<std::string>();
+		h["title"] = Render::esc(title.empty() ? "(no title)" : title);
+		if (!g["photo_file_id"].isNull())
+			h["photo_file_id"] = g["photo_file_id"].as<int64_t>();
+	} else {
+		auto r = co_await db->execSqlCoro(
+			"SELECT id, type, first_name, last_name, profile_photo_file_id "
+			"FROM telegram_users WHERE id = ?",
+			chatId);
+		if (r.empty())
+			co_return std::nullopt;
+		const auto &u = r[0];
+		h["kind"]  = "user";
+		h["id"]    = u["id"].as<int64_t>();
+		h["type"]  = u["type"].as<std::string>();
+		h["title"] = displayName(u);
+		if (!u["profile_photo_file_id"].isNull())
+			h["photo_file_id"] = u["profile_photo_file_id"].as<int64_t>();
+	}
+	co_return h;
+}
+
+drogon::Task<nlohmann::json> chatHistory(drogon::orm::DbClientPtr db,
+					 std::string scope, int64_t chatId,
+					 int limit, std::optional<int64_t> after,
+					 std::optional<int64_t> afterTs,
+					 bool quoteOtherChats)
+{
+	bool group = scope == "group";
+	const char *mtable = group ? "telegram_group_messages" : "telegram_private_messages";
+
+	/*
+	 * A time cursor takes precedence over a message cursor: resolve it to
+	 * the id just before the first message at or after that unix time, so
+	 * the page starts there and the rest of the paging (older/newer, reply
+	 * jumps) is unchanged. If nothing is that recent, fall through with no
+	 * cursor -- i.e. the newest page -- rather than an empty result.
+	 */
+	if (afterTs.has_value()) {
+		auto b = co_await db->execSqlCoro(
+			std::string("SELECT message_id FROM ") + mtable +
+			" WHERE chat_id = ? AND date >= ? "
+			"ORDER BY message_id ASC LIMIT 1",
+			chatId, *afterTs);
+		after = b.empty() ? std::optional<int64_t>()
+				  : std::optional<int64_t>(
+					    b[0]["message_id"].as<int64_t>() - 1);
+	}
+
+	/* One rich row per message (columns + joins, no WHERE yet). The private
+	 * query aliases its columns to the group shape (constant NULL/0 for the
+	 * group-only columns) so a single builder handles both. */
+	std::string base = group ?
+		"SELECT m.id, m.message_id, m.sender_user_id, m.sender_chat_id, "
+		/* telegram_group_messages has no is_outgoing; a constant keeps the shared
+		 * builder's row shape (a public group has no "own" perspective). */
+		"0 AS is_outgoing, m.is_channel_post, m.author_signature, "
+		"IF(m.date>0, FROM_UNIXTIME(m.date), NULL) AS date_str, "
+		"IF(m.date>0, DATE_FORMAT(FROM_UNIXTIME(m.date), '%d %M %Y'), '') AS day_str, "
+		"m.edit_date, m.content_type, m.text, m.entities, m.service_type, "
+		"m.file_id, m.deleted_at, "
+		"m.is_forwarded, m.media_album_id, m.reply_to_id, m.reply_to_chat_id, m.reply_to_msg_id, "
+		"su.first_name AS su_first, su.last_name AS su_last, "
+		"su.profile_photo_file_id AS su_photo, "
+		"(SELECT un.username FROM telegram_user_usernames un WHERE un.user_id = m.sender_user_id "
+		" AND un.kind='active' ORDER BY un.position LIMIT 1) AS su_username, "
+		"sg.title AS sg_title, sg.photo_file_id AS sg_photo, "
+		"f.file_type AS f_type, f.file_ext AS f_ext, f.orig_file_name AS f_name, f.file_size AS f_size, f.on_disk AS f_on_disk, "
+		"fw.origin_type, fw.origin_sender_user_id, fw.origin_sender_name, "
+		"fw.origin_chat_id, fw.origin_message_id, "
+		"rm.message_id AS r_msg_id, rm.chat_id AS r_chat_id, rm.deleted_at AS r_deleted_at, "
+		"rm.content_type AS r_ctype, LEFT(rm.text,120) AS r_snippet, "
+		"rsu.first_name AS r_su_first, rsu.last_name AS r_su_last, "
+		"rsg.title AS r_sg_title "
+		"FROM telegram_group_messages m "
+		"LEFT JOIN telegram_users su ON su.id = m.sender_user_id "
+		"LEFT JOIN `telegram_groups` sg ON sg.id = m.sender_chat_id "
+		"LEFT JOIN telegram_files f ON f.id = m.file_id "
+		"LEFT JOIN telegram_group_message_fwd_info fw ON fw.group_message_id = m.id "
+		"LEFT JOIN telegram_group_messages rm ON rm.id = m.reply_to_id "
+		"LEFT JOIN telegram_users rsu ON rsu.id = rm.sender_user_id "
+		"LEFT JOIN `telegram_groups` rsg ON rsg.id = rm.sender_chat_id "
+		:
+		"SELECT m.id, m.message_id, m.sender_id AS sender_user_id, "
+		"NULL AS sender_chat_id, m.is_outgoing, 0 AS is_channel_post, "
+		"NULL AS author_signature, "
+		"IF(m.date>0, FROM_UNIXTIME(m.date), NULL) AS date_str, "
+		"IF(m.date>0, DATE_FORMAT(FROM_UNIXTIME(m.date), '%d %M %Y'), '') AS day_str, "
+		"m.edit_date, m.content_type, m.text, m.entities, m.service_type, "
+		"m.file_id, m.deleted_at, "
+		"m.is_forwarded, m.media_album_id, m.reply_to_id, m.reply_to_chat_id, m.reply_to_msg_id, "
+		"su.first_name AS su_first, su.last_name AS su_last, "
+		"su.profile_photo_file_id AS su_photo, "
+		"(SELECT un.username FROM telegram_user_usernames un WHERE un.user_id = m.sender_id "
+		" AND un.kind='active' ORDER BY un.position LIMIT 1) AS su_username, "
+		"NULL AS sg_title, NULL AS sg_photo, "
+		"f.file_type AS f_type, f.file_ext AS f_ext, f.orig_file_name AS f_name, f.file_size AS f_size, f.on_disk AS f_on_disk, "
+		"fw.origin_type, fw.origin_sender_user_id, fw.origin_sender_name, "
+		"fw.origin_chat_id, fw.origin_message_id, "
+		"rm.message_id AS r_msg_id, rm.chat_id AS r_chat_id, rm.deleted_at AS r_deleted_at, "
+		"rm.content_type AS r_ctype, LEFT(rm.text,120) AS r_snippet, "
+		"rsu.first_name AS r_su_first, rsu.last_name AS r_su_last, "
+		"NULL AS r_sg_title "
+		"FROM telegram_private_messages m "
+		"LEFT JOIN telegram_users su ON su.id = m.sender_id "
+		"LEFT JOIN telegram_files f ON f.id = m.file_id "
+		"LEFT JOIN telegram_private_message_fwd_info fw ON fw.private_message_id = m.id "
+		"LEFT JOIN telegram_private_messages rm ON rm.id = m.reply_to_id "
+		"LEFT JOIN telegram_users rsu ON rsu.id = rm.sender_id ";
+
+	/*
+	 * The page window. With a cursor, take the oldest `limit` messages newer
+	 * than it (already ascending). Without one, take the newest `limit`
+	 * (descending, reversed to ascending below) -- the landing page. The SQL
+	 * lives in a named local so it outlives the co_await suspension.
+	 */
+	std::optional<drogon::orm::Result> rowsHolder;
+	if (after.has_value()) {
+		std::string q = base +
+			"WHERE m.chat_id = ? AND m.message_id > ? "
+			"ORDER BY m.message_id ASC LIMIT ?";
+		rowsHolder = co_await db->execSqlCoro(q, chatId, *after, limit);
+	} else {
+		std::string q = base +
+			"WHERE m.chat_id = ? ORDER BY m.message_id DESC LIMIT ?";
+		rowsHolder = co_await db->execSqlCoro(q, chatId, limit);
+	}
+	const drogon::orm::Result &rows = *rowsHolder;
+
+	std::unordered_set<int64_t> pageIds;
+	std::vector<nlohmann::json> msgs;
+	std::vector<int64_t> rowIds;
+	std::vector<int64_t> editedIds;
+	for (const auto &r : rows) {
+		pageIds.insert(r["message_id"].as<int64_t>());
+		int64_t rid = 0;
+		nlohmann::json m = buildChatMessage(r, rid, group, chatId,
+						    quoteOtherChats);
+		if (m["is_edited"].get<bool>())
+			editedIds.push_back(rid);
+		rowIds.push_back(rid);
+		msgs.push_back(std::move(m));
+	}
+
+	/* Edit history (snapshot BEFORE each edit) for the edited messages. The
+	 * ids are our own integers, so inlining them in IN() is injection-safe and
+	 * sidesteps a variadic bind of unknown arity. */
+	if (!editedIds.empty()) {
+		std::string idlist;
+		for (size_t i = 0; i < editedIds.size(); i++) {
+			if (i)
+				idlist += ",";
+			idlist += std::to_string(editedIds[i]);
+		}
+		std::string fk  = group ? "group_message_id" : "private_message_id";
+		std::string tbl = group ? "telegram_group_message_edits" : "telegram_private_message_edits";
+		std::string eq =
+			"SELECT e." + fk + " AS mid, e.content_type, "
+			"LEFT(e.text, 4000) AS snippet, e.entities, e.file_id, "
+			"f.file_ext AS f_ext, f.orig_file_name AS f_name, "
+			"f.file_size AS f_size, f.on_disk AS f_on_disk, "
+			"IF(e.edit_date>0, FROM_UNIXTIME(e.edit_date), NULL) AS edit_date_str "
+			"FROM " + tbl + " e "
+			"LEFT JOIN telegram_files f ON f.id = e.file_id "
+			"WHERE e." + fk + " IN (" + idlist + ") ORDER BY e.id DESC";
+		auto er = co_await db->execSqlCoro(eq);
+
+		std::unordered_map<int64_t, nlohmann::json> editMap;
+		for (const auto &row : er) {
+			nlohmann::json e;
+			e["content_type"] = row["content_type"].as<std::string>();
+			e["text"]         = renderFormattedCols(row, "snippet", "entities");
+			e["edit_date"]    = escCol(row, "edit_date_str");
+			/* An edit snapshot can carry media (text -> photo, photo -> other
+			 * photo, ...); render it like the message's own attachment. */
+			if (!row["file_id"].isNull()) {
+				nlohmann::json med;
+				med["file_id"] = row["file_id"].as<int64_t>();
+				std::string ext = row["f_ext"].isNull()
+						? std::string()
+						: row["f_ext"].as<std::string>();
+				med["render"] = mediaRender(
+					e["content_type"].get<std::string>(), ext);
+				med["name"]   = escCol(row, "f_name");
+				if (!row["f_size"].isNull())
+					med["size"] = row["f_size"].as<uint64_t>();
+				med["stored"] = row["f_on_disk"].isNull() ||
+						row["f_on_disk"].as<int>() != 0;
+				e["media"] = std::move(med);
+			}
+			int64_t mid = row["mid"].as<int64_t>();
+			if (!editMap.count(mid))
+				editMap[mid] = nlohmann::json::array();
+			editMap[mid].push_back(std::move(e));
+		}
+		for (size_t i = 0; i < msgs.size(); i++) {
+			auto it = editMap.find(rowIds[i]);
+			if (it != editMap.end())
+				msgs[i]["edits"] = std::move(it->second);
+		}
+	}
+
+	/*
+	 * Link previews for this page, in one query rather than one per
+	 * message -- the same batch-by-row-id shape the edit history above
+	 * uses, and for the same reason: a page is up to `limit` messages and
+	 * a query each would be a round trip each.
+	 */
+	if (!rowIds.empty()) {
+		std::string idlist;
+		for (size_t i = 0; i < rowIds.size(); i++) {
+			if (i)
+				idlist += ",";
+			idlist += std::to_string(rowIds[i]);
+		}
+		const std::string fk = group ? "group_message_id"
+					     : "private_message_id";
+		const std::string pq =
+			"SELECT p." + fk + " AS mid, p.url, p.display_url, "
+			"p.site_name, p.title, LEFT(p.description, 1000) AS description, "
+			"p.author, p.type, p.instant_view_version, "
+			"p.photo_file_id, f.file_ext AS p_ext, "
+			"f.file_size AS p_size, f.on_disk AS p_on_disk "
+			"FROM telegram_link_previews p "
+			"LEFT JOIN telegram_files f ON f.id = p.photo_file_id "
+			"WHERE p." + fk + " IN (" + idlist + ")";
+		auto pv = co_await db->execSqlCoro(pq);
+		std::unordered_map<int64_t, nlohmann::json> prevMap;
+		for (const auto &row : pv) {
+			nlohmann::json lp;
+			lp["url"]          = escCol(row, "url");
+			lp["display_url"]  = escCol(row, "display_url");
+			lp["site_name"]    = escCol(row, "site_name");
+			lp["title"]        = escCol(row, "title");
+			lp["description"]  = escCol(row, "description");
+			lp["author"]       = escCol(row, "author");
+			lp["type"]         = escCol(row, "type");
+			if (!row["instant_view_version"].isNull())
+				lp["instant_view_version"] =
+					row["instant_view_version"].as<int>();
+			/*
+			 * The image, described exactly like message media so the
+			 * template and chat-render.js can reuse the same
+			 * rendering -- including `stored`, since a preview image
+			 * whose bytes are not stored is shown only when it can be
+			 * fetched.
+			 */
+			if (!row["photo_file_id"].isNull()) {
+				nlohmann::json med;
+				med["file_id"] = row["photo_file_id"].as<int64_t>();
+				std::string ext = row["p_ext"].isNull()
+						? std::string()
+						: row["p_ext"].as<std::string>();
+				med["render"] = mediaRender("photo", ext);
+				if (!row["p_size"].isNull())
+					med["size"] = row["p_size"].as<uint64_t>();
+				med["stored"] = row["p_on_disk"].isNull() ||
+						row["p_on_disk"].as<int>() != 0;
+				lp["media"] = std::move(med);
+			}
+			prevMap[row["mid"].as<int64_t>()] = std::move(lp);
+		}
+		for (size_t i = 0; i < msgs.size(); i++) {
+			auto it = prevMap.find(rowIds[i]);
+			if (it != prevMap.end())
+				msgs[i]["link_preview"] = std::move(it->second);
+		}
+	}
+
+	/* Oldest-first for rendering. The cursor window is already ascending;
+	 * the landing window came back newest-first, so reverse it. */
+	nlohmann::json ordered = nlohmann::json::array();
+	if (after.has_value()) {
+		for (auto &m : msgs)
+			ordered.push_back(std::move(m));
+	} else {
+		for (auto it = msgs.rbegin(); it != msgs.rend(); ++it)
+			ordered.push_back(std::move(*it));
+	}
+
+	/*
+	 * Collapse albums (media groups). Messages sent together share an
+	 * album_id and arrive as consecutive rows; fold each run of two or more
+	 * into a single bubble that carries the shared caption, reply and
+	 * forward, plus one entry per media item (each keeping its own msg_id so
+	 * replies can still anchor to it). A lone album item -- the rest fell
+	 * outside the window -- is left as an ordinary message.
+	 */
+	nlohmann::json out = nlohmann::json::array();
+	for (size_t i = 0; i < ordered.size();) {
+		if (!ordered[i].contains("album_id")) {
+			out.push_back(std::move(ordered[i]));
+			i++;
+			continue;
+		}
+
+		int64_t album = ordered[i]["album_id"].get<int64_t>();
+		size_t k = i;
+		while (k < ordered.size() && ordered[k].contains("album_id") &&
+		       ordered[k]["album_id"].get<int64_t>() == album)
+			k++;
+
+		if (k - i == 1) {
+			out.push_back(std::move(ordered[i]));
+			i = k;
+			continue;
+		}
+
+		nlohmann::json a;
+		const nlohmann::json &first = ordered[i];
+		a["is_album"]    = true;
+		a["is_service"]  = false;
+		a["album_id"]    = album;
+		a["msg_id"]      = first["msg_id"];
+		a["date"]        = first["date"];
+		a["day"]         = first["day"];
+		a["is_outgoing"] = first["is_outgoing"];
+		a["show_sender"] = first["show_sender"];
+		a["sender"]      = first["sender"];
+		a["text"]        = std::string();
+		a["is_edited"]   = false;
+		a["edits"]       = nlohmann::json::array();
+
+		nlohmann::json items = nlohmann::json::array();
+		bool anyDeleted = false;
+		for (size_t j = i; j < k; j++) {
+			nlohmann::json &m = ordered[j];
+			/* Shared attributes: take the first that carries them. */
+			if (!a.contains("reply") && m.contains("reply"))
+				a["reply"] = m["reply"];
+			if (!a.contains("forward") && m.contains("forward"))
+				a["forward"] = m["forward"];
+			/* The caption lives on one item; keep its edit history too. */
+			if (a["text"].get<std::string>().empty() &&
+			    m.contains("text") &&
+			    !m["text"].get<std::string>().empty()) {
+				a["text"]      = m["text"];
+				a["is_edited"] = m.value("is_edited", false);
+				if (m.contains("edits"))
+					a["edits"] = m["edits"];
+			}
+
+			nlohmann::json it;
+			it["msg_id"]       = m["msg_id"];
+			it["content_type"] = m["content_type"];
+			it["is_deleted"]   = m.value("is_deleted", false);
+			if (m["is_deleted"].get<bool>())
+				anyDeleted = true;
+			if (m.contains("media"))
+				it["media"] = m["media"];
+			items.push_back(std::move(it));
+		}
+		a["items"]       = std::move(items);
+		a["any_deleted"] = anyDeleted;
+		out.push_back(std::move(a));
+		i = k;
+	}
+
+	nlohmann::json j;
+	j["limit"] = limit;
+
+	if (!pageIds.empty()) {
+		auto mm = std::minmax_element(pageIds.begin(), pageIds.end());
+		int64_t mFirst = *mm.first;	/* oldest id on the page */
+		int64_t mLast  = *mm.second;	/* newest id on the page */
+		j["oldest_msg_id"] = mFirst;
+		j["newest_msg_id"] = mLast;
+
+		/*
+		 * Older cursor: the `limit` messages just below mFirst. The
+		 * oldest of them, minus one, is the `after` for a contiguous
+		 * older page (after is exclusive). Absent when nothing is older.
+		 */
+		auto older = co_await db->execSqlCoro(
+			std::string("SELECT message_id FROM ") + mtable +
+			" WHERE chat_id = ? AND message_id < ? "
+			"ORDER BY message_id DESC LIMIT ?",
+			chatId, mFirst, limit);
+		if (!older.empty()) {
+			int64_t oldest =
+				older[older.size() - 1]["message_id"].as<int64_t>();
+			j["older_after"] = oldest - 1;
+		}
+
+		/* Newer cursor: after mLast yields the contiguous newer page.
+		 * Absent when mLast is already the newest message. */
+		auto newer = co_await db->execSqlCoro(
+			std::string("SELECT 1 FROM ") + mtable +
+			" WHERE chat_id = ? AND message_id > ? LIMIT 1",
+			chatId, mLast);
+		if (!newer.empty())
+			j["newer_after"] = mLast;
+
+		/*
+		 * Reply links. A same-chat reply target already on this page
+		 * gets a cheap in-page #anchor; one off the page gets a URL that
+		 * loads the page holding it, centered (the window starts about
+		 * half a page below the target). Cross-chat replies keep a plain
+		 * #anchor (not navigable from here), as before.
+		 */
+		int half = limit / 2;
+		for (auto &m : out) {
+			if (!m.contains("reply") || !m["reply"].contains("msg_id"))
+				continue;
+			auto &rep = m["reply"];
+			int64_t t = rep["msg_id"].get<int64_t>();
+			if (rep.value("in_chat", false) && !pageIds.count(t)) {
+				int64_t c = -1;
+				auto s = co_await db->execSqlCoro(
+					std::string("SELECT message_id FROM ") +
+					mtable + " WHERE chat_id = ? AND "
+					"message_id < ? ORDER BY message_id DESC "
+					"LIMIT 1 OFFSET ?",
+					chatId, t, half);
+				if (!s.empty())
+					c = s[0]["message_id"].as<int64_t>() - 1;
+				rep["href"] = "?limit=" + std::to_string(limit) +
+					      "&amp;after=" + std::to_string(c) +
+					      "#msg-" + std::to_string(t);
+			} else {
+				rep["href"] = "#msg-" + std::to_string(t);
+			}
+		}
+	}
+
+	j["messages"] = std::move(out);
+	co_return j;
+}
+
+} /* namespace tgweb::dao::browse */

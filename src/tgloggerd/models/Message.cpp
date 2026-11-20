@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2026 Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
@@ -22,7 +22,25 @@ const char *to_string(MessageContentType t)
 	case MessageContentType::Voice:		return "voice";
 	case MessageContentType::Sticker:	return "sticker";
 	case MessageContentType::Animation:	return "animation";
+	case MessageContentType::Service:	return "service";
 	case MessageContentType::Unknown:	return "unknown";
+	case MessageContentType::VideoNote:	return "video_note";
+	case MessageContentType::Location:	return "location";
+	case MessageContentType::Venue:		return "venue";
+	case MessageContentType::Contact:	return "contact";
+	case MessageContentType::Dice:		return "dice";
+	case MessageContentType::Game:		return "game";
+	case MessageContentType::Poll:		return "poll";
+	case MessageContentType::Checklist:	return "checklist";
+	case MessageContentType::Story:		return "story";
+	case MessageContentType::PaidMedia:	return "paid_media";
+	case MessageContentType::Invoice:	return "invoice";
+	case MessageContentType::Giveaway:	return "giveaway";
+	case MessageContentType::Call:		return "call";
+	case MessageContentType::Rich:		return "rich";
+	case MessageContentType::Widget:	return "widget";
+	case MessageContentType::Expired:	return "expired";
+	case MessageContentType::Unsupported:	return "unsupported";
 	}
 	return "unknown";
 }
@@ -48,6 +66,24 @@ MessageContentType message_content_type_from_string(const std::string &s)
 	if (s == "voice")	return MessageContentType::Voice;
 	if (s == "sticker")	return MessageContentType::Sticker;
 	if (s == "animation")	return MessageContentType::Animation;
+	if (s == "service")	return MessageContentType::Service;
+	if (s == "video_note")	return MessageContentType::VideoNote;
+	if (s == "location")	return MessageContentType::Location;
+	if (s == "venue")	return MessageContentType::Venue;
+	if (s == "contact")	return MessageContentType::Contact;
+	if (s == "dice")	return MessageContentType::Dice;
+	if (s == "game")	return MessageContentType::Game;
+	if (s == "poll")	return MessageContentType::Poll;
+	if (s == "checklist")	return MessageContentType::Checklist;
+	if (s == "story")	return MessageContentType::Story;
+	if (s == "paid_media")	return MessageContentType::PaidMedia;
+	if (s == "invoice")	return MessageContentType::Invoice;
+	if (s == "giveaway")	return MessageContentType::Giveaway;
+	if (s == "call")	return MessageContentType::Call;
+	if (s == "rich")	return MessageContentType::Rich;
+	if (s == "widget")	return MessageContentType::Widget;
+	if (s == "expired")	return MessageContentType::Expired;
+	if (s == "unsupported")	return MessageContentType::Unsupported;
 	return MessageContentType::Unknown;
 }
 
@@ -67,7 +103,9 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 				      const models::MessageContent &old_content,
 				      int64_t old_edit_date,
 				      const models::MessageContent &new_content,
-				      int64_t new_edit_date)
+				      int64_t new_edit_date,
+				      bool entities_same,
+				      bool extra_same)
 {
 	/*
 	 * Only a genuine edit (edit_date advanced) that actually changed the
@@ -82,32 +120,401 @@ bool DB::snapshotMessageEditIfChanged(mysql::Transaction &tx,
 	 * never carries one at build time. Comparing it would flag every
 	 * media message as edited. The old file_id is still snapshotted.
 	 */
+	/*
+	 * `entities` cannot be compared here, which is why the caller passes
+	 * the answer in. It is a MySQL JSON column, so what comes back out of
+	 * a SELECT is the server's normalisation of what went in -- object
+	 * keys reordered, a space after every colon and comma -- while
+	 * new_content.entities is format_entities_json()'s compact rendering.
+	 * The two spellings of one value never match as bytes, so comparing
+	 * them as strings reported "changed" for every message that carries an
+	 * entity, and every advance of edit_date wrote a snapshot whose content
+	 * was identical to the previous one. The caller resolves it the only
+	 * way that is actually correct, by asking MySQL to compare the two as
+	 * JSON values.
+	 *
+	 * text, by contrast, is compared right here on purpose. It is a plain
+	 * std::string comparison and therefore exact; the same comparison
+	 * pushed into SQL would inherit the column's utf8mb4_0900_ai_ci
+	 * collation and quietly treat an edit that only changed case or
+	 * accents as no edit at all.
+	 *
+	 * content_extra is answered by the server like entities, and only on
+	 * its curated keys (DB::kCuratedExtraSame); tdlib_type counts only
+	 * where both sides have one, since rows stored before it existed
+	 * have none.
+	 */
 	if (old_content.content_type == new_content.content_type &&
-	    old_content.text == new_content.text)
+	    old_content.text == new_content.text &&
+	    entities_same && extra_same &&
+	    sameTdlibType(old_content.tdlib_type, new_content.tdlib_type))
 		return false;
 
+	if (locationVersionTooSoon(tx, edits_table, fk_column, message_row_id,
+				   old_content, new_content))
+		return false;
+
+	appendMessageVersion(tx, edits_table, fk_column, message_row_id,
+			     old_content, old_edit_date);
+	return true;
+}
+
+bool DB::locationVersionTooSoon(mysql::Transaction &tx,
+				const char *edits_table,
+				const char *fk_column,
+				uint64_t message_row_id,
+				const models::MessageContent &old_content,
+				const models::MessageContent &new_content)
+{
+	if (old_content.content_type != models::MessageContentType::Location ||
+	    new_content.content_type != models::MessageContentType::Location)
+		return false;
+	return !tx.query(std::string("SELECT 1 FROM ") + edits_table +
+			 " WHERE " + fk_column + " = ?"
+			 " AND created_at > NOW() - INTERVAL 60 SECOND LIMIT 1",
+			 { (int64_t)message_row_id }).empty();
+}
+
+/*
+ * Append one superseded version of a message to its edits table, unconditionally.
+ *
+ * The stamp is the edit_date that content had while it was live -- its own
+ * start, not the date of the edit that ended it -- so edit_date means the same
+ * thing here as on the live row (this version came into being then, 0 for the
+ * original). A message's history is then its edit rows followed by the live
+ * row, each carrying its own start.
+ *
+ * Separate from snapshotMessageEditIfChanged because the two callers know
+ * different things. That one is driven by a rebuilt message and can see both
+ * edit_dates, so it decides whether an edit happened at all; this one is driven
+ * by a content update that carries no date, where the fact that the content
+ * differs IS the evidence.
+ */
+void DB::appendMessageVersion(mysql::Transaction &tx, const char *edits_table,
+			      const char *fk_column, uint64_t message_row_id,
+			      const models::MessageContent &content,
+			      int64_t edit_date)
+{
 	mysql::Param text_param = std::monostate{};
-	if (old_content.text.has_value())
-		text_param = *old_content.text;
+	if (content.text.has_value())
+		text_param = *content.text;
+
+	mysql::Param entities_param = std::monostate{};
+	if (content.entities.has_value())
+		entities_param = *content.entities;
+
+	mysql::Param tdlib_type_param = std::monostate{};
+	if (content.tdlib_type.has_value())
+		tdlib_type_param = *content.tdlib_type;
+
+	mysql::Param extra_param = std::monostate{};
+	if (content.content_extra.has_value())
+		extra_param = *content.content_extra;
+
+	/*
+	 * Refuse to append a version identical to the newest one already
+	 * recorded. Two paths can observe the same superseded version -- the
+	 * inline content update, and a getMessage reply that was already in
+	 * flight when the edit landed. The in-flight reply can even carry the
+	 * OLD content with the OLD edit_date, sail past the ordering guard on
+	 * equality, transiently revert the live row, and make the next edit
+	 * re-snapshot a version that is already in the table. The revert heals
+	 * on the next fetch; the duplicate row would be permanent, so it is
+	 * stopped here, where every append path funnels through.
+	 */
+	auto newest = tx.query(
+		std::string("SELECT content_type, text, file_id, edit_date,"
+			    " (entities <=> CAST(? AS JSON)), tdlib_type, ") +
+		kCuratedExtraSame + " FROM " +
+		edits_table + " WHERE " + fk_column + " = ?"
+		" ORDER BY id DESC LIMIT 1",
+		{ entities_param, extra_param, (int64_t)message_row_id });
+	if (!newest.empty()) {
+		auto &n = newest[0];
+		std::optional<std::string> n_text;
+		if (n[1].has_value())
+			n_text = *n[1];
+		std::optional<uint64_t> n_file;
+		if (n[2].has_value())
+			n_file = std::stoull(*n[2]);
+		int64_t n_edit = n[3].has_value() ? std::stoll(*n[3]) : 0;
+		std::optional<std::string> n_tdlib_type;
+		if (n[5].has_value())
+			n_tdlib_type = *n[5];
+
+		if (n[0].value_or("unknown") ==
+			    models::to_string(content.content_type) &&
+		    n_text == content.text &&
+		    n_file == content.file_id &&
+		    n_edit == edit_date &&
+		    n[4].value_or("0") == "1" &&
+		    sameTdlibType(n_tdlib_type, content.tdlib_type) &&
+		    n[6].value_or("0") == "1")
+			return;
+	}
 
 	mysql::Param file_param = std::monostate{};
-	if (old_content.file_id.has_value())
-		file_param = (int64_t)*old_content.file_id;
+	if (content.file_id.has_value())
+		file_param = (int64_t)*content.file_id;
 
 	std::string sql = std::string("INSERT INTO ") + edits_table + " (" +
-		fk_column + ", content_type, text, file_id, edit_date)"
-		" VALUES (?, ?, ?, ?, ?)";
+		fk_column + ", content_type, text, entities, file_id, edit_date,"
+		" tdlib_type, content_extra)"
+		" VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 
-	/* The snapshot records the content *before* the edit, keyed by the
-	 * edit_date that triggered it (the new edit_date of the live row). */
 	tx.execute(sql, {
 		(int64_t)message_row_id,
-		std::string(models::to_string(old_content.content_type)),
+		std::string(models::to_string(content.content_type)),
 		text_param,
+		entities_param,
 		file_param,
-		(int64_t)new_edit_date,
+		(int64_t)edit_date,
+		tdlib_type_param,
+		extra_param,
 	});
-	return true;
+}
+
+namespace {
+
+/* Content kinds that own a file in telegram_files. */
+bool is_media_content_type(models::MessageContentType t)
+{
+	switch (t) {
+	case models::MessageContentType::Photo:
+	case models::MessageContentType::Video:
+	case models::MessageContentType::Document:
+	case models::MessageContentType::Audio:
+	case models::MessageContentType::Voice:
+	case models::MessageContentType::Sticker:
+	case models::MessageContentType::Animation:
+		return true;
+	default:
+		return false;
+	}
+}
+
+} /* namespace */
+
+/*
+ * Record a message's content as observed by updateMessageContent, which hands
+ * the daemon the new content directly.
+ *
+ * That directness is the whole point. The other way to learn an edit is
+ * updateMessageEdited, which carries a date and no content and so has to answer
+ * with getMessage -- and getMessage replies with the message as it stands when
+ * the server gets round to it, not as it stood at the edit that asked. Someone
+ * who edits twice in quick succession therefore has the first version answered
+ * with the second one, and if they then edit back to the original the archive
+ * sees the text it already had, concludes nothing changed, and the middle
+ * version is gone with no trace that it existed. Content delivered inline has
+ * no such window: it is the version, at the moment it existed.
+ *
+ * edit_date is deliberately not touched. This update does not carry one, and
+ * guessing would defeat the ordering guard on the upsert. The version being
+ * superseded is stamped with the date it held while live, which IS known, and
+ * the live row's date is left for updateMessageEdited to set.
+ *
+ * Returns true when a version was recorded. A location that moved within a
+ * minute of its last version updates the live row and returns false.
+ */
+bool DB::recordMessageContentVersion(int64_t chat_id, int64_t message_id,
+				     const models::MessageContent &content,
+				     bool is_group)
+{
+	const char *tbl   = is_group ? "telegram_group_messages"
+				     : "telegram_private_messages";
+	const char *edits = is_group ? "telegram_group_message_edits"
+				     : "telegram_private_message_edits";
+	const char *fk    = is_group ? "group_message_id"
+				     : "private_message_id";
+
+	bool recorded = false;
+	db_.transaction([&](mysql::Transaction &tx) {
+		mysql::Param entities_param = std::monostate{};
+		if (content.entities.has_value())
+			entities_param = *content.entities;
+
+		mysql::Param tdlib_type_param = std::monostate{};
+		if (content.tdlib_type.has_value())
+			tdlib_type_param = *content.tdlib_type;
+
+		mysql::Param extra_param = std::monostate{};
+		if (content.content_extra.has_value())
+			extra_param = *content.content_extra;
+
+		auto rows = tx.query(
+			std::string("SELECT id, edit_date, content_type, text,"
+				    " file_id, entities, deleted_at,"
+				    " (entities <=> CAST(? AS JSON)),"
+				    " tdlib_type, content_extra, ") +
+			kCuratedExtraSame + " FROM " + tbl +
+			" WHERE chat_id = ? AND message_id = ?",
+			{ entities_param, extra_param, (int64_t)chat_id,
+			  (int64_t)message_id });
+
+		/*
+		 * Nothing stored yet. Not an error and not something to insert
+		 * from here: this update carries content but none of the
+		 * identity a row needs, and the message path will store it
+		 * properly when it arrives.
+		 */
+		if (rows.empty())
+			return;
+
+		auto &old = rows[0];
+
+		/* Deleted messages keep the content they were deleted with. */
+		if (old[6].has_value())
+			return;
+
+		models::MessageContent prev;
+		prev.content_type = models::message_content_type_from_string(
+			old[2].value_or("unknown"));
+		if (old[3].has_value())
+			prev.text = *old[3];
+		if (old[5].has_value())
+			prev.entities = *old[5];
+		if (old[4].has_value())
+			prev.file_id = std::stoull(*old[4]);
+		if (old[8].has_value())
+			prev.tdlib_type = *old[8];
+		if (old[9].has_value())
+			prev.content_extra = *old[9];
+
+		/* Same comparison the edit path makes; see the note there on
+		 * why entities is answered by the server and text is not. */
+		if (prev.content_type == content.content_type &&
+		    prev.text == content.text &&
+		    old[7].value_or("0") == "1" &&
+		    old[10].value_or("0") == "1" &&
+		    sameTdlibType(prev.tdlib_type, content.tdlib_type))
+			return;
+
+		uint64_t row_id = std::stoull(*old[0]);
+		int64_t prev_edit_date = old[1].has_value() ?
+			std::stoll(*old[1]) : 0;
+
+		/* A moving location updates the live row every time, but
+		 * leaves a version at most once a minute. */
+		bool append = !locationVersionTooSoon(tx, edits, fk, row_id,
+						      prev, content);
+		if (append)
+			appendMessageVersion(tx, edits, fk, row_id, prev,
+					     prev_edit_date);
+
+		mysql::Param text_param = std::monostate{};
+		if (content.text.has_value())
+			text_param = *content.text;
+
+		mysql::Param service_param = std::monostate{};
+		if (content.service_type.has_value())
+			service_param = *content.service_type;
+
+		/*
+		 * Drop the file link when the new content cannot own one --
+		 * an edit that turns a photo into text would otherwise leave
+		 * the row pointing at the superseded version's file, which the
+		 * snapshot above now holds. When the new content IS media the
+		 * link is left alone for the async file pipeline to set.
+		 */
+		std::string sql = std::string("UPDATE ") + tbl +
+			" SET content_type = ?, text = ?, entities = ?,"
+			" service_type = ?, tdlib_type = ?, content_extra = ?";
+		if (!is_media_content_type(content.content_type))
+			sql += ", file_id = NULL";
+		sql += " WHERE id = ?";
+
+		tx.execute(sql, {
+			std::string(models::to_string(content.content_type)),
+			text_param,
+			entities_param,
+			service_param,
+			tdlib_type_param,
+			extra_param,
+			(int64_t)row_id,
+		});
+		recorded = append;
+	});
+	return recorded;
+}
+
+bool DB::setMessageInteraction(int64_t chat_id, int64_t message_id,
+				bool is_group, const models::Interaction &ia)
+{
+	auto p = [](const auto &v) -> mysql::Param {
+		if (v.has_value())
+			return *v;
+		return std::monostate{};
+	};
+	uint64_t n = db_.execute(std::string("UPDATE ") +
+		(is_group ? "telegram_group_messages"
+			  : "telegram_private_messages") +
+		" SET view_count = COALESCE(?, view_count),"
+		" forward_count = COALESCE(?, forward_count),"
+		" reply_count = COALESCE(?, reply_count),"
+		" reactions = COALESCE(CAST(? AS JSON), reactions)"
+		" WHERE chat_id = ? AND message_id = ?",
+		{ p(ia.view_count), p(ia.forward_count), p(ia.reply_count),
+		  p(ia.reactions), (int64_t)chat_id, (int64_t)message_id });
+	return n > 0;
+}
+
+void DB::setMessagePinned(int64_t chat_id, int64_t message_id,
+			  bool is_group, bool pinned)
+{
+	db_.execute(std::string("UPDATE ") +
+		    (is_group ? "telegram_group_messages"
+			      : "telegram_private_messages") +
+		    " SET is_pinned = ? WHERE chat_id = ? AND message_id = ?",
+		    { (int64_t)(pinned ? 1 : 0), (int64_t)chat_id,
+		      (int64_t)message_id });
+}
+
+void DB::setMessageFactCheck(int64_t chat_id, int64_t message_id,
+			     bool is_group,
+			     const std::optional<std::string> &fact_check)
+{
+	const std::string tbl = is_group ? "telegram_group_messages"
+					 : "telegram_private_messages";
+	if (fact_check.has_value()) {
+		db_.execute("UPDATE " + tbl + " SET meta = JSON_SET("
+			    "COALESCE(meta, JSON_OBJECT()), '$.fact_check',"
+			    " CAST(? AS JSON))"
+			    " WHERE chat_id = ? AND message_id = ?",
+			    { *fact_check, (int64_t)chat_id,
+			      (int64_t)message_id });
+		return;
+	}
+	/* Removed: drop the key, and the whole object once it is empty. */
+	db_.execute("UPDATE " + tbl + " SET meta = NULLIF("
+		    "JSON_REMOVE(meta, '$.fact_check'), JSON_OBJECT())"
+		    " WHERE chat_id = ? AND message_id = ?"
+		    " AND JSON_CONTAINS_PATH(meta, 'one', '$.fact_check')",
+		    { (int64_t)chat_id, (int64_t)message_id });
+}
+
+void DB::setMessageExtraFile(int64_t chat_id, int64_t message_id,
+			     bool is_group, const std::string &role,
+			     int position, uint64_t file_id)
+{
+	const char *tbl = is_group ? "telegram_group_messages"
+				   : "telegram_private_messages";
+	const char *fk  = is_group ? "group_message_id"
+				   : "private_message_id";
+	/*
+	 * Through a derived table so the new row can be named in the
+	 * ON DUPLICATE KEY UPDATE (VALUES() there is deprecated). No message
+	 * row, no insert: the file arrives after the row in every path, and a
+	 * miss is a message that was never stored.
+	 */
+	db_.execute(std::string("INSERT INTO telegram_message_files (") + fk +
+		    ", role, position, file_id)"
+		    " SELECT * FROM (SELECT m.id, ? AS role, ? AS position,"
+		    " ? AS file_id FROM " + tbl + " m"
+		    " WHERE m.chat_id = ? AND m.message_id = ?) AS new"
+		    " ON DUPLICATE KEY UPDATE file_id = new.file_id",
+		    { role, (int64_t)position, (int64_t)file_id,
+		      (int64_t)chat_id, (int64_t)message_id });
 }
 
 void DB::insertForwardInfo(mysql::Transaction &tx, const char *table,

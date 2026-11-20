@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2026 Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
@@ -49,7 +49,7 @@ struct GroupAdmin {
  * The full administrator set of one group, as returned by a single
  * getSupergroupMembers(administrators) call or basicGroupFullInfo. Synced
  * atomically against the stored set so add/remove/privilege-change events
- * are recorded. group_id is the chat_id (a valid groups.id).
+ * are recorded. group_id is the chat_id (a valid telegram_groups.id).
  */
 struct GroupAdminList {
 	int64_t			group_id = 0;

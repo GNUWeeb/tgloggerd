@@ -1,0 +1,269 @@
+# tgloggerd -- the Telegram logger daemon, its MySQL store, and the web UI.
+#
+# Settings and secrets live in env/ (env/README): env/settings.env holds every
+# setting that is not a secret and goes to every service; each secret has a
+# file of its own, and a service gets only the secret files it needs (the
+# env_file lists below, which scripts/split-env.py --check verifies). .env
+# holds only this file's own settings (TG_UID, TG_GID). The daemon and the web
+# app share one toolchain image, built from ./Dockerfile, and compile the
+# bind-mounted source on start via run.sh -- so editing the source never
+# rebuilds the image.
+#
+# Quick start (see README):
+#   1. cp .env.example .env            # then edit it and the env/ files:
+#      for f in env/*.env.example; do cp "$f" "${f%.example}"; done
+#   2. docker compose up -d mysql      # start the database
+#   3. docker compose run --rm tgloggerd   # first-time interactive login
+#   4. docker compose up -d            # build + start everything
+
+x-build: &build
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: tgloggerd:latest
+  # Run the daemon and web containers as this uid:gid (default 1000:1000, the
+  # typical first host user) so files written to the bind mount -- build output,
+  # the TDLib session, downloaded media -- are owned by you, not root. Override
+  # via TG_UID / TG_GID in .env (e.g. set them to `id -u` / `id -g`).
+  user: "${TG_UID:-1000}:${TG_GID:-1000}"
+
+services:
+  mysql:
+    image: mysql:9.7.0
+    container_name: tgloggerd-mysql
+    restart: unless-stopped
+    env_file:
+      - env/settings.env
+      - env/mysql-root.env
+      - env/mysql-init.env
+      - env/web-db-ro.env
+      - env/web-db-app.env
+    # The buffer pool keeps the logger's tables and indexes in memory; at
+    # its 128 MB default nearly every page read went to disk. 8G holds the
+    # whole archive with room to grow; the container limit leaves the server
+    # room for its other buffers and connections.
+    command: [--innodb-buffer-pool-size=8G]
+    mem_reservation: 1024m
+    mem_limit: 12g
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      # On first initialization this creates the web-only database and the
+      # restricted web_ro / web_app users from the env/ credentials. It runs
+      # only while the data directory is empty; later starts keep whatever the
+      # accounts were first initialized with.
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      tgnet:
+        ipv4_address: 10.0.88.3
+
+  tgloggerd:
+    <<: *build
+    container_name: tgloggerd
+    restart: unless-stopped
+    depends_on: [mysql]
+    command: [daemon]
+    env_file:
+      - env/settings.env
+      - env/mysql-root.env
+      - env/logger-db.env
+      - env/app-key.env
+      - env/telegram-api.env
+    # The repository is both the build context and the runtime tree: source,
+    # the persisted build/ output, the TDLib session under data/users, and the
+    # files downloaded under data/storage.
+    volumes:
+      - .:/workspace
+    # Keep stdin/tty so the first-time `docker compose run --rm tgloggerd`
+    # login can prompt for the phone number, code and 2FA password.
+    stdin_open: true
+    tty: true
+    networks:
+      tgnet:
+        ipv4_address: 10.0.88.5
+
+  web:
+    <<: *build
+    container_name: tgloggerd-web
+    restart: unless-stopped
+    depends_on: [mysql]
+    command: [web]
+    env_file:
+      - env/settings.env
+      - env/web-db-ro.env
+      - env/web-db-app.env
+      - env/app-key.env
+    volumes:
+      - .:/workspace
+    # No host port publishing: reach the web UI on its private address
+    # (http://10.0.88.4:8080) over the tgnet network, behind your own
+    # reverse proxy / firewall.
+    networks:
+      tgnet:
+        ipv4_address: 10.0.88.4
+
+  # The Discord daemon: logs Discord messages and forwards the routed ones to
+  # Telegram. It shares the bind-mounted build/ with the tgloggerd service, so
+  # TDLib is compiled once rather than per container -- but that also means the
+  # two must not be configured with different cmake flags (see run.sh).
+  #
+  # It does not apply migrations: the tgloggerd service owns the schema, and
+  # two containers racing `migrate up` on the same database is how a dirty
+  # schema version happens.
+  discordd:
+    <<: *build
+    container_name: tgloggerd-discordd
+    restart: unless-stopped
+    depends_on: [mysql]
+    command: [discord]
+    env_file:
+      - env/settings.env
+      - env/logger-db.env
+      - env/telegram-api.env
+    volumes:
+      - .:/workspace
+    networks:
+      tgnet:
+        ipv4_address: 10.0.88.6
+
+  # The Go web service: the JSON API under /api/, beside the web service it
+  # is replacing feature by feature (webapi/README). It reads the same
+  # WEB_DB_* settings and applies no migrations.
+  webapi:
+    <<: *build
+    container_name: tgloggerd-webapi
+    restart: unless-stopped
+    depends_on: [mysql]
+    command: [webapi]
+    env_file:
+      - env/settings.env
+      - env/web-db-ro.env
+      - env/web-db-app.env
+      - env/app-key.env
+      - env/smtp.env
+    volumes:
+      - .:/workspace
+      # The render service's socket (RENDER_SOCKET); pages fall back to
+      # browser rendering while it is not there.
+      - render-socket:/run/tgloggerd-render
+    # Not published to the host; nginx reaches it on http://10.0.88.7:8081
+    # (WEBAPI_LISTEN_PORT) over the tgnet network.
+    networks:
+      tgnet:
+        ipv4_address: 10.0.88.7
+
+  # The optional search engine behind the advanced search's full-text
+  # fields (webapi/README "Search engine"): OpenSearch, single node. It is
+  # started only with the "search" profile (COMPOSE_PROFILES=search in .env,
+  # or `docker compose --profile search up -d`), and the webapi service uses
+  # it only when WEBAPI_SEARCH_ENGINE_URL names it; without either, search
+  # stays on MySQL as before. It runs on tgnet only: no port is published and
+  # nginx does not route to it, which is why its security plugin (TLS and
+  # logins) is off.
+  #
+  # Memory: a 2 GB heap, and the rest of the container limit for Lucene's
+  # off-heap buffers and the file system cache. Disk: the index is roughly
+  # the size of the messages' text itself, under data/opensearch, which must
+  # be owned by uid 1000 (the image's user; see the README). mmap is off
+  # (node.store.allow_mmap), so the host's default vm.max_map_count is
+  # enough and no sysctl is needed; single-node discovery skips the
+  # production bootstrap checks.
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0@sha256:fafe3fc3587088674669235575aa166228c48bdb940294a8cdbbc1da75236a40
+    container_name: tgloggerd-opensearch
+    profiles: [search]
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      node.store.allow_mmap: "false"
+      OPENSEARCH_JAVA_OPTS: -Xms2g -Xmx2g
+    mem_limit: 4g
+    volumes:
+      - ./data/opensearch:/usr/share/opensearch/data
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+    networks:
+      tgnet:
+        ipv4_address: 10.0.88.8
+
+  # The render service (web/app/server): turns a page's route and data into
+  # HTML for the webapi service, over a Unix socket in the render-socket
+  # volume, its only shared one (docs/design/web-ssr.md section 8). It runs
+  # what render-build built into web/app, mounted read-only: no network, no
+  # secrets (no env_file), a read-only file system and no capabilities.
+  render:
+    image: &node-image node:26.8.1-bookworm-slim
+    container_name: tgloggerd-render
+    restart: unless-stopped
+    user: "${TG_UID:-1000}:${TG_GID:-1000}"
+    init: true
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    working_dir: /app
+    command: [node, server/main.ts]
+    environment:
+      RENDER_SOCKET: /run/tgloggerd-render/render.sock
+      RENDER_WORKERS: ${RENDER_WORKERS:-2}
+    volumes:
+      - ./web/app:/app:ro
+      - render-socket:/run/tgloggerd-render
+    healthcheck:
+      test: [CMD, node, server/health.ts]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      start_interval: 1s
+
+  # One-off build of web/app, for the render service and the webapi
+  # service alike: npm ci from the lock file, then npm run build, which
+  # writes the render entry (dist/server), the client bundle the webapi
+  # service serves (dist/client) and their common build id
+  # (dist/client/build.json). The only step that uses the network (the npm
+  # registry); not started by `up`:
+  #   docker compose run --rm render-build
+  render-build:
+    image: *node-image
+    profiles: [build]
+    # Docker's default bridge, for the registry: no project network is
+    # created for a one-off build, and none of the services is reachable.
+    network_mode: bridge
+    user: "${TG_UID:-1000}:${TG_GID:-1000}"
+    init: true
+    working_dir: /app
+    command: [sh, -c, "npm ci && npm run build"]
+    environment:
+      HOME: /tmp
+      npm_config_update_notifier: "false"
+      npm_config_fund: "false"
+      npm_config_audit: "false"
+    volumes:
+      - ./web/app:/app
+
+# The render socket's directory, shared by render and webapi and nothing
+# else. A tmpfs owned by the services' uid: the render service can create
+# its socket there, and no stale socket outlives a restart of the host.
+volumes:
+  render-socket:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "uid=${TG_UID:-1000},gid=${TG_GID:-1000},mode=0770"
+
+networks:
+  tgnet:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: 10.0.88.0/24
+        gateway: 10.0.88.1
+    driver_opts:
+      com.docker.network.bridge.name: tgnet

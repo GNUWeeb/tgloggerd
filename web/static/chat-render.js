@@ -1,0 +1,305 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * tgloggerd web — client-side renderer for /v1 chat messages. It mirrors the
+ * server template (web/views/templates/chat.html) so an infinite-scroll /
+ * live-appended message is byte-identical to a server-rendered one, which lets
+ * the lightbox, sticker observer and date badge work on both the same way.
+ *
+ * Every string field in the /v1 JSON is already HTML-escaped by the server
+ * (names, text, snippets, ...), so it is inserted verbatim -- exactly as the
+ * inja template does. File URLs arrive pre-tokenized (media.url, photo_url,
+ * item.media.url, edit.url) because the client has no key to mint them.
+ *
+ * Exposes window.ChatRender.messages(list) -> HTML string.
+ */
+(function () {
+	"use strict";
+
+	function avatar(s) {
+		if (s && s.photo_url) {
+			if (s.kind === "user")
+				return '<a href="/users/' + s.id + '"><img class="avatar-sm msg-avatar" src="' + s.photo_url + '" alt=""></a>';
+			if (s.kind === "group")
+				return '<a href="/groups/' + s.id + '"><img class="avatar-sm msg-avatar" src="' + s.photo_url + '" alt=""></a>';
+			return '<img class="avatar-sm msg-avatar" src="' + s.photo_url + '" alt="">';
+		}
+		return '<span class="avatar-sm placeholder msg-avatar"></span>';
+	}
+
+	function senderLine(m) {
+		if (!m.show_sender)
+			return "";
+		var s = m.sender, inner;
+		if (s.kind === "user") {
+			inner = '<a href="/users/' + s.id + '">' + s.name + "</a>";
+			if (s.username)
+				inner += ' <span class="muted">@' + s.username + "</span>";
+		} else if (s.kind === "group") {
+			inner = '<a href="/groups/' + s.id + '">' + s.name + "</a>";
+		} else {
+			inner = s.name;
+		}
+		return '<div class="msg-sender">' + inner + "</div>";
+	}
+
+	function forward(m) {
+		if (!m.forward)
+			return "";
+		var f = m.forward, inner;
+		if (f.user_id !== undefined)
+			inner = '<a href="/users/' + f.user_id + '">' + (f.sender_name !== "" ? f.sender_name : "user #" + f.user_id) + "</a>";
+		else if (f.chat_id !== undefined)
+			inner = '<a href="/groups/' + f.chat_id + '">' + (f.sender_name !== "" ? f.sender_name : "chat #" + f.chat_id) + "</a>";
+		else if (f.sender_name !== "")
+			inner = '<span class="fwd-name">' + f.sender_name + "</span>";
+		else
+			inner = '<span class="fwd-name">' + f.type + "</span>";
+		return '<div class="fwd"><span class="fwd-label muted">Forwarded from</span> ' + inner + "</div>";
+	}
+
+	function reply(m) {
+		if (!m.reply)
+			return "";
+		var r = m.reply, body;
+		if (r.in_chat) {
+			var name = r.sender_name !== "" ? r.sender_name : "In reply to";
+			var text = r.deleted
+				? '<span class="muted">(deleted message)</span>'
+				: (r.snippet !== "" ? r.snippet : '<span class="muted">' + r.content_type + "</span>");
+			body = '<span class="reply-name">' + name + '</span><span class="reply-text">' + text + "</span>";
+		} else {
+			body = '<span class="reply-name">In reply to</span><span class="reply-text muted">message #' + r.msg_id + "</span>";
+		}
+		return '<a class="reply-quote" href="' + r.href + '">' + body + "</a>";
+	}
+
+	/*
+	 * The link-preview card. Mirrors the .link-preview block in chat.html
+	 * exactly -- this file exists to render the markup the server would, so
+	 * a scrolled-in message is indistinguishable from a server-rendered one.
+	 */
+	function linkPreview(m) {
+		var lp = m.link_preview;
+		if (!lp)
+			return "";
+		var h = '<a class="link-preview" href="' + lp.url +
+			'" target="_blank" rel="noopener noreferrer">';
+		if (lp.site_name)
+			h += '<div class="lp-site">' + lp.site_name + "</div>";
+		if (lp.title)
+			h += '<div class="lp-title">' + lp.title + "</div>";
+		if (lp.description)
+			h += '<div class="lp-desc">' + lp.description + "</div>";
+		/* Only when the bytes are stored or can be fetched, the same
+		 * rule as message media. */
+		if (lp.media && (lp.media.stored !== false || lp.media.fetchable) &&
+		    lp.media.url)
+			h += '<img class="lp-image" src="' + lp.media.url +
+			     '" alt="" loading="lazy">';
+		h += "</a>";
+		return h;
+	}
+
+	/* Placeholder for a file whose bytes are not stored and cannot be
+	 * fetched (only its metadata is recorded); mirrors the .media-missing
+	 * template branch. */
+	function missing(md, ctype, cls, tag, id) {
+		var label = md.name !== "" ? md.name : ctype;
+		var size = md.size !== undefined
+			? ' <span class="muted">(' + md.size + " bytes)</span>" : "";
+		return "<" + tag + ' class="' + cls + ' media-missing"' + id + ">📄 " + label + size +
+			' <span class="muted">— not stored, only metadata kept</span></' + tag + ">";
+	}
+
+	/*
+	 * "Load from Telegram" for an unstored, fetchable video, animation,
+	 * audio or document; mirrors the media-fetch template branches. Photos
+	 * and stickers render as usual (and are fetched when viewed), so this
+	 * returns "" for them. `o` gives the markup that differs per place:
+	 * cls/wide (extra classes), id (an id="..." attribute or ""), vcls (the
+	 * video's class attribute or ""), acls (the audio's), fcls (the file
+	 * link's), box (the audio wrapper's tag) and label (the name shown when
+	 * the file has none).
+	 */
+	function fetchCard(md, ctype, o) {
+		if (md.stored !== false)
+			return "";
+		var u = md.url;
+		var name = md.name !== "" ? md.name : o.label;
+		var bytes = md.size !== undefined ? md.size + " bytes" : "";
+		if (md.render === "video" ||
+		    (md.render === "animation" && ctype !== "sticker"))
+			return '<a class="' + o.cls + 'media-thumb media-fetch zoomable"' + o.id + ' data-zoom="' + md.render + '" data-src="' + u + '" href="' + u + '"><video' + o.vcls + ' src="' + u + '" preload="none" muted playsinline></video><span class="play-badge" aria-hidden="true"></span><span class="fetch-label">Load from Telegram' + (bytes ? " · " + bytes : "") + "</span></a>";
+		if (md.render === "audio")
+			return '<' + o.box + ' class="' + o.wide + 'media-fetch-audio"' + o.id + '><span class="fetch-label">🎵 ' + name + " · Load from Telegram</span><audio" + o.acls + ' src="' + u + '" controls preload="none"></audio></' + o.box + ">";
+		if (md.render === "file")
+			return '<a class="' + o.fcls + 'msg-file media-fetch-file"' + o.id + ' href="' + u + '">📎 ' + name + (bytes ? ' <span class="muted">(' + bytes + ")</span>" : "") + ' <span class="fetch-label">Load from Telegram</span></a>';
+		return "";
+	}
+
+	function singleMedia(m) {
+		if (!m.media)
+			return "";
+		if (m.media.stored === false && !m.media.fetchable)
+			return missing(m.media, m.content_type + " file", "msg-media", "div", "");
+		var card = fetchCard(m.media, m.content_type, {
+			cls: "", wide: "", id: "", box: "div", vcls: ' class="msg-media"',
+			acls: ' class="msg-audio"', fcls: "", label: m.content_type + " file"
+		});
+		if (card)
+			return card;
+		var md = m.media, u = md.url;
+		switch (md.render) {
+		case "image":
+			return '<a class="msg-media-link zoomable" data-zoom="image" data-src="' + u + '" href="' + u + '"><img class="msg-media" src="' + u + '" alt="' + m.content_type + '" loading="lazy"></a>';
+		case "video":
+			return '<a class="media-thumb zoomable" data-zoom="video" data-src="' + u + '" href="' + u + '"><video class="msg-media" src="' + u + '" preload="metadata" muted playsinline></video><span class="play-badge" aria-hidden="true"></span></a>';
+		case "animation":
+			return '<a class="media-thumb zoomable" data-zoom="animation" data-src="' + u + '" href="' + u + '"><video class="msg-media" src="' + u + '" autoplay loop muted playsinline preload="metadata"></video></a>';
+		case "lottie":
+			return '<div class="msg-media tgs-sticker zoomable" data-zoom="lottie" data-tgs="' + u + '"><a class="msg-file" href="' + u + '">🎞️ ' + (md.name !== "" ? md.name : "animated sticker") + "</a></div>";
+		case "audio":
+			return '<audio class="msg-audio" src="' + u + '" controls preload="none"></audio>';
+		default:
+			return '<a class="msg-file" href="' + u + '">📎 ' + (md.name !== "" ? md.name : m.content_type + " file") + (md.size !== undefined ? ' <span class="muted">(' + md.size + " bytes)</span>" : "") + "</a>";
+		}
+	}
+
+	function albumItem(it) {
+		if (it.is_deleted)
+			return '<span class="album-item wide deleted" id="msg-' + it.msg_id + '"><span class="muted">(deleted)</span></span>';
+		if (!it.media)
+			return "";
+		if (it.media.stored === false && !it.media.fetchable)
+			return missing(it.media, it.content_type, "album-item wide", "span",
+				       ' id="msg-' + it.msg_id + '"');
+		var idAttr = ' id="msg-' + it.msg_id + '"';
+		var card = fetchCard(it.media, it.content_type, {
+			cls: "album-item ", wide: "album-item wide ", id: idAttr,
+			box: "span", vcls: "", acls: "", fcls: "album-item wide ",
+			label: it.content_type + " file"
+		});
+		if (card)
+			return card;
+		var u = it.media.url;
+		switch (it.media.render) {
+		case "image":
+			return '<a class="album-item zoomable" id="msg-' + it.msg_id + '" data-zoom="image" data-src="' + u + '" href="' + u + '"><img src="' + u + '" alt="' + it.content_type + '" loading="lazy"></a>';
+		case "video":
+			return '<a class="album-item media-thumb zoomable" id="msg-' + it.msg_id + '" data-zoom="video" data-src="' + u + '" href="' + u + '"><video src="' + u + '" preload="metadata" muted playsinline></video><span class="play-badge" aria-hidden="true"></span></a>';
+		case "animation":
+			return '<a class="album-item media-thumb zoomable" id="msg-' + it.msg_id + '" data-zoom="animation" data-src="' + u + '" href="' + u + '"><video src="' + u + '" autoplay loop muted playsinline preload="metadata"></video></a>';
+		case "audio":
+			return '<audio class="album-item wide" id="msg-' + it.msg_id + '" src="' + u + '" controls preload="none"></audio>';
+		default:
+			return '<a class="album-item wide msg-file" id="msg-' + it.msg_id + '" href="' + u + '">📎 ' + (it.media.name !== "" ? it.media.name : it.content_type + " file") + "</a>";
+		}
+	}
+
+	/* Media snapshot inside an edit (text -> photo, photo -> other photo, ...);
+	 * mirrors views/templates/_edit_media.html. */
+	function editMedia(e) {
+		if (!e.media)
+			return "";
+		if (e.media.stored === false && !e.media.fetchable)
+			return missing(e.media, e.content_type, "edit-media", "div", "");
+		var card = fetchCard(e.media, e.content_type, {
+			cls: "edit-media ", wide: "", id: "", box: "div", vcls: "",
+			acls: ' class="msg-audio"', fcls: "edit-media-file ",
+			label: e.content_type + " file"
+		});
+		if (card)
+			return card;
+		var u = e.media.url;
+		switch (e.media.render) {
+		case "image":
+			return '<a class="edit-media zoomable" data-zoom="image" data-src="' + u + '" href="' + u + '"><img src="' + u + '" alt="' + e.content_type + '" loading="lazy"></a>';
+		case "video":
+			return '<a class="edit-media media-thumb zoomable" data-zoom="video" data-src="' + u + '" href="' + u + '"><video src="' + u + '" preload="metadata" muted playsinline></video><span class="play-badge" aria-hidden="true"></span></a>';
+		case "animation":
+			return '<a class="edit-media media-thumb zoomable" data-zoom="animation" data-src="' + u + '" href="' + u + '"><video src="' + u + '" autoplay loop muted playsinline preload="metadata"></video></a>';
+		case "lottie":
+			return '<div class="edit-media tgs-sticker zoomable" data-zoom="lottie" data-tgs="' + u + '"><a class="msg-file" href="' + u + '">🎞️ ' + (e.media.name !== "" ? e.media.name : "animated sticker") + "</a></div>";
+		case "audio":
+			return '<audio class="msg-audio" src="' + u + '" controls preload="none"></audio>';
+		default:
+			return '<a class="edit-media-file msg-file" href="' + u + '">📎 ' + (e.media.name !== "" ? e.media.name : e.content_type + " file") + (e.media.size !== undefined ? ' <span class="muted">(' + e.media.size + " bytes)</span>" : "") + "</a>";
+		}
+	}
+
+	function edits(m) {
+		if (!m.is_edited)
+			return "";
+		var inner;
+		if (!m.edits || m.edits.length === 0) {
+			inner = '<p class="muted">No prior versions recorded.</p>';
+		} else {
+			inner = '<ol class="edit-list">' + m.edits.map(function (e) {
+				var when = '<div class="muted edit-when">' + (e.edit_date !== "" ? e.edit_date : "—") + "</div>";
+				var body = editMedia(e);
+				if (e.text !== "")
+					body += '<div class="edit-text">' + e.text + "</div>";
+				else if (!e.media)
+					body += '<div class="muted">(' + e.content_type + ")</div>";
+				return '<li class="edit-item">' + when + body + "</li>";
+			}).join("") + "</ol>";
+		}
+		return '<details class="edit-history"><summary>edited</summary>' + inner + "</details>";
+	}
+
+	function service(m) {
+		var who = "";
+		var s = m.sender;
+		if (s && s.name) {
+			if (s.kind === "user")
+				who = '<a class="service-who" href="/users/' + s.id + '">' + s.name + "</a> ";
+			else if (s.kind === "group")
+				who = '<a class="service-who" href="/groups/' + s.id + '">' + s.name + "</a> ";
+			else
+				who = '<span class="service-who">' + s.name + "</span> ";
+		}
+		var text = m.text !== "" ? m.text : (m.service_type || "");
+		var time = '<span class="service-time muted"> · ' + (m.date !== "" ? m.date : "—") + "</span>";
+		var del = m.is_deleted ? ' <span class="badge warn">deleted</span>' : "";
+		return '<div class="msg-service" id="msg-' + m.msg_id + '" data-day="' + m.day + '"><span class="service-bubble">' + who + text + time + del + "</span></div>";
+	}
+
+	function album(m) {
+		var av = m.is_outgoing ? "" : avatar(m.sender);
+		var items = m.items.map(albumItem).join("");
+		var text = m.text !== "" ? '<div class="msg-text">' + m.text + "</div>" : "";
+		var badge = m.any_deleted ? ' <span class="badge warn">contains deleted</span>' : "";
+		var meta = '<div class="msg-meta"><span class="msg-time">' + (m.date !== "" ? m.date : "—") +
+			'</span><span class="muted">· album · ' + m.items.length + " items</span>" + edits(m) + badge + "</div>";
+		return '<div class="msg ' + (m.is_outgoing ? "out" : "in") + '" data-day="' + m.day + '">' + av +
+			'<div class="bubble">' + senderLine(m) + forward(m) + reply(m) +
+			'<div class="album">' + items + "</div>" + text + meta + "</div></div>";
+	}
+
+	function normal(m) {
+		var cls = "msg " + (m.is_outgoing ? "out" : "in") + (m.is_deleted ? " deleted" : "");
+		var av = m.is_outgoing ? "" : avatar(m.sender);
+		var sig = m.author_signature !== undefined ? '<div class="msg-sig muted">— ' + m.author_signature + "</div>" : "";
+		var text = m.text !== "" ? '<div class="msg-text">' + m.text + "</div>" : "";
+		var del = m.is_deleted
+			? ' <span class="badge warn">deleted' + (m.deleted_at !== undefined ? " · " + m.deleted_at : "") + "</span>" : "";
+		var meta = '<div class="msg-meta"><span class="msg-time">' + (m.date !== "" ? m.date : "—") + "</span>" + edits(m) + del + "</div>";
+		return '<div class="' + cls + '" id="msg-' + m.msg_id + '" data-day="' + m.day + '">' + av +
+			'<div class="bubble">' + senderLine(m) + forward(m) + reply(m) + singleMedia(m) + text + linkPreview(m) + sig + meta + "</div></div>";
+	}
+
+	function one(m) {
+		if (m.is_service)
+			return service(m);
+		if (m.is_album)
+			return album(m);
+		return normal(m);
+	}
+
+	window.ChatRender = {
+		message: one,
+		messages: function (list) {
+			return list.map(one).join("");
+		},
+	};
+}());

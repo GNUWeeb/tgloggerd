@@ -1,0 +1,288 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Copyright (C) 2026 Alviro Iskandar Setiawan <alviro.iskandar@gnuweeb.org>
+ */
+#ifndef TGLOGGERD__CHAT_RECHECK_HPP
+#define TGLOGGERD__CHAT_RECHECK_HPP
+
+/*
+ * The parts of a chat recheck (POST /v1/chats/{chat_id}/recheck,
+ * docs/internal-api.md) that need neither TDLib nor the database: the
+ * queue with its limits, the choice of the messages a recheck may mark
+ * deleted, and the chats the restart catch-up rechecks. Plain data in,
+ * plain data out, so each is tested on its own.
+ */
+
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <deque>
+#include <map>
+#include <optional>
+#include <set>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+namespace tgloggerd {
+namespace recheck {
+
+using Clock = std::chrono::steady_clock;
+
+/* The newest stretch of a chat is rechecked at most this often... */
+constexpr std::chrono::seconds kNewestInterval{60};
+/* ...and an older stretch (chat, around) at most this often. */
+constexpr std::chrono::seconds kOlderInterval{24 * 3600};
+/* Rechecks waiting at most; past it a request is answered "busy". */
+constexpr size_t kQueueMax = 1000;
+
+/*
+ * The getChatHistory of a recheck, one per recheck: from (a TDLib
+ * message id), offset and limit. The newest stretch is the newest 50
+ * messages. Around a message N, which the web sends as the NEWER edge
+ * of what it shows (an older page's "before", or a message page's own
+ * id), it is mostly older: N and 49 older, and up to 10 newer.
+ */
+struct Shape {
+	int64_t	from = 0;
+	int32_t	offset = 0;
+	int32_t	limit = 0;
+};
+
+constexpr int32_t kNewestLimit = 50;
+constexpr int32_t kOlderLimit = 60;
+constexpr int32_t kOlderOffset = -10;
+
+/* The shape for @around (a server message id, 0 = the newest). */
+Shape shapeOf(int64_t around);
+
+/* The largest server message id that still fits a TDLib id (id << 20). */
+constexpr int64_t kMaxServerId = INT64_MAX >> 20;
+
+/* The restart catch-up rechecks chats whose last message is this recent. */
+constexpr int64_t kCatchUpWindowSecs = 48 * 3600;
+
+/* A recheck that marks more than this many messages is logged as a warning. */
+constexpr size_t kWarnMarked = 10;
+
+/* A queued recheck. around is a server message id; 0 = the newest. */
+struct Item {
+	int64_t	chat_id = 0;
+	int64_t	around = 0;
+	/* Queued by the daemon itself (the restart catch-up), not asked for:
+	 * waits behind every recheck that was asked for. */
+	bool	background = false;
+	/* When Queue::push took it, for the wait in the recheck's log. */
+	Clock::time_point	queued_at{};
+	/* Which page of the recheck this is, from 1; a later one reads the
+	 * messages older than the previous page's oldest, from_td (a TDLib
+	 * id), and is never refused by the limits: its recheck was let in. */
+	int			page = 1;
+	int64_t			from_td = 0;
+};
+
+/* At most this many pages per recheck. */
+constexpr int kMaxPages = 4;
+
+/*
+ * Whether the old-row repair may send this tick. Rechecks come first, and
+ * not only in who starts: under Telegram's flood limits TDLib sits out the
+ * waits inside each request, so a recheck's getChatHistory that shares the
+ * account with the repair's getMessage stream waits minutes. The repair
+ * therefore sends nothing while a recheck is waiting or in flight, except
+ * that once it has sent nothing for kRepairMaxPause it gets a tick of its
+ * budget: rechecks asked for by readers can arrive without end, and the
+ * repair must still finish.
+ */
+constexpr std::chrono::seconds kRepairMaxPause{ 60 };
+
+/*
+ * At most this many old-row repair re-fetches a second, within the budget
+ * the relink, the rechecks and the repair share: half of it, so the
+ * account's other requests stay clear of Telegram's flood limits.
+ */
+constexpr int kRepairPerSecond = 5;
+
+/* How many more re-fetches the repair may send in this second, given the
+ * shared budget @budget, what the tick used so far (@tick_used) and what
+ * the repair itself sent in it (@repair_used). */
+int repairAllowance(int budget, int tick_used, int repair_used);
+
+bool repairMayRun(size_t rechecks_queued, int rechecks_inflight,
+		  Clock::duration since_repair_sent);
+
+/* What became of a request for a recheck. */
+enum class Admit {
+	Queued,		/* queued now */
+	Recent,		/* that stretch was rechecked or queued too recently */
+	Busy,		/* the queue is full */
+	AlreadyQueued,	/* that exact recheck is waiting already */
+};
+
+/* The "reason" of a 200 answer ("recent", "busy", "queued"); "" for
+ * Queued, which is the 202. */
+const char *admitReason(Admit a);
+
+/*
+ * The recheck queue and its limits. Not thread-safe: the daemon holds
+ * it under the TDLib refetch lock. Times are passed in, so tests run on
+ * a clock of their own.
+ *
+ * A stretch counts as rechecked when it is queued and again when it is
+ * taken off the queue to run, so a recheck that waited is not repeated
+ * just after it ran. Rechecks asked for run before background ones;
+ * each kind in the order it was queued. Both count against kQueueMax.
+ */
+class Queue {
+public:
+	explicit Queue(size_t max = kQueueMax) : max_(max) {}
+
+	Admit push(const Item &it, Clock::time_point now);
+	/* The next recheck to run: an asked-for one first; a background
+	 * one (the catch-up) only when @background_ok. */
+	std::optional<Item> pop(Clock::time_point now,
+				bool background_ok = true);
+
+	size_t size(void) const { return asked_.size() + background_.size(); }
+	bool empty(void) const { return size() == 0; }
+
+private:
+	using Key = std::pair<int64_t, int64_t>;	/* (chat_id, around) */
+
+	void note(const Key &k, Clock::time_point now);
+	void prune(Clock::time_point now);
+
+	size_t				max_;
+	std::deque<Item>		asked_;
+	std::deque<Item>		background_;
+	std::set<Key>			waiting_;
+	std::map<Key, Clock::time_point> last_;
+	Clock::time_point		pruned_{};
+};
+
+/*
+ * One recheck's answer, in server message ids: the stretch asked for
+ * (around; its shape is shapeOf(around)) and what came back. total
+ * counts every message returned, ids only those with a server id.
+ */
+struct Page {
+	int64_t			around = 0;
+	size_t			total = 0;
+	std::vector<int64_t>	ids;
+	/* A later page (Item::page > 1): all of it is the older side, and
+	 * kNewestLimit of them were asked for. */
+	bool			cont = false;
+};
+
+/*
+ * Whether an answer is short: fewer older messages than asked for while
+ * an older message is stored, so it is not the chat's start. TDLib's first
+ * answer for a chat it has not opened is often only the newest message or
+ * two. selectDeleted concludes nothing from a short answer.
+ */
+bool isShort(const Page &p, bool older_exists);
+
+/*
+ * Whether a recheck asks TDLib for another page, older than this one, if
+ * it is not the last page allowed: whenever the page brought messages not
+ * stored before, full or short, since the hole likely goes on below it;
+ * and when the first page is short even with nothing new, since TDLib's
+ * short first answer is the newest message, usually stored already while
+ * the ones before it are what is missing. From the second page on, a page
+ * with nothing new ends it, so a quiet chat costs one or two reads.
+ * Deletions are concluded from each page alone, never across pages.
+ */
+bool askAgain(int pages_used, bool short_answer, size_t new_messages);
+
+/* The range of stored ids to look at: strictly between lo and hi. */
+struct Span {
+	int64_t	lo = 0;
+	int64_t	hi = 0;
+};
+
+/*
+ * The span of an answer: its lowest and highest id. None for an answer
+ * of fewer than two distinct ids, from which nothing is concluded.
+ */
+std::optional<Span> spanOf(const Page &p);
+
+/*
+ * What the database holds for the chat around that span: the live
+ * (not deleted) stored ids strictly between lo and hi, and whether a
+ * live stored message lies below lo (so the oldest returned is not the
+ * chat's first message).
+ */
+struct Stored {
+	std::vector<int64_t>	between;
+	bool			older_exists = false;
+};
+
+struct Verdict {
+	/* The stored ids to mark deleted, ascending. */
+	std::vector<int64_t>	deleted;
+	/* Whether the answer was complete enough to conclude anything; when
+	 * false, deleted is empty and why says what was missing. */
+	bool			concluded = false;
+	const char		*why = "";
+};
+
+/*
+ * The stored messages a recheck marks deleted: the live ones strictly
+ * between the lowest and highest id returned that were not returned.
+ * Nothing is concluded from an answer of fewer than two messages, nor
+ * from a short one while the stretch should have more: fewer older
+ * messages than asked (all of the newest stretch's 50; around N, the 50
+ * at and below N) while an older message is stored (TDLib can answer
+ * short while it loads). Few newer messages around N is normal near
+ * the newest end. TDLib's answer is the only evidence; nothing outside
+ * it is touched.
+ */
+Verdict selectDeleted(const Page &p, const Stored &s);
+
+/*
+ * The chats the restart catch-up rechecks: those whose last message
+ * (Unix date) is within kCatchUpWindowSecs of now, newest first.
+ */
+std::vector<int64_t> catchUpChats(
+	const std::unordered_map<int64_t, int64_t> &last_message_date,
+	int64_t now);
+
+/*
+ * Of the catch-up's @chats (in their order) with TDLib's last message id
+ * for each (@tdlib_last, server ids), those with a gap at the newest end:
+ * nothing stored for the chat, or the newest stored message (@stored_max,
+ * 0 for none) older than TDLib's last. A chat whose newest message is
+ * already stored is left out: a recheck costs a history read, which under
+ * Telegram's flood limits takes a minute or more.
+ */
+std::vector<int64_t> gapChats(
+	const std::vector<int64_t> &chats,
+	const std::unordered_map<int64_t, int64_t> &tdlib_last,
+	const std::unordered_map<int64_t, int64_t> &stored_max,
+	const std::unordered_map<int64_t, int64_t> &stored_near_max = {});
+
+/*
+ * A gap below the newest stored message. A supergroup's or channel's
+ * server message ids count up by one per message, so of the
+ * kDenseWindow ids up to the newest stored one (fewer in a chat with
+ * fewer messages) nearly all are stored when nothing is missing; fewer
+ * than kDenseShare of them means a gap even though the newest message is
+ * stored (as after a recheck that got only TDLib's short first answer).
+ * Basic groups and private chats number messages per account, not per
+ * chat, so the test does not apply to them.
+ */
+constexpr int64_t kDenseWindow = 50;
+constexpr double kDenseShare = 0.8;
+
+/* A supergroup or channel id: -100 followed by the channel id. */
+inline bool isSupergroupId(int64_t chat_id)
+{
+	return chat_id < -1000000000000LL;
+}
+bool sparseNearNewest(int64_t chat_id, int64_t stored_max,
+		      int64_t stored_near_max);
+
+} /* namespace recheck */
+} /* namespace tgloggerd */
+
+#endif /* #ifndef TGLOGGERD__CHAT_RECHECK_HPP */

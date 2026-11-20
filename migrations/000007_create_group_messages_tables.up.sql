@@ -21,9 +21,6 @@ CREATE TABLE group_messages (
 	-- (messageSenderChat): channel posts and anonymous group admins.
 	sender_chat_id BIGINT          NULL COMMENT 'FK to groups.id; set when a chat/channel sent the message.',
 
-	-- Whether the message was sent by the logged-in user.
-	is_outgoing    TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Message was sent by the logged-in account.',
-
 	-- Whether the message is a channel post.
 	is_channel_post TINYINT(1)     NOT NULL DEFAULT 0 COMMENT 'td_api::message.is_channel_post_.',
 
@@ -36,23 +33,43 @@ CREATE TABLE group_messages (
 	-- Unix timestamp of the last edit; 0 if never edited.
 	edit_date      BIGINT          NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of the last edit; 0 = never edited.',
 
-	-- Coarse content type for routing and filtering.
+	-- Coarse content type for routing and filtering. 'service' is a system
+	-- message (e.g. a member joined); its human-readable text is in `text`
+	-- and the precise action in `service_type`.
 	content_type   ENUM('text', 'photo', 'video', 'document', 'audio',
-	                    'voice', 'sticker', 'animation', 'unknown')
+	                    'voice', 'sticker', 'animation', 'service', 'unknown')
 	                               NOT NULL DEFAULT 'unknown' COMMENT 'Coarse message content category.',
 
-	-- Message text; NULL for non-text messages.
-	text           MEDIUMTEXT      NULL COMMENT 'Message text; NULL for non-text messages.',
+	-- Message text (or media caption). NULL for messages with no text.
+	text           MEDIUMTEXT      NULL COMMENT 'Message text or media caption; NULL if none.',
+
+	-- Rich-text formatting of `text` as a JSON array of TDLib text entities
+	-- (bold, italic, code, links, ...). Each element is
+	-- {offset, length, type, ...type-specific fields}; offset/length are in
+	-- UTF-16 code units, per TDLib. NULL when the text carries no formatting.
+	entities       JSON            NULL COMMENT 'td_api::formattedText.entities_ as JSON; UTF-16 offsets.',
+
+	-- For content_type='service': the specific system action, e.g.
+	-- 'chat_add_members', 'chat_delete_member', 'pin_message'. NULL for
+	-- ordinary (non-service) messages.
+	service_type   VARCHAR(64)     NULL COMMENT 'System-message action id; NULL for normal messages.',
 
 	-- For media messages: FK to files.id for the attached file.
 	file_id        BIGINT UNSIGNED NULL COMMENT 'FK to files.id for media attachments.',
 
-	-- Soft-delete flag. Deleted messages keep their row.
-	is_deleted     TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Soft-delete flag for message deletion.',
+	-- Soft-delete timestamp: when the deletion was observed, NULL if the
+	-- message is not deleted. Deleted messages keep their row.
+	deleted_at     DATETIME        NULL DEFAULT NULL COMMENT 'When the message was observed deleted; NULL if live.',
 
 	-- Whether the message is forwarded. Denormalized from the presence
 	-- of forward info (a group_message_fwd_info row) for quick filtering.
 	is_forwarded   TINYINT(1)      NOT NULL DEFAULT 0 COMMENT 'Message is a forwarded message.',
+
+	-- Album / media group. Messages sent together as one album (multiple
+	-- photos, documents, ...) share this non-NULL id
+	-- (td_api::message.media_album_id_, the server grouped_id). Each item
+	-- stays its own message row; NULL when the message is not in an album.
+	media_album_id BIGINT          NULL DEFAULT NULL COMMENT 'Album id shared by grouped messages; NULL if none.',
 
 	-- The message this one replies to. reply_to_chat_id/reply_to_msg_id
 	-- identify it universally (works across chats and tables, e.g. a reply
@@ -73,9 +90,10 @@ CREATE TABLE group_messages (
 	KEY idx_group_messages_sender_user_id (sender_user_id),
 	KEY idx_group_messages_sender_chat_id (sender_chat_id),
 	KEY idx_group_messages_date (date),
-	KEY idx_group_messages_is_deleted (is_deleted),
+	KEY idx_group_messages_deleted_at (deleted_at),
 	KEY idx_group_messages_reply (reply_to_id),
 	KEY idx_group_messages_reply_target (reply_to_chat_id, reply_to_msg_id),
+	KEY idx_group_messages_album (chat_id, media_album_id),
 	CONSTRAINT fk_group_messages_chat_group
 		FOREIGN KEY (chat_id) REFERENCES `groups` (id)
 		ON DELETE CASCADE ON UPDATE CASCADE,
@@ -106,9 +124,10 @@ CREATE TABLE group_message_edits (
 	group_message_id BIGINT UNSIGNED NOT NULL COMMENT 'FK to group_messages.id.',
 
 	content_type     ENUM('text', 'photo', 'video', 'document', 'audio',
-	                      'voice', 'sticker', 'animation', 'unknown')
+	                      'voice', 'sticker', 'animation', 'service', 'unknown')
 	                                 NOT NULL DEFAULT 'unknown' COMMENT 'Content type before the edit.',
 	text             MEDIUMTEXT      NULL COMMENT 'Text before the edit; NULL for non-text.',
+	entities         JSON            NULL COMMENT 'Formatting entities before the edit (see group_messages.entities).',
 	file_id          BIGINT UNSIGNED NULL COMMENT 'FK to files.id before the edit.',
 
 	-- The edit_date that triggered this snapshot (the new edit_date in

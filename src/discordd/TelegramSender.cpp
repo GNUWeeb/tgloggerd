@@ -1,0 +1,794 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Copyright (C) 2026 Alviro Iskandar Setiawan <alviro.iskandar@gnuweeb.org>
+ */
+#include "TelegramSender.hpp"
+
+#include <td/telegram/Client.h>
+#include <td/telegram/td_api.h>
+#include <td/telegram/td_api.hpp>
+
+#include <atomic>
+#include <cstdio>
+#include <chrono>
+#include <condition_variable>
+#include <future>
+#include <map>
+#include <mutex>
+#include <set>
+#include <thread>
+#include <utility>
+
+#include <unistd.h>
+
+namespace discordd {
+
+namespace td_api = td::td_api;
+
+/*
+ * TDLib exposes message ids shifted left by 20 bits; the server id everything
+ * else stores is that value shifted back down.
+ */
+static inline int64_t to_server_id(int64_t tdlib_id)
+{
+	return tdlib_id >> 20;
+}
+
+static inline int64_t to_tdlib_id(int64_t server_id)
+{
+	return server_id << 20;
+}
+
+enum { LOG_ERROR = 0, LOG_WARN = 1, LOG_INFO = 2, LOG_DEBUG = 3 };
+
+/* Remove @path, when there is one; a file already gone is fine. */
+static void remove_file(const std::string &path)
+{
+	if (!path.empty())
+		unlink(path.c_str());
+}
+
+struct Bot {
+	int32_t		client_id = 0;
+	uint64_t	key = 0;
+	std::string	token;
+	int64_t		user_id = 0;
+	std::string	username;
+	std::string	error;
+	bool		refused = false; /* Telegram rejected the token */
+
+	enum State { Authorizing, Ready, Failed } state = Authorizing;
+
+	std::mutex		mtx;
+	std::condition_variable	cv;
+};
+
+struct TelegramSender::Impl {
+	int32_t		api_id;
+	std::string	api_hash;
+	std::string	data_dir;
+	SenderLog	log_sink;
+
+	std::unique_ptr<td::ClientManager>	cm;
+	std::thread				recv_thr;
+	std::atomic<bool>			stop{false};
+
+	std::mutex					bots_mtx;
+	std::map<uint64_t, std::shared_ptr<Bot>>	bots;
+	std::map<int32_t, std::shared_ptr<Bot>>		by_client;
+
+	/* In-flight queries, keyed by the request id we allocated. */
+	std::mutex	req_mtx;
+	uint64_t	next_req = 1;
+	std::map<uint64_t, std::function<void(td_api::object_ptr<td_api::Object>)>>
+		handlers;
+
+	/*
+	 * Sends awaiting confirmation. TDLib answers sendMessage immediately
+	 * with a provisional message id and only later reports the final one
+	 * via updateMessageSendSucceeded, so the id worth storing is not the
+	 * one the call returns. Keyed by (client, provisional id).
+	 */
+	struct PendingSend {
+		std::shared_ptr<std::promise<int64_t>>	confirmed;
+		/*
+		 * A local file the message uploads, removed once TDLib
+		 * reports the send done or failed: only then is it done
+		 * reading it, which may be after the caller gave up waiting.
+		 */
+		std::string				cleanup;
+	};
+	std::mutex	send_mtx;
+	std::map<std::pair<int32_t, int64_t>, PendingSend>	pending_sends;
+
+	/* (client, chat) pairs already resolved by ensure_chat(). */
+	std::mutex				chat_mtx;
+	std::set<std::pair<int32_t, int64_t>>	known_chats;
+
+	/*
+	 * TDLib will not send to a chat it has not loaded, answering
+	 * "Chat not found" -- and a bot, unlike a user account, gets no chat
+	 * list at startup: it only learns chats from incoming updates. Since
+	 * this bot never receives anything (it only sends), the chat has to be
+	 * fetched explicitly the first time we address it.
+	 */
+	bool ensure_chat(int32_t client_id, int64_t chat_id, std::string *err);
+
+	void log(int lvl, const std::string &msg) const
+	{
+		if (log_sink)
+			log_sink(lvl, msg);
+	}
+
+	/*
+	 * One TDLib session directory per bot and token, so tokens never
+	 * share state. The token is part of it because a bot row's token can
+	 * be replaced: TDLib would otherwise find the old token's session in
+	 * the directory and log in as that bot without ever reading the new
+	 * one. FNV-1a, not a secret: it only tells tokens apart.
+	 */
+	std::string data_dir_for(uint64_t key, const std::string &token) const
+	{
+		uint64_t h = 1469598103934665603ULL;
+		for (unsigned char c : token) {
+			h ^= c;
+			h *= 1099511628211ULL;
+		}
+		char hex[17];
+		snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)h);
+		return data_dir + "/bot-" + std::to_string(key) + "-" + hex;
+	}
+
+	/* Close a bot's client and forget it. */
+	void close_bot(const std::shared_ptr<Bot> &b)
+	{
+		send_query(b->client_id, td_api::make_object<td_api::close>(),
+			   {});
+		std::lock_guard<std::mutex> blk(bots_mtx);
+		by_client.erase(b->client_id);
+	}
+
+	uint64_t
+	send_query(int32_t client_id, td_api::object_ptr<td_api::Function> f,
+		   std::function<void(td_api::object_ptr<td_api::Object>)> cb)
+	{
+		uint64_t id;
+		{
+			std::lock_guard<std::mutex> lk(req_mtx);
+			id = next_req++;
+			if (cb)
+				handlers[id] = std::move(cb);
+		}
+		cm->send(client_id, id, std::move(f));
+		return id;
+	}
+
+	std::shared_ptr<Bot> bot_for_client(int32_t client_id)
+	{
+		std::lock_guard<std::mutex> lk(bots_mtx);
+		auto it = by_client.find(client_id);
+		return it == by_client.end() ? nullptr : it->second;
+	}
+
+	std::shared_ptr<Bot> bot_for_key(uint64_t key)
+	{
+		std::lock_guard<std::mutex> lk(bots_mtx);
+		auto it = bots.find(key);
+		return it == bots.end() ? nullptr : it->second;
+	}
+
+	void settle(const std::shared_ptr<Bot> &b, Bot::State st,
+		    const std::string &err)
+	{
+		{
+			std::lock_guard<std::mutex> lk(b->mtx);
+			b->state = st;
+			if (!err.empty())
+				b->error = err;
+		}
+		b->cv.notify_all();
+	}
+
+	/*
+	 * Send @content to @chat_id and wait for Telegram's final id, at most
+	 * @confirm_secs once TDLib accepted the message. @cleanup, if not
+	 * empty, is a file removed when TDLib is done with it. @accepted, if
+	 * set, says whether TDLib took the message, so a 0 after that means
+	 * it was not confirmed in time, not that it will not arrive.
+	 */
+	int64_t send_content(
+		const std::shared_ptr<Bot> &b, int64_t chat_id,
+		td_api::object_ptr<td_api::InputMessageContent> content,
+		int64_t reply_to_server_id, const std::string &cleanup,
+		int confirm_secs, std::string *err, bool *accepted = nullptr);
+
+	/* Run @req (an edit) and wait for its answer; false with @err set. */
+	bool run_edit(const std::shared_ptr<Bot> &b,
+		      td_api::object_ptr<td_api::Function> req,
+		      std::string *err);
+
+	void on_auth_state(const std::shared_ptr<Bot> &b,
+			   td_api::AuthorizationState &st);
+	void on_update(int32_t client_id,
+		       td_api::object_ptr<td_api::Object> obj);
+	void recv_loop(void);
+};
+
+void TelegramSender::Impl::on_auth_state(const std::shared_ptr<Bot> &b,
+					 td_api::AuthorizationState &st)
+{
+	switch (st.get_id()) {
+	case td_api::authorizationStateWaitTdlibParameters::ID: {
+		auto p = td_api::make_object<td_api::setTdlibParameters>();
+		/* One session directory per bot row and token. */
+		p->database_directory_ = data_dir_for(b->key, b->token);
+		/*
+		 * A sender needs no local message database: it never reads
+		 * history, and keeping one would grow without bound.
+		 */
+		p->use_message_database_ = false;
+		p->use_secret_chats_ = false;
+		p->api_id_ = api_id;
+		p->api_hash_ = api_hash;
+		p->system_language_code_ = "en";
+		p->device_model_ = "Server";
+		p->application_version_ = "1.0";
+		send_query(b->client_id, std::move(p), {});
+		break;
+	}
+	case td_api::authorizationStateWaitPhoneNumber::ID: {
+		/* A bot authenticates with its token instead of a number. */
+		send_query(b->client_id,
+			   td_api::make_object<
+				   td_api::checkAuthenticationBotToken>(b->token),
+			   [this, b](td_api::object_ptr<td_api::Object> o) {
+				   if (o && o->get_id() == td_api::error::ID) {
+					   auto e = td::move_tl_object_as<
+						   td_api::error>(o);
+					   /*
+					    * 400 (ACCESS_TOKEN_INVALID and
+					    * the like) and 401 are the token
+					    * itself; 429 and the rest pass.
+					    */
+					   {
+						   std::lock_guard<std::mutex>
+							   lk(b->mtx);
+						   b->refused =
+							   e->code_ == 400 ||
+							   e->code_ == 401;
+					   }
+					   settle(b, Bot::Failed,
+						  "bot token rejected: " +
+							  e->message_);
+				   }
+			   });
+		break;
+	}
+	case td_api::authorizationStateReady::ID: {
+		send_query(b->client_id, td_api::make_object<td_api::getMe>(),
+			   [this, b](td_api::object_ptr<td_api::Object> o) {
+				   if (o && o->get_id() == td_api::user::ID) {
+					   auto u = td::move_tl_object_as<
+						   td_api::user>(o);
+					   std::lock_guard<std::mutex> lk(b->mtx);
+					   b->user_id = u->id_;
+					   b->username =
+						   u->usernames_ &&
+								   !u->usernames_
+									    ->active_usernames_
+									    .empty()
+							   ? u->usernames_
+								     ->active_usernames_[0]
+							   : std::string();
+				   }
+				   settle(b, Bot::Ready, "");
+			   });
+		break;
+	}
+	case td_api::authorizationStateClosed::ID:
+		settle(b, Bot::Failed, "authorization closed");
+		break;
+	default:
+		break;
+	}
+}
+
+void TelegramSender::Impl::on_update(int32_t client_id,
+				     td_api::object_ptr<td_api::Object> obj)
+{
+	if (!obj)
+		return;
+
+	switch (obj->get_id()) {
+	case td_api::updateAuthorizationState::ID: {
+		auto u = td::move_tl_object_as<td_api::updateAuthorizationState>(
+			obj);
+		auto b = bot_for_client(client_id);
+		if (b && u->authorization_state_)
+			on_auth_state(b, *u->authorization_state_);
+		break;
+	}
+	case td_api::updateMessageSendSucceeded::ID: {
+		auto u = td::move_tl_object_as<td_api::updateMessageSendSucceeded>(
+			obj);
+		PendingSend ps;
+		{
+			std::lock_guard<std::mutex> lk(send_mtx);
+			auto it = pending_sends.find(
+				{client_id, u->old_message_id_});
+			if (it != pending_sends.end()) {
+				ps = std::move(it->second);
+				pending_sends.erase(it);
+			}
+		}
+		remove_file(ps.cleanup);
+		if (ps.confirmed && u->message_)
+			ps.confirmed->set_value(to_server_id(u->message_->id_));
+		break;
+	}
+	case td_api::updateMessageSendFailed::ID: {
+		auto u = td::move_tl_object_as<td_api::updateMessageSendFailed>(
+			obj);
+		PendingSend ps;
+		{
+			std::lock_guard<std::mutex> lk(send_mtx);
+			auto it = pending_sends.find(
+				{client_id, u->old_message_id_});
+			if (it != pending_sends.end()) {
+				ps = std::move(it->second);
+				pending_sends.erase(it);
+			}
+		}
+		remove_file(ps.cleanup);
+		if (ps.confirmed)
+			ps.confirmed->set_value(0);
+		log(LOG_WARN, "telegram: send failed" +
+				      (u->error_ ? ": " + u->error_->message_
+						 : std::string()));
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+bool TelegramSender::Impl::ensure_chat(int32_t client_id, int64_t chat_id,
+				       std::string *err)
+{
+	{
+		std::lock_guard<std::mutex> lk(chat_mtx);
+		if (known_chats.count({client_id, chat_id}))
+			return true;
+	}
+
+	auto done = std::make_shared<std::promise<std::string>>();
+	auto done_f = done->get_future();
+	send_query(client_id, td_api::make_object<td_api::getChat>(chat_id),
+		   [done](td_api::object_ptr<td_api::Object> o) {
+			   if (o && o->get_id() == td_api::error::ID) {
+				   auto e = td::move_tl_object_as<td_api::error>(o);
+				   done->set_value(e->message_);
+				   return;
+			   }
+			   done->set_value(std::string());
+		   });
+
+	if (done_f.wait_for(std::chrono::seconds(20)) !=
+	    std::future_status::ready) {
+		if (err)
+			*err = "timed out resolving chat";
+		return false;
+	}
+	const std::string e = done_f.get();
+	if (!e.empty()) {
+		if (err)
+			*err = "cannot resolve chat " +
+			       std::to_string(chat_id) + ": " + e +
+			       " (is the bot a member of it?)";
+		return false;
+	}
+
+	std::lock_guard<std::mutex> lk(chat_mtx);
+	known_chats.insert({client_id, chat_id});
+	return true;
+}
+
+void TelegramSender::Impl::recv_loop(void)
+{
+	while (!stop.load()) {
+		auto resp = cm->receive(0.5);
+		if (!resp.object)
+			continue;
+
+		if (resp.request_id == 0) {
+			on_update(resp.client_id, std::move(resp.object));
+			continue;
+		}
+
+		std::function<void(td_api::object_ptr<td_api::Object>)> h;
+		{
+			std::lock_guard<std::mutex> lk(req_mtx);
+			auto it = handlers.find(resp.request_id);
+			if (it != handlers.end()) {
+				h = std::move(it->second);
+				handlers.erase(it);
+			}
+		}
+		if (h)
+			h(std::move(resp.object));
+	}
+}
+
+TelegramSender::TelegramSender(int32_t api_id, std::string api_hash,
+			       std::string data_dir, SenderLog log)
+	: impl_(new Impl())
+{
+	impl_->api_id = api_id;
+	impl_->api_hash = std::move(api_hash);
+	impl_->data_dir = std::move(data_dir);
+	impl_->log_sink = std::move(log);
+}
+
+TelegramSender::~TelegramSender(void)
+{
+	stop();
+}
+
+void TelegramSender::start(void)
+{
+	if (impl_->cm)
+		return;
+	/* Quieten TDLib's own logging; ours is the interesting one. */
+	td::ClientManager::execute(
+		td_api::make_object<td_api::setLogVerbosityLevel>(1));
+	impl_->cm = std::make_unique<td::ClientManager>();
+	impl_->recv_thr = std::thread([this] { impl_->recv_loop(); });
+}
+
+void TelegramSender::stop(void)
+{
+	if (!impl_->cm)
+		return;
+	impl_->stop = true;
+	if (impl_->recv_thr.joinable())
+		impl_->recv_thr.join();
+	impl_->cm.reset();
+}
+
+int64_t TelegramSender::addBot(uint64_t key, const std::string &token,
+			       std::string *err, bool *refused)
+{
+	if (refused)
+		*refused = false;
+	if (!impl_->cm) {
+		if (err)
+			*err = "TelegramSender not started";
+		return 0;
+	}
+
+	auto existing = impl_->bot_for_key(key);
+	if (existing && existing->token != token) {
+		/* The row's token was replaced: the old session goes. */
+		impl_->close_bot(existing);
+		existing.reset();
+	}
+	if (existing) {
+		std::unique_lock<std::mutex> lk(existing->mtx);
+		if (existing->state == Bot::Ready)
+			return existing->user_id;
+		/*
+		 * Still authorizing: another refresh already kicked this bot
+		 * off. Wait on THAT attempt rather than stacking a second
+		 * client onto the same session directory.
+		 */
+		if (existing->state == Bot::Authorizing) {
+			if (!existing->cv.wait_for(
+				    lk, std::chrono::seconds(60), [&existing] {
+					    return existing->state !=
+						   Bot::Authorizing;
+				    })) {
+				if (err)
+					*err = "timed out waiting for bot "
+					       "authorization";
+				return 0;
+			}
+			if (existing->state == Bot::Ready)
+				return existing->user_id;
+		}
+		/*
+		 * Failed. The route refresh retries every cycle, and each
+		 * retry used to build a brand-new TDLib client while the old
+		 * one was never closed: it stayed registered in by_client
+		 * forever and kept its lock on the per-bot session directory
+		 * the replacement was about to open. Close the old client
+		 * first; its Closed state answers through on_auth_state and
+		 * drops the registration.
+		 */
+		lk.unlock();
+		impl_->close_bot(existing);
+	}
+
+	auto b = std::make_shared<Bot>();
+	b->key = key;
+	b->token = token;
+	b->client_id = impl_->cm->create_client_id();
+	{
+		std::lock_guard<std::mutex> lk(impl_->bots_mtx);
+		impl_->bots[key] = b;
+		impl_->by_client[b->client_id] = b;
+	}
+
+	/*
+	 * Nudge TDLib into emitting its first authorization state; everything
+	 * after that is driven from on_auth_state().
+	 */
+	impl_->send_query(b->client_id,
+			  td_api::make_object<td_api::getAuthorizationState>(),
+			  {});
+
+	std::unique_lock<std::mutex> lk(b->mtx);
+	if (!b->cv.wait_for(lk, std::chrono::seconds(60), [&b] {
+		    return b->state != Bot::Authorizing;
+	    })) {
+		if (err)
+			*err = "timed out waiting for bot authorization";
+		return 0;
+	}
+	if (b->state != Bot::Ready) {
+		if (err)
+			*err = b->error.empty() ? "authorization failed"
+						: b->error;
+		if (refused)
+			*refused = b->refused;
+		return 0;
+	}
+	return b->user_id;
+}
+
+void TelegramSender::removeBot(uint64_t key)
+{
+	if (!impl_->cm)
+		return;
+	std::shared_ptr<Bot> b;
+	{
+		std::lock_guard<std::mutex> lk(impl_->bots_mtx);
+		auto it = impl_->bots.find(key);
+		if (it == impl_->bots.end())
+			return;
+		b = it->second;
+		impl_->bots.erase(it);
+	}
+	impl_->close_bot(b);
+}
+
+std::string TelegramSender::botUsername(uint64_t key)
+{
+	auto b = impl_->bot_for_key(key);
+	if (!b)
+		return std::string();
+	std::lock_guard<std::mutex> lk(b->mtx);
+	return b->username;
+}
+
+int64_t TelegramSender::Impl::send_content(
+	const std::shared_ptr<Bot> &b, int64_t chat_id,
+	td_api::object_ptr<td_api::InputMessageContent> content,
+	int64_t reply_to_server_id, const std::string &cleanup,
+	int confirm_secs, std::string *err, bool *accepted)
+{
+	if (accepted)
+		*accepted = false;
+	if (!ensure_chat(b->client_id, chat_id, err)) {
+		remove_file(cleanup);
+		return 0;
+	}
+
+	auto req = td_api::make_object<td_api::sendMessage>();
+	req->chat_id_ = chat_id;
+	req->input_message_content_ = std::move(content);
+	if (reply_to_server_id) {
+		auto r = td_api::make_object<td_api::inputMessageReplyToMessage>();
+		r->message_id_ = to_tdlib_id(reply_to_server_id);
+		req->reply_to_ = std::move(r);
+	}
+
+	auto provisional = std::make_shared<std::promise<int64_t>>();
+	auto provisional_f = provisional->get_future();
+	auto confirmed = std::make_shared<std::promise<int64_t>>();
+	auto confirmed_f = confirmed->get_future();
+	auto fail = std::make_shared<std::promise<std::string>>();
+	auto fail_f = fail->get_future();
+
+	send_query(
+		b->client_id, std::move(req),
+		[this, b, provisional, confirmed, fail,
+		 cleanup](td_api::object_ptr<td_api::Object> o) {
+			if (o && o->get_id() == td_api::error::ID) {
+				auto e = td::move_tl_object_as<td_api::error>(o);
+				remove_file(cleanup);
+				fail->set_value(e->message_);
+				provisional->set_value(0);
+				return;
+			}
+			if (!o || o->get_id() != td_api::message::ID) {
+				remove_file(cleanup);
+				fail->set_value("unexpected sendMessage reply");
+				provisional->set_value(0);
+				return;
+			}
+			auto m = td::move_tl_object_as<td_api::message>(o);
+			const int64_t temp_id = m->id_;
+			{
+				std::lock_guard<std::mutex> lk(send_mtx);
+				pending_sends[{b->client_id, temp_id}] =
+					PendingSend{confirmed, cleanup};
+			}
+			provisional->set_value(temp_id);
+		});
+
+	if (provisional_f.wait_for(std::chrono::seconds(30)) !=
+	    std::future_status::ready) {
+		if (err)
+			*err = "timed out sending message";
+		return 0;
+	}
+	if (provisional_f.get() == 0) {
+		if (err) {
+			*err = fail_f.wait_for(std::chrono::seconds(0)) ==
+					       std::future_status::ready
+				       ? fail_f.get()
+				       : "send failed";
+		}
+		return 0;
+	}
+	if (accepted)
+		*accepted = true;
+
+	/* Wait for Telegram to assign the real id. */
+	if (confirmed_f.wait_for(std::chrono::seconds(confirm_secs)) !=
+	    std::future_status::ready) {
+		if (err)
+			*err = "timed out waiting for send confirmation";
+		return 0;
+	}
+	const int64_t server_id = confirmed_f.get();
+	if (!server_id && err)
+		*err = "send was not confirmed";
+	return server_id;
+}
+
+bool TelegramSender::Impl::run_edit(const std::shared_ptr<Bot> &b,
+				    td_api::object_ptr<td_api::Function> req,
+				    std::string *err)
+{
+	auto done = std::make_shared<std::promise<std::string>>();
+	auto done_f = done->get_future();
+	send_query(b->client_id, std::move(req),
+		   [done](td_api::object_ptr<td_api::Object> o) {
+			   if (o && o->get_id() == td_api::error::ID) {
+				   auto e = td::move_tl_object_as<td_api::error>(o);
+				   done->set_value(e->message_);
+				   return;
+			   }
+			   done->set_value(std::string());
+		   });
+
+	if (done_f.wait_for(std::chrono::seconds(30)) !=
+	    std::future_status::ready) {
+		if (err)
+			*err = "timed out editing message";
+		return false;
+	}
+	const std::string e = done_f.get();
+	if (!e.empty()) {
+		if (err)
+			*err = e;
+		return false;
+	}
+	return true;
+}
+
+static td_api::object_ptr<td_api::formattedText> plain_text(
+	const std::string &text)
+{
+	auto ft = td_api::make_object<td_api::formattedText>();
+	ft->text_ = text;
+	return ft;
+}
+
+int64_t TelegramSender::sendText(uint64_t key, int64_t chat_id,
+				 const std::string &text,
+				 int64_t reply_to_server_id, std::string *err)
+{
+	auto b = impl_->bot_for_key(key);
+	if (!b) {
+		if (err)
+			*err = "unknown bot";
+		return 0;
+	}
+
+	auto content = td_api::make_object<td_api::inputMessageText>();
+	content->text_ = plain_text(text);
+	return impl_->send_content(b, chat_id, std::move(content),
+				   reply_to_server_id, std::string(), 30, err);
+}
+
+int64_t TelegramSender::sendVoiceNote(uint64_t key, int64_t chat_id,
+				      const std::string &path,
+				      int32_t duration,
+				      const std::string &waveform,
+				      const std::string &caption,
+				      int64_t reply_to_server_id,
+				      std::string *err, bool *accepted)
+{
+	if (accepted)
+		*accepted = false;
+	auto b = impl_->bot_for_key(key);
+	if (!b) {
+		remove_file(path);
+		if (err)
+			*err = "unknown bot";
+		return 0;
+	}
+
+	auto content = td_api::make_object<td_api::inputMessageVoiceNote>();
+	content->voice_note_ = td_api::make_object<td_api::inputVoiceNote>(
+		td_api::make_object<td_api::inputFileLocal>(path), duration,
+		waveform);
+	content->caption_ = plain_text(caption);
+	/*
+	 * The confirmation comes once the file is uploaded, so it gets
+	 * longer than a text's. If it does not come in time the file stays
+	 * until TDLib reports the send done or failed after all.
+	 */
+	return impl_->send_content(b, chat_id, std::move(content),
+				   reply_to_server_id, path, 120, err,
+				   accepted);
+}
+
+bool TelegramSender::editText(uint64_t key, int64_t chat_id,
+			      int64_t server_message_id, const std::string &text,
+			      std::string *err)
+{
+	auto b = impl_->bot_for_key(key);
+	if (!b) {
+		if (err)
+			*err = "unknown bot";
+		return false;
+	}
+
+	if (!impl_->ensure_chat(b->client_id, chat_id, err))
+		return false;
+
+	auto content = td_api::make_object<td_api::inputMessageText>();
+	content->text_ = plain_text(text);
+
+	auto req = td_api::make_object<td_api::editMessageText>();
+	req->chat_id_ = chat_id;
+	req->message_id_ = to_tdlib_id(server_message_id);
+	req->input_message_content_ = std::move(content);
+	return impl_->run_edit(b, std::move(req), err);
+}
+
+bool TelegramSender::editCaption(uint64_t key, int64_t chat_id,
+				 int64_t server_message_id,
+				 const std::string &caption, std::string *err)
+{
+	auto b = impl_->bot_for_key(key);
+	if (!b) {
+		if (err)
+			*err = "unknown bot";
+		return false;
+	}
+
+	if (!impl_->ensure_chat(b->client_id, chat_id, err))
+		return false;
+
+	auto req = td_api::make_object<td_api::editMessageCaption>();
+	req->chat_id_ = chat_id;
+	req->message_id_ = to_tdlib_id(server_message_id);
+	req->caption_ = plain_text(caption);
+	return impl_->run_edit(b, std::move(req), err);
+}
+
+} /* namespace discordd */

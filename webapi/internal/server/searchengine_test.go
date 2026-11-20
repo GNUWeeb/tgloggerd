@@ -1,0 +1,452 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Copyright (C) 2026 Alviro Iskandar Setiawan <alviro.iskandar@gnuweeb.org>
+ */
+
+package server
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"tgloggerd/webapi/internal/auth"
+	"tgloggerd/webapi/internal/searchengine"
+	"tgloggerd/webapi/internal/testdb"
+	"tgloggerd/webapi/internal/webdb"
+)
+
+// The search API with the optional search engine: the capabilities,
+// the options and the answers' new parts, and the request scope over
+// them; and without an engine, answers exactly as before. The engine
+// tests run with the test engine (scripts/test-web.sh --search-engine)
+// and skip without it.
+
+// engineEnv is a searchEnv whose service has a search engine (nil:
+// none), indexed from the fixtures "sample" and "search_engine". 1 is
+// a superadmin, 2 an admin the kernel group and private chats are
+// hidden from, 3 a member granted GNU/Weeb.
+func engineEnv(t *testing.T, withEngine bool) *searchEnv {
+	t.Helper()
+	d := testdb.New(t, testdb.Logger, "sample", "search_engine")
+	db := interpolating(t, d)
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	var engine SearchEngine
+	if withEngine {
+		u := os.Getenv("WEBAPI_TEST_SEARCH_ENGINE_URL")
+		if u == "" {
+			t.Skip("WEBAPI_TEST_SEARCH_ENGINE_URL is not set (scripts/test-web.sh --search-engine)")
+		}
+		c, err := searchengine.NewClient(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rnd [6]byte
+		_, _ = rand.Read(rnd[:])
+		x, err := c.Index("test-server-" + hex.EncodeToString(rnd[:]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.Background()
+		t.Cleanup(func() { _ = x.Drop(context.Background()) })
+		ix := searchengine.NewIndexer(d.DB, x, nil, searchengine.IndexerOptions{
+			Log: quiet, Pause: time.Millisecond})
+		if err := ix.Reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := x.Refresh(ctx); err != nil {
+			t.Fatal(err)
+		}
+		profiles := map[string]*searchengine.Index{}
+		for _, kind := range []string{searchengine.ProfileUsers, searchengine.ProfileGroups} {
+			px, err := c.ProfileIndex(x.Name()+"-"+kind, kind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = px.Drop(context.Background()) })
+			if err := px.Ensure(ctx); err != nil {
+				t.Fatal(err)
+			}
+			pix, err := searchengine.NewProfileIndexer(d.DB, px, nil, searchengine.IndexerOptions{
+				Log: quiet, Pause: time.Millisecond})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := pix.Pass(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := px.Refresh(ctx); err != nil {
+				t.Fatal(err)
+			}
+			profiles[kind] = px
+		}
+		engine = searchengine.NewEngine(x, searchengine.EngineOptions{Log: quiet,
+			Users: profiles[searchengine.ProfileUsers], Groups: profiles[searchengine.ProfileGroups]})
+	}
+	return engineServer(t, db, engine)
+}
+
+// downEngineEnv is an engineEnv whose engine never answers: nothing
+// listens on port 1 of the loopback, so every search falls back to
+// MySQL, as it does while the engine is in its backoff. It needs no
+// test engine.
+func downEngineEnv(t *testing.T) *searchEnv {
+	t.Helper()
+	d := testdb.New(t, testdb.Logger, "sample", "search_engine")
+	c, err := searchengine.NewClient("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := c.Index("down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return engineServer(t, interpolating(t, d), searchengine.NewEngine(x,
+		searchengine.EngineOptions{Log: quiet, Timeout: time.Second}))
+}
+
+// engineServer is the service of engineEnv on db, with engine.
+func engineServer(t *testing.T, db *sql.DB, engine SearchEngine) *searchEnv {
+	t.Helper()
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	signer := auth.NewSigner(testKey)
+	ck := &auth.Cookies{Signer: signer, Timeout: 3600, Secure: true}
+	e := &searchEnv{t: t, tokens: auth.NewFileTokens(testKey), cookies: map[string]string{}}
+	states := map[uint64]webdb.SessionState{
+		1: {Role: "superadmin", Active: true},
+		2: {Role: "admin", Active: true, HidePrivate: true, HideGroups: []int64{-1001000000002}},
+		3: {Role: "member", Active: true, GrantedGroups: []int64{-1001000000001}},
+	}
+	e.h = New(Deps{
+		Log:     quiet,
+		RO:      db,
+		App:     testdb.New(t, testdb.Web, "accounts").DB,
+		Signer:  signer,
+		Cookies: ck,
+		Limiter: auth.NewRateLimiter(5, time.Hour),
+		Tokens:  e.tokens,
+		state: func(_ context.Context, uid uint64, _ [32]byte) (webdb.SessionState, error) {
+			st, ok := states[uid]
+			if !ok {
+				return webdb.SessionState{}, webdb.ErrNoUser
+			}
+			return st, nil
+		},
+		SearchEngine: engine,
+	})
+	for uid, st := range states {
+		e.cookies[st.Role] = signer.EncodeSession(ck.NewSession(uid, st.Role, st.Role, 0))
+	}
+	return e
+}
+
+const quickSearch = `[{"c":"text","o":"matches","v":"quick"}]`
+
+// Without an engine nothing changes: no capabilities, and the options
+// change nothing in the answer.
+func TestSearchWithoutEngine(t *testing.T) {
+	t.Parallel()
+	e := engineEnv(t, false)
+	b := e.ok("superadmin", "/api/search/capabilities")
+	if js(b) != `{"engine":null,"entities":{}}` {
+		t.Errorf("capabilities: %s", js(b))
+	}
+	plain := e.ok("superadmin", search("group_messages", quickSearch))
+	opts := e.ok("superadmin", search("group_messages", quickSearch, "highlight", "1",
+		"facets", "1", "fuzzy", "1", "engine", "mysql"))
+	if js(plain) != js(opts) {
+		t.Errorf("the options changed the answer:\n%s\n%s", js(plain), js(opts))
+	}
+	for _, k := range []string{"backend", "highlights", "facets"} {
+		if _, ok := plain[k]; ok {
+			t.Errorf("answer has %s without an engine", k)
+		}
+	}
+	if st, _ := e.get("", "/api/search/capabilities"); st != 401 {
+		t.Errorf("signed out: %d", st)
+	}
+}
+
+func TestSearchCapabilities(t *testing.T) {
+	t.Parallel()
+	e := engineEnv(t, true)
+	// js re-encodes the decoded answer, its keys in order.
+	opts := `["phrase","proximity","prefix","fuzzy","highlight","facets"]`
+	entity := `{"available":true,"fallback":null,"fields":["text"],"options":` + opts + `}`
+	// Users and groups: no facets.
+	profile := func(field string) string {
+		return `{"available":true,"fallback":null,"fields":["` + field + `"],"options":` +
+			`["phrase","proximity","prefix","fuzzy","highlight"]}`
+	}
+	groups, users := `"groups":`+profile("description"), `"users":`+profile("bio")
+	for role, want := range map[string]string{
+		"superadmin": `{"engine":"opensearch","entities":{"group_messages":` + entity +
+			`,` + groups + `,"private_messages":` + entity + `,` + users + `}}`,
+		// Private chats are hidden from the admin and never a member's;
+		// a member sees no bio.
+		"admin": `{"engine":"opensearch","entities":{"group_messages":` + entity + `,` + groups +
+			`,` + users + `}}`,
+		"member": `{"engine":"opensearch","entities":{"group_messages":` + entity + `,` +
+			groups + `}}`,
+	} {
+		if b := e.ok(role, "/api/search/capabilities"); js(b) != want {
+			t.Errorf("%s: %s\nwant %s", role, js(b), want)
+		}
+	}
+}
+
+func TestSearchEngineAnswers(t *testing.T) {
+	t.Parallel()
+	e := engineEnv(t, true)
+	q := search("group_messages", quickSearch, "highlight", "1", "facets", "1")
+	for _, c := range []struct {
+		role   string
+		total  int64
+		facets string
+	}{
+		// Busiest first, ties by chat id.
+		{"superadmin", 4, `-1001000000001:2 -1001000000003:1 -1001000000002:1`},
+		{"admin", 3, `-1001000000001:2 -1001000000003:1`},
+		{"member", 2, `-1001000000001:2`},
+	} {
+		b := e.ok(c.role, q)
+		wantTotal(t, c.role, b, c.total, true)
+		if js(b["backend"]) != `{"used":"engine"}` {
+			t.Errorf("%s: backend %s", c.role, js(b["backend"]))
+		}
+		hs := b["highlights"].([]any)
+		if len(hs) != len(rows(b)) || !strings.Contains(fmt.Sprint(hs), "<mark>quick</mark>") {
+			t.Errorf("%s: highlights %s", c.role, js(hs))
+		}
+		var fs []string
+		for _, f := range b["facets"].([]any) {
+			m := f.(map[string]any)
+			fs = append(fs, js(m["chat_id"])+":"+js(m["count"]))
+		}
+		if strings.Join(fs, " ") != c.facets {
+			t.Errorf("%s: facets %v, want %s", c.role, fs, c.facets)
+		}
+		if strings.Contains(js(b), "kernel group") && c.role != "superadmin" {
+			t.Errorf("%s: the hidden group's text in %s", c.role, js(b))
+		}
+	}
+
+	// engine=mysql: MySQL answers, says so, and gives no highlights.
+	b := e.ok("superadmin", search("group_messages", quickSearch, "engine", "mysql", "highlight", "1"))
+	if js(b["backend"]) != `{"fallback":"asked","ignored":["highlight"],"used":"mysql"}` ||
+		b["highlights"] != nil {
+		t.Errorf("engine=mysql: %s %v", js(b["backend"]), b["highlights"])
+	}
+	wantTotal(t, "engine=mysql", b, 4, true)
+
+	// The list pages' search text goes to the engine too: kernal~ finds
+	// the kernel messages, which MySQL's FULLTEXT would not.
+	p := e.props("superadmin", "group_messages", "q", "kernal~")
+	if p["total"] != float64(5) {
+		t.Errorf("list page search: total %v, want 5", p["total"])
+	}
+}
+
+// The engine's own syntax, word~ and word~N, means the plain word on
+// MySQL: without an engine, and when MySQL answers in its place, the
+// search API and the list pages find the word instead of failing.
+func TestEngineSyntaxOnMySQL(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		what    string
+		e       *searchEnv
+		backend string
+	}{
+		{"without an engine", engineEnv(t, false), ""},
+		{"engine down", downEngineEnv(t), `{"fallback":"unavailable","used":"mysql"}`},
+	} {
+		for _, v := range []struct {
+			text  string
+			total int64
+		}{
+			{"kernal~", 1},
+			{"kernal~2", 1},
+			{"+kernal~1 +oops", 1},
+			{"kernal~ quick~", 5},
+			{`"kernel panic" @3`, 2},
+		} {
+			q := fmt.Sprintf(`[{"c":"text","o":"matches","v":%q}]`, v.text)
+			b := getAnswer(t, c.e, "superadmin", search("group_messages", q))
+			wantTotal(t, c.what+": "+v.text, b, v.total, true)
+			if c.backend != "" && js(b["backend"]) != c.backend {
+				t.Errorf("%s: %s: backend %s", c.what, v.text, js(b["backend"]))
+			}
+		}
+		p := c.e.props("superadmin", "group_messages", "q", "kernal~", "fuzzy", "1")
+		if num(p["total"]) != 1 || p["error"] != nil || p["q"] != "kernal~" {
+			t.Errorf("%s: list page: total %v error %v q %v", c.what, p["total"], p["error"], p["q"])
+		}
+	}
+}
+
+// A full-text value MySQL cannot parse is a refused search, not a
+// failure: the search API answers 400 bad_search, and a list page the
+// whole list with the error in its state, without an engine and when
+// MySQL answers in the engine's place.
+func TestFullTextSyntaxRefused(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		what string
+		e    *searchEnv
+	}{
+		{"without an engine", engineEnv(t, false)},
+		{"engine down", downEngineEnv(t)},
+	} {
+		for _, v := range []string{"+", "-", "kernel +", "~", "((kernel", "kernel)", "a@b",
+			"*", `"a b" @`} {
+			for _, ent := range []string{"group_messages", "private_messages"} {
+				q := fmt.Sprintf(`[{"c":"text","o":"matches","v":%q}]`, v)
+				st, b := c.e.get("superadmin", search(ent, q))
+				msg, _ := b["message"].(string)
+				if st != 400 || b["error"] != "bad_search" ||
+					!strings.HasPrefix(msg, "invalid full-text search: syntax error") {
+					t.Errorf("%s: %s %q: %d %v", c.what, ent, v, st, b)
+				}
+			}
+			p := c.e.props("superadmin", "group_messages", "q", v)
+			err, _ := p["error"].(map[string]any)
+			if err["code"] != "bad_search" || p["q"] != "" || num(p["total"]) == 0 {
+				t.Errorf("%s: list page %q: error %v q %v total %v", c.what, v, p["error"],
+					p["q"], p["total"])
+			}
+		}
+	}
+}
+
+// getAnswer is e.ok that goes on after a failure.
+func getAnswer(t *testing.T, e *searchEnv, role, path string) map[string]any {
+	t.Helper()
+	st, b := e.get(role, path)
+	if st != 200 {
+		t.Errorf("GET %s: %d %v", path, st, b)
+	}
+	return b
+}
+
+// The message lists' pages take the same options from their query and
+// answer the engine's part as the search API does, within the scope,
+// with their entity's capabilities; without an engine they answer
+// none of it.
+func TestListPagesEngineParts(t *testing.T) {
+	t.Parallel()
+	e := engineEnv(t, true)
+	for _, c := range []struct {
+		role   string
+		facets string
+	}{
+		{"superadmin", `-1001000000001:2 -1001000000003:1 -1001000000002:1`},
+		{"admin", `-1001000000001:2 -1001000000003:1`},
+		{"member", `-1001000000001:2`},
+	} {
+		p := e.props(c.role, "group_messages", "q", "quick", "highlight", "1", "facets", "1")
+		if js(p["backend"]) != `{"used":"engine"}` {
+			t.Errorf("%s: backend %s", c.role, js(p["backend"]))
+		}
+		hs, _ := p["highlights"].([]any)
+		rs, _ := p["rows"].([]any)
+		if len(rs) == 0 || len(hs) != len(rs) || !strings.Contains(fmt.Sprint(hs), "<mark>quick</mark>") {
+			t.Errorf("%s: %d rows, highlights %s", c.role, len(rs), js(hs))
+		}
+		var fs []string
+		for _, f := range p["facets"].([]any) {
+			m := f.(map[string]any)
+			fs = append(fs, js(m["chat_id"])+":"+js(m["count"]))
+		}
+		if strings.Join(fs, " ") != c.facets {
+			t.Errorf("%s: facets %v, want %s", c.role, fs, c.facets)
+		}
+		if strings.Contains(js(p), "kernel group") && c.role != "superadmin" {
+			t.Errorf("%s: the hidden group's text in %s", c.role, js(p))
+		}
+		want := `{"available":true,"fallback":null,"fields":["text"],"options":` +
+			`["phrase","proximity","prefix","fuzzy","highlight","facets"]}`
+		if js(p["engine"]) != want {
+			t.Errorf("%s: engine %s", c.role, js(p["engine"]))
+		}
+	}
+	// engine=mysql on the page: MySQL answers and says so.
+	p := e.props("superadmin", "group_messages", "q", "quick", "engine", "mysql", "highlight", "1")
+	if js(p["backend"]) != `{"fallback":"asked","ignored":["highlight"],"used":"mysql"}` ||
+		p["highlights"] != nil {
+		t.Errorf("engine=mysql: %s %v", js(p["backend"]), p["highlights"])
+	}
+
+	plain := engineEnv(t, false).props("superadmin", "group_messages", "q", "quick",
+		"highlight", "1", "facets", "1")
+	for _, k := range []string{"backend", "highlights", "facets", "engine"} {
+		if _, ok := plain[k]; ok {
+			t.Errorf("list page has %s without an engine", k)
+		}
+	}
+}
+
+// The users' and groups' searches and pages answer a bio or description
+// "matches" from their indices, within the scope, with highlights and
+// their entity's capabilities; without an engine none of it.
+func TestSearchEngineProfiles(t *testing.T) {
+	t.Parallel()
+	e := engineEnv(t, true)
+	bio := `[{"c":"bio","o":"matches","v":"kernal~"}]`
+	b := e.ok("superadmin", search("users", bio, "highlight", "1", "facets", "1"))
+	wantTotal(t, "bio", b, 1, true)
+	if js(b["backend"]) != `{"ignored":["facets"],"used":"engine"}` ||
+		!strings.Contains(fmt.Sprint(b["highlights"]), "<mark>Kernel</mark>") {
+		t.Errorf("bio: backend %s highlights %s", js(b["backend"]), js(b["highlights"]))
+	}
+	desc := `[{"c":"description","o":"matches","v":"kernel"}]`
+	for role, total := range map[string]int64{"superadmin": 1, "admin": 0, "member": 0} {
+		b := e.ok(role, search("groups", desc))
+		wantTotal(t, role+" description", b, total, true)
+		if js(b["backend"]) != `{"used":"engine"}` {
+			t.Errorf("%s: backend %s", role, js(b["backend"]))
+		}
+	}
+	if st, _ := e.get("member", search("users", bio)); st != 400 {
+		t.Errorf("a member's bio search: %d", st)
+	}
+
+	p := e.props("superadmin", "users", "f", `[{"field":"bio","op":"matches","value":"gamr"}]`,
+		"fuzzy", "1", "highlight", "1")
+	if num(p["total"]) != 1 || js(p["backend"]) != `{"used":"engine"}` ||
+		!strings.Contains(fmt.Sprint(p["highlights"]), "<mark>gamer</mark>") {
+		t.Errorf("users page: total %v backend %s highlights %s", p["total"], js(p["backend"]),
+			js(p["highlights"]))
+	}
+	if !strings.Contains(js(p["engine"]), `"fields":["bio"]`) {
+		t.Errorf("users page: engine %s", js(p["engine"]))
+	}
+	p = e.props("member", "groups", "f", `[{"field":"description","op":"matches","value":"linux"}]`)
+	if num(p["total"]) != 1 || js(p["backend"]) != `{"used":"engine"}` ||
+		!strings.Contains(js(p["engine"]), `"fields":["description"]`) {
+		t.Errorf("member groups page: total %v backend %s engine %s", p["total"],
+			js(p["backend"]), js(p["engine"]))
+	}
+	if p := e.props("member", "users"); p["engine"] != nil {
+		t.Errorf("member users page: engine %s", js(p["engine"]))
+	}
+
+	plain := engineEnv(t, false).props("superadmin", "users", "f",
+		`[{"field":"bio","op":"matches","value":"kernel"}]`, "highlight", "1")
+	for _, k := range []string{"backend", "highlights", "engine"} {
+		if _, ok := plain[k]; ok {
+			t.Errorf("users page has %s without an engine", k)
+		}
+	}
+	if num(plain["total"]) != 1 {
+		t.Errorf("users page without an engine: total %v", plain["total"])
+	}
+}

@@ -1,0 +1,6 @@
+Schema changes whose migration another part of the project is still
+writing, as pending/<schema>/*.sql, applied after the migrations
+(webapi/README, "Tests"). Each file makes its change only when it is
+missing, so it does nothing once the migration is in; it is removed
+then. This file keeps the embedded directory present while none is
+pending.

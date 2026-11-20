@@ -1,0 +1,92 @@
+tgloggerd web application
+=========================
+
+The React application behind the tgloggerd web UI. Pages are rendered
+to HTML on the server and then taken over by the browser; the design
+is in ../../docs/design/web-ssr.md (server rendering and the render
+protocol) and ../../docs/design/web-live-client.md (live updates). The
+visual design comes from ../mockup.
+
+  - The Go service (webapi/) authenticates, applies access rules, loads
+    each page's data and serves the API under /api/.
+  - The render service in server/ is a small Node process that turns a
+    page's route and data into HTML for the Go service, over a Unix
+    socket. It has no database access, cookies or secrets.
+  - The browser bundle (src/entry-client.tsx) hydrates that HTML and
+    navigates without reloads, fetching page data from /api/page/.
+
+Everything runs through Docker; nothing but Docker is needed on the
+host:
+
+    ./dev npm ci
+    ./dev npm run typecheck
+    ./dev npm test
+    ./dev npm run build
+    ./dev npm run check:api
+
+`npm run build` (scripts/build.ts) writes the client bundle to
+dist/client (content-hashed files and the manifest the Go service
+reads) and the render entry to dist/server, both with one build id,
+and records that id last in dist/client/build.json, where the Go
+service reads it. The id is a hash of the inputs (package.json, the
+lock file, tsconfig.json, vite.config.ts, and src/ without its tests),
+so the same tree gives the same id; TGD_BUILD (passed through by
+./dev) sets another.
+
+The API's types are generated from the Go service's OpenAPI
+description, ../../webapi/openapi.yaml, into src/api/generated/ by
+`npm run gen:api`, and committed. After changing the description, run
+it and commit the result with the change; `npm run check:api` fails
+while the committed file differs from what the description gives.
+
+Deployment
+----------
+
+docker-compose.yml runs the render service as the "render" service
+(container tgloggerd-render): Node pinned to the image ./dev uses, the
+built web/app mounted read-only, no network, no env files, a read-only file
+system, no capabilities, restarted when it exits. It creates its
+socket in the render-socket volume, a tmpfs owned by TG_UID:TG_GID
+that only it and the webapi service mount, at the path both use by
+default (RENDER_SOCKET, /run/tgloggerd-render/render.sock). It logs
+one JSON line per render to stdout (request id, route, status, bytes,
+ms); the compose health check runs server/health.ts (GET /health).
+
+The build is a separate one-off service, render-build, the only step
+that needs the network (the npm registry, over Docker's default
+bridge): npm ci from the lock file, then npm run build, as TG_UID.
+It writes dist/server for the render service and dist/client (with
+build.json) for the webapi service, which serves it under
+/app/assets/ from WEBAPI_APP_DIST (default web/app/dist/client), so
+both always come from the same build with the same id.
+
+First deployment, from the repository root:
+
+    # env/settings.env: WEBAPI_APP_BUILD empty or absent (the id comes from
+    # build.json); RENDER_SOCKET, WEBAPI_APP_DIST at their defaults.
+    docker compose run --rm render-build
+    docker compose up -d render
+    docker compose ps render            # wait for "healthy"
+    docker compose up -d webapi         # recreated: mounts the socket
+                                        # volume, reads the new bundle
+
+After a change under web/app:
+
+    docker compose run --rm render-build
+    docker compose restart render webapi
+
+The webapi service reads the manifest and build id at start only, so
+it is restarted after every build, after the render service. Between
+the build and that restart the render service may answer 409 for the
+old id, and pages fall back to browser rendering meanwhile. A build
+adds its assets beside those of earlier builds instead of replacing
+them, so pages linked before the restart, and pages still open in a
+browser, keep working; assets that none of the last three builds uses
+are removed (dist/client/.builds.json records which build used which).
+
+RENDER_WORKERS in the environment of `docker compose` (or .env, which
+compose reads for interpolation only) sets the number of render
+processes, default 2.
+
+scripts/test-render-service.sh tests all of this on a copy of the
+tree, in a compose project of its own.

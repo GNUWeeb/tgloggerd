@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2026 Ammar Faizi <ammarfaizi2@gnuweeb.org>
  */
@@ -16,8 +16,8 @@ namespace models {
 
 /*
  * A group-chat message (basic group, supergroup or channel), as stored
- * in the group_messages, group_message_edits, and group_message_fwd_info
- * tables. Its chat_id is the group's chat_id (a valid groups.id).
+ * in the telegram_group_messages, telegram_group_message_edits, and telegram_group_message_fwd_info
+ * tables. Its chat_id is the group's chat_id (a valid telegram_groups.id).
  *
  * Unlike a private message, the sender may be a user or a chat/channel,
  * so exactly one of sender_user_id / sender_chat_id is set.
@@ -33,7 +33,6 @@ struct GroupMessage {
 	 * anonymous group admins. */
 	std::optional<int64_t>	sender_chat_id;
 
-	bool		is_outgoing = false;
 	bool		is_channel_post = false;
 
 	/* Author signature for channel posts / anonymous admins. */
@@ -42,6 +41,10 @@ struct GroupMessage {
 	int64_t		date = 0;
 	int64_t		edit_date = 0;
 
+	/* Album (media group) id shared by messages sent together; nullopt
+	 * when the message is not part of an album. */
+	std::optional<int64_t>	media_album_id;
+
 	/* Content that an edit can change (type, text, file). */
 	MessageContent	content;
 
@@ -49,6 +52,23 @@ struct GroupMessage {
 
 	/* Forward information; nullopt if not forwarded. */
 	std::optional<ForwardInfo>	forward_info;
+
+	/* td_api::message.topic_id: "forum", "thread", "direct" or "saved"
+	 * and the id within the chat; nullopt when the message has none. A
+	 * thread id is the server id of the thread's first message. */
+	std::optional<std::string>	topic_kind;
+	std::optional<int64_t>		topic_id;
+
+	/* Message-level detail without a column of its own, as a JSON object
+	 * (docs/design/message-types.md section 4.6); nullopt if none. Not
+	 * part of the content, so not snapshotted on edits. */
+	std::optional<std::string>	meta;
+
+	/* Pinned in the chat, as last seen. */
+	bool				is_pinned = false;
+
+	/* Interaction totals carried by this copy; nullopt if none. */
+	std::optional<Interaction>	interaction;
 };
 
 } /* namespace models */

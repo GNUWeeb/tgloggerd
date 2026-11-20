@@ -1,0 +1,1053 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* tgloggerd web — base stylesheet. */
+
+:root {
+	--bg: #f6f7f9;
+	--fg: #1c1f23;
+	--muted: #6b7280;
+	--border: #d7dbe0;
+	--accent: #2563eb;
+	--accent-fg: #ffffff;
+	--card: #ffffff;
+	--error: #b00020;
+	/* Generic person silhouette used as the no-photo avatar (see .placeholder).
+	 * Theme-independent: tinted at use via mask + var(--muted). */
+	--avatar-silhouette: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='9'%20r='4'/%3E%3Cpath%20d='M4%2021a8%208%200%200%201%2016%200Z'/%3E%3C/svg%3E");
+}
+
+/* Dark palette. Applied automatically when the OS prefers dark AND the user has
+ * not chosen a theme (no data-theme), or explicitly when data-theme="dark". The
+ * header toggle sets/removes data-theme; absent it, we follow the system. */
+:root[data-theme="dark"] {
+	--bg: #16181d;
+	--fg: #e6e8eb;
+	--muted: #9aa1ab;
+	--border: #2b2f36;
+	--accent: #3b82f6;
+	--card: #1e2127;
+	--error: #ff6b6b;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme]) {
+		--bg: #16181d;
+		--fg: #e6e8eb;
+		--muted: #9aa1ab;
+		--border: #2b2f36;
+		--accent: #3b82f6;
+		--card: #1e2127;
+		--error: #ff6b6b;
+	}
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	color: var(--fg);
+	background: var(--bg);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.topbar {
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	padding: 0.6rem 1rem;
+	background: var(--card);
+	border-bottom: 1px solid var(--border);
+}
+
+.topbar .brand { font-weight: 700; font-size: 1.1rem; color: var(--fg); }
+.topbar .mainnav { display: flex; gap: 1rem; }
+.topbar .signout { display: flex; align-items: center; gap: 0.6rem; }
+.topbar .who { color: var(--muted); }
+
+/* Dark/light toggle: a ghost button that owns the right-hand alignment (so it
+ * sits at the right whether or not a sign-out form follows it). */
+.topbar .theme-toggle {
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 2rem;
+	height: 2rem;
+	padding: 0;
+	font-size: 1.05rem;
+	line-height: 1;
+	color: var(--fg);
+	background: transparent;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	cursor: pointer;
+}
+.topbar .theme-toggle:hover { border-color: var(--accent); color: var(--accent); filter: none; }
+
+.content { max-width: 1000px; margin: 0 auto; padding: 1.5rem 1rem; }
+
+button {
+	font: inherit;
+	padding: 0.4rem 0.9rem;
+	border: 1px solid var(--accent);
+	border-radius: 6px;
+	background: var(--accent);
+	color: var(--accent-fg);
+	cursor: pointer;
+}
+button:hover { filter: brightness(1.05); }
+
+input {
+	font: inherit;
+	padding: 0.45rem 0.6rem;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg);
+	color: var(--fg);
+}
+
+/* Login */
+.login {
+	max-width: 340px;
+	margin: 4rem auto;
+	padding: 1.5rem;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+}
+.login h1 { margin-top: 0; font-size: 1.3rem; }
+.login form { display: flex; flex-direction: column; gap: 0.9rem; }
+.login label { display: flex; flex-direction: column; gap: 0.3rem; color: var(--muted); }
+.login .error { color: var(--error); margin: 0 0 0.5rem; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+table.kv th { width: 12rem; }
+
+/* Zebra-striped, bordered results grid (the advanced-search listings). */
+.table-wrap { overflow-x: auto; }
+/* A second horizontal scrollbar above the wide table (synced by JS), so the
+ * user can scroll sideways without first scrolling down to the bottom bar. */
+.table-scroll-top { overflow-x: auto; overflow-y: hidden; }
+.table-scroll-top > div { height: 1px; }
+table.grid {
+	border: 1px solid var(--border);
+	margin-bottom: 0.8rem;
+	/* Grow to fit the (many) columns so .table-wrap scrolls horizontally. */
+	width: max-content;
+	min-width: 100%;
+}
+table.grid th, table.grid td {
+	border-bottom: 1px solid var(--border);
+	border-right: 1px solid var(--border);
+	white-space: nowrap;
+}
+/* Truncate long/name cells; clicking a truncated long cell opens a modal. */
+table.grid td.cell-long, table.grid td.cell-name {
+	max-width: 16rem; overflow: hidden; text-overflow: ellipsis;
+}
+table.grid td.cell-long { cursor: pointer; }
+/* Identifier cells: monospace. The Telegram file id truncates at ~40 chars
+ * (40ch of the monospace font) and reuses .cell-long's click-to-modal; the
+ * SHA-256 hex is shown in full. */
+table.grid td.cell-fileid, table.grid td.cell-hash {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+table.grid td.cell-fileid { max-width: 40ch; }
+.bool-yes { color: var(--accent); font-weight: 600; }
+table.grid th:last-child, table.grid td:last-child { border-right: none; }
+table.grid tbody tr:nth-child(even) {
+	background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+table.grid tbody tr:hover {
+	background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+table.grid tbody tr:last-child td { border-bottom: none; }
+table.grid th[data-sort-key] { cursor: pointer; user-select: none; white-space: nowrap; }
+table.grid th[data-sort-key]:hover { color: var(--fg); }
+table.grid th.sort-active { color: var(--accent); }
+table.grid th.sort-active[data-dir="asc"]::after  { content: " ▲"; font-size: 0.7em; }
+table.grid th.sort-active[data-dir="desc"]::after { content: " ▼"; font-size: 0.7em; }
+.muted { color: var(--muted); }
+.nowrap { white-space: nowrap; }
+
+/* Shared select styling (there is otherwise no global select rule). */
+select {
+	font: inherit;
+	padding: 0.4rem 0.55rem;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg);
+	color: var(--fg);
+}
+
+/* Advanced-search condition builder. */
+.search-page h1 { margin-bottom: 0.6rem; }
+.search-error { color: var(--error); margin: 0.4rem 0; }
+.search-builder {
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 0.8rem;
+	margin-bottom: 1rem;
+}
+.cond-rows { display: flex; flex-direction: column; gap: 0.5rem; }
+.cond-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.cond-row .cond-col { min-width: 12rem; }
+.cond-row .cond-val { flex: 1; min-width: 8rem; }
+.cond-row .cond-del {
+	background: transparent; color: var(--muted);
+	border: 1px solid var(--border); border-radius: 6px;
+	padding: 0.3rem 0.6rem; line-height: 1;
+}
+.cond-row .cond-del:hover { color: var(--error); border-color: var(--error); }
+.cond-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0 0 0.8rem; }
+.cond-val-none { padding: 0.4rem 0; }
+.cond-add {
+	background: transparent; color: var(--accent);
+	border: 1px dashed var(--border);
+}
+.cond-clear { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+.cond-debug { margin-left: auto; color: var(--muted); font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; }
+.search-meta { margin: 0.2rem 0 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.limit-ctl { margin-left: auto; color: var(--muted); font-size: 0.9rem; display: inline-flex; align-items: center; gap: 0.4rem; }
+.limit-ctl input { width: 5rem; padding: 0.25rem 0.4rem; }
+
+/* Grid pager (page-number buttons). */
+.grid-pager { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+#pager-top { margin: 0 0 0.9rem; }
+.grid-pager .pager-btn.active {
+	background: var(--accent); color: var(--accent-fg); border-color: var(--accent);
+}
+.grid-pager .pager-btn[disabled] { opacity: 0.45; cursor: default; }
+.grid-pager .pager-info { margin: 0 0.4rem; }
+.debug-panel { margin: 0 0 1rem; }
+.debug-panel summary { cursor: pointer; color: var(--accent); margin-bottom: 0.5rem; }
+.debug-kv { font-size: 0.85rem; }
+.debug-kv th { width: 10rem; }
+.debug-kv code { word-break: break-all; }
+.debug-panel .bind {
+	display: inline-block; margin: 0 0.2rem 0.2rem 0; padding: 0.05rem 0.4rem;
+	border-radius: 4px; background: color-mix(in srgb, var(--accent) 14%, transparent);
+	font-family: ui-monospace, monospace; font-size: 0.85em;
+}
+
+/* Modal for a truncated cell's full text. */
+.modal-overlay {
+	position: fixed; inset: 0; z-index: 100;
+	background: rgba(0, 0, 0, 0.5);
+	display: flex; align-items: center; justify-content: center; padding: 1rem;
+}
+.modal-box {
+	position: relative; max-width: 640px; max-height: 80vh; overflow: auto;
+	padding: 1.4rem 1.4rem 1.2rem; border-radius: 10px;
+	background: var(--card); border: 1px solid var(--border);
+}
+.modal-close {
+	position: absolute; top: 0.4rem; right: 0.5rem;
+	background: transparent; border: none; color: var(--muted);
+	font-size: 1.4rem; line-height: 1; cursor: pointer; padding: 0.2rem 0.4rem;
+}
+.modal-close:hover { color: var(--fg); }
+.modal-text { white-space: pre-wrap; word-break: break-word; }
+
+/* User change-history timeline. */
+.timeline { list-style: none; margin: 1rem 0; padding: 0; }
+.tl-item { display: flex; gap: 0.7rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border); }
+.tl-item:last-child { border-bottom: none; }
+.tl-icon { flex: none; width: 1.8rem; text-align: center; font-size: 1.1rem; }
+.tl-body { flex: 1; display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; flex-wrap: wrap; }
+.tl-kind { font-weight: 600; color: var(--muted); margin-right: 0.3rem; }
+.tl-val { word-break: break-word; }
+.tl-time { white-space: nowrap; font-size: 0.85rem; }
+.tl-photo img { width: 48px; height: 48px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border); vertical-align: middle; }
+
+/* Search box (shared by the listing pages) */
+.search { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.5rem 0 1.2rem; }
+.search input[type="search"] { flex: 1; min-width: 8rem; max-width: 28rem; }
+.search select {
+	font: inherit;
+	padding: 0.45rem 0.6rem;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg);
+	color: var(--fg);
+}
+.search .clear { margin-left: 0.2rem; }
+
+/* Dashboard cards */
+.cards { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 1rem; }
+.card {
+	display: flex; flex-direction: column; gap: 0.2rem;
+	min-width: 9rem; padding: 1rem 1.2rem;
+	background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+	color: var(--fg);
+}
+a.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .num { font-size: 1.8rem; font-weight: 700; }
+.card .lbl { color: var(--muted); }
+
+/* Badges */
+.badge {
+	display: inline-block; padding: 0.05rem 0.45rem; margin: 0 0.15rem 0.15rem 0;
+	font-size: 0.8rem; border-radius: 999px;
+	background: color-mix(in srgb, var(--accent) 18%, transparent);
+	color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.badge.warn {
+	background: color-mix(in srgb, var(--error) 15%, transparent);
+	color: var(--error); border-color: color-mix(in srgb, var(--error) 45%, transparent);
+}
+.badges { margin: 0.4rem 0 1rem; }
+
+/* Detail pages */
+.detail .crumb { margin-top: 0; }
+.detail-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+.detail-head h1 { margin: 0; }
+.detail-actions { margin: 0.2rem 0 1rem; }
+.btn {
+	display: inline-block; padding: 0.4rem 0.9rem;
+	border: 1px solid var(--accent); border-radius: 6px;
+	background: var(--accent); color: var(--accent-fg);
+}
+.btn:hover { filter: brightness(1.05); text-decoration: none; }
+.avatar {
+	flex: none;
+	width: 216px; height: 216px;
+	border-radius: 50%;
+	object-fit: cover;
+	border: 1px solid var(--border);
+	background: var(--card);
+}
+
+/* Small round photo in the first column of the listing tables. */
+.avatar-sm {
+	display: block;
+	width: 28px; height: 28px;
+	border-radius: 50%;
+	object-fit: cover;
+	border: 1px solid var(--border);
+	background: var(--card);
+}
+/* No profile photo: a generic silhouette on the card backdrop. The icon is a
+ * masked pseudo-element tinted with --muted, so it adapts to light/dark. */
+.avatar.placeholder, .avatar-sm.placeholder {
+	position: relative;
+	background: var(--card);
+	overflow: hidden;
+}
+.avatar.placeholder::after, .avatar-sm.placeholder::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: var(--muted);
+	-webkit-mask: var(--avatar-silhouette) center / 66% no-repeat;
+	        mask: var(--avatar-silhouette) center / 66% no-repeat;
+}
+/* Keep the photo column tight and centre the round photo/placeholder in it.
+ * Symmetric padding matters: an asymmetric one (e.g. padding-right:0) makes the
+ * column size to the image and pushes it against one edge. */
+td.col-photo, th.col-photo {
+	width: 28px;
+	padding-left: 0.5rem;
+	padding-right: 0.5rem;
+	text-align: center;
+	vertical-align: middle;
+}
+td.col-photo .avatar-sm { margin: 0 auto; }
+
+/* "party" cells (message search rows): a small avatar beside a linked name,
+ * for the group and the sender. */
+td.cell-party { white-space: nowrap; }
+a.party, span.party {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	max-width: 20rem;
+	vertical-align: middle;
+}
+a.party .avatar-sm, span.party .avatar-sm { flex: none; }
+
+/* Chat pages: double the header and per-message avatars (28px -> 56px). The
+ * base .avatar-sm is shared with the listing tables, so scope the bump to
+ * the chat header and the message avatars only. */
+.chat-head .avatar-sm, .avatar-sm.msg-avatar { width: 56px; height: 56px; }
+.detail h2 { font-size: 1.05rem; margin-top: 1.6rem; }
+.chips { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.chips li { padding: 0.2rem 0.6rem; background: var(--card); border: 1px solid var(--border); border-radius: 6px; }
+
+.pager { margin-top: 1rem; }
+
+/* Messages */
+.subnav { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0.5rem 0 1rem; }
+.subnav a.active { font-weight: 600; color: var(--fg); text-decoration: underline; }
+.file-icon { font-size: 1.2rem; }
+tr.deleted td { opacity: 0.55; text-decoration: line-through; }
+tr.deleted td a { text-decoration: line-through; }
+.reply-box {
+	margin: 0.5rem 0 1rem; padding: 0.6rem 0.9rem;
+	border-left: 3px solid var(--accent);
+	background: var(--card); border-radius: 0 6px 6px 0;
+}
+pre.msgtext {
+	white-space: pre-wrap; word-break: break-word;
+	padding: 0.8rem; margin: 0 0 1.5rem;
+	background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+}
+code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	background: var(--card); border: 1px solid var(--border);
+	border-radius: 4px; padding: 0.05rem 0.3rem;
+}
+
+/* Chat history --------------------------------------------------------------*/
+html { scroll-behavior: smooth; }
+
+/* The chat fills the space under the top bar; only the message log scrolls,
+ * not the whole window. (The calc offset approximates the top bar + the
+ * content's vertical padding; a few px either way just leaves a small gap.) */
+.chat {
+	position: relative;
+	display: flex; flex-direction: column;
+	height: calc(100dvh - 5rem);
+	min-height: 18rem;
+}
+/* Floating "jump to newest" button (auto-load on, shown while scrolling). */
+.chat-scrolldown {
+	position: absolute; right: 1.75rem; bottom: 1rem; z-index: 20;
+	width: 44px; height: 44px; border-radius: 50%;
+	display: flex; align-items: center; justify-content: center;
+	background: var(--card); color: var(--fg);
+	border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+	cursor: pointer; padding: 0;
+	opacity: 0; transform: translateY(0.5rem); pointer-events: none;
+	transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.chat-scrolldown.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.chat-scrolldown:hover { border-color: var(--accent); color: var(--accent); }
+/* Date/time jump bar, above the chat title. */
+.chat-jump {
+	flex: 0 0 auto;
+	display: flex; align-items: center; gap: 0.4rem;
+	margin: -1.5rem -1rem 0; padding: 0.4rem 1rem;
+	background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.chat-date-input {
+	flex: 0 1 240px;
+	font: inherit; padding: 0.3rem 0.5rem;
+	border: 1px solid var(--border); border-radius: 6px;
+	background: var(--card); color: var(--fg);
+}
+.chat-auto {
+	margin-left: auto; display: flex; align-items: center; gap: 0.35rem;
+	font-size: 0.85rem; color: var(--muted); white-space: nowrap;
+	cursor: pointer;
+}
+.chat-auto input { margin: 0; cursor: pointer; }
+.chat-head {
+	flex: 0 0 auto;
+	display: flex; align-items: center; gap: 0.7rem;
+	margin: 0 -1rem 0; padding: 0.6rem 1rem;
+	background: var(--card); border-bottom: 1px solid var(--border);
+}
+.chat-back { font-size: 1.3rem; line-height: 1; color: var(--fg); padding: 0 0.2rem; }
+.chat-head .chat-title { font-weight: 700; }
+.chat-head .chat-sub { font-size: 0.8rem; }
+
+.chat-log {
+	flex: 1 1 auto; min-height: 0; overflow-y: auto;
+	display: flex; flex-direction: column; gap: 0.35rem;
+	padding: 0.75rem 0.25rem 0.5rem;
+}
+.chat-empty { text-align: center; padding: 2rem 0; }
+.chat-msgs { display: flex; flex-direction: column; gap: 0.35rem; }
+/* With auto-load on, the client pages by scrolling; the manual pagers hide. */
+.chat.auto .chat-pager { display: none; }
+
+/* Floating date shown while scrolling (Telegram-style). The wrapper is a
+ * zero-height sticky strip so the badge overlays the top of the log without
+ * taking layout space; it fades out slowly after scrolling stops. */
+.chat-datebadge-wrap {
+	position: sticky; top: 0; z-index: 10; height: 0;
+	text-align: center; pointer-events: none;
+}
+.chat-datebadge {
+	display: inline-block;
+	margin-top: 0.5rem; padding: 0.25rem 0.85rem;
+	border-radius: 999px; font-size: 1.2rem; line-height: 1.3;
+	white-space: nowrap;
+	background: rgba(0, 0, 0, 0.78);
+	color: #fff;
+	opacity: 0; transition: opacity 0.5s ease;
+}
+.chat-datebadge.show { opacity: 1; }
+
+/* Server-rendered pager at the top (older) and bottom (newer) of the log.
+ * Extension point for infinite scroll: swap the link for an on-scroll fetch
+ * of the same ?after= cursor. */
+.chat-pager { display: flex; justify-content: center; gap: 0.5rem; padding: 0.35rem 0; }
+.pager-btn {
+	display: inline-block; padding: 0.4rem 0.9rem;
+	border: 1px solid var(--border); border-radius: 999px;
+	background: var(--card); color: var(--accent); font-size: 0.85rem;
+}
+.pager-btn:hover { text-decoration: none; border-color: var(--accent); }
+
+/* One message row: avatar + bubble, aligned left (incoming) or right (out). */
+.msg { display: flex; align-items: flex-end; gap: 0.5rem; max-width: 100%; }
+.msg.out { justify-content: flex-end; }
+.msg .msg-avatar { flex: none; align-self: flex-end; }
+
+.bubble {
+	max-width: min(72%, 42rem);
+	padding: 0.4rem 0.6rem;
+	border: 1px solid var(--border); border-radius: 12px;
+	background: var(--card);
+	overflow-wrap: anywhere;
+}
+.msg.out .bubble {
+	background: color-mix(in srgb, var(--accent) 16%, var(--card));
+	border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+/* Consecutive-bubble tails give the classic chat shape. */
+.msg.in  .bubble { border-bottom-left-radius: 4px; }
+.msg.out .bubble { border-bottom-right-radius: 4px; }
+
+.msg-sender { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.15rem; }
+.msg-sender a { color: var(--accent); }
+
+.msg-text { white-space: pre-wrap; word-break: break-word; }
+.msg-sig { font-size: 0.8rem; margin-top: 0.2rem; }
+
+/* Rich-text formatting inside message/edit text (from TDLib entities). */
+.msg-text code, .edit-text code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.92em; background: var(--bg);
+	border: 1px solid var(--border); border-radius: 4px; padding: 0 0.2em;
+}
+.msg-text pre, .edit-text pre {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+	padding: 0.4rem 0.6rem; margin: 0.2rem 0; overflow-x: auto; white-space: pre;
+}
+.msg-text blockquote, .edit-text blockquote {
+	margin: 0.2rem 0; padding-left: 0.6rem;
+	border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+	color: var(--muted);
+}
+.msg-text a, .edit-text a { color: var(--accent); }
+/* Spoiler: hidden until hovered/tapped. */
+.msg-text .spoiler, .edit-text .spoiler {
+	background: var(--muted); color: transparent; border-radius: 3px;
+	cursor: pointer; transition: color 0.1s;
+}
+.msg-text .spoiler:hover, .edit-text .spoiler:hover { color: var(--fg); background: var(--bg); }
+
+/* Service/system message: a centered notice, not a chat bubble. */
+.msg-service { display: flex; justify-content: center; margin: 0.15rem 0; }
+.service-bubble {
+	max-width: 85%; text-align: center;
+	padding: 0.2rem 0.7rem; border-radius: 12px;
+	background: color-mix(in srgb, var(--accent) 10%, transparent);
+	color: var(--muted); font-size: 0.82rem; word-break: break-word;
+}
+.service-who { font-weight: 600; color: var(--fg); }
+a.service-who:hover { text-decoration: underline; }
+.msg-service:target .service-bubble {
+	outline: 2px solid var(--accent);
+	animation: msg-flash 2s ease-out 1;
+}
+
+/* Forward header. */
+.fwd {
+	font-size: 0.82rem; margin-bottom: 0.25rem;
+	padding-left: 0.5rem; border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.fwd .fwd-label { margin-right: 0.25rem; }
+
+/* Reply quote — clickable, jumps to the referenced message. */
+.reply-quote {
+	display: block; margin: 0 0 0.3rem; padding: 0.25rem 0.5rem;
+	border-left: 3px solid var(--accent);
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
+	border-radius: 0 6px 6px 0; font-size: 0.85rem; color: inherit;
+}
+.reply-quote:hover { text-decoration: none; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.reply-quote .reply-name { display: block; font-weight: 600; color: var(--accent); }
+.reply-quote .reply-text { display: block; color: var(--muted); }
+
+/* Media. */
+.msg-media { display: block; max-width: 100%; max-height: 380px; height: auto;
+	border-radius: 8px; margin: 0.15rem 0; }
+img.msg-media { cursor: zoom-in; object-fit: contain; }
+/* Animated (.tgs / Lottie) sticker: a square box the player fills; until JS
+ * swaps it in, the child download link is the no-JS fallback. */
+.tgs-sticker { width: 180px; height: 180px; display: flex;
+	align-items: center; justify-content: center; }
+.tgs-sticker svg { width: 100%; height: 100%; }
+.msg-audio { display: block; margin: 0.2rem 0; max-width: 100%; }
+
+/* Album (media group): several attachments sent together, shown as a grid. */
+.album {
+	display: grid; grid-template-columns: 1fr 1fr; gap: 3px;
+	max-width: 380px; margin: 0.15rem 0;
+	border-radius: 8px; overflow: hidden;
+}
+.album .album-item { margin: 0; min-width: 0; }
+.album .album-item img, .album .album-item video {
+	display: block; width: 100%; height: 100%;
+	aspect-ratio: 1 / 1; object-fit: cover; cursor: zoom-in;
+}
+/* Full-width rows for non-grid items (audio, files, deleted placeholders). */
+.album .album-item.wide { grid-column: 1 / -1; }
+.album .album-item.wide.msg-file, .album .album-item.wide audio { width: 100%; }
+.album .album-item.deleted {
+	display: flex; align-items: center; justify-content: center;
+	min-height: 48px; background: var(--bg); border: 1px dashed var(--border);
+	text-decoration: line-through;
+}
+.album .album-item:target img, .album .album-item:target video,
+.album .album-item:target { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Preview-able media open in a lightbox; hint it with a zoom cursor. */
+.zoomable { cursor: zoom-in; }
+
+/* Video / animation preview: a still frame with a play badge overlaid. The
+ * wrapper is relative so the badge can centre over it; clicking opens the
+ * lightbox rather than playing inline. */
+.media-thumb { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+.play-badge {
+	position: absolute; top: 50%; left: 50%;
+	transform: translate(-50%, -50%);
+	width: 52px; height: 52px; border-radius: 50%;
+	background: rgba(0, 0, 0, 0.55); pointer-events: none;
+}
+.play-badge::after {
+	content: ""; position: absolute; top: 50%; left: 55%;
+	transform: translate(-50%, -50%);
+	border: 11px solid transparent; border-left: 17px solid #fff; border-right: 0;
+}
+
+/* Lightbox overlay for enlarged media. */
+.media-modal {
+	position: fixed; inset: 0; z-index: 1000;
+	display: flex; align-items: center; justify-content: center;
+	padding: 2.5rem; background: rgba(0, 0, 0, 0.86);
+}
+.media-modal[hidden] { display: none; }
+.media-modal-body {
+	display: flex; align-items: center; justify-content: center;
+	max-width: 94vw; max-height: 92vh;
+}
+.media-modal-body img, .media-modal-body video {
+	display: block; max-width: 94vw; max-height: 92vh;
+	width: auto; height: auto; border-radius: 6px;
+}
+.media-modal-body .mm-lottie { width: min(80vw, 80vh); height: min(80vw, 80vh); }
+.media-modal-body .mm-lottie svg { width: 100%; height: 100%; }
+.media-modal-close {
+	position: fixed; top: 0.75rem; right: 1.25rem; z-index: 1001;
+	font-size: 2.4rem; line-height: 1; color: #fff;
+	background: none; border: none; cursor: pointer;
+}
+.msg-file {
+	display: inline-block; margin: 0.2rem 0; padding: 0.4rem 0.6rem;
+	background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+}
+
+/* Meta line: timestamp, edited disclosure, deleted badge. */
+.msg-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem;
+	margin-top: 0.2rem; font-size: 0.72rem; color: var(--muted); }
+.msg.deleted .bubble { opacity: 0.7; }
+.msg.deleted .msg-text { text-decoration: line-through; }
+
+.edit-history summary { cursor: pointer; color: var(--accent); }
+.edit-history[open] summary { margin-bottom: 0.3rem; }
+/* One edit snapshot per row, stacked top-to-bottom (newest first); each bubble
+ * is only as wide as its content. */
+.edit-list {
+	list-style: none; margin: 0.3rem 0 0.2rem 1rem; padding-left: 0.5rem;
+	display: flex; flex-direction: column; align-items: flex-start;
+	gap: 0.4rem;
+}
+.edit-item {
+	display: inline-block; max-width: 100%;
+	padding: 0.4rem 0.55rem; border-radius: 10px;
+	background: var(--bg); border: 1px solid var(--border);
+}
+.edit-when { font-size: 0.72rem; }
+.edit-text { white-space: pre-wrap; word-break: break-word; color: var(--fg); }
+/* Media inside an edit snapshot: a compact square-ish preview, sized to the
+ * content up to a bound (a mini chat bubble per edit). */
+.edit-media { display: inline-block; margin: 0.25rem 0; line-height: 0; }
+.edit-media img, .edit-media video {
+	display: block; max-width: 240px; max-height: 240px;
+	width: auto; height: auto; border-radius: 8px;
+	object-fit: contain; cursor: zoom-in;
+}
+.edit-media.tgs-sticker { width: 140px; height: 140px; }
+.edit-media-file { margin: 0.25rem 0; }
+/* A file not in storage that cannot be fetched: only its metadata is known. */
+.media-missing {
+	display: inline-block; margin: 0.25rem 0; padding: 0.5rem 0.7rem;
+	border-radius: 8px; background: var(--bg);
+	border: 1px dashed var(--border); color: var(--fg);
+	font-size: 0.92rem; line-height: 1.35; max-width: 100%;
+	word-break: break-word;
+}
+
+/*
+ * A file not in storage that loads from Telegram on demand. A video or
+ * animation is a dark box (its <video> has preload="none", so nothing is
+ * fetched before the click) that opens in the lightbox; audio is a player
+ * that fetches when played; a document is a download link.
+ */
+.media-fetch video {
+	min-width: 220px; min-height: 124px; background: #000;
+}
+.media-fetch .fetch-label {
+	position: absolute; left: 0; right: 0; bottom: 0;
+	padding: 0.3rem 0.5rem; line-height: 1.3; font-size: 0.85rem;
+	color: #fff; background: rgba(0, 0, 0, 0.55);
+	border-radius: 0 0 8px 8px; pointer-events: none;
+}
+.media-fetch-audio { display: block; margin: 0.2rem 0; }
+.media-fetch-audio .fetch-label { display: block; font-size: 0.9rem; }
+.media-fetch-audio audio { display: block; max-width: 100%; }
+.media-fetch-file .fetch-label { color: var(--accent); }
+
+/* Highlight a message when navigated to via a reply link. */
+.msg:target .bubble {
+	outline: 2px solid var(--accent);
+	animation: msg-flash 2s ease-out 1;
+}
+@keyframes msg-flash {
+	0% { background: color-mix(in srgb, var(--accent) 40%, var(--card)); }
+}
+/* JS-applied highlight for an in-place reply jump (no :target navigation). */
+.flash, .flash .bubble {
+	outline: 2px solid var(--accent); outline-offset: -2px;
+	animation: msg-flash 1.5s ease-out 1;
+}
+
+/* Settings ------------------------------------------------------------------
+ * A section layout (left nav + main pane) so more sections can be added later
+ * without reshaping the page; for now it holds only the Account section. */
+.settings h1 { margin-bottom: 1rem; }
+.settings-layout { display: flex; gap: 1.5rem; align-items: flex-start; }
+.settings-nav {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	min-width: 10rem;
+	flex: none;
+}
+.settings-nav a {
+	padding: 0.4rem 0.7rem;
+	border-radius: 6px;
+	color: var(--fg);
+}
+.settings-nav a:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); text-decoration: none; }
+.settings-nav a.active {
+	background: color-mix(in srgb, var(--accent) 14%, transparent);
+	color: var(--accent);
+	font-weight: 600;
+}
+.settings-main { flex: 1; min-width: 0; }
+.settings-section h2 { margin-top: 0; font-size: 1.15rem; }
+.settings-card {
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 1.2rem 1.3rem;
+	max-width: 26rem;
+	margin-top: 0.8rem;
+}
+.settings-card h3 { margin: 0 0 0.8rem; font-size: 1rem; }
+.settings-form { display: flex; flex-direction: column; gap: 0.9rem; }
+.settings-form label {
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+	color: var(--muted);
+	font-size: 0.9rem;
+}
+.settings-form input { color: var(--fg); }
+.settings-actions { margin-top: 0.2rem; }
+.settings-flash {
+	margin: 0 0 0.9rem;
+	padding: 0.5rem 0.7rem;
+	border-radius: 6px;
+	font-size: 0.9rem;
+}
+.settings-flash.ok  { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.settings-flash.err { color: var(--error);  background: color-mix(in srgb, var(--error) 12%, transparent); }
+
+@media (max-width: 640px) {
+	.settings-layout { flex-direction: column; }
+	.settings-nav { flex-direction: row; flex-wrap: wrap; min-width: 0; }
+}
+
+/* Discord integrations admin page ------------------------------------------ */
+.integrations h1 { margin-bottom: 0.3rem; }
+.int-toolbar { margin: 1rem 0; }
+.int-table td.int-url {
+	max-width: 22rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	color: var(--muted);
+}
+.int-table .int-actions-col { width: 1%; }
+.int-row-actions { display: flex; gap: 0.4rem; }
+.btn-link {
+	background: none;
+	border: none;
+	padding: 0.1rem 0.3rem;
+	color: var(--accent);
+	cursor: pointer;
+	font: inherit;
+}
+.btn-link:hover { text-decoration: underline; filter: none; }
+.btn-secondary {
+	background: transparent;
+	color: var(--fg);
+	border: 1px solid var(--border);
+}
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); filter: none; }
+
+.int-form-wrap {
+	margin-top: 1.2rem;
+	max-width: 34rem;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 1.2rem 1.3rem;
+}
+.int-form-wrap h2 { margin-top: 0; font-size: 1.1rem; }
+.int-form { display: flex; flex-direction: column; gap: 0.9rem; }
+.int-form > label {
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+	color: var(--muted);
+	font-size: 0.9rem;
+}
+.int-form label.int-check { flex-direction: row; align-items: center; gap: 0.5rem; color: var(--fg); }
+.int-form fieldset.int-types {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem 1.1rem;
+	margin: 0;
+	padding: 0.6rem 0.8rem 0.7rem;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	font-size: 0.9rem;
+}
+.int-types legend { padding: 0 0.3rem; color: var(--muted); }
+.int-types label.int-check { display: flex; }
+.int-types .int-hint { flex-basis: 100%; }
+.int-types-cell { color: var(--muted); font-size: 0.9rem; }
+.int-hint { font-size: 0.8rem; color: var(--muted); }
+.int-form-actions { display: flex; gap: 0.6rem; margin-top: 0.2rem; }
+.int-form-msg { margin: 0.4rem 0 0; font-size: 0.9rem; min-height: 1.2em; }
+.int-form-msg.ok  { color: var(--accent); }
+.int-form-msg.err { color: var(--error); }
+
+/* select2 fits the app's inputs and adapts to dark mode. */
+.select2-container--default .select2-selection--single {
+	height: auto;
+	padding: 0.2rem 0.1rem;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg);
+}
+.select2-container--default .select2-selection--single .select2-selection__rendered { color: var(--fg); line-height: 1.6; }
+.select2-container--default .select2-selection--single .select2-selection__placeholder { color: var(--muted); }
+.select2-dropdown {
+	background: var(--card);
+	border: 1px solid var(--border);
+	color: var(--fg);
+}
+.select2-container--default .select2-search--dropdown .select2-search__field {
+	background: var(--bg);
+	color: var(--fg);
+	border: 1px solid var(--border);
+}
+.select2-container--default .select2-results__option--highlighted[aria-selected] {
+	background: var(--accent);
+	color: var(--accent-fg);
+}
+.select2-container--default .select2-results__option[aria-selected=true] {
+	background: color-mix(in srgb, var(--accent) 18%, transparent);
+	color: var(--fg);
+}
+
+/* Discord -> Telegram routes admin page. Mirrors the .int-* rules above; the
+ * table/button/select2 styling is shared and not repeated here. */
+.rt-toolbar { margin: 1rem 0; }
+.rt-table td.rt-channel {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	color: var(--muted);
+	white-space: nowrap;
+}
+.rt-table .rt-actions-col { width: 1%; }
+.rt-row-actions { display: flex; gap: 0.4rem; }
+.rt-form-wrap {
+	margin-top: 1.2rem;
+	max-width: 34rem;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	padding: 1.2rem 1.3rem;
+}
+.rt-form-wrap h2 { margin-top: 0; font-size: 1.1rem; }
+.rt-form { display: flex; flex-direction: column; gap: 0.9rem; }
+.rt-form > label {
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+	color: var(--muted);
+	font-size: 0.9rem;
+}
+.rt-form label.rt-check { flex-direction: row; align-items: center; gap: 0.5rem; color: var(--fg); }
+.rt-form fieldset.rt-types {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem 1.1rem;
+	margin: 0;
+	padding: 0.6rem 0.8rem 0.7rem;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	font-size: 0.9rem;
+}
+.rt-types legend { padding: 0 0.3rem; color: var(--muted); }
+.rt-types label.rt-check { display: flex; }
+.rt-types .rt-hint { flex-basis: 100%; }
+.rt-types-cell { color: var(--muted); font-size: 0.9rem; }
+.rt-hint { font-size: 0.8rem; color: var(--muted); }
+.rt-form-actions { display: flex; gap: 0.6rem; margin-top: 0.2rem; }
+.rt-form-msg { margin: 0.4rem 0 0; font-size: 0.9rem; min-height: 1.2em; }
+.rt-form-msg.ok  { color: var(--accent); }
+.rt-form-msg.err { color: var(--error); }
+.rt-foot { margin-top: 1.5rem; font-size: 0.85rem; }
+
+/* Nav submenu, for the grouped "Platform forwarding" entry.
+ *
+ * CSS-only: the group is revealed on hover and on :focus-within, so keyboard
+ * tabbing opens it without script. The parent is itself a real link to the
+ * index page, so anything that cannot hover (touch, or a reader that skips the
+ * submenu) still reaches every direction from there. */
+.nav-group { position: relative; display: inline-block; }
+.nav-submenu {
+	display: none;
+	position: absolute;
+	top: 100%;
+	left: 0;
+	z-index: 30;
+	min-width: 14rem;
+	padding: 0.35rem 0;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.nav-group:hover .nav-submenu,
+.nav-group:focus-within .nav-submenu { display: block; }
+.nav-submenu a {
+	display: block;
+	padding: 0.4rem 0.9rem;
+	white-space: nowrap;
+}
+.nav-submenu a:hover { background: var(--bg); }
+
+/* Platform forwarding index. */
+.fwd-cards {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem;
+	margin: 1.4rem 0;
+}
+.fwd-card {
+	flex: 1 1 20rem;
+	max-width: 26rem;
+	padding: 1.1rem 1.2rem;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	text-decoration: none;
+	color: inherit;
+}
+.fwd-card:hover { border-color: var(--accent); }
+.fwd-card h2 { margin: 0 0 0.4rem; font-size: 1.05rem; }
+.fwd-card p { margin: 0 0 0.5rem; font-size: 0.9rem; }
+.fwd-count { font-size: 0.9rem; }
+.fwd-index-foot { font-size: 0.85rem; max-width: 46rem; }
+
+/* MCP admin pages. Reuses the .rt-* form/table rules and the .fwd-card grid;
+ * only what is genuinely new lives here. */
+.mcp-h2 { margin-top: 2rem; font-size: 1.05rem; }
+.mcp-pre {
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 0.7rem 0.9rem;
+	overflow-x: auto;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.85rem;
+	user-select: all;              /* one click selects the whole token */
+}
+.mcp-err {
+	color: var(--error);
+	background: var(--card);
+	border: 1px solid var(--error);
+	border-radius: 8px;
+	padding: 0.6rem 0.9rem;
+	font-size: 0.9rem;
+}
+/* A group that has since gone private: worth an admin's attention, but not an
+ * error -- exposure is their decision, not the username's. */
+.mcp-warn { color: var(--error); }
+.mcp-new {
+	margin: 1.2rem 0;
+	max-width: 44rem;
+	padding: 1.1rem 1.2rem;
+	background: var(--card);
+	border: 1px solid var(--accent);
+	border-radius: 10px;
+}
+.mcp-new h2 { margin-top: 0; font-size: 1.05rem; }
+
+/*
+ * Link preview card. Deliberately quiet: a bordered block with a left accent,
+ * the way Telegram and Discord both render one, so it reads as attached to the
+ * message rather than as another message.
+ */
+.link-preview {
+	display: block;
+	margin: 6px 0 2px;
+	padding: 6px 10px;
+	border-left: 3px solid var(--accent, #2ecc71);
+	border-radius: 4px;
+	background: rgba(127, 127, 127, .08);
+	text-decoration: none;
+	color: inherit;
+	max-width: 420px;
+}
+.link-preview:hover { background: rgba(127, 127, 127, .15); }
+.lp-site  { font-size: .78em; opacity: .75; }
+.lp-title { font-weight: 600; margin: 1px 0; }
+.lp-desc  { font-size: .88em; opacity: .85; white-space: pre-wrap; }
+.lp-image { display: block; margin-top: 6px; max-width: 100%;
+	    max-height: 260px; border-radius: 4px; }
+
+/* /join-chat: the preview card reuses .rt-form-wrap; the facts table is a
+ * narrow key/value grid. */
+.jc-preview { margin-top: 1rem; }
+.jc-facts { margin-bottom: 0.9rem; width: auto; }
+.jc-facts th { text-align: left; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.jc-facts td { overflow-wrap: anywhere; }

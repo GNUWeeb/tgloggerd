@@ -1,0 +1,1607 @@
+[
+ {
+  "name": "auth-missing",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "auth-malformed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_xyz",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "auth-wrong-scheme",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Basic tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "auth-unknown",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_abababababababababababababababababababababababababababababababab",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "auth-revoked",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_2222222222222222222222222222222222222222222222222222222222222222",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "auth-disabled-account",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_3333333333333333333333333333333333333333333333333333333333333333",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "auth-query-key",
+  "method": "POST",
+  "query": "key=tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "auth-query-revoked",
+  "method": "POST",
+  "query": "key=tgmcp_2222222222222222222222222222222222222222222222222222222222222222",
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "auth-header-case",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "bEaReR   tgmcp_1111111111111111111111111111111111111111111111111111111111111111  ",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "get-declined",
+  "method": "GET",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "",
+  "compare": "exact"
+ },
+ {
+  "name": "delete-declined",
+  "method": "DELETE",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "",
+  "compare": "exact"
+ },
+ {
+  "name": "get-declined-no-token",
+  "method": "GET",
+  "query": "",
+  "headers": {
+   "Content-Type": "application/json"
+  },
+  "body": "",
+  "compare": "exact"
+ },
+ {
+  "name": "version-malformed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json",
+   "MCP-Protocol-Version": "2025-6-18"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "version-newer",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json",
+   "MCP-Protocol-Version": "2099-01-01"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "origin-any",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json",
+   "Origin": "https://claude.ai"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "empty-body",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "",
+  "compare": "exact"
+ },
+ {
+  "name": "parse-error",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{not json",
+  "compare": "status"
+ },
+ {
+  "name": "notification",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "notification-null-id",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"tools/list\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "batch",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "[{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"ping\"}]",
+  "compare": "exact"
+ },
+ {
+  "name": "not-object",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "42",
+  "compare": "exact"
+ },
+ {
+  "name": "no-jsonrpc",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"id\":7,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "bad-params",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"ping\",\"params\":5}",
+  "compare": "exact"
+ },
+ {
+  "name": "string-id",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":\"abc\",\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "float-id",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":1.5,\"method\":\"ping\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "unknown-method",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"resources/list\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "initialize",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "initialize-previous",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\"}}",
+  "compare": "exact"
+ },
+ {
+  "name": "initialize-unknown",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":17,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2099-01-01\"}}",
+  "compare": "exact"
+ },
+ {
+  "name": "tools-list",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":18,\"method\":\"tools/list\"}",
+  "compare": "exact"
+ },
+ {
+  "name": "call-no-name",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":19,\"method\":\"tools/call\",\"params\":{}}",
+  "compare": "exact"
+ },
+ {
+  "name": "call-unknown-tool",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_nope\"}}",
+  "compare": "exact"
+ },
+ {
+  "name": "call-bad-arguments",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_groups\",\"arguments\":[1]}}",
+  "compare": "exact"
+ },
+ {
+  "name": "call-null-arguments",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_groups\",\"arguments\":null}}",
+  "compare": "exact"
+ },
+ {
+  "name": "list-groups",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":23,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_groups\"}}",
+  "compare": "exact"
+ },
+ {
+  "name": "list-groups-limit",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_groups\",\"arguments\":{\"limit\":1}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "get-group",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":25,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_group\",\"arguments\":{\"group_id\":-1002000000001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "get-group-2",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":26,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_group\",\"arguments\":{\"group_id\":-1002000000002}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "get-group-unexposed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":27,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_group\",\"arguments\":{\"group_id\":-1002000000003}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "get-group-missing-arg",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":28,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_group\",\"arguments\":{}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "get-group-batch",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":29,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_group\",\"arguments\":{\"group_ids\":[-1002000000001,-1002000000003,-1002000000002,42]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "get-group-batch-bad",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_group\",\"arguments\":{\"group_ids\":[-1002000000001,\"x\"]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "group-history",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_group_history\",\"arguments\":{\"group_id\":-1002000000001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "group-history-kinds",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_group_history\",\"arguments\":{\"group_id\":-1002000000001,\"kinds\":[\"titles\",\"photos\"],\"limit\":1}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "group-history-unexposed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_group_history\",\"arguments\":{\"group_id\":-1002000000003}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "group-history-bad-kind",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_group_history\",\"arguments\":{\"group_id\":-1002000000001,\"kinds\":[\"nope\"]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "admins",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_group_admins\",\"arguments\":{\"group_id\":-1002000000001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "admins-limit",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":36,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_group_admins\",\"arguments\":{\"group_id\":-1002000000001,\"limit\":2}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "admins-unexposed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":37,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_group_admins\",\"arguments\":{\"group_id\":-1002000000003}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "recent",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_recent_messages\"}}",
+  "compare": "exact"
+ },
+ {
+  "name": "recent-group-compact",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":39,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_recent_messages\",\"arguments\":{\"group_id\":-1002000000001,\"limit\":3,\"compact\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "recent-unexposed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":40,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_recent_messages\",\"arguments\":{\"group_id\":-1002000000003}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "recent-offset-fields",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":41,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_recent_messages\",\"arguments\":{\"limit\":2,\"offset\":3,\"fields\":[\"sender_name\",\"text\"],\"include_media\":false}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "recent-bad-field",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_recent_messages\",\"arguments\":{\"fields\":[\"nope\"]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "recent-deep-offset",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":43,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_recent_messages\",\"arguments\":{\"offset\":100001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "senders",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_group_senders\",\"arguments\":{\"group_id\":-1002000000001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "senders-range-total",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":45,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_group_senders\",\"arguments\":{\"group_id\":-1002000000001,\"start_date\":1794700100,\"end_date\":\"2026-11-14T23:56:40Z\",\"include_total\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "senders-unexposed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":46,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_group_senders\",\"arguments\":{\"group_id\":-1002000000003,\"include_total\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "senders-reversed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":47,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_group_senders\",\"arguments\":{\"group_id\":-1002000000001,\"start_date\":\"2026-11-16\",\"end_date\":\"2026-11-15\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "senders-offset",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":48,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_list_group_senders\",\"arguments\":{\"group_id\":-1002000000001,\"limit\":2,\"offset\":1}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "count-user",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":49,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_count_user_messages\",\"arguments\":{\"group_id\":-1002000000001,\"user_id\":9300000001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "count-user-range",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_count_user_messages\",\"arguments\":{\"group_id\":-1002000000001,\"user_id\":9300000002,\"start_date\":\"2026-11-15T06:50:00+07:00\",\"end_date\":\"1794701000\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "count-user-unexposed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":51,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_count_user_messages\",\"arguments\":{\"group_id\":-1002000000003,\"user_id\":9300000001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "count-user-none",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":52,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_count_user_messages\",\"arguments\":{\"group_id\":-1002000000001,\"user_id\":9300000004}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "count-user-bad-date",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":53,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_count_user_messages\",\"arguments\":{\"group_id\":-1002000000001,\"user_id\":9300000001,\"start_date\":\"yesterday\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "count-user-trailing",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":54,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_count_user_messages\",\"arguments\":{\"group_id\":-1002000000001,\"user_id\":9300000001,\"start_date\":\"2026-11-15T01:00:00 UTC\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "count-user-missing",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":55,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_count_user_messages\",\"arguments\":{\"group_id\":-1002000000001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "words",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":56,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_popular_words\",\"arguments\":{\"group_id\":-1002000000001,\"start_date\":1794700000,\"end_date\":1794702000}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "words-raw",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":57,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_popular_words\",\"arguments\":{\"group_id\":-1002000000001,\"start_date\":1794700000,\"end_date\":1794702000,\"include_stopwords\":true,\"limit\":10}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "words-exclude",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":58,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_popular_words\",\"arguments\":{\"group_id\":-1002000000001,\"start_date\":1794700000,\"end_date\":1794702000,\"exclude\":[\"KERNEL\",\"panic\"],\"min_length\":5}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "words-cap",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":59,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_popular_words\",\"arguments\":{\"group_id\":-1002000000001,\"start_date\":1794700000,\"end_date\":1794702000,\"max_messages\":2}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "words-unexposed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":60,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_popular_words\",\"arguments\":{\"group_id\":-1002000000003,\"start_date\":1794700000,\"end_date\":1794702000}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "words-g2",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":61,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_popular_words\",\"arguments\":{\"group_id\":-1002000000002,\"start_date\":\"2026-11-15\",\"end_date\":\"2026-11-16\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "words-g2-one",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":62,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_popular_words\",\"arguments\":{\"group_id\":-1002000000002,\"start_date\":\"2026-11-14\",\"end_date\":\"2026-11-16T00:00:00\",\"max_messages\":1}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "words-bad-exclude",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":63,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_popular_words\",\"arguments\":{\"group_id\":-1002000000001,\"start_date\":1794700000,\"end_date\":1794702000,\"exclude\":\"kernel\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-all",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":64,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-match",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":65,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"text\",\"op\":\"match\",\"value\":\"kernel\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-match-total",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":66,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"text\",\"op\":\"match\",\"value\":\"kernel\"},\"include_total\":true,\"limit\":3}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-match-unexposed-group",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":67,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"text\",\"op\":\"match\",\"value\":\"secret\"},\"group_id\":-1002000000003}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-or-unexposed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":68,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"and\":[{\"field\":\"text\",\"op\":\"match\",\"value\":\"kernel\"},{\"or\":[{\"field\":\"group_id\",\"op\":\"=\",\"value\":-1002000000003},{\"field\":\"group_id\",\"op\":\"=\",\"value\":-1002000000002}]}]}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-unexposed-in",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":69,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"group_id\",\"op\":\"in\",\"value\":[-1002000000003,-1002000000004]},\"include_total\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-edited",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"edited\",\"op\":\"=\",\"value\":true},\"order_by\":\"edit_date\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-edit-window",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":71,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"edit_date\",\"op\":\"between\",\"value\":[\"2026-11-14T23:50:00Z\",1794701000]},\"order_by\":\"edit_date\",\"fields\":[\"message_id\",\"edit_date\",\"previous_version_count\"],\"include_media\":false,\"compact\":true,\"group_id\":-1002000000001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-deleted",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":72,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"deleted\",\"op\":\"=\",\"value\":true}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-deleted-order",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":73,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"order_by\":\"deleted_at\",\"include_total\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-deleted-at",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":74,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"deleted_at\",\"op\":\">=\",\"value\":\"2026-11-15\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-date-asc",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":75,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"date\",\"op\":\"between\",\"value\":[\"2026-11-14T23:48:00Z\",1794700700]},\"order\":\"asc\",\"limit\":2}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-cursor",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":76,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"date\",\"op\":\"between\",\"value\":[\"2026-11-14T23:48:00Z\",1794700700]},\"order\":\"asc\",\"limit\":2,\"cursor\":\"ZGF0ZXwxNzk0NzAwMjUwfDUxMDI\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-cursor-bad",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":77,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"cursor\":\"!!!\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-cursor-mismatch",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":78,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"cursor\":\"ZGF0ZXwxNzk0NzAwMjUwfDUxMDI\",\"order_by\":\"edit_date\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-cursor-relevance",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":79,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"cursor\":\"ZGF0ZXwxNzk0NzAwMjUwfDUxMDI\",\"filter\":{\"field\":\"text\",\"op\":\"match\",\"value\":\"kernel\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-not-bot",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":80,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"and\":[{\"not\":{\"field\":\"sender_is_bot\",\"op\":\"=\",\"value\":true}},{\"field\":\"text_length\",\"op\":\"<\",\"value\":40}]},\"group_id\":-1002000000001,\"fields\":[\"sender_username\",\"text\"]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-not-match",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":81,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"and\":[{\"field\":\"text\",\"op\":\"match\",\"value\":\"kernel\"},{\"not\":{\"field\":\"text\",\"op\":\"match\",\"value\":\"panic\"}}]}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-content-type",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":82,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"or\":[{\"field\":\"content_type\",\"op\":\"=\",\"value\":\"document\"},{\"field\":\"content_type\",\"op\":\"=\",\"value\":\"video\"}]}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-forwarded",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":83,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"is_forwarded\",\"op\":\"=\",\"value\":true}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-channel-post",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":84,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"is_channel_post\",\"op\":\"=\",\"value\":1},\"compact\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-sender",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":85,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"sender_user_id\",\"op\":\"in\",\"value\":[9300000003,\"9300000005\"]},\"truncate_text\":10}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-truncate-utf8",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":86,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"message_id\",\"op\":\"=\",\"value\":105906176},\"truncate_text\":20,\"compact\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-limit0",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":87,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"limit\":0,\"include_total\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-offset",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":88,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"limit\":3,\"offset\":2,\"fields\":[\"date\"]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-bad-enum",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":89,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"content_type\",\"op\":\"=\",\"value\":\"banana\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-unknown-field",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":90,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"nope\",\"op\":\"=\",\"value\":1}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-contains-nontext",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":91,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"group_id\",\"op\":\"contains\",\"value\":\"1\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-match-nontext",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":92,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"date\",\"op\":\"match\",\"value\":\"1\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-two-forms",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":93,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"text\",\"and\":[]}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-empty-and",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":94,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"and\":[]}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-deep",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":95,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"not\":{\"not\":{\"not\":{\"not\":{\"not\":{\"not\":{\"not\":{\"not\":{\"not\":{\"field\":\"date\",\"op\":\">\",\"value\":0}}}}}}}}}}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-in-big",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":96,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"message_id\",\"op\":\"in\",\"value\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-between-bad",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":97,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"date\",\"op\":\"between\",\"value\":[1]}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-bad-order",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":98,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"order\":\"up\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-bad-order-by",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"order_by\":\"relevance\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-deleted-flag-op",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":100,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"deleted\",\"op\":\">\",\"value\":true}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-presence-null",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":101,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"edited\",\"op\":\"is_null\"},\"group_id\":-1002000000002,\"fields\":[\"message_id\"]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-isnull-deleted",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":102,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"deleted\",\"op\":\"is_not_null\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-fraction-offset",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":103,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"date\",\"op\":\"<=\",\"value\":\"2026-11-15T06:55:00.5+07:00\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-bad-offset",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":104,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_search_messages\",\"arguments\":{\"filter\":{\"field\":\"date\",\"op\":\"<=\",\"value\":\"2026-11-15T08:50:00+7\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "search-starts-with",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":105,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_users\",\"arguments\":{\"filter\":{\"field\":\"username\",\"op\":\"starts_with\",\"value\":\"ri\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "messages",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":106,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_messages\",\"arguments\":{\"group_id\":-1002000000001,\"message_ids\":[108003328,105906176,111149056,999]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "messages-history",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":107,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_messages\",\"arguments\":{\"group_id\":-1002000000001,\"message_ids\":[108003328,111149056,110100480,115343360],\"include_history\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "messages-compact",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":108,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_messages\",\"arguments\":{\"group_id\":-1002000000001,\"message_ids\":[115343360,112197632],\"compact\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "messages-unexposed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":109,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_messages\",\"arguments\":{\"group_id\":-1002000000003,\"message_ids\":[315621376,316669952],\"include_history\":true}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "messages-other-group",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":110,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_messages\",\"arguments\":{\"group_id\":-1002000000002,\"message_ids\":[105906176,210763776]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "messages-empty",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":111,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_messages\",\"arguments\":{\"group_id\":-1002000000001,\"message_ids\":[]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "messages-not-ints",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":112,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_messages\",\"arguments\":{\"group_id\":-1002000000001,\"message_ids\":[105906176,\"x\"]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "messages-too-many",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":113,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_messages\",\"arguments\":{\"group_id\":-1002000000001,\"message_ids\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "history",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":114,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_message_history\",\"arguments\":{\"group_id\":-1002000000001,\"message_id\":108003328}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "history-diff",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":115,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_message_history\",\"arguments\":{\"group_id\":-1002000000001,\"message_id\":108003328,\"format\":\"diff\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "history-no-versions",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":116,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_message_history\",\"arguments\":{\"group_id\":-1002000000001,\"message_id\":111149056}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "history-deleted",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":117,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_message_history\",\"arguments\":{\"group_id\":-1002000000001,\"message_id\":110100480,\"format\":\"diff\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "history-unexposed",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":118,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_message_history\",\"arguments\":{\"group_id\":-1002000000003,\"message_id\":315621376}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "history-bad-format",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":119,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_message_history\",\"arguments\":{\"group_id\":-1002000000001,\"message_id\":108003328,\"format\":\"html\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "user",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":120,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_user\",\"arguments\":{\"user_id\":9300000001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "user-2",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":121,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_user\",\"arguments\":{\"user_id\":9300000002}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "user-5",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":122,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_user\",\"arguments\":{\"user_id\":9300000005}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "user-deleted",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":123,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_user\",\"arguments\":{\"user_id\":9300000004}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "user-unknown",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":124,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_user\",\"arguments\":{\"user_id\":1}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "user-history",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":125,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_user_history\",\"arguments\":{\"user_id\":9300000001}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "user-history-kinds",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":126,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_user_history\",\"arguments\":{\"user_id\":9300000001,\"kinds\":[\"photos\",\"names\"],\"limit\":1}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "user-history-bad-kind",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":127,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_user_history\",\"arguments\":{\"user_id\":9300000001,\"kinds\":\"photos\"}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "users-in",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":128,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_users\",\"arguments\":{\"filter\":{\"field\":\"user_id\",\"op\":\"in\",\"value\":[9300000001,9300000002,9300000003,9300000004,9300000005,1]}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "users-bot",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":129,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_users\",\"arguments\":{\"filter\":{\"field\":\"is_bot\",\"op\":\"=\",\"value\":true}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "users-phone",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":130,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_users\",\"arguments\":{\"filter\":{\"field\":\"phone_number\",\"op\":\"contains\",\"value\":\"8120\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "users-type",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":131,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_users\",\"arguments\":{\"filter\":{\"not\":{\"field\":\"type\",\"op\":\"=\",\"value\":\"regular\"}},\"limit\":1,\"offset\":1}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "users-name-like",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":132,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_users\",\"arguments\":{\"filter\":{\"field\":\"first_name\",\"op\":\"contains\",\"value\":\"a%\"}}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "users-no-filter",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":133,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_users\",\"arguments\":{}}}",
+  "compare": "exact"
+ },
+ {
+  "name": "users-msg-count",
+  "method": "POST",
+  "query": "",
+  "headers": {
+   "Authorization": "Bearer tgmcp_1111111111111111111111111111111111111111111111111111111111111111",
+   "Content-Type": "application/json"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":134,\"method\":\"tools/call\",\"params\":{\"name\":\"telegram_get_users\",\"arguments\":{\"filter\":{\"field\":\"msg_count\",\"op\":\">=\",\"value\":\"3\"}}}}",
+  "compare": "exact"
+ }
+]
