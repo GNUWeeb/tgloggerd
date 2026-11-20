@@ -2204,6 +2204,8 @@ export interface components {
             file_type: "photo" | "video" | "document" | "audio" | "voice" | "sticker" | "animation" | "video_note" | "unknown";
             name: string;
             ext: string;
+            /** @description How the file renders, as ChatMedia's render: by file_type (a sticker by its extension), and a document by its extension. Always sent; optional in this description. */
+            render?: components["schemas"]["MediaRender"];
             /** Format: int64 */
             size: number;
             hits: number;
@@ -2345,13 +2347,14 @@ export interface components {
             /** @description The exact TDLib class (messageVideoNote, messageStakeDice, ...), recorded for rows logged since daemon migration 000034; it tells apart classes that share a content_type, and names a class newer than the daemon's code (unknown). */
             tdlib_type?: string;
         };
+        /**
+         * @description How a file renders (Drogon's mediaRender, and a document's extension): an image (photos, .webp stickers), a video (videos, round video notes), an animation that loops muted without controls (GIFs, .webm stickers), a Lottie animation (.tgs stickers), audio (music and voice notes), or a file link. A document (sent as a file) renders by its extension, lower case: image for jpg, jpeg, png, gif, webp, avif, bmp, ico, apng and svg (svg only through an img element); video for mp4, m4v, webm, mov and ogv; audio for mp3, m4a, aac, ogg, oga, opus, wav and flac; pdf for pdf (opened in a new tab, not embedded); text for txt, log, md, csv, tsv, json, xml, yaml, yml, toml, ini, conf, cfg, sh, py, c, h, cpp, hpp, go, rs, js, ts, java, kt, sql, diff, patch, html and htm (shown as source text, never rendered, at most its first 512 KiB); any other extension is a file. /files/<token> serves a document by the same rule (web/docs/media.md, "Documents").
+         * @enum {string}
+         */
+        MediaRender: "image" | "video" | "animation" | "lottie" | "audio" | "pdf" | "text" | "file";
         /** @description What a message's media is beyond its file. Rows logged since daemon migration 000034 carry it in content_extra (docs/design/message-types.md section 4.2.1); older rows have render, ext and a sticker's format from the content type and the file, as the Drogon chat view reads them, and none of the others. Each key is absent when unknown. */
         MediaDetail: {
-            /**
-             * @description How it renders (Drogon's mediaRender): an image (photos, .webp stickers), a video (videos, round video notes), an animation that loops muted without controls (GIFs, .webm stickers), a Lottie animation (.tgs stickers), audio (music and voice notes), or a file link.
-             * @enum {string}
-             */
-            render?: "image" | "video" | "animation" | "lottie" | "audio" | "file";
+            render?: components["schemas"]["MediaRender"];
             /** @description The file's extension, without the dot. */
             ext?: string;
             /**
@@ -3592,6 +3595,8 @@ export interface components {
             file_type: "photo" | "video" | "document" | "audio" | "voice" | "sticker" | "animation" | "video_note" | "unknown";
             name: string;
             ext: string;
+            /** @description As FileRow.render. Always sent; optional in this description. */
+            render?: components["schemas"]["MediaRender"];
             /** Format: int64 */
             size: number;
             stored: boolean;
@@ -4450,8 +4455,12 @@ export interface components {
         AcceptRanges: string;
         /** @description public, max-age=604800 */
         FileCacheControl: string;
-        /** @description attachment; filename=<name>, for a file not shown inline (documents and the like). */
+        /** @description attachment; filename=<name> for a document that is not previewed (a render of file) and for any file asked for with download=1; inline; filename=<name> for a document previewed by its extension (a render of image, video, audio, pdf or text); absent for the other media (photos, videos, voice notes, ...), which are shown inline. web/docs/media.md, "Documents". */
         ContentDisposition: string;
+        /** @description nosniff, on a document sent inline (a previewed document), so the browser keeps to the Content-Type sent. */
+        FileNoSniff: string;
+        /** @description sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline', on a document sent inline as an image (svg included) or as text, so an svg or html file opened by its URL runs nothing. Not on video, audio or pdf (the sandbox would stop the browser's own PDF viewer). */
+        FileSandbox: string;
     };
     pathItems: never;
 }
@@ -4639,7 +4648,10 @@ export interface operations {
     };
     getFile: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 1 sends the file as a download (Content-Disposition attachment) whatever its type; any other value, or none, leaves the choice to the file (see Content-Disposition). */
+                download?: string;
+            };
             header?: {
                 /** @description A byte range. A stored file honours several ranges (multipart/byteranges); a partial file from TDLib's cache answers at most the bytes it holds from the first range's start. */
                 Range?: string;
@@ -4660,6 +4672,8 @@ export interface operations {
                     "Accept-Ranges": components["headers"]["AcceptRanges"];
                     "Cache-Control": components["headers"]["FileCacheControl"];
                     "Content-Disposition": components["headers"]["ContentDisposition"];
+                    "X-Content-Type-Options": components["headers"]["FileNoSniff"];
+                    "Content-Security-Policy": components["headers"]["FileSandbox"];
                     /** @description For a stored file. */
                     "Last-Modified"?: string;
                     [name: string]: unknown;
@@ -4674,6 +4688,8 @@ export interface operations {
                     "Accept-Ranges": components["headers"]["AcceptRanges"];
                     "Cache-Control": components["headers"]["FileCacheControl"];
                     "Content-Disposition": components["headers"]["ContentDisposition"];
+                    "X-Content-Type-Options": components["headers"]["FileNoSniff"];
+                    "Content-Security-Policy": components["headers"]["FileSandbox"];
                     "Content-Range"?: string;
                     [name: string]: unknown;
                 };
