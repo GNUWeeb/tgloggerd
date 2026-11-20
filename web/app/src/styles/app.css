@@ -645,6 +645,7 @@
 .app button.a-preview-zoom { padding: 0; border: 0; background: none; cursor: zoom-in; }
 .app .a-preview-img { display: block; max-width: 100%; max-height: 70vh; width: auto; height: auto; object-fit: contain; }
 /* The chat's players, as wide as the pane allows. */
+.app .a-preview-text { display: grid; justify-items: start; gap: 6px; margin-top: 14px; min-width: 0; }
 .app .a-preview-play { display: grid; justify-items: center; width: 100%; max-width: 100%; min-width: 0; }
 .app .a-preview-play .c-media.single { width: 100%; max-width: 100%; }
 .app .a-preview-play .c-videowrap.round { width: 280px; }

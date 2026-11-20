@@ -166,7 +166,7 @@ describe('the files page', () => {
 		expect(within(row).getByRole('button', { name: /Fetch from Telegram/ })).toBeTruthy();
 		fireEvent.click(within(d).getByRole('button', { name: /Fetch from Telegram/ }));
 		const dl = await within(d).findByRole('link', { name: /Download/ });
-		expect(dl.getAttribute('href')).toBe('/files/tok-big');
+		expect(dl.getAttribute('href')).toBe('/files/tok-big?download=1');
 		// The row has the same file: fetched once, now fetchable by URL.
 		expect(within(row).getByText('fetchable')).toBeTruthy();
 		expect(callsTo(calls, 'POST', FETCH)).toHaveLength(1);
@@ -197,7 +197,7 @@ describe('a group\'s Files tab', () => {
 		const d = await screen.findByRole('dialog', { name: 'big.mp4' });
 		expect(within(d).getByText('no, can be fetched from Telegram')).toBeTruthy();
 		fireEvent.click(within(d).getByRole('button', { name: /Fetch from Telegram/ }));
-		expect((await within(d).findByRole('link', { name: /Download/ })).getAttribute('href')).toBe('/files/tok-big');
+		expect((await within(d).findByRole('link', { name: /Download/ })).getAttribute('href')).toBe('/files/tok-big?download=1');
 	});
 });
 

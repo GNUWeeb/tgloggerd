@@ -14,6 +14,8 @@ import { docBytes } from '../../standin/docpreview.ts';
 import { downloadHref } from '../ui/docpreview.tsx';
 import type { ChatProps } from './chat.tsx';
 import type { MessageProps } from './message.tsx';
+import type { FilesProps } from './files.tsx';
+import type { GroupFilesPage } from '../api/groupfiles.ts';
 
 beforeEach(setup);
 
@@ -161,6 +163,98 @@ describe('a document on its message page', () => {
 		const { c, box, media } = open('sources.zip');
 		expect(c.queryByRole('button', { name: 'Show text' })).toBeNull();
 		expect(box.querySelector('a.c-doc')!.getAttribute('href')).toBe(`${media.url}?download=1`);
+	});
+});
+
+// The files page and a group's Files tab share the preview dialog.
+const previewChecks = (open: (name: string) => Promise<{ d: HTMLElement; url: string; calls: ReturnType<typeof fakeApi> }>) => {
+	it('draws a PNG document as a picture that opens in the photo viewer', async () => {
+		const { d, url } = await open('screenshot.png');
+		const zoom = within(d).getByRole('button', { name: 'View bigger' });
+		expect(zoom.querySelector('img')!.getAttribute('src')).toBe(url);
+		fireEvent.click(zoom);
+		expect(viewer()!.querySelector('img')!.getAttribute('src')).toBe(url);
+		expect(within(d).getByRole('link', { name: 'Download' }).getAttribute('href')).toBe(`${url}?download=1`);
+	});
+
+	it('draws an svg document only through an <img>', async () => {
+		const { d, url } = await open('diagram.svg');
+		expect(d.querySelector(`img[src="${url}"]`)).toBeTruthy();
+		expect(d.querySelector(NO_LIVE)).toBeNull();
+	});
+
+	it('plays an mp4 and an mp3 document with the chat\'s players', async () => {
+		const v = await open('demo.mp4');
+		expect(within(v.d).getByRole('link', { name: 'Video' })).toBeTruthy();
+		cleanup();
+		const a = await open('talk.mp3');
+		expect(a.d.querySelector('audio')!.getAttribute('src')).toBe(a.url);
+	});
+
+	it('shows a stored log\'s text when opened, and an HTML page as its source', async () => {
+		const t = await open('build.log');
+		await waitFor(() => expect(t.d.querySelector('pre')?.textContent).toBe(docBytes(995015, 'log')));
+		expect(fileCalls(t.calls)[0]!.headers.get('range')).toBe(`bytes=0-${512 * 1024}`);
+		cleanup();
+		const h = await open('page.html');
+		await waitFor(() => expect(h.d.querySelector('pre')?.textContent).toContain('<script>'));
+		expect(h.d.querySelector(NO_LIVE)).toBeNull();
+		expect(h.d.querySelector('pre h1, .a-preview-text h1')).toBeNull();
+	});
+
+	it('cuts a text over 512 KiB with a note', async () => {
+		const { d } = await open('trace-big.log');
+		expect(await within(d).findByText(/Showing the first 512 KiB/)).toBeTruthy();
+		expect(d.querySelector('pre')!.textContent!.length).toBe(512 * 1024);
+	});
+
+	it('opens a PDF in a new tab, and leaves a zip a download', async () => {
+		const p = await open('manual.pdf');
+		const a = within(p.d).getByRole('link', { name: 'Open' });
+		expect([a.getAttribute('href'), a.getAttribute('target'), a.getAttribute('rel')]).toEqual([p.url, '_blank', 'noopener']);
+		expect(p.d.querySelector(NO_LIVE)).toBeNull();
+		cleanup();
+		const z = await open('sources.zip');
+		expect(within(z.d).queryByRole('link', { name: 'Open' })).toBeNull();
+		expect(within(z.d).queryByRole('button', { name: 'Show text' })).toBeNull();
+		expect(z.d.querySelector('pre, img.a-preview-img')).toBeNull();
+		expect(fileCalls(z.calls)).toHaveLength(0);
+		expect(within(z.d).getByRole('link', { name: 'Download' }).getAttribute('href')).toBe(`${z.url}?download=1`);
+	});
+};
+
+describe('a document in the files preview', () => {
+	previewChecks(async (name) => {
+		const list = fixture<FilesProps>(`/files?view=list&q=${name}`).props.rows;
+		const f = list.find((r) => r.name === name)!;
+		const calls = files();
+		renderPage(`/files?view=list&q=${name}&file=${f.id}`);
+		const d = await screen.findByRole('dialog', { name });
+		return { d, url: f.url!, calls };
+	});
+
+	it('offers a text file not stored yet only on a click, never loading it by itself', async () => {
+		const list = fixture<FilesProps>('/files?view=list&q=build.log').props;
+		const f = { ...list.rows.find((r) => r.name === 'build.log')!, stored: false, fetchable: true };
+		const calls = files();
+		renderPage(`/files?view=list&file=${f.id}`, 'superadmin', { props: { ...list, rows: [f], preview: f } });
+		const d = await screen.findByRole('dialog', { name: 'build.log' });
+		expect(d.querySelector('pre')).toBeNull();
+		expect(fileCalls(calls)).toHaveLength(0);
+		fireEvent.click(within(d).getByRole('button', { name: 'Show text' }));
+		await waitFor(() => expect(d.querySelector('pre')?.textContent).toBe(docBytes(995015, 'log')));
+	});
+});
+
+describe('a document in a group\'s Files tab', () => {
+	previewChecks(async (name) => {
+		const url = `/groups/${KINDS_GROUP.id}/files?kind=document`;
+		const f = fixture<GroupFilesPage>(url).props.rows.find((r) => r.name === name)!;
+		const calls = files();
+		renderPage(url);
+		fireEvent.click(screen.getAllByRole('button').find((b) => b.classList.contains('a-filecard') && b.textContent!.includes(name))!);
+		const d = await screen.findByRole('dialog', { name });
+		return { d, url: f.url!, calls };
 	});
 });
 

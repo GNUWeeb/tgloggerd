@@ -164,7 +164,7 @@ describe('files', () => {
 		const f = { ...p.rows[0]!, id: 4243, name: 'far-away.mp4', stored: false, fetchable: true, url: '/files/tok-far', thumb: null };
 		renderPage('/files?view=list&file=4243', 'superadmin', { props: { ...p, rows: [f], preview: f } });
 		const d = await screen.findByRole('dialog', { name: 'far-away.mp4' });
-		expect(within(d).getByRole('link', { name: /Fetch from Telegram/ }).getAttribute('href')).toBe('/files/tok-far');
+		expect(within(d).getByRole('link', { name: /Fetch from Telegram/ }).getAttribute('href')).toBe('/files/tok-far?download=1');
 		expect(within(d).getByText('no, can be fetched from Telegram')).toBeTruthy();
 		expect(within(d).queryByRole('link', { name: /^Download/ })).toBeNull();
 		const row = screen.getAllByRole('row').find((r) => within(r).queryByText('far-away.mp4'))!;

@@ -129,7 +129,7 @@ describe('the files preview plays the file', () => {
 		expect(within(box).getByText('Load from Telegram')).toBeTruthy();
 		expect(box.querySelector('video')!.getAttribute('src')).toBeNull();
 		expect(pane.querySelector('.a-preview-missing')).toBeTruthy();
-		expect(screen.getByRole('link', { name: /Fetch from Telegram/ }).getAttribute('href')).toBe('/files/tok-p9');
+		expect(screen.getByRole('link', { name: /Fetch from Telegram/ }).getAttribute('href')).toBe('/files/tok-p9?download=1');
 	});
 
 	it('still shows a photo whole and a document by its icon, with the Download button', async () => {
@@ -138,9 +138,9 @@ describe('the files preview plays the file', () => {
 		expect(pane.querySelector('img.a-preview-img')!.getAttribute('src')).toBe('/files/tok-p10');
 		expect(pane.querySelector('video, audio')).toBeNull();
 		document.body.innerHTML = '';
-		const doc = row({ id: 4311, name: 'notes.pdf', ext: 'pdf', file_type: 'document', url: '/files/tok-p11' });
+		const doc = row({ id: 4311, name: 'notes.pdf', ext: 'pdf', file_type: 'document', render: 'pdf', url: '/files/tok-p11' });
 		pane = await open(doc);
 		expect(pane.querySelector('.a-thumb-document')).toBeTruthy();
-		expect(screen.getByRole('link', { name: /Download/ }).getAttribute('href')).toBe('/files/tok-p11');
+		expect(screen.getByRole('link', { name: /Download/ }).getAttribute('href')).toBe('/files/tok-p11?download=1');
 	});
 });
