@@ -123,7 +123,6 @@ Accounts, roles and federations:
 [design/web-accounts.md](design/web-accounts.md).
 
 - [`video-thumbnails`](todo/video-thumbnails.md): Show a still thumbnail for every video before it is played, wherever the web shows one.
-- [`web-doc-preview`](todo/web-doc-preview.md): Preview a document by its extension: images in the photo viewer, video and audio played, text shown, pdf opened.
 - [`drogon-retire`](todo/drogon-retire.md): Remove the Drogon web once nothing routes to it.
 
 ## Operations
