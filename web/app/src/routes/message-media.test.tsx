@@ -135,7 +135,7 @@ describe('the message page\'s media', () => {
 	it('gives an audio file a link and controls', () => {
 		const m = find((x) => x.content_type === 'audio' && stored(x));
 		open(m);
-		expect(box().querySelector('a.c-doc')!.getAttribute('href')).toBe(m.media!.url);
+		expect(box().querySelector('a.c-doc')!.getAttribute('href')).toBe(`${m.media!.url}?download=1`);
 		expect(box().querySelector('audio.c-audio')!.hasAttribute('controls')).toBe(true);
 	});
 
@@ -143,7 +143,7 @@ describe('the message page\'s media', () => {
 		const m = find((x) => x.content_type === 'document' && stored(x));
 		open(m);
 		const a = box().querySelector('a.c-doc')!;
-		expect(a.getAttribute('href')).toBe(m.media!.url);
+		expect(a.getAttribute('href')).toBe(`${m.media!.url}?download=1`);
 		expect(a.getAttribute('download')).toBe(m.media!.name);
 		expect(screen.getByRole('link', { name: `file #${m.media!.file_id.toLocaleString('en-US')}` })).toBeTruthy();
 	});

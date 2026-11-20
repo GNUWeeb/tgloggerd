@@ -44,7 +44,10 @@ function ownKind(type: string, m: Media): MediaKind | null {
 // An album's items in the chat's album grid, each as its own kind;
 // items TDLib left empty or not recorded are left out.
 function Album({ a, onClick }: { a: NonNullable<LP['album']>; onClick: boolean }) {
-	const items = a.items.filter((x): x is Media => !!x).map((m) => ({ ...m, kind: m.kind ?? kindOf('', m) ?? 'photo' }));
+	// An item's kind is a content type: a document previewed as text or
+	// a PDF is still a document.
+	const typeOf = (k: MediaKind | null) => (k === 'text' || k === 'pdf' ? 'document' : k);
+	const items = a.items.filter((x): x is Media => !!x).map((m) => ({ ...m, kind: m.kind ?? typeOf(kindOf('', m)) ?? 'photo' }));
 	if (!items.length) return null;
 	return <div className="c-lp-album"><MessageMedia msg={{ content_type: items[0]!.kind, media: items[0]!, album: items.slice(1) }} onClick={onClick} /></div>;
 }

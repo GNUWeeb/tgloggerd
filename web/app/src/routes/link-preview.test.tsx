@@ -188,7 +188,7 @@ describe('a link preview of a later type', () => {
 	it('links a document preview\'s file with the chat\'s document row', () => {
 		const { card: c } = chatWith(card({ type: 'document', title: 'notes.txt', media: { stored: true, url: '/files/lp-doc', thumb: null, render: 'file', ext: 'txt', name: 'notes.txt', size: 2048 } }));
 		const a = c.querySelector('a.c-doc')!;
-		expect(a.getAttribute('href')).toBe('/files/lp-doc');
+		expect(a.getAttribute('href')).toBe('/files/lp-doc?download=1');
 		expect(c.querySelector('a.c-lp-main')!.contains(a)).toBe(false);
 		expect(c.querySelector('.c-lp-meta')!.textContent).toBe('Document');
 	});

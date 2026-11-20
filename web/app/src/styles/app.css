@@ -157,6 +157,12 @@
 .app .a-chip button { border: 0; background: none; width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; cursor: pointer; color: var(--fg-2); }
 .app .a-chip button:hover { background: rgb(0 0 0 / .08); }
 .app .a-btn-ghost { box-shadow: none; }
+.app .a-btn.sm { height: 26px; padding: 0 9px; font-size: 12.5px; }
+/* A file's text (ui/docpreview.tsx): scrolls in its box, never wraps
+   code; long lines scroll sideways. */
+.app .a-textview { display: grid; gap: 6px; min-width: 0; width: 100%; }
+.app .a-textview[role] { display: flex; align-items: center; gap: 6px; }
+.app .a-textview-pre { margin: 0; max-height: 60vh; overflow: auto; padding: 10px 12px; font: 12.5px/1.55 var(--mono); white-space: pre; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; tab-size: 4; }
 
 .app .a-pop-wrap { position: relative; }
 .app .a-pop {

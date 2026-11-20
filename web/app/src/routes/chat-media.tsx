@@ -13,9 +13,11 @@ import { playTgs } from '../ui/lottie.ts';
 import { bytes } from '../format.ts';
 import { FetchButton, needsFetch, useFetched } from '../ui/fetchfile.tsx';
 import { deletedTag, deletedTitle } from '../ui/deletion.ts';
+import { DownloadLink, OpenLink, TextToggle, downloadHref } from '../ui/docpreview.tsx';
 import type { ChatMedia, ChatMessage } from '../types.ts';
 
-export type MediaKind = 'photo' | 'video' | 'animation' | 'sticker' | 'voice' | 'audio' | 'document';
+// text and pdf: a document previewed as its text, or opened in a tab.
+export type MediaKind = 'photo' | 'video' | 'animation' | 'sticker' | 'voice' | 'audio' | 'document' | 'text' | 'pdf';
 
 export type Media = ChatMedia;
 
@@ -271,8 +273,10 @@ export function Voice({ m }: { m: Media }) {
 }
 
 // A document, or an audio file (with a player): a link with its name
-// and size; an unstored one that may be fetched downloads from Telegram.
-export function DocFile({ m, audio = false }: { m: Media; audio?: boolean }) {
+// and size that downloads it; an unstored one that may be fetched
+// downloads from Telegram. A text document shows its text on demand, a
+// PDF opens in a new tab.
+export function DocFile({ m, audio = false, preview }: { m: Media; audio?: boolean; preview?: 'text' | 'pdf' }) {
 	// Music shows as its performer and title when the file says them.
 	const tag = audio && (m.title || m.performer) ? [m.performer, m.title].filter(Boolean).join(' - ') : '';
 	const label = tag || m.name;
@@ -281,7 +285,7 @@ export function DocFile({ m, audio = false }: { m: Media; audio?: boolean }) {
 	return (
 		<div className={`c-docwrap ${m.deleted_at ? 'deleted' : ''}`}>
 			{m.url
-				? <a className="c-doc" href={m.url} download={m.name || undefined}>
+				? <a className="c-doc" href={downloadHref(m.url)} download={m.name || undefined}>
 					<span className="c-docicon">{m.stored ? <Download size={18} /> : <CloudDownload size={18} />}</span>
 					<span className="c-docmeta"><b>{label}</b>{tag && m.name ? <span className="c-sub">{m.name}</span> : null}{sub}</span>
 				</a>
@@ -291,18 +295,25 @@ export function DocFile({ m, audio = false }: { m: Media; audio?: boolean }) {
 				</div>}
 			{button}
 			{audio && m.url && <audio className="c-audio" src={m.url} controls preload="none" aria-label={label ? `Play ${label}` : 'Play'} />}
+			{preview && m.url && <div className="c-docacts">{preview === 'pdf' ? <OpenLink url={m.url} /> : <TextToggle url={m.url} name={m.name} />}</div>}
 			<DeletedMark m={m} />
 		</div>
 	);
 }
 
 // One media object as its kind, with "Fetch from Telegram" where it
-// has a fetch path but no url.
-export function MediaOf({ m: given, kind, single, onClick }: { m: Media; kind: MediaKind; single?: boolean; onClick: boolean }) {
+// has a fetch path but no url. doc: a document drawn as a picture or a
+// video, which keeps its download beside it.
+export function MediaOf({ m: given, kind, single, onClick, doc = false }: { m: Media; kind: MediaKind; single?: boolean; onClick: boolean; doc?: boolean }) {
 	const m = useFetched(given);
 	const [fresh, setFresh] = useState(false);
 	const button = needsFetch(m) ? <FetchButton path={m.fetch!} small onDone={() => setFresh(true)} /> : null;
-	return <FetchSlot.Provider value={{ button, fresh }}><MediaAs m={m} kind={kind} single={single} onClick={onClick} /></FetchSlot.Provider>;
+	const drawn = <MediaAs m={m} kind={kind} single={single} onClick={onClick} />;
+	return (
+		<FetchSlot.Provider value={{ button, fresh }}>
+			{doc && m.url && tile(kind) ? <div className="c-docprev">{drawn}<div className="c-docacts"><DownloadLink url={m.url} name={m.name} /></div></div> : drawn}
+		</FetchSlot.Provider>
+	);
 }
 
 function MediaAs({ m, kind, single, onClick }: { m: Media; kind: MediaKind; single?: boolean; onClick: boolean }) {
@@ -313,6 +324,8 @@ function MediaAs({ m, kind, single, onClick }: { m: Media; kind: MediaKind; sing
 		case 'sticker': return <StickerAs m={m} />;
 		case 'voice': return <Voice m={m} />;
 		case 'audio': return <DocFile m={m} audio />;
+		case 'text': return <DocFile m={m} preview="text" />;
+		case 'pdf': return <DocFile m={m} preview="pdf" />;
 		default: return <DocFile m={m} />;
 	}
 }
@@ -333,6 +346,8 @@ export function kindOf(ct: string, m: Media): MediaKind | null {
 		case 'animation': return 'animation';
 		case 'lottie': return 'sticker';
 		case 'audio': return 'audio';
+		case 'text': return 'text';
+		case 'pdf': return 'pdf';
 		case 'file': return 'document';
 		default: return k;
 	}
@@ -349,7 +364,8 @@ export function MessageMedia({ msg, onClick }: { msg: Pick<ChatMessage, 'content
 	const base = media ? kindOf(ct, media) : null;
 	if (!media || !base) return null;
 	const items = [media, ...msg.album].map((m) => ({ m, kind: (m.kind ? kindOf(m.kind, m) : null) ?? base }));
-	if (items.length === 1) return <MediaOf m={media} kind={base} single onClick={onClick} />;
+	// A lone document drawn as a picture or a video keeps its download.
+	if (items.length === 1) return <MediaOf m={media} kind={base} single onClick={onClick} doc={ct === 'document'} />;
 	const grid = items.filter((x) => tile(x.kind));
 	const rest = items.filter((x) => !tile(x.kind));
 	return (
